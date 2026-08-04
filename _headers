@@ -1,0 +1,14 @@
+# Cloudflare Pages 정적 자산 캐시 규칙
+# 버전 쿼리(?v=NNN)가 붙은 자산은 내용이 바뀌면 주소가 바뀌므로 길게 캐시해도 안전하다.
+
+/assets/*
+  Cache-Control: public, max-age=604800
+
+/feed.js
+  Cache-Control: public, max-age=604800
+
+# HTML 은 항상 최신을 받아야 새 버전이 즉시 반영된다
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

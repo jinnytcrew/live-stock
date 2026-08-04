@@ -1,0 +1,10124 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// netlify/functions/_store.js
+function setEnv(env) {
+  if (env) _ENV = env;
+}
+function envGet(key, env) {
+  if (!env) env = _ENV;
+  if (/^(URL|DEPLOY_URL|DEPLOY_PRIME_URL)$/.test(key)) {
+    const v = env && (env[key] || env.SITE_URL) || (() => {
+      try {
+        return process.env[key] || process.env.SITE_URL;
+      } catch (e) {
+        return void 0;
+      }
+    })();
+    if (v) return v;
+  }
+  if (env && env[key] != null) return env[key];
+  try {
+    if (typeof process !== "undefined" && process.env) return process.env[key];
+  } catch (e) {
+  }
+  return void 0;
+}
+function kvAdapter(kv, prefix) {
+  const k = (key) => prefix + ":" + key;
+  return {
+    kind: "kv",
+    async get(key) {
+      return await kv.get(k(key));
+    },
+    async set(key, val, opts) {
+      const o = {};
+      if (opts && opts.ttl) o.expirationTtl = Math.max(60, opts.ttl);
+      return await kv.put(k(key), String(val), o);
+    },
+    async del(key) {
+      return await kv.delete(k(key));
+    },
+    async list(pfx) {
+      const r = await kv.list({ prefix: k(pfx || "") });
+      return (r.keys || []).map((x) => x.name.slice(prefix.length + 1));
+    }
+  };
+}
+function blobAdapter(st) {
+  return {
+    kind: "blobs",
+    async get(key) {
+      return await st.get(key, { type: "text" });
+    },
+    async set(key, val) {
+      return await st.set(key, String(val));
+    },
+    async del(key) {
+      return await st.delete(key);
+    },
+    async list(pfx) {
+      const r = await st.list({ prefix: pfx || "" });
+      return (r && r.blobs || []).map((b) => b.key);
+    }
+  };
+}
+function memAdapter(prefix) {
+  const k = (key) => prefix + ":" + key;
+  return {
+    kind: "memory",
+    async get(key) {
+      return MEM.has(k(key)) ? MEM.get(k(key)) : null;
+    },
+    async set(key, val) {
+      MEM.set(k(key), String(val));
+    },
+    async del(key) {
+      MEM.delete(k(key));
+    },
+    async list(pfx) {
+      return [...MEM.keys()].filter((x) => x.startsWith(prefix + ":" + (pfx || ""))).map((x) => x.slice(prefix.length + 1));
+    }
+  };
+}
+function blobsLike(a) {
+  return {
+    kind: a.kind,
+    async get(key, opts) {
+      const v = await a.get(key);
+      if (v == null) return null;
+      if (opts && opts.type === "json") {
+        try {
+          return JSON.parse(v);
+        } catch (e) {
+          return null;
+        }
+      }
+      return v;
+    },
+    async set(key, val) {
+      return a.set(key, val);
+    },
+    async setJSON(key, val) {
+      return a.set(key, JSON.stringify(val));
+    },
+    async delete(key) {
+      return a.del(key);
+    },
+    async list(opts) {
+      const ks = await a.list(opts && opts.prefix || "");
+      return { blobs: ks.map((k) => ({ key: k })) };
+    }
+  };
+}
+async function getStoreX(nameOrOpts, env) {
+  const name = typeof nameOrOpts === "string" ? nameOrOpts : nameOrOpts && nameOrOpts.name || "default";
+  return blobsLike(await storeRaw(name, env || _ENV));
+}
+async function storeRaw(name, env) {
+  if (!env) env = _ENV;
+  if (env && env.APP_KV && typeof env.APP_KV.get === "function") return kvAdapter(env.APP_KV, name);
+  try {
+    const NB = "@netlify/blobs";
+    const m = await import(
+      /* webpackIgnore: true */
+      NB
+    );
+    if (m && m.getStore) return blobAdapter(m.getStore(name));
+  } catch (e) {
+  }
+  return memAdapter(name);
+}
+var _ENV, MEM;
+var init_store = __esm({
+  "netlify/functions/_store.js"() {
+    _ENV = null;
+    MEM = /* @__PURE__ */ new Map();
+  }
+});
+
+// netlify/functions/_blobs-shim.js
+var blobs_shim_exports = {};
+__export(blobs_shim_exports, {
+  default: () => blobs_shim_default,
+  getStore: () => getStore
+});
+var getStore, blobs_shim_default;
+var init_blobs_shim = __esm({
+  "netlify/functions/_blobs-shim.js"() {
+    getStore = void 0;
+    blobs_shim_default = {};
+  }
+});
+
+// data/nxt-universe.js
+var NXT_UNIVERSE;
+var init_nxt_universe = __esm({
+  "data/nxt-universe.js"() {
+    NXT_UNIVERSE = {
+      "asOf": "2026-07-01",
+      "quarter": "2026Q3",
+      "official": true,
+      "counts": { "total": 610, "KOSPI": 338, "KOSDAQ": 272 },
+      "codes": {
+        "282330": "KOSPI",
+        "138930": "KOSPI",
+        "001460": "KOSPI",
+        "001040": "KOSPI",
+        "000120": "KOSPI",
+        "097950": "KOSPI",
+        "005830": "KOSPI",
+        "016610": "KOSPI",
+        "000990": "KOSPI",
+        "001530": "KOSPI",
+        "000210": "KOSPI",
+        "007340": "KOSPI",
+        "017940": "KOSPI",
+        "383220": "KOSPI",
+        "007700": "KOSPI",
+        "114090": "KOSPI",
+        "078930": "KOSPI",
+        "007070": "KOSPI",
+        "499790": "KOSPI",
+        "012630": "KOSPI",
+        "267270": "KOSPI",
+        "009540": "KOSPI",
+        "267250": "KOSPI",
+        "443060": "KOSPI",
+        "071970": "KOSPI",
+        "267260": "KOSPI",
+        "329180": "KOSPI",
+        "060980": "KOSPI",
+        "011200": "KOSPI",
+        "298050": "KOSPI",
+        "139130": "KOSPI",
+        "015360": "KOSPI",
+        "294870": "KOSPI",
+        "175330": "KOSPI",
+        "001060": "KOSPI",
+        "105560": "KOSPI",
+        "002380": "KOSPI",
+        "344820": "KOSPI",
+        "001940": "KOSPI",
+        "092230": "KOSPI",
+        "030200": "KOSPI",
+        "033780": "KOSPI",
+        "093050": "KOSPI",
+        "003550": "KOSPI",
+        "051900": "KOSPI",
+        "373220": "KOSPI",
+        "032640": "KOSPI",
+        "011070": "KOSPI",
+        "066570": "KOSPI",
+        "051910": "KOSPI",
+        "079550": "KOSPI",
+        "006260": "KOSPI",
+        "010120": "KOSPI",
+        "229640": "KOSPI",
+        "108320": "KOSPI",
+        "001120": "KOSPI",
+        "108670": "KOSPI",
+        "383800": "KOSPI",
+        "035420": "KOSPI",
+        "036570": "KOSPI",
+        "181710": "KOSPI",
+        "005940": "KOSPI",
+        "034310": "KOSPI",
+        "030190": "KOSPI",
+        "456040": "KOSPI",
+        "010060": "KOSPI",
+        "178920": "KOSPI",
+        "005490": "KOSPI",
+        "034120": "KOSPI",
+        "005090": "KOSPI",
+        "034730": "KOSPI",
+        "011790": "KOSPI",
+        "018670": "KOSPI",
+        "006120": "KOSPI",
+        "302440": "KOSPI",
+        "326030": "KOSPI",
+        "402340": "KOSPI",
+        "361610": "KOSPI",
+        "096770": "KOSPI",
+        "285130": "KOSPI",
+        "017670": "KOSPI",
+        "000660": "KOSPI",
+        "003570": "KOSPI",
+        "064960": "KOSPI",
+        "100840": "KOSPI",
+        "036530": "KOSPI",
+        "010950": "KOSPI",
+        "077970": "KOSPI",
+        "002710": "KOSPI",
+        "069260": "KOSPI",
+        "000500": "KOSPI",
+        "035250": "KOSPI",
+        "009450": "KOSPI",
+        "010130": "KOSPI",
+        "002240": "KOSPI",
+        "037710": "KOSPI",
+        "030610": "KOSPI",
+        "007690": "KOSPI",
+        "011780": "KOSPI",
+        "073240": "KOSPI",
+        "000270": "KOSPI",
+        "024110": "KOSPI",
+        "003920": "KOSPI",
+        "251270": "KOSPI",
+        "000320": "KOSPI",
+        "006280": "KOSPI",
+        "005250": "KOSPI",
+        "004370": "KOSPI",
+        "072710": "KOSPI",
+        "023590": "KOSPI",
+        "483650": "KOSPI",
+        "008060": "KOSPI",
+        "001680": "KOSPI",
+        "084690": "KOSPI",
+        "003540": "KOSPI",
+        "003090": "KOSPI",
+        "069620": "KOSPI",
+        "003220": "KOSPI",
+        "006650": "KOSPI",
+        "084010": "KOSPI",
+        "001130": "KOSPI",
+        "439260": "KOSPI",
+        "475560": "KOSPI",
+        "192080": "KOSPI",
+        "012510": "KOSPI",
+        "145720": "KOSPI",
+        "460860": "KOSPI",
+        "026960": "KOSPI",
+        "000640": "KOSPI",
+        "170900": "KOSPI",
+        "006040": "KOSPI",
+        "014820": "KOSPI",
+        "000150": "KOSPI",
+        "241560": "KOSPI",
+        "034020": "KOSPI",
+        "336260": "KOSPI",
+        "003160": "KOSPI",
+        "032350": "KOSPI",
+        "089860": "KOSPI",
+        "023530": "KOSPI",
+        "020150": "KOSPI",
+        "280360": "KOSPI",
+        "286940": "KOSPI",
+        "004000": "KOSPI",
+        "004990": "KOSPI",
+        "005300": "KOSPI",
+        "011170": "KOSPI",
+        "138040": "KOSPI",
+        "009900": "KOSPI",
+        "317450": "KOSPI",
+        "009680": "KOSPI",
+        "006800": "KOSPI",
+        "081660": "KOSPI",
+        "002840": "KOSPI",
+        "268280": "KOSPI",
+        "035150": "KOSPI",
+        "003850": "KOSPI",
+        "001270": "KOSPI",
+        "090460": "KOSPI",
+        "005180": "KOSPI",
+        "003960": "KOSPI",
+        "007160": "KOSPI",
+        "062040": "KOSPI",
+        "005610": "KOSPI",
+        "006400": "KOSPI",
+        "028260": "KOSPI",
+        "207940": "KOSPI",
+        "032830": "KOSPI",
+        "018260": "KOSPI",
+        "0126Z0": "KOSPI",
+        "009150": "KOSPI",
+        "005930": "KOSPI",
+        "010140": "KOSPI",
+        "016360": "KOSPI",
+        "029780": "KOSPI",
+        "000810": "KOSPI",
+        "006110": "KOSPI",
+        "0120G0": "KOSPI",
+        "145990": "KOSPI",
+        "003230": "KOSPI",
+        "000070": "KOSPI",
+        "002810": "KOSPI",
+        "005500": "KOSPI",
+        "004690": "KOSPI",
+        "200880": "KOSPI",
+        "017390": "KOSPI",
+        "031210": "KOSPI",
+        "008490": "KOSPI",
+        "004980": "KOSPI",
+        "004360": "KOSPI",
+        "004490": "KOSPI",
+        "001430": "KOSPI",
+        "306200": "KOSPI",
+        "003030": "KOSPI",
+        "075580": "KOSPI",
+        "068270": "KOSPI",
+        "336370": "KOSPI",
+        "248070": "KOSPI",
+        "126720": "KOSPI",
+        "026890": "KOSPI",
+        "462870": "KOSPI",
+        "016590": "KOSPI",
+        "029530": "KOSPI",
+        "004170": "KOSPI",
+        "031430": "KOSPI",
+        "001720": "KOSPI",
+        "019170": "KOSPI",
+        "055550": "KOSPI",
+        "403550": "KOSPI",
+        "090430": "KOSPI",
+        "002790": "KOSPI",
+        "002030": "KOSPI",
+        "183190": "KOSPI",
+        "020560": "KOSPI",
+        "010780": "KOSPI",
+        "161000": "KOSPI",
+        "137310": "KOSPI",
+        "005850": "KOSPI",
+        "012750": "KOSPI",
+        "078520": "KOSPI",
+        "278470": "KOSPI",
+        "066970": "KOSPI",
+        "097520": "KOSPI",
+        "484870": "KOSPI",
+        "111770": "KOSPI",
+        "009970": "KOSPI",
+        "000670": "KOSPI",
+        "007310": "KOSPI",
+        "271560": "KOSPI",
+        "001800": "KOSPI",
+        "316140": "KOSPI",
+        "033270": "KOSPI",
+        "014830": "KOSPI",
+        "000100": "KOSPI",
+        "008730": "KOSPI",
+        "214320": "KOSPI",
+        "139480": "KOSPI",
+        "457190": "KOSPI",
+        "007660": "KOSPI",
+        "249420": "KOSPI",
+        "003120": "KOSPI",
+        "003200": "KOSPI",
+        "103590": "KOSPI",
+        "271940": "KOSPI",
+        "226320": "KOSPI",
+        "033240": "KOSPI",
+        "079900": "KOSPI",
+        "194370": "KOSPI",
+        "030000": "KOSPI",
+        "004700": "KOSPI",
+        "185750": "KOSPI",
+        "001630": "KOSPI",
+        "013890": "KOSPI",
+        "071320": "KOSPI",
+        "323410": "KOSPI",
+        "377300": "KOSPI",
+        "029460": "KOSPI",
+        "281820": "KOSPI",
+        "381970": "KOSPI",
+        "007810": "KOSPI",
+        "003690": "KOSPI",
+        "192820": "KOSPI",
+        "005070": "KOSPI",
+        "005420": "KOSPI",
+        "002020": "KOSPI",
+        "120110": "KOSPI",
+        "021240": "KOSPI",
+        "024720": "KOSPI",
+        "192400": "KOSPI",
+        "284740": "KOSPI",
+        "259960": "KOSPI",
+        "039490": "KOSPI",
+        "003240": "KOSPI",
+        "034230": "KOSPI",
+        "016800": "KOSPI",
+        "022100": "KOSPI",
+        "047050": "KOSPI",
+        "003670": "KOSPI",
+        "017810": "KOSPI",
+        "103140": "KOSPI",
+        "005810": "KOSPI",
+        "086790": "KOSPI",
+        "039130": "KOSPI",
+        "352820": "KOSPI",
+        "000080": "KOSPI",
+        "036460": "KOSPI",
+        "071050": "KOSPI",
+        "025540": "KOSPI",
+        "002960": "KOSPI",
+        "000240": "KOSPI",
+        "015760": "KOSPI",
+        "104700": "KOSPI",
+        "017960": "KOSPI",
+        "161890": "KOSPI",
+        "161390": "KOSPI",
+        "047810": "KOSPI",
+        "042700": "KOSPI",
+        "008930": "KOSPI",
+        "128940": "KOSPI",
+        "009240": "KOSPI",
+        "020000": "KOSPI",
+        "105630": "KOSPI",
+        "014680": "KOSPI",
+        "001750": "KOSPI",
+        "009420": "KOSPI",
+        "300720": "KOSPI",
+        "003300": "KOSPI",
+        "051600": "KOSPI",
+        "052690": "KOSPI",
+        "002320": "KOSPI",
+        "180640": "KOSPI",
+        "000880": "KOSPI",
+        "489790": "KOSPI",
+        "272210": "KOSPI",
+        "012450": "KOSPI",
+        "082740": "KOSPI",
+        "042660": "KOSPI",
+        "195870": "KOSPI",
+        "000720": "KOSPI",
+        "453340": "KOSPI",
+        "086280": "KOSPI",
+        "064350": "KOSPI",
+        "012330": "KOSPI",
+        "069960": "KOSPI",
+        "017800": "KOSPI",
+        "307950": "KOSPI",
+        "011210": "KOSPI",
+        "004020": "KOSPI",
+        "005440": "KOSPI",
+        "005380": "KOSPI",
+        "001500": "KOSPI",
+        "011760": "KOSPI",
+        "001450": "KOSPI",
+        "057050": "KOSPI",
+        "008770": "KOSPI",
+        "004800": "KOSPI",
+        "298040": "KOSPI",
+        "298020": "KOSPI",
+        "265520": "KOSDAQ",
+        "035760": "KOSDAQ",
+        "051500": "KOSDAQ",
+        "083450": "KOSDAQ",
+        "376270": "KOSDAQ",
+        "195940": "KOSDAQ",
+        "028300": "KOSDAQ",
+        "047920": "KOSDAQ",
+        "095340": "KOSDAQ",
+        "035900": "KOSDAQ",
+        "035600": "KOSDAQ",
+        "060370": "KOSDAQ",
+        "218410": "KOSDAQ",
+        "419530": "KOSDAQ",
+        "067160": "KOSDAQ",
+        "079940": "KOSDAQ",
+        "399720": "KOSDAQ",
+        "036620": "KOSDAQ",
+        "114190": "KOSDAQ",
+        "215000": "KOSDAQ",
+        "420770": "KOSDAQ",
+        "121600": "KOSDAQ",
+        "190510": "KOSDAQ",
+        "459510": "KOSDAQ",
+        "138610": "KOSDAQ",
+        "036800": "KOSDAQ",
+        "095660": "KOSDAQ",
+        "092730": "KOSDAQ",
+        "007390": "KOSDAQ",
+        "033640": "KOSDAQ",
+        "389650": "KOSDAQ",
+        "348210": "KOSDAQ",
+        "225570": "KOSDAQ",
+        "473980": "KOSDAQ",
+        "194700": "KOSDAQ",
+        "486990": "KOSDAQ",
+        "032190": "KOSDAQ",
+        "108380": "KOSDAQ",
+        "005710": "KOSDAQ",
+        "078600": "KOSDAQ",
+        "067080": "KOSDAQ",
+        "403850": "KOSDAQ",
+        "213420": "KOSDAQ",
+        "317330": "KOSDAQ",
+        "194480": "KOSDAQ",
+        "484120": "KOSDAQ",
+        "086450": "KOSDAQ",
+        "033500": "KOSDAQ",
+        "094170": "KOSDAQ",
+        "005290": "KOSDAQ",
+        "025900": "KOSDAQ",
+        "131970": "KOSDAQ",
+        "176750": "KOSDAQ",
+        "110990": "KOSDAQ",
+        "376300": "KOSDAQ",
+        "039840": "KOSDAQ",
+        "277810": "KOSDAQ",
+        "090360": "KOSDAQ",
+        "108490": "KOSDAQ",
+        "376900": "KOSDAQ",
+        "328130": "KOSDAQ",
+        "141080": "KOSDAQ",
+        "058470": "KOSDAQ",
+        "439090": "KOSDAQ",
+        "267980": "KOSDAQ",
+        "093520": "KOSDAQ",
+        "215200": "KOSDAQ",
+        "086900": "KOSDAQ",
+        "078160": "KOSDAQ",
+        "241770": "KOSDAQ",
+        "095500": "KOSDAQ",
+        "059090": "KOSDAQ",
+        "206640": "KOSDAQ",
+        "053030": "KOSDAQ",
+        "064550": "KOSDAQ",
+        "314930": "KOSDAQ",
+        "043150": "KOSDAQ",
+        "382900": "KOSDAQ",
+        "310210": "KOSDAQ",
+        "338220": "KOSDAQ",
+        "089970": "KOSDAQ",
+        "018290": "KOSDAQ",
+        "126340": "KOSDAQ",
+        "083650": "KOSDAQ",
+        "488900": "KOSDAQ",
+        "082920": "KOSDAQ",
+        "452430": "KOSDAQ",
+        "018310": "KOSDAQ",
+        "000250": "KOSDAQ",
+        "437730": "KOSDAQ",
+        "089980": "KOSDAQ",
+        "046890": "KOSDAQ",
+        "357550": "KOSDAQ",
+        "171090": "KOSDAQ",
+        "014620": "KOSDAQ",
+        "015750": "KOSDAQ",
+        "365340": "KOSDAQ",
+        "061090": "KOSDAQ",
+        "108860": "KOSDAQ",
+        "308430": "KOSDAQ",
+        "068760": "KOSDAQ",
+        "357780": "KOSDAQ",
+        "036830": "KOSDAQ",
+        "304100": "KOSDAQ",
+        "236200": "KOSDAQ",
+        "253450": "KOSDAQ",
+        "025320": "KOSDAQ",
+        "065350": "KOSDAQ",
+        "416180": "KOSDAQ",
+        "257720": "KOSDAQ",
+        "222800": "KOSDAQ",
+        "099320": "KOSDAQ",
+        "394800": "KOSDAQ",
+        "475400": "KOSDAQ",
+        "352480": "KOSDAQ",
+        "458870": "KOSDAQ",
+        "388210": "KOSDAQ",
+        "096530": "KOSDAQ",
+        "450950": "KOSDAQ",
+        "099190": "KOSDAQ",
+        "214430": "KOSDAQ",
+        "124500": "KOSDAQ",
+        "084850": "KOSDAQ",
+        "114840": "KOSDAQ",
+        "053800": "KOSDAQ",
+        "065660": "KOSDAQ",
+        "476830": "KOSDAQ",
+        "196170": "KOSDAQ",
+        "270660": "KOSDAQ",
+        "304360": "KOSDAQ",
+        "101490": "KOSDAQ",
+        "056190": "KOSDAQ",
+        "0008Z0": "KOSDAQ",
+        "041510": "KOSDAQ",
+        "488280": "KOSDAQ",
+        "039440": "KOSDAQ",
+        "237690": "KOSDAQ",
+        "058610": "KOSDAQ",
+        "200710": "KOSDAQ",
+        "298380": "KOSDAQ",
+        "481070": "KOSDAQ",
+        "445090": "KOSDAQ",
+        "295310": "KOSDAQ",
+        "397030": "KOSDAQ",
+        "0009K0": "KOSDAQ",
+        "448280": "KOSDAQ",
+        "101360": "KOSDAQ",
+        "086520": "KOSDAQ",
+        "247540": "KOSDAQ",
+        "036810": "KOSDAQ",
+        "455900": "KOSDAQ",
+        "348370": "KOSDAQ",
+        "290650": "KOSDAQ",
+        "058970": "KOSDAQ",
+        "475830": "KOSDAQ",
+        "039200": "KOSDAQ",
+        "394280": "KOSDAQ",
+        "476060": "KOSDAQ",
+        "226950": "KOSDAQ",
+        "338840": "KOSDAQ",
+        "122870": "KOSDAQ",
+        "065680": "KOSDAQ",
+        "074600": "KOSDAQ",
+        "104830": "KOSDAQ",
+        "101160": "KOSDAQ",
+        "069080": "KOSDAQ",
+        "112040": "KOSDAQ",
+        "101730": "KOSDAQ",
+        "036200": "KOSDAQ",
+        "086390": "KOSDAQ",
+        "388720": "KOSDAQ",
+        "084370": "KOSDAQ",
+        "372170": "KOSDAQ",
+        "469610": "KOSDAQ",
+        "272290": "KOSDAQ",
+        "424870": "KOSDAQ",
+        "102710": "KOSDAQ",
+        "039030": "KOSDAQ",
+        "041830": "KOSDAQ",
+        "389470": "KOSDAQ",
+        "211050": "KOSDAQ",
+        "049070": "KOSDAQ",
+        "189300": "KOSDAQ",
+        "287840": "KOSDAQ",
+        "101930": "KOSDAQ",
+        "033100": "KOSDAQ",
+        "054950": "KOSDAQ",
+        "127120": "KOSDAQ",
+        "082270": "KOSDAQ",
+        "228760": "KOSDAQ",
+        "144510": "KOSDAQ",
+        "358570": "KOSDAQ",
+        "119850": "KOSDAQ",
+        "456160": "KOSDAQ",
+        "036890": "KOSDAQ",
+        "085660": "KOSDAQ",
+        "278280": "KOSDAQ",
+        "094360": "KOSDAQ",
+        "042000": "KOSDAQ",
+        "078340": "KOSDAQ",
+        "214370": "KOSDAQ",
+        "093320": "KOSDAQ",
+        "199430": "KOSDAQ",
+        "032500": "KOSDAQ",
+        "064820": "KOSDAQ",
+        "089010": "KOSDAQ",
+        "052400": "KOSDAQ",
+        "402030": "KOSDAQ",
+        "183300": "KOSDAQ",
+        "089890": "KOSDAQ",
+        "241710": "KOSDAQ",
+        "102940": "KOSDAQ",
+        "200130": "KOSDAQ",
+        "294570": "KOSDAQ",
+        "372320": "KOSDAQ",
+        "115180": "KOSDAQ",
+        "494120": "KOSDAQ",
+        "445680": "KOSDAQ",
+        "214150": "KOSDAQ",
+        "466100": "KOSDAQ",
+        "237880": "KOSDAQ",
+        "023160": "KOSDAQ",
+        "323280": "KOSDAQ",
+        "044490": "KOSDAQ",
+        "095610": "KOSDAQ",
+        "475960": "KOSDAQ",
+        "051360": "KOSDAQ",
+        "199800": "KOSDAQ",
+        "117730": "KOSDAQ",
+        "064760": "KOSDAQ",
+        "340570": "KOSDAQ",
+        "131290": "KOSDAQ",
+        "425420": "KOSDAQ",
+        "484810": "KOSDAQ",
+        "356860": "KOSDAQ",
+        "214450": "KOSDAQ",
+        "441270": "KOSDAQ",
+        "140860": "KOSDAQ",
+        "263750": "KOSDAQ",
+        "251970": "KOSDAQ",
+        "168360": "KOSDAQ",
+        "087010": "KOSDAQ",
+        "009520": "KOSDAQ",
+        "472850": "KOSDAQ",
+        "220100": "KOSDAQ",
+        "053610": "KOSDAQ",
+        "468530": "KOSDAQ",
+        "300080": "KOSDAQ",
+        "319660": "KOSDAQ",
+        "031980": "KOSDAQ",
+        "043370": "KOSDAQ",
+        "137400": "KOSDAQ",
+        "378340": "KOSDAQ",
+        "161580": "KOSDAQ",
+        "299030": "KOSDAQ",
+        "166090": "KOSDAQ",
+        "013030": "KOSDAQ",
+        "034950": "KOSDAQ",
+        "448900": "KOSDAQ",
+        "030520": "KOSDAQ",
+        "092460": "KOSDAQ",
+        "114810": "KOSDAQ",
+        "042520": "KOSDAQ",
+        "078350": "KOSDAQ",
+        "045100": "KOSDAQ",
+        "107640": "KOSDAQ",
+        "098070": "KOSDAQ",
+        "460930": "KOSDAQ",
+        "200670": "KOSDAQ",
+        "243070": "KOSDAQ",
+        "084110": "KOSDAQ",
+        "145020": "KOSDAQ"
+      },
+      "names": {
+        "282330": "BGF\uB9AC\uD14C\uC77C",
+        "138930": "BNK\uAE08\uC735\uC9C0\uC8FC",
+        "001460": "BYC",
+        "001040": "CJ",
+        "000120": "CJ\uB300\uD55C\uD1B5\uC6B4",
+        "097950": "CJ\uC81C\uC77C\uC81C\uB2F9",
+        "005830": "DB\uC190\uD574\uBCF4\uD5D8",
+        "016610": "DB\uC99D\uAD8C",
+        "000990": "DB\uD558\uC774\uD14D",
+        "001530": "DI\uB3D9\uC77C",
+        "000210": "DL",
+        "007340": "DN\uC624\uD1A0\uBAA8\uD2F0\uBE0C",
+        "017940": "E1",
+        "383220": "F&F",
+        "007700": "F&F\uD640\uB529\uC2A4",
+        "114090": "GKL",
+        "078930": "GS",
+        "007070": "GS\uB9AC\uD14C\uC77C",
+        "499790": "GS\uD53C\uC564\uC5D8",
+        "012630": "HDC",
+        "267270": "HD\uAC74\uC124\uAE30\uACC4",
+        "009540": "HD\uD55C\uAD6D\uC870\uC120\uD574\uC591",
+        "267250": "HD\uD604\uB300",
+        "443060": "HD\uD604\uB300\uB9C8\uB9B0\uC194\uB8E8\uC158",
+        "071970": "HD\uD604\uB300\uB9C8\uB9B0\uC5D4\uC9C4",
+        "267260": "HD\uD604\uB300\uC77C\uB809\uD2B8\uB9AD",
+        "329180": "HD\uD604\uB300\uC911\uACF5\uC5C5",
+        "060980": "HL\uD640\uB529\uC2A4",
+        "011200": "HMM",
+        "298050": "HS\uD6A8\uC131\uCCA8\uB2E8\uC18C\uC7AC",
+        "139130": "iM\uAE08\uC735\uC9C0\uC8FC",
+        "015360": "INVENI",
+        "294870": "IPARK\uD604\uB300\uC0B0\uC5C5\uAC1C\uBC1C",
+        "175330": "JB\uAE08\uC735\uC9C0\uC8FC",
+        "001060": "JW\uC911\uC678\uC81C\uC57D",
+        "105560": "KB\uAE08\uC735",
+        "002380": "KCC",
+        "344820": "KCC\uAE00\uB77C\uC2A4",
+        "001940": "KISCO\uD640\uB529\uC2A4",
+        "092230": "KPX\uD640\uB529\uC2A4",
+        "030200": "KT",
+        "033780": "KT&G",
+        "093050": "LF",
+        "003550": "LG",
+        "051900": "LG\uC0DD\uD65C\uAC74\uAC15",
+        "373220": "LG\uC5D0\uB108\uC9C0\uC194\uB8E8\uC158",
+        "032640": "LG\uC720\uD50C\uB7EC\uC2A4",
+        "011070": "LG\uC774\uB178\uD14D",
+        "066570": "LG\uC804\uC790",
+        "051910": "LG\uD654\uD559",
+        "079550": "LIG\uB514\uD39C\uC2A4\uC564\uC5D0\uC5B4\uB85C\uC2A4\uD398\uC774\uC2A4",
+        "006260": "LS",
+        "010120": "LS ELECTRIC",
+        "229640": "LS\uC5D0\uCF54\uC5D0\uB108\uC9C0",
+        "108320": "LX\uC138\uBBF8\uCF58",
+        "001120": "LX\uC778\uD130\uB0B4\uC154\uB110",
+        "108670": "LX\uD558\uC6B0\uC2DC\uC2A4",
+        "383800": "LX\uD640\uB529\uC2A4",
+        "035420": "NAVER",
+        "036570": "NC",
+        "181710": "NHN",
+        "005940": "NH\uD22C\uC790\uC99D\uAD8C",
+        "034310": "NICE",
+        "030190": "NICE\uD3C9\uAC00\uC815\uBCF4",
+        "456040": "OCI",
+        "010060": "OCI\uD640\uB529\uC2A4",
+        "178920": "PI\uCCA8\uB2E8\uC18C\uC7AC",
+        "005490": "POSCO\uD640\uB529\uC2A4",
+        "034120": "SBS",
+        "005090": "SGC\uC5D0\uB108\uC9C0",
+        "034730": "SK",
+        "011790": "SKC",
+        "018670": "SK\uAC00\uC2A4",
+        "006120": "SK\uB514\uC2A4\uCEE4\uBC84\uB9AC",
+        "302440": "SK\uBC14\uC774\uC624\uC0AC\uC774\uC5B8\uC2A4",
+        "326030": "SK\uBC14\uC774\uC624\uD31C",
+        "402340": "SK\uC2A4\uD018\uC5B4",
+        "361610": "SK\uC544\uC774\uC774\uD14C\uD06C\uB180\uB85C\uC9C0",
+        "096770": "SK\uC774\uB178\uBCA0\uC774\uC158",
+        "285130": "SK\uCF00\uBBF8\uCE7C",
+        "017670": "SK\uD154\uB808\uCF64",
+        "000660": "SK\uD558\uC774\uB2C9\uC2A4",
+        "003570": "SNT\uB2E4\uC774\uB0B4\uBBF9\uC2A4",
+        "064960": "SNT\uBAA8\uD2F0\uBE0C",
+        "100840": "SNT\uC5D0\uB108\uC9C0",
+        "036530": "SNT\uD640\uB529\uC2A4",
+        "010950": "S-Oil",
+        "077970": "STX\uC5D4\uC9C4",
+        "002710": "TCC\uC2A4\uD2F8",
+        "069260": "TKG\uD734\uCF10\uC2A4",
+        "000500": "\uAC00\uC628\uC804\uC120",
+        "035250": "\uAC15\uC6D0\uB79C\uB4DC",
+        "009450": "\uACBD\uB3D9\uB098\uBE44\uC5D4",
+        "010130": "\uACE0\uB824\uC544\uC5F0",
+        "002240": "\uACE0\uB824\uC81C\uAC15",
+        "037710": "\uAD11\uC8FC\uC2E0\uC138\uACC4",
+        "030610": "\uAD50\uBCF4\uC99D\uAD8C",
+        "007690": "\uAD6D\uB3C4\uD654\uD559",
+        "011780": "\uAE08\uD638\uC11D\uC720\uD654\uD559",
+        "073240": "\uAE08\uD638\uD0C0\uC774\uC5B4",
+        "000270": "\uAE30\uC544",
+        "024110": "\uAE30\uC5C5\uC740\uD589",
+        "003920": "\uB0A8\uC591\uC720\uC5C5",
+        "251270": "\uB137\uB9C8\uBE14",
+        "000320": "\uB178\uB8E8\uD640\uB529\uC2A4",
+        "006280": "\uB179\uC2ED\uC790",
+        "005250": "\uB179\uC2ED\uC790\uD640\uB529\uC2A4",
+        "004370": "\uB18D\uC2EC",
+        "072710": "\uB18D\uC2EC\uD640\uB529\uC2A4",
+        "023590": "\uB2E4\uC6B0\uAE30\uC220",
+        "483650": "\uB2EC\uBC14\uAE00\uB85C\uBC8C",
+        "008060": "\uB300\uB355",
+        "001680": "\uB300\uC0C1",
+        "084690": "\uB300\uC0C1\uD640\uB529\uC2A4",
+        "003540": "\uB300\uC2E0\uC99D\uAD8C",
+        "003090": "\uB300\uC6C5",
+        "069620": "\uB300\uC6C5\uC81C\uC57D",
+        "003220": "\uB300\uC6D0\uC81C\uC57D",
+        "006650": "\uB300\uD55C\uC720\uD654",
+        "084010": "\uB300\uD55C\uC81C\uAC15",
+        "001130": "\uB300\uD55C\uC81C\uBD84",
+        "439260": "\uB300\uD55C\uC870\uC120",
+        "475560": "\uB354\uBCF8\uCF54\uB9AC\uC544",
+        "192080": "\uB354\uBE14\uC720\uAC8C\uC784\uC988",
+        "012510": "\uB354\uC874\uBE44\uC988\uC628",
+        "145720": "\uB374\uD2F0\uC6C0",
+        "460860": "\uB3D9\uAD6D\uC81C\uAC15",
+        "026960": "\uB3D9\uC11C",
+        "000640": "\uB3D9\uC544\uC3D8\uC2DC\uC624\uD640\uB529\uC2A4",
+        "170900": "\uB3D9\uC544\uC5D0\uC2A4\uD2F0",
+        "006040": "\uB3D9\uC6D0\uC0B0\uC5C5",
+        "014820": "\uB3D9\uC6D0\uC2DC\uC2A4\uD15C\uC988",
+        "000150": "\uB450\uC0B0",
+        "241560": "\uB450\uC0B0\uBC25\uCEA3",
+        "034020": "\uB450\uC0B0\uC5D0\uB108\uBE4C\uB9AC\uD2F0",
+        "336260": "\uB450\uC0B0\uD4E8\uC5BC\uC140",
+        "003160": "\uB514\uC544\uC774",
+        "032350": "\uB86F\uB370\uAD00\uAD11\uAC1C\uBC1C",
+        "089860": "\uB86F\uB370\uB80C\uD0C8",
+        "023530": "\uB86F\uB370\uC1FC\uD551",
+        "020150": "\uB86F\uB370\uC5D0\uB108\uC9C0\uBA38\uD2F0\uB9AC\uC5BC\uC988",
+        "280360": "\uB86F\uB370\uC6F0\uD478\uB4DC",
+        "286940": "\uB86F\uB370\uC774\uB178\uBCA0\uC774\uD2B8",
+        "004000": "\uB86F\uB370\uC815\uBC00\uD654\uD559",
+        "004990": "\uB86F\uB370\uC9C0\uC8FC",
+        "005300": "\uB86F\uB370\uCE60\uC131",
+        "011170": "\uB86F\uB370\uCF00\uBBF8\uCE7C",
+        "138040": "\uBA54\uB9AC\uCE20\uAE08\uC735\uC9C0\uC8FC",
+        "009900": "\uBA85\uC2E0\uC0B0\uC5C5",
+        "317450": "\uBA85\uC778\uC81C\uC57D",
+        "009680": "\uBAA8\uD1A0\uB2C9",
+        "006800": "\uBBF8\uB798\uC5D0\uC14B\uC99D\uAD8C",
+        "081660": "\uBBF8\uC2A4\uD1A0\uD640\uB529\uC2A4",
+        "002840": "\uBBF8\uC6D0\uC0C1\uC0AC",
+        "268280": "\uBBF8\uC6D0\uC5D0\uC2A4\uC528",
+        "035150": "\uBC31\uC0B0",
+        "003850": "\uBCF4\uB839",
+        "001270": "\uBD80\uAD6D\uC99D\uAD8C",
+        "090460": "\uBE44\uC5D0\uC774\uCE58",
+        "005180": "\uBE59\uADF8\uB808",
+        "003960": "\uC0AC\uC870\uB300\uB9BC",
+        "007160": "\uC0AC\uC870\uC0B0\uC5C5",
+        "062040": "\uC0B0\uC77C\uC804\uAE30",
+        "005610": "\uC0BC\uB9BD",
+        "006400": "\uC0BC\uC131SDI",
+        "028260": "\uC0BC\uC131\uBB3C\uC0B0",
+        "207940": "\uC0BC\uC131\uBC14\uC774\uC624\uB85C\uC9C1\uC2A4",
+        "032830": "\uC0BC\uC131\uC0DD\uBA85",
+        "018260": "\uC0BC\uC131\uC5D0\uC2A4\uB514\uC5D0\uC2A4",
+        "0126Z0": "\uC0BC\uC131\uC5D0\uD53C\uC2A4\uD640\uB529\uC2A4",
+        "009150": "\uC0BC\uC131\uC804\uAE30",
+        "005930": "\uC0BC\uC131\uC804\uC790",
+        "010140": "\uC0BC\uC131\uC911\uACF5\uC5C5",
+        "016360": "\uC0BC\uC131\uC99D\uAD8C",
+        "029780": "\uC0BC\uC131\uCE74\uB4DC",
+        "000810": "\uC0BC\uC131\uD654\uC7AC",
+        "006110": "\uC0BC\uC544\uC54C\uBBF8\uB284",
+        "0120G0": "\uC0BC\uC591\uBC14\uC774\uC624\uD31C",
+        "145990": "\uC0BC\uC591\uC0AC",
+        "003230": "\uC0BC\uC591\uC2DD\uD488",
+        "000070": "\uC0BC\uC591\uD640\uB529\uC2A4",
+        "002810": "\uC0BC\uC601\uBB34\uC5ED",
+        "005500": "\uC0BC\uC9C4\uC81C\uC57D",
+        "004690": "\uC0BC\uCC9C\uB9AC",
+        "200880": "\uC11C\uC5F0\uC774\uD654",
+        "017390": "\uC11C\uC6B8\uAC00\uC2A4",
+        "031210": "\uC11C\uC6B8\uBCF4\uC99D\uBCF4\uD5D8",
+        "008490": "\uC11C\uD765",
+        "004980": "\uC131\uC2E0\uC591\uD68C",
+        "004360": "\uC138\uBC29",
+        "004490": "\uC138\uBC29\uC804\uC9C0",
+        "001430": "\uC138\uC544\uBCA0\uC2A4\uD2F8\uC9C0\uC8FC",
+        "306200": "\uC138\uC544\uC81C\uAC15",
+        "003030": "\uC138\uC544\uC81C\uAC15\uC9C0\uC8FC",
+        "075580": "\uC138\uC9C4\uC911\uACF5\uC5C5",
+        "068270": "\uC140\uD2B8\uB9AC\uC628",
+        "336370": "\uC194\uB8E8\uC2A4\uCCA8\uB2E8\uC18C\uC7AC",
+        "248070": "\uC194\uB8E8\uC5E0",
+        "126720": "\uC218\uC0B0\uC778\uB354\uC2A4\uD2B8\uB9AC",
+        "026890": "\uC2A4\uD2F1\uC778\uBCA0\uC2A4\uD2B8\uBA3C\uD2B8",
+        "462870": "\uC2DC\uD504\uD2B8\uC5C5",
+        "016590": "\uC2E0\uB300\uC591\uC81C\uC9C0",
+        "029530": "\uC2E0\uB3C4\uB9AC\uCF54",
+        "004170": "\uC2E0\uC138\uACC4",
+        "031430": "\uC2E0\uC138\uACC4\uC778\uD130\uB0B4\uC154\uB0A0",
+        "001720": "\uC2E0\uC601\uC99D\uAD8C",
+        "019170": "\uC2E0\uD48D\uC81C\uC57D",
+        "055550": "\uC2E0\uD55C\uC9C0\uC8FC",
+        "403550": "\uC3D8\uCE74",
+        "090430": "\uC544\uBAA8\uB808\uD37C\uC2DC\uD53D",
+        "002790": "\uC544\uBAA8\uB808\uD37C\uC2DC\uD53D\uD640\uB529\uC2A4",
+        "002030": "\uC544\uC138\uC544",
+        "183190": "\uC544\uC138\uC544\uC2DC\uBA58\uD2B8",
+        "020560": "\uC544\uC2DC\uC544\uB098\uD56D\uACF5",
+        "010780": "\uC544\uC774\uC5D0\uC2A4\uB3D9\uC11C",
+        "161000": "\uC560\uACBD\uCF00\uBBF8\uCE7C",
+        "137310": "\uC5D0\uC2A4\uB514\uBC14\uC774\uC624\uC13C\uC11C",
+        "005850": "\uC5D0\uC2A4\uC5D8",
+        "012750": "\uC5D0\uC2A4\uC6D0",
+        "078520": "\uC5D0\uC774\uBE14\uC528\uC5D4\uC528",
+        "278470": "\uC5D0\uC774\uD53C\uC54C",
+        "066970": "\uC5D8\uC564\uC5D0\uD504",
+        "097520": "\uC5E0\uC528\uB125\uC2A4",
+        "484870": "\uC5E0\uC564\uC528\uC194\uB8E8\uC158",
+        "111770": "\uC601\uC6D0\uBB34\uC5ED",
+        "009970": "\uC601\uC6D0\uBB34\uC5ED\uD640\uB529\uC2A4",
+        "000670": "\uC601\uD48D",
+        "007310": "\uC624\uB69C\uAE30",
+        "271560": "\uC624\uB9AC\uC628",
+        "001800": "\uC624\uB9AC\uC628\uD640\uB529\uC2A4",
+        "316140": "\uC6B0\uB9AC\uAE08\uC735\uC9C0\uC8FC",
+        "033270": "\uC720\uB098\uC774\uD2F0\uB4DC\uC81C\uC57D",
+        "014830": "\uC720\uB2C8\uB4DC",
+        "000100": "\uC720\uD55C\uC591\uD589",
+        "008730": "\uC728\uCD0C\uD654\uD559",
+        "214320": "\uC774\uB178\uC158",
+        "139480": "\uC774\uB9C8\uD2B8",
+        "457190": "\uC774\uC218\uC2A4\uD398\uC15C\uD2F0\uCF00\uBBF8\uCEEC",
+        "007660": "\uC774\uC218\uD398\uD0C0\uC2DC\uC2A4",
+        "249420": "\uC77C\uB3D9\uC81C\uC57D",
+        "003120": "\uC77C\uC131\uC544\uC774\uC5D0\uC2A4",
+        "003200": "\uC77C\uC2E0\uBC29\uC9C1",
+        "103590": "\uC77C\uC9C4\uC804\uAE30",
+        "271940": "\uC77C\uC9C4\uD558\uC774\uC194\uB8E8\uC2A4",
+        "226320": "\uC787\uCE20\uD55C\uBD88",
+        "033240": "\uC790\uD654\uC804\uC790",
+        "079900": "\uC804\uC9C4\uAC74\uC124\uB85C\uBD07",
+        "194370": "\uC81C\uC774\uC5D0\uC2A4\uCF54\uD37C\uB808\uC774\uC158",
+        "030000": "\uC81C\uC77C\uAE30\uD68D",
+        "004700": "\uC870\uAD11\uD53C\uD601",
+        "185750": "\uC885\uADFC\uB2F9",
+        "001630": "\uC885\uADFC\uB2F9\uD640\uB529\uC2A4",
+        "013890": "\uC9C0\uB204\uC2A4",
+        "071320": "\uC9C0\uC5ED\uB09C\uBC29\uACF5\uC0AC",
+        "323410": "\uCE74\uCE74\uC624\uBC45\uD06C",
+        "377300": "\uCE74\uCE74\uC624\uD398\uC774",
+        "029460": "\uCF00\uC774\uC528",
+        "281820": "\uCF00\uC774\uC528\uD14D",
+        "381970": "\uCF00\uC774\uCE74",
+        "007810": "\uCF54\uB9AC\uC544\uC368\uD0A4\uD2B8",
+        "003690": "\uCF54\uB9AC\uC548\uB9AC",
+        "192820": "\uCF54\uC2A4\uB9E5\uC2A4",
+        "005070": "\uCF54\uC2A4\uBAA8\uC2E0\uC18C\uC7AC",
+        "005420": "\uCF54\uC2A4\uBAA8\uD654\uD559",
+        "002020": "\uCF54\uC624\uB871",
+        "120110": "\uCF54\uC624\uB871\uC778\uB354",
+        "021240": "\uCF54\uC6E8\uC774",
+        "024720": "\uCF5C\uB9C8\uD640\uB529\uC2A4",
+        "192400": "\uCFE0\uCFE0\uD640\uB529\uC2A4",
+        "284740": "\uCFE0\uCFE0\uD648\uC2DC\uC2A4",
+        "259960": "\uD06C\uB798\uD504\uD1A4",
+        "039490": "\uD0A4\uC6C0\uC99D\uAD8C",
+        "003240": "\uD0DC\uAD11\uC0B0\uC5C5",
+        "034230": "\uD30C\uB77C\uB2E4\uC774\uC2A4",
+        "016800": "\uD37C\uC2DC\uC2A4",
+        "022100": "\uD3EC\uC2A4\uCF54DX",
+        "047050": "\uD3EC\uC2A4\uCF54\uC778\uD130\uB0B4\uC154\uB110",
+        "003670": "\uD3EC\uC2A4\uCF54\uD4E8\uCC98\uC5E0",
+        "017810": "\uD480\uBB34\uC6D0",
+        "103140": "\uD48D\uC0B0",
+        "005810": "\uD48D\uC0B0\uD640\uB529\uC2A4",
+        "086790": "\uD558\uB098\uAE08\uC735\uC9C0\uC8FC",
+        "039130": "\uD558\uB098\uD22C\uC5B4",
+        "352820": "\uD558\uC774\uBE0C",
+        "000080": "\uD558\uC774\uD2B8\uC9C4\uB85C",
+        "036460": "\uD55C\uAD6D\uAC00\uC2A4\uACF5\uC0AC",
+        "071050": "\uD55C\uAD6D\uAE08\uC735\uC9C0\uC8FC",
+        "025540": "\uD55C\uAD6D\uB2E8\uC790",
+        "002960": "\uD55C\uAD6D\uC258\uC11D\uC720",
+        "000240": "\uD55C\uAD6D\uC564\uCEF4\uD37C\uB2C8",
+        "015760": "\uD55C\uAD6D\uC804\uB825",
+        "104700": "\uD55C\uAD6D\uCCA0\uAC15",
+        "017960": "\uD55C\uAD6D\uCE74\uBCF8",
+        "161890": "\uD55C\uAD6D\uCF5C\uB9C8",
+        "161390": "\uD55C\uAD6D\uD0C0\uC774\uC5B4\uC564\uD14C\uD06C\uB180\uB85C\uC9C0",
+        "047810": "\uD55C\uAD6D\uD56D\uACF5\uC6B0\uC8FC",
+        "042700": "\uD55C\uBBF8\uBC18\uB3C4\uCCB4",
+        "008930": "\uD55C\uBBF8\uC0AC\uC774\uC5B8\uC2A4",
+        "128940": "\uD55C\uBBF8\uC57D\uD488",
+        "009240": "\uD55C\uC0D8",
+        "020000": "\uD55C\uC12C",
+        "105630": "\uD55C\uC138\uC2E4\uC5C5",
+        "014680": "\uD55C\uC194\uCF00\uBBF8\uCE7C",
+        "001750": "\uD55C\uC591\uC99D\uAD8C",
+        "009420": "\uD55C\uC62C\uBC14\uC774\uC624\uD30C\uB9C8",
+        "300720": "\uD55C\uC77C\uC2DC\uBA58\uD2B8",
+        "003300": "\uD55C\uC77C\uD640\uB529\uC2A4",
+        "051600": "\uD55C\uC804KPS",
+        "052690": "\uD55C\uC804\uAE30\uC220",
+        "002320": "\uD55C\uC9C4",
+        "180640": "\uD55C\uC9C4\uCE7C",
+        "000880": "\uD55C\uD654",
+        "489790": "\uD55C\uD654\uBE44\uC804",
+        "272210": "\uD55C\uD654\uC2DC\uC2A4\uD15C",
+        "012450": "\uD55C\uD654\uC5D0\uC5B4\uB85C\uC2A4\uD398\uC774\uC2A4",
+        "082740": "\uD55C\uD654\uC5D4\uC9C4",
+        "042660": "\uD55C\uD654\uC624\uC158",
+        "195870": "\uD574\uC131\uB514\uC5D0\uC2A4",
+        "000720": "\uD604\uB300\uAC74\uC124",
+        "453340": "\uD604\uB300\uADF8\uB9B0\uD478\uB4DC",
+        "086280": "\uD604\uB300\uAE00\uB85C\uBE44\uC2A4",
+        "064350": "\uD604\uB300\uB85C\uD15C",
+        "012330": "\uD604\uB300\uBAA8\uBE44\uC2A4",
+        "069960": "\uD604\uB300\uBC31\uD654\uC810",
+        "017800": "\uD604\uB300\uC5D8\uB9AC\uBCA0\uC774\uD130",
+        "307950": "\uD604\uB300\uC624\uD1A0\uC5D0\uBC84",
+        "011210": "\uD604\uB300\uC704\uC544",
+        "004020": "\uD604\uB300\uC81C\uCCA0",
+        "005440": "\uD604\uB300\uC9C0\uC5D0\uD504\uD640\uB529\uC2A4",
+        "005380": "\uD604\uB300\uCC28",
+        "001500": "\uD604\uB300\uCC28\uC99D\uAD8C",
+        "011760": "\uD604\uB300\uCF54\uD37C\uB808\uC774\uC158",
+        "001450": "\uD604\uB300\uD574\uC0C1",
+        "057050": "\uD604\uB300\uD648\uC1FC\uD551",
+        "008770": "\uD638\uD154\uC2E0\uB77C",
+        "004800": "\uD6A8\uC131",
+        "298040": "\uD6A8\uC131\uC911\uACF5\uC5C5",
+        "298020": "\uD6A8\uC131\uD2F0\uC564\uC528",
+        "265520": "AP\uC2DC\uC2A4\uD15C",
+        "035760": "CJ ENM",
+        "051500": "CJ\uD504\uB808\uC2DC\uC6E8\uC774",
+        "083450": "GST",
+        "376270": "HEM\uD30C\uB9C8",
+        "195940": "HK\uC774\uB178\uC5D4",
+        "028300": "HLB",
+        "047920": "HLB\uC81C\uC57D",
+        "095340": "ISC",
+        "035900": "JYP Ent.",
+        "035600": "KG\uC774\uB2C8\uC2DC\uC2A4",
+        "060370": "LS\uB9C8\uB9B0\uC194\uB8E8\uC158",
+        "218410": "RFHIC",
+        "419530": "SAMG\uC5D4\uD130",
+        "067160": "SOOP",
+        "079940": "\uAC00\uBE44\uC544",
+        "399720": "\uAC00\uC628\uCE69\uC2A4",
+        "036620": "\uAC10\uC131\uCF54\uD37C\uB808\uC774\uC158",
+        "114190": "\uAC15\uC6D0\uC5D0\uB108\uC9C0",
+        "215000": "\uACE8\uD504\uC874",
+        "420770": "\uAE30\uAC00\uBE44\uC2A4",
+        "121600": "\uB098\uB178\uC2E0\uC18C\uC7AC",
+        "190510": "\uB098\uBB34\uAC00",
+        "459510": "\uB098\uC6B0\uB85C\uBCF4\uD2F1\uC2A4",
+        "138610": "\uB098\uC774\uBCA1",
+        "036800": "\uB098\uC774\uC2A4\uC815\uBCF4\uD1B5\uC2E0",
+        "095660": "\uB124\uC624\uC704\uC988",
+        "092730": "\uB124\uC624\uD31C",
+        "007390": "\uB124\uC774\uCC98\uC140",
+        "033640": "\uB124\uD328\uC2A4",
+        "389650": "\uB125\uC2A4\uD2B8\uBC14\uC774\uC624\uBA54\uB514\uCEEC",
+        "348210": "\uB125\uC2A4\uD2F4",
+        "225570": "\uB125\uC2A8\uAC8C\uC784\uC988",
+        "473980": "\uB178\uBA38\uC2A4",
+        "194700": "\uB178\uBC14\uB809\uC2A4",
+        "486990": "\uB178\uD0C0",
+        "032190": "\uB2E4\uC6B0\uB370\uC774\uD0C0",
+        "108380": "\uB300\uC591\uC804\uAE30\uACF5\uC5C5",
+        "005710": "\uB300\uC6D0\uC0B0\uC5C5",
+        "078600": "\uB300\uC8FC\uC804\uC790\uC7AC\uB8CC",
+        "067080": "\uB300\uD654\uC81C\uC57D",
+        "403850": "\uB354\uD551\uD06C\uD401\uCEF4\uD37C\uB2C8",
+        "213420": "\uB355\uC0B0\uB124\uC624\uB8E9\uC2A4",
+        "317330": "\uB355\uC0B0\uD14C\uCF54\uD53C\uC544",
+        "194480": "\uB370\uBE0C\uC2DC\uC2A4\uD130\uC988",
+        "484120": "\uB3C4\uC6B0\uC778\uC2DC\uC2A4",
+        "086450": "\uB3D9\uAD6D\uC81C\uC57D",
+        "033500": "\uB3D9\uC131\uD654\uC778\uD14D",
+        "094170": "\uB3D9\uC6B4\uC544\uB098\uD14D",
+        "005290": "\uB3D9\uC9C4\uC384\uBBF8\uCF10",
+        "025900": "\uB3D9\uD654\uAE30\uC5C5",
+        "131970": "\uB450\uC0B0\uD14C\uC2A4\uB098",
+        "176750": "\uB4C0\uCF10\uBC14\uC774\uC624",
+        "110990": "\uB514\uC544\uC774\uD2F0",
+        "376300": "\uB514\uC5B4\uC720",
+        "039840": "\uB514\uC624",
+        "277810": "\uB808\uC778\uBCF4\uC6B0\uB85C\uBCF4\uD2F1\uC2A4",
+        "090360": "\uB85C\uBCF4\uC2A4\uD0C0",
+        "108490": "\uB85C\uBCF4\uD2F0\uC988",
+        "376900": "\uB85C\uD0B7\uD5EC\uC2A4\uCF00\uC5B4",
+        "328130": "\uB8E8\uB2DB",
+        "141080": "\uB9AC\uAC00\uCF10\uBC14\uC774\uC624",
+        "058470": "\uB9AC\uB178\uACF5\uC5C5",
+        "439090": "\uB9C8\uB140\uACF5\uC7A5",
+        "267980": "\uB9E4\uC77C\uC720\uC5C5",
+        "093520": "\uB9E4\uCEE4\uC2A4",
+        "215200": "\uBA54\uAC00\uC2A4\uD130\uB514\uAD50\uC721",
+        "086900": "\uBA54\uB514\uD1A1\uC2A4",
+        "078160": "\uBA54\uB514\uD3EC\uC2A4\uD2B8",
+        "241770": "\uBA54\uCE74\uB85C",
+        "095500": "\uBBF8\uB798\uB098\uB178\uD14D",
+        "059090": "\uBBF8\uCF54",
+        "206640": "\uBC14\uB514\uD14D\uBA54\uB4DC",
+        "053030": "\uBC14\uC774\uB125\uC2A4",
+        "064550": "\uBC14\uC774\uC624\uB2C8\uC544",
+        "314930": "\uBC14\uC774\uC624\uB2E4\uC778",
+        "043150": "\uBC14\uD14D",
+        "382900": "\uBC94\uD55C\uD4E8\uC5BC\uC140",
+        "310210": "\uBCF4\uB85C\uB178\uC774",
+        "338220": "\uBDF0\uB178",
+        "089970": "\uBE0C\uC774\uC5E0",
+        "018290": "\uBE0C\uC774\uD2F0",
+        "126340": "\uBE44\uB098\uD14D",
+        "083650": "\uBE44\uC5D0\uC774\uCE58\uC544\uC774",
+        "488900": "\uBE44\uCE20\uB85C\uB125\uC2A4\uD14D",
+        "082920": "\uBE44\uCE20\uB85C\uC140",
+        "452430": "\uC0AC\uD53C\uC5D4\uBC18\uB3C4\uCCB4",
+        "018310": "\uC0BC\uBAA9\uC5D0\uC2A4\uD3FC",
+        "000250": "\uC0BC\uCC9C\uB2F9\uC81C\uC57D",
+        "437730": "\uC0BC\uD604",
+        "089980": "\uC0C1\uC544\uD504\uB860\uD14C\uD06C",
+        "046890": "\uC11C\uC6B8\uBC18\uB3C4\uCCB4",
+        "357550": "\uC11D\uACBD\uC5D0\uC774\uD2F0",
+        "171090": "\uC120\uC775\uC2DC\uC2A4\uD15C",
+        "014620": "\uC131\uAD11\uBCA4\uB4DC",
+        "015750": "\uC131\uC6B0\uD558\uC774\uD14D",
+        "365340": "\uC131\uC77C\uD558\uC774\uD14D",
+        "061090": "\uC138\uB098\uD14C\uD06C\uB180\uB85C\uC9C0",
+        "108860": "\uC140\uBC14\uC2A4AI",
+        "308430": "\uC140\uBE44\uC628",
+        "068760": "\uC140\uD2B8\uB9AC\uC628\uC81C\uC57D",
+        "357780": "\uC194\uBE0C\uB808\uC778",
+        "036830": "\uC194\uBE0C\uB808\uC778\uD640\uB529\uC2A4",
+        "304100": "\uC194\uD2B8\uB8E9\uC2A4",
+        "236200": "\uC288\uD504\uB9AC\uB9C8",
+        "253450": "\uC2A4\uD29C\uB514\uC624\uB4DC\uB798\uACE4",
+        "025320": "\uC2DC\uB178\uD399\uC2A4",
+        "065350": "\uC2E0\uC131\uB378\uD0C0\uD14C\uD06C",
+        "416180": "\uC2E0\uC131\uC5D0\uC2A4\uD2F0",
+        "257720": "\uC2E4\uB9AC\uCF58\uD22C",
+        "222800": "\uC2EC\uD14D",
+        "099320": "\uC384\uD2B8\uB809\uC544\uC774",
+        "394800": "\uC4F0\uB9AC\uBE4C\uB9AC\uC5B8",
+        "475400": "\uC528\uBA54\uC2A4\uB85C\uBCF4\uD2F1\uC2A4",
+        "352480": "\uC528\uC564\uC528\uC778\uD130\uB0B4\uC154\uB110",
+        "458870": "\uC528\uC5B4\uC2A4",
+        "388210": "\uC528\uC5E0\uD2F0\uC5D1\uC2A4",
+        "096530": "\uC528\uC820",
+        "450950": "\uC544\uC2A4\uD14C\uB77C\uC2DC\uC2A4",
+        "099190": "\uC544\uC774\uC13C\uC2A4",
+        "214430": "\uC544\uC774\uC4F0\uB9AC\uC2DC\uC2A4\uD15C",
+        "124500": "\uC544\uC774\uD2F0\uC13C\uAE00\uB85C\uBC8C",
+        "084850": "\uC544\uC774\uD2F0\uC5E0\uBC18\uB3C4\uCCB4",
+        "114840": "\uC544\uC774\uD328\uBC00\uB9AC\uC5D0\uC2A4\uC528",
+        "053800": "\uC548\uB7A9",
+        "065660": "\uC548\uD2B8\uB85C\uC820",
+        "476830": "\uC54C\uC9C0\uB178\uBBF9\uC2A4",
+        "196170": "\uC54C\uD14C\uC624\uC820",
+        "270660": "\uC5D0\uBE0C\uB9AC\uBD07",
+        "304360": "\uC5D0\uC2A4\uBC14\uC774\uC624\uBA54\uB515\uC2A4",
+        "101490": "\uC5D0\uC2A4\uC564\uC5D0\uC2A4\uD14D",
+        "056190": "\uC5D0\uC2A4\uC5D0\uD504\uC5D0\uC774",
+        "0008Z0": "\uC5D0\uC2A4\uC5D4\uC2DC\uC2A4",
+        "041510": "\uC5D0\uC2A4\uC5E0",
+        "488280": "\uC5D0\uC2A4\uD22C\uB354\uBE14\uC720",
+        "039440": "\uC5D0\uC2A4\uD2F0\uC544\uC774",
+        "237690": "\uC5D0\uC2A4\uD2F0\uD31C",
+        "058610": "\uC5D0\uC2A4\uD53C\uC9C0",
+        "200710": "\uC5D0\uC774\uB514\uD14C\uD06C\uB180\uB85C\uC9C0",
+        "298380": "\uC5D0\uC774\uBE44\uC5D8\uBC14\uC774\uC624",
+        "481070": "\uC5D0\uC774\uC720\uBE0C\uB79C\uC988",
+        "445090": "\uC5D0\uC774\uC9C1\uB79C\uB4DC",
+        "295310": "\uC5D0\uC774\uCE58\uBE0C\uC774\uC5E0",
+        "397030": "\uC5D0\uC774\uD504\uB9B4\uBC14\uC774\uC624",
+        "0009K0": "\uC5D0\uC784\uB4DC\uBC14\uC774\uC624",
+        "448280": "\uC5D0\uCF54\uC544\uC774",
+        "101360": "\uC5D0\uCF54\uC564\uB4DC\uB9BC",
+        "086520": "\uC5D0\uCF54\uD504\uB85C",
+        "247540": "\uC5D0\uCF54\uD504\uB85C\uBE44\uC5E0",
+        "036810": "\uC5D0\uD504\uC5D0\uC2A4\uD2F0",
+        "455900": "\uC5D4\uC824\uB85C\uBCF4\uD2F1\uC2A4",
+        "348370": "\uC5D4\uCF10",
+        "290650": "\uC5D8\uC564\uC528\uBC14\uC774\uC624",
+        "058970": "\uC5E0\uB85C",
+        "475830": "\uC624\uB984\uD14C\uB77C\uD4E8\uD2F1",
+        "039200": "\uC624\uC2A4\uCF54\uD14D",
+        "394280": "\uC624\uD508\uC5E3\uC9C0\uD14C\uD06C\uB180\uB85C\uC9C0",
+        "476060": "\uC628\uCF54\uB2C9\uD14C\uB77C\uD4E8\uD2F1\uC2A4",
+        "226950": "\uC62C\uB9AD\uC2A4",
+        "338840": "\uC640\uC774\uBC14\uC774\uC624\uB85C\uC9C1\uC2A4",
+        "122870": "\uC640\uC774\uC9C0\uC5D4\uD130\uD14C\uC778\uBA3C\uD2B8",
+        "065680": "\uC6B0\uC8FC\uC77C\uB809\uD2B8\uB85C",
+        "074600": "\uC6D0\uC775QnC",
+        "104830": "\uC6D0\uC775\uBA38\uD2B8\uB9AC\uC5BC\uC988",
+        "101160": "\uC6D4\uB371\uC2A4",
+        "069080": "\uC6F9\uC820",
+        "112040": "\uC704\uBA54\uC774\uB4DC",
+        "101730": "\uC704\uBA54\uC774\uB4DC\uB9E5\uC2A4",
+        "036200": "\uC720\uB2C8\uC148",
+        "086390": "\uC720\uB2C8\uD14C\uC2A4\uD2B8",
+        "388720": "\uC720\uC77C\uB85C\uBCF4\uD2F1\uC2A4",
+        "084370": "\uC720\uC9C4\uD14C\uD06C",
+        "372170": "\uC724\uC131\uC5D0\uD504\uC564\uC528",
+        "469610": "\uC774\uB178\uD14C\uD06C",
+        "272290": "\uC774\uB179\uC2A4\uCCA8\uB2E8\uC18C\uC7AC",
+        "424870": "\uC774\uBBA8\uC628\uC2DC\uC544",
+        "102710": "\uC774\uC5D4\uC5D0\uD504\uD14C\uD06C\uB180\uB85C\uC9C0",
+        "039030": "\uC774\uC624\uD14C\uD06C\uB2C9\uC2A4",
+        "041830": "\uC778\uBC14\uB514",
+        "389470": "\uC778\uBCA4\uD2F0\uC9C0\uB7A9",
+        "211050": "\uC778\uCE74\uAE08\uC735\uC11C\uBE44\uC2A4",
+        "049070": "\uC778\uD0D1\uC2A4",
+        "189300": "\uC778\uD154\uB9AC\uC548\uD14C\uD06C",
+        "287840": "\uC778\uD22C\uC140",
+        "101930": "\uC778\uD654\uC815\uACF5",
+        "033100": "\uC81C\uB8E1\uC804\uAE30",
+        "054950": "\uC81C\uC774\uBE0C\uC774\uC5E0",
+        "127120": "\uC81C\uC774\uC5D0\uC2A4\uB9C1\uD06C",
+        "082270": "\uC82C\uBC31\uC2A4",
+        "228760": "\uC9C0\uB178\uBBF9\uD2B8\uB9AC",
+        "144510": "\uC9C0\uC528\uC140",
+        "358570": "\uC9C0\uC544\uC774\uC774\uB178\uBCA0\uC774\uC158",
+        "119850": "\uC9C0\uC5D4\uC528\uC5D0\uB108\uC9C0",
+        "456160": "\uC9C0\uD22C\uC9C0\uBC14\uC774\uC624",
+        "036890": "\uC9C4\uC131\uD2F0\uC774\uC528",
+        "085660": "\uCC28\uBC14\uC774\uC624\uD14D",
+        "278280": "\uCC9C\uBCF4",
+        "094360": "\uCE69\uC2A4\uC564\uBBF8\uB514\uC5B4",
+        "042000": "\uCE74\uD39824",
+        "078340": "\uCEF4\uD22C\uC2A4",
+        "214370": "\uCF00\uC5B4\uC820",
+        "093320": "\uCF00\uC774\uC544\uC774\uC5D4\uC5D1\uC2A4",
+        "199430": "\uCF00\uC774\uC5D4\uC54C\uC2DC\uC2A4\uD15C",
+        "032500": "\uCF00\uC774\uC5E0\uB354\uBE14\uC720",
+        "064820": "\uCF00\uC774\uD504",
+        "089010": "\uCF10\uD2B8\uB85C\uB2C9\uC2A4",
+        "052400": "\uCF54\uB098\uC544\uC774",
+        "402030": "\uCF54\uB09C\uD14C\uD06C\uB180\uB85C\uC9C0",
+        "183300": "\uCF54\uBBF8\uCF54",
+        "089890": "\uCF54\uC138\uC2A4",
+        "241710": "\uCF54\uC2A4\uBA54\uCE74\uCF54\uB9AC\uC544",
+        "102940": "\uCF54\uC624\uB871\uC0DD\uBA85\uACFC\uD559",
+        "200130": "\uCF5C\uB9C8\uBE44\uC564\uC5D0\uC774\uCE58",
+        "294570": "\uCFE0\uCF58",
+        "372320": "\uD050\uB85C\uC140",
+        "115180": "\uD050\uB9AC\uC5B8\uD2B8",
+        "494120": "\uD050\uB9AC\uC624\uC2DC\uC2A4",
+        "445680": "\uD050\uB9AC\uC625\uC2A4\uBC14\uC774\uC624\uC2DC\uC2A4\uD15C\uC988",
+        "214150": "\uD074\uB798\uC2DC\uC2A4",
+        "466100": "\uD074\uB85C\uBD07",
+        "237880": "\uD074\uB9AC\uC624",
+        "023160": "\uD0DC\uAD11",
+        "323280": "\uD0DC\uC131",
+        "044490": "\uD0DC\uC6C5",
+        "095610": "\uD14C\uC2A4",
+        "475960": "\uD1A0\uBAA8\uD050\uBE0C",
+        "051360": "\uD1A0\uBE44\uC2A4",
+        "199800": "\uD234\uC820",
+        "117730": "\uD2F0\uB85C\uBCF4\uD2F1\uC2A4",
+        "064760": "\uD2F0\uC528\uCF00\uC774",
+        "340570": "\uD2F0\uC564\uC5D8",
+        "131290": "\uD2F0\uC5D0\uC2A4\uC774",
+        "425420": "\uD2F0\uC5D0\uD504\uC774",
+        "484810": "\uD2F0\uC5D1\uC2A4\uC54C\uB85C\uBCF4\uD2F1\uC2A4",
+        "356860": "\uD2F0\uC5D8\uBE44",
+        "214450": "\uD30C\uB9C8\uB9AC\uC11C\uCE58",
+        "441270": "\uD30C\uC778\uC5E0\uD14D",
+        "140860": "\uD30C\uD06C\uC2DC\uC2A4\uD15C\uC2A4",
+        "263750": "\uD384\uC5B4\uBE44\uC2A4",
+        "251970": "\uD38C\uD14D\uCF54\uB9AC\uC544",
+        "168360": "\uD3A8\uD2B8\uB860",
+        "087010": "\uD3A9\uD2B8\uB860",
+        "009520": "\uD3EC\uC2A4\uCF54\uC5E0\uD14D",
+        "472850": "\uD3F0\uB4DC\uADF8\uB8F9",
+        "220100": "\uD4E8\uCCD0\uCF10",
+        "053610": "\uD504\uB85C\uD14D",
+        "468530": "\uD504\uB85C\uD2F0\uB098",
+        "300080": "\uD50C\uB9AC\uD1A0",
+        "319660": "\uD53C\uC5D0\uC2A4\uCF00\uC774",
+        "031980": "\uD53C\uC5D0\uC2A4\uCF00\uC774\uD640\uB529\uC2A4",
+        "043370": "\uD53C\uC5D0\uC774\uCE58\uC5D0\uC774",
+        "137400": "\uD53C\uC5D4\uD2F0",
+        "378340": "\uD544\uC5D0\uB108\uC9C0",
+        "161580": "\uD544\uC635\uD2F1\uC2A4",
+        "299030": "\uD558\uB098\uAE30\uC220",
+        "166090": "\uD558\uB098\uBA38\uD2F0\uB9AC\uC5BC\uC988",
+        "013030": "\uD558\uC774\uB85D\uCF54\uB9AC\uC544",
+        "034950": "\uD55C\uAD6D\uAE30\uC5C5\uD3C9\uAC00",
+        "448900": "\uD55C\uAD6D\uD53C\uC544\uC774\uC5E0",
+        "030520": "\uD55C\uAE00\uACFC\uCEF4\uD4E8\uD130",
+        "092460": "\uD55C\uB77CIMS",
+        "114810": "\uD55C\uC194\uC544\uC774\uC6D0\uC2A4",
+        "042520": "\uD55C\uC2A4\uBC14\uC774\uC624\uBA54\uB4DC",
+        "078350": "\uD55C\uC591\uB514\uC9C0\uD14D",
+        "045100": "\uD55C\uC591\uC774\uC5D4\uC9C0",
+        "107640": "\uD55C\uC911\uC5D4\uC2DC\uC5D0\uC2A4",
+        "098070": "\uD55C\uD14D",
+        "460930": "\uD604\uB300\uD798\uC2A4",
+        "200670": "\uD734\uBA54\uB515\uC2A4",
+        "243070": "\uD734\uC628\uC2A4",
+        "084110": "\uD734\uC628\uC2A4\uAE00\uB85C\uBC8C",
+        "145020": "\uD734\uC824"
+      }
+    };
+  }
+});
+
+// data/xlsx-lite.js
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream("deflate-raw");
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function readZip(buf) {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  b.readUInt32LE = (i) => dv.getUint32(i, true);
+  b.readUInt16LE = (i) => dv.getUint16(i, true);
+  const files = {};
+  let eocd = -1;
+  for (let i = b.length - 22; i >= 0 && i > b.length - 65558; i--) {
+    if (b.readUInt32LE(i) === 101010256) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) return null;
+  const total = b.readUInt16LE(eocd + 10);
+  let off = b.readUInt32LE(eocd + 16);
+  for (let n = 0; n < total; n++) {
+    if (b.readUInt32LE(off) !== 33639248) break;
+    const method = b.readUInt16LE(off + 10);
+    const compSize = b.readUInt32LE(off + 20);
+    const nameLen = b.readUInt16LE(off + 28);
+    const extraLen = b.readUInt16LE(off + 30);
+    const commentLen = b.readUInt16LE(off + 32);
+    const localOff = b.readUInt32LE(off + 42);
+    const name = b.toString("utf8", off + 46, off + 46 + nameLen);
+    const lNameLen = b.readUInt16LE(localOff + 26);
+    const lExtraLen = b.readUInt16LE(localOff + 28);
+    const dataStart = localOff + 30 + lNameLen + lExtraLen;
+    const raw = b.subarray(dataStart, dataStart + compSize);
+    try {
+      files[name] = method === 0 ? raw : await inflateRaw(raw);
+    } catch {
+    }
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  return files;
+}
+function sharedStrings(xml) {
+  if (!xml) return [];
+  const out = [];
+  for (const m of String(xml).matchAll(/<si>([\s\S]*?)<\/si>/g)) {
+    let s = "";
+    for (const t of m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)) s += t[1];
+    out.push(unescapeXml(s));
+  }
+  return out;
+}
+function parseSheet(xml, strs) {
+  const rows = [];
+  for (const rm of String(xml).matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+    const cells = [];
+    for (const cm of rm[1].matchAll(/<c([^>]*)>([\s\S]*?)<\/c>/g)) {
+      const attr = cm[1], inner = cm[2];
+      const type = (attr.match(/\st="([^"]+)"/) || [])[1] || "n";
+      let val = "";
+      if (type === "inlineStr") {
+        for (const t of inner.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)) val += t[1];
+        val = unescapeXml(val);
+      } else {
+        const v = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+        if (v == null) val = "";
+        else if (type === "s") val = strs[+v] != null ? strs[+v] : "";
+        else val = unescapeXml(v);
+      }
+      cells.push(val);
+    }
+    if (cells.some((c) => String(c).trim() !== "")) rows.push(cells);
+  }
+  return rows;
+}
+async function parseXlsx(buf) {
+  const files = await readZip(buf);
+  if (!files) return null;
+  const strs = sharedStrings(files["xl/sharedStrings.xml"] && files["xl/sharedStrings.xml"].toString("utf8"));
+  const sheetNames = Object.keys(files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort();
+  if (!sheetNames.length) return null;
+  let rows = [];
+  for (const n of sheetNames) {
+    rows = rows.concat(parseSheet(files[n].toString("utf8"), strs));
+  }
+  return rows;
+}
+async function xlsxToText(buf) {
+  const rows = await parseXlsx(buf);
+  if (!rows || !rows.length) return null;
+  return rows.map((r) => r.join("	")).join("\n");
+}
+var unescapeXml;
+var init_xlsx_lite = __esm({
+  "data/xlsx-lite.js"() {
+    unescapeXml = (s) => String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d)).replace(/&amp;/g, "&");
+  }
+});
+
+// data/nxt-official.js
+function inferAsOf(text) {
+  const q = String(text || "").match(/(20\d\d)\s*년?\s*([1-4])\s*분기/);
+  if (q) {
+    const y = +q[1], quarter = +q[2];
+    const month = String((quarter - 1) * 3 + 1).padStart(2, "0");
+    return { asOf: `${y}-${month}-01`, quarter: `${y}Q${quarter}` };
+  }
+  const d = String(text || "").match(/(20\d\d)[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+  if (d) return { asOf: `${d[1]}-${String(+d[2]).padStart(2, "0")}-${String(+d[3]).padStart(2, "0")}`, quarter: null };
+  return { asOf: null, quarter: null };
+}
+function parseOfficial(text) {
+  if (!text || typeof text !== "string") return null;
+  const clean3 = text.replace(/<\s*(br|\/tr|\/p)\s*>/gi, "\n").replace(/<[^>]+>/g, "	").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+  const lines = clean3.split(/\r?\n/);
+  const rows = {};
+  const removed = [];
+  let hasStatusColumn = false;
+  let lastMarket = "";
+  for (const line of lines) {
+    if (!ISIN_RE.test(line)) continue;
+    const cells = cellsOf(line);
+    if (!cells.length) continue;
+    const isinIdx = [];
+    cells.forEach((c, i) => {
+      if (ISIN_RE.test(c)) isinIdx.push(i);
+    });
+    if (!isinIdx.length) continue;
+    isinIdx.forEach((idx, n) => {
+      const code = isinToCode(cells[idx]);
+      if (!code || !CODE_RE.test(code)) return;
+      const end = n + 1 < isinIdx.length ? isinIdx[n + 1] : cells.length;
+      const seg = cells.slice(Math.max(0, idx - 1), end);
+      const market = normMarket(seg.join(" ")) || lastMarket;
+      if (market) lastMarket = market;
+      const segTxt = seg.join(" ");
+      const isRemoved = /편출|비선정|제외/.test(segTxt);
+      const isSelected = /선정/.test(segTxt) && !/비선정/.test(segTxt);
+      if (isRemoved || isSelected) hasStatusColumn = true;
+      let name = "";
+      for (let i = idx + 1; i < end; i++) {
+        const v = cells[i];
+        if (!v || ISIN_RE.test(v)) continue;
+        if (/^(선정|비선정|편출|유지|신규|제외)$/.test(v)) continue;
+        if (MARKET_RE.test(v) && v.length <= 7) continue;
+        if (/[가-힣A-Za-z]/.test(v)) {
+          name = v.slice(0, 40);
+          break;
+        }
+      }
+      if (isRemoved) {
+        removed.push({ code, name, market });
+        return;
+      }
+      rows[code] = { market, name };
+    });
+  }
+  const codes = Object.keys(rows);
+  if (!codes.length) return null;
+  const counts = {
+    total: codes.length,
+    KOSPI: codes.filter((c) => rows[c].market === "KOSPI").length,
+    KOSDAQ: codes.filter((c) => rows[c].market === "KOSDAQ").length
+  };
+  const meta = inferAsOf(text);
+  return { rows, removed, asOf: meta.asOf, quarter: meta.quarter, counts, hasStatusColumn };
+}
+function crossCheckSummary(text, parsed) {
+  const m = String(text || "").match(/합계\s*\t?\s*(\d{2,4})\s*\t?\s*(\d{1,3})\s*\t?\s*(\d{2,4})/);
+  if (!m || !parsed) return { checked: false };
+  const expectedSelected = +m[3];
+  const ok2 = parsed.counts.total === expectedSelected;
+  return { checked: true, expectedSelected, got: parsed.counts.total, ok: ok2 };
+}
+var CODE_RE, ISIN_RE, isinToCode, MARKET_RE, normMarket, cellsOf;
+var init_nxt_official = __esm({
+  "data/nxt-official.js"() {
+    CODE_RE = /^[0-9][0-9A-Z]{5}$/;
+    ISIN_RE = /\bKR[0-9A-Z]([0-9][0-9A-Z]{5})[0-9A-Z]{3}\b/;
+    isinToCode = (isin) => {
+      const m = String(isin || "").toUpperCase().match(ISIN_RE);
+      return m ? m[1] : null;
+    };
+    MARKET_RE = /(KOSPI|KOSDAQ|코스피|코스닥)/i;
+    normMarket = (s) => {
+      const m = String(s || "").match(MARKET_RE);
+      if (!m) return "";
+      return /KOSDAQ|코스닥/i.test(m[1]) ? "KOSDAQ" : "KOSPI";
+    };
+    cellsOf = (line) => line.split("	").map((c) => c.trim()).filter((c) => c !== "");
+  }
+});
+
+// data/nxt-exclusions.js
+function activeExclusions(today) {
+  const d = today || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  return NXT_EXCLUSIONS.filter((e) => (!e.from || e.from <= d) && (!e.until || e.until >= d));
+}
+var NXT_EXCLUSIONS, AUDIT;
+var init_nxt_exclusions = __esm({
+  "data/nxt-exclusions.js"() {
+    NXT_EXCLUSIONS = [
+      /* ── 2026년 3분기 정기 변경 (2026-07-01 프리마켓부터, 신규 편입 없음)
+            코스피 20 + 코스닥 12 = 32종목 제외 → 3분기 대상 610종목
+            (코스피 338 / 코스닥 272)                                        */
+      { name: "DL\uC774\uC564\uC528", code: "375500", market: "KOSPI", from: "2026-07-01" },
+      { name: "DS\uB2E8\uC11D", code: "017860", market: "KOSPI", from: "2026-07-01" },
+      { name: "GS\uAC74\uC124", code: "006360", market: "KOSPI", from: "2026-07-01" },
+      { name: "HL\uB9CC\uB3C4", code: "204320", market: "KOSPI", from: "2026-07-01" },
+      { name: "LG\uC528\uC5D4\uC5D0\uC2A4", code: "064400", market: "KOSPI", from: "2026-07-01" },
+      { name: "SK\uC624\uC158\uD50C\uB79C\uD2B8", code: "100090", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uB125\uC2A4\uD2F8", code: "092790", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uB300\uD55C\uD56D\uACF5", code: "003490", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uB450\uC0B0\uB85C\uBCF4\uD2F1\uC2A4", code: "454910", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uBBF8\uB798\uC5D0\uC14B\uC0DD\uBA85", code: "085620", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uC0BC\uC131E&A", code: "028050", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uC0BC\uD654\uCF58\uB374\uC11C", code: "001820", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uC528\uC5D0\uC2A4\uC708\uB4DC", code: "112610", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uC560\uACBD\uC0B0\uC5C5", code: "018250", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uCE74\uCE74\uC624", code: "035720", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uD2F0\uC5E0\uC528", code: "217590", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uD30C\uBBF8\uC140", code: "005690", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uD55C\uD654\uC194\uB8E8\uC158", code: "009830", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uD654\uC2E0", code: "010690", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uD6C4\uC131", code: "093370", market: "KOSPI", from: "2026-07-01" },
+      { name: "\uB300\uBA85\uC5D0\uB108\uC9C0", code: "389260", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uB514\uC564\uB514\uD30C\uB9C8\uD14D", code: "347850", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC0BC\uC591\uCEF4\uD14D", code: "484590", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC2A4\uD53C\uC5B4", code: "347700", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC5D1\uC2A4\uAC8C\uC774\uD2B8", code: "356680", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC608\uC2A4\uD2F0", code: "122640", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC624\uB9AC\uC5D4\uD0C8\uC815\uACF5", code: "014940", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC6D0\uC775IPS", code: "240810", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC6D0\uD14D", code: "336570", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uC81C\uC774\uC564\uD2F0\uC528", code: "204270", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uCE74\uCE74\uC624\uAC8C\uC784\uC988", code: "293490", market: "KOSDAQ", from: "2026-07-01" },
+      { name: "\uD604\uB300\uBB34\uBCA1\uC2A4", code: "319400", market: "KOSDAQ", from: "2026-07-01" }
+    ].map((e) => ({
+      ...e,
+      until: e.until || null,
+      // null = 해제 공시 전까지 계속 적용
+      reason: e.reason || "\uB125\uC2A4\uD2B8\uB808\uC774\uB4DC \uB9E4\uB9E4\uCCB4\uACB0\uB300\uC0C1 \uC81C\uC678 (\uAC70\uB798\uB7C9 \uADDC\uC81C \uD55C\uB3C4 \uAD00\uB9AC)",
+      source: e.source || "\uB125\uC2A4\uD2B8\uB808\uC774\uB4DC 3\uBD84\uAE30 \uB9E4\uB9E4\uCCB4\uACB0\uB300\uC0C1\uC885\uBAA9 \uC815\uAE30 \uBCC0\uACBD (2026-06-26 \uACF5\uD45C)"
+    }));
+    AUDIT = {
+      // 3분기에도 거래 대상으로 유지되는 것이 확인된 종목
+      mustInclude: [
+        { code: "005930", name: "\uC0BC\uC131\uC804\uC790" },
+        { code: "000660", name: "SK\uD558\uC774\uB2C9\uC2A4" },
+        { code: "196170", name: "\uC54C\uD14C\uC624\uC820" },
+        { code: "035420", name: "NAVER" }
+      ],
+      // 2026-07-01 정기 변경으로 제외가 확인된 종목
+      mustExclude: [
+        { code: "240810", name: "\uC6D0\uC775IPS" },
+        { code: "035720", name: "\uCE74\uCE74\uC624" },
+        { code: "003490", name: "\uB300\uD55C\uD56D\uACF5" },
+        { code: "293490", name: "\uCE74\uCE74\uC624\uAC8C\uC784\uC988" },
+        { code: "319400", name: "\uD604\uB300\uBB34\uBCA1\uC2A4" }
+      ],
+      // 3분기 공표 기준 610종목 (코스피 338 / 코스닥 272). 여유를 둔 허용 범위.
+      expected: { total: 610, kospi: 338, kosdaq: 272 },
+      countRange: [560, 700]
+      // 베이스라인=출범 796 명단, 편출 계층 적용 후 통과하도록 상한 확대
+    };
+  }
+});
+
+// data/nxt-signal.js
+async function jget2(url, ms = 5e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA3, Referer: "https://m.stock.naver.com/", Accept: "application/json" }, signal: c.signal });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+function exchangeFeatures(json12) {
+  const feats = /* @__PURE__ */ new Set();
+  const walk = (o, path, d) => {
+    if (!o || typeof o !== "object" || d > 7 || feats.size > 300) return;
+    if (Array.isArray(o)) {
+      o.slice(0, 30).forEach((v) => walk(v, path + "[]", d + 1));
+      return;
+    }
+    for (const [k, v] of Object.entries(o)) {
+      const p = path ? path + "." + k : k;
+      if (v == null) continue;
+      if (typeof v === "object") {
+        walk(v, p, d + 1);
+        continue;
+      }
+      const sv = String(v).slice(0, 40);
+      const keyHit = EX_HINT.test(k) && !VOLATILE.test(k);
+      const valHit = EX_HINT.test(sv) && !/^\d+(\.\d+)?$/.test(sv);
+      if (keyHit || valHit) {
+        if (keyHit) feats.add("@" + p);
+        if (sv.length <= 40 && !/^\d{4,}$/.test(sv)) feats.add(p + "=" + sv);
+      }
+    }
+  };
+  walk(json12, "", 0);
+  return feats;
+}
+async function fetchStockMeta(code) {
+  const [integ, basic] = await Promise.all([
+    jget2(`https://m.stock.naver.com/api/stock/${code}/integration`),
+    jget2(`https://m.stock.naver.com/api/stock/${code}/basic`)
+  ]);
+  if (!integ && !basic) return null;
+  const f = /* @__PURE__ */ new Set();
+  if (integ) for (const x of exchangeFeatures(integ)) f.add("I:" + x);
+  if (basic) for (const x of exchangeFeatures(basic)) f.add("B:" + x);
+  return { feats: f, raw: { integ: !!integ, basic: !!basic } };
+}
+function anchors() {
+  const pos = AUDIT.mustInclude.map((t) => t.code);
+  const neg = NXT_EXCLUSIONS.filter((e) => e.code).map((e) => e.code);
+  return { pos, neg: neg.filter((c) => !pos.includes(c)) };
+}
+function separate(samples, pos, neg) {
+  const P = pos.filter((c) => samples.has(c));
+  const N = neg.filter((c) => samples.has(c));
+  if (P.length < 3 || N.length < 4)
+    return { ok: false, why: `\uD45C\uBCF8 \uBD80\uC871(\uC591\uC131 ${P.length}/3, \uC74C\uC131 ${N.length}/4)`, P: P.length, N: N.length };
+  const inP = /* @__PURE__ */ new Map(), inN = /* @__PURE__ */ new Map();
+  for (const c of P) for (const f of samples.get(c)) inP.set(f, (inP.get(f) || 0) + 1);
+  for (const c of N) for (const f of samples.get(c)) inN.set(f, (inN.get(f) || 0) + 1);
+  const features = [];
+  for (const [f, n] of inP) if (n === P.length && !inN.has(f)) features.push(f);
+  if (!features.length)
+    return { ok: false, why: "\uC591\uC131 \uC804\uBD80\uC5D0 \uC788\uACE0 \uC74C\uC131\uC5D0 \uC804\uD600 \uC5C6\uB294 \uAC70\uB798\uC18C \uD2B9\uC9D5\uC744 \uCC3E\uC9C0 \uBABB\uD568", P: P.length, N: N.length };
+  return { ok: true, features, P: P.length, N: N.length };
+}
+async function ensureSignal(store) {
+  if (memSignal && Date.now() - memSignal.at < SIGNAL_TTL) return memSignal;
+  if (store) {
+    try {
+      const cached = await store.get("signal", { type: "json" });
+      if (cached && cached.features && Date.now() - cached.at < SIGNAL_TTL) {
+        memSignal = cached;
+        return cached;
+      }
+    } catch {
+    }
+  }
+  if (Date.now() < negUntil) return { ok: false, why: "\uCD5C\uADFC \uBCF4\uC815 \uC2E4\uD328(\uCFE8\uB2E4\uC6B4)", cooldown: true };
+  const { pos, neg } = anchors();
+  const samples = /* @__PURE__ */ new Map();
+  const codes = [...pos, ...neg];
+  let i = 0;
+  const work = async () => {
+    while (i < codes.length) {
+      const c = codes[i++];
+      const m = await fetchStockMeta(c);
+      if (m) samples.set(c, m.feats);
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, work));
+  const sep = separate(samples, pos, neg);
+  if (!sep.ok) {
+    negUntil = Date.now() + NEG_TTL;
+    return sep;
+  }
+  const signal = { ok: true, features: sep.features, at: Date.now(), P: sep.P, N: sep.N };
+  memSignal = signal;
+  if (store) {
+    try {
+      await store.setJSON("signal", signal);
+    } catch {
+    }
+  }
+  return signal;
+}
+async function classifyStock(code, store, diag) {
+  const signal = await ensureSignal(store);
+  if (!signal.ok) return { member: null, signal, reason: signal.why };
+  const m = await fetchStockMeta(code);
+  if (!m) return { member: null, signal, reason: "\uB124\uC774\uBC84 \uC751\uB2F5 \uC5C6\uC74C" };
+  const member = isMember(m.feats, signal);
+  const out = { member, signal };
+  if (diag) {
+    out.matched = signal.features.filter((f) => m.feats.has(f));
+    out.exchangeFeatures = [...m.feats].filter((f) => /nxt|krx|unified|integrat|exchange|거래소|통합/i.test(f)).slice(0, 40);
+  }
+  return out;
+}
+var UA3, SIGNAL_TTL, NEG_TTL, EX_HINT, VOLATILE, memSignal, negUntil, isMember;
+var init_nxt_signal = __esm({
+  "data/nxt-signal.js"() {
+    init_nxt_exclusions();
+    init_nxt_exclusions();
+    UA3 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+    SIGNAL_TTL = 12 * 60 * 60 * 1e3;
+    NEG_TTL = 30 * 60 * 1e3;
+    EX_HINT = /nxt|nextrade|\bats\b|krx|unified|integrat|exchange|market(type|code|name)|거래소|통합|대체/i;
+    VOLATILE = /price|amount|volume|qty|ratio|rate|change|시가|종가|고가|저가|거래량|체결|priceinfo/i;
+    memSignal = null;
+    negUntil = 0;
+    isMember = (feats, signal) => !!(signal && signal.ok && feats && signal.features.some((f) => feats.has(f)));
+  }
+});
+
+// data/nxt-detect.js
+async function getJson(url, ms = 5e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, {
+      headers: { "User-Agent": UA4, Referer: "https://m.stock.naver.com/", Accept: "application/json" },
+      signal: c.signal
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function pool(items, worker, { concurrency = 10, deadline = 0 } = {}) {
+  const out = new Array(items.length).fill(null);
+  let i = 0, stopped = false;
+  const run = async () => {
+    while (true) {
+      if (stopped) return;
+      if (deadline && Date.now() > deadline) {
+        stopped = true;
+        return;
+      }
+      const k = i++;
+      if (k >= items.length) return;
+      try {
+        out[k] = await worker(items[k], k);
+      } catch {
+        out[k] = null;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  return { out, complete: !stopped };
+}
+async function fetchUniverse(deadline) {
+  const all = /* @__PURE__ */ new Map();
+  for (const market of ["KOSPI", "KOSDAQ"]) {
+    for (let page = 1; page <= 40; page++) {
+      if (deadline && Date.now() > deadline) break;
+      const j = await getJson(`https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=100`);
+      const arr = j && (j.stocks || j.result || j.items);
+      if (!Array.isArray(arr) || !arr.length) break;
+      let added = 0;
+      for (const x of arr) {
+        const code = String(x.itemCode || x.code || x.reutersCode || "").toUpperCase().replace(/\.(KS|KQ)$/, "");
+        if (!/^[0-9A-Z]{6}$/.test(code) || all.has(code)) continue;
+        all.set(code, { code, name: String(x.stockName || x.itemName || x.name || "").trim(), market });
+        added++;
+      }
+      if (!added) break;
+    }
+  }
+  return [...all.values()];
+}
+async function buildFromProbe({ budgetMs = 9 * 60 * 1e3, store = null, log = () => {
+} } = {}) {
+  const deadline = Date.now() + budgetMs;
+  const signal = await ensureSignal(store);
+  if (!signal.ok) return { ok: false, why: "\uAC70\uB798\uC18C \uC2E0\uD638 \uBCF4\uC815 \uC2E4\uD328: " + signal.why, signal };
+  log(`\uC2E0\uD638 \uD655\uBCF4 \u2014 \uD310\uBCC4 \uD2B9\uC9D5 ${signal.features.length}\uAC1C (\uC591\uC131 ${signal.P}/\uC74C\uC131 ${signal.N})`);
+  const universe3 = await fetchUniverse(deadline);
+  log(`\uC720\uB2C8\uBC84\uC2A4 ${universe3.length}\uC885\uBAA9`);
+  if (universe3.length < 1500) return { ok: false, why: `\uC804 \uC885\uBAA9 \uBAA9\uB85D\uC774 \uB108\uBB34 \uC801\uC2B5\uB2C8\uB2E4(${universe3.length})`, signal };
+  const byCode = new Map(universe3.map((u) => [u.code, u]));
+  const hits = /* @__PURE__ */ new Map();
+  let probed = 0;
+  const { complete } = await pool(universe3.map((u) => u.code), async (c) => {
+    const j = await getJson(`https://m.stock.naver.com/api/stock/${c}/integration`);
+    probed++;
+    if (j && isMember(new Set([...exchangeFeatures(j)].map((x) => "I:" + x)), signal)) hits.set(c, true);
+  }, { concurrency: 16, deadline });
+  log(`\uC870\uC0AC ${probed}/${universe3.length}\uC885\uBAA9 \xB7 NXT ${hits.size}\uC885\uBAA9 \xB7 ${complete ? "\uC644\uC8FC" : "\uC2DC\uAC04 \uCD08\uACFC"}`);
+  if (!complete) return { ok: false, why: `\uC2DC\uAC04 \uB0B4 \uC804 \uC885\uBAA9 \uBBF8\uC644(${probed}/${universe3.length})`, signal, probed };
+  const rows = {};
+  for (const c of hits.keys()) {
+    const u = byCode.get(c);
+    rows[c] = { market: u ? u.market : "", name: u ? u.name : "" };
+  }
+  return { ok: true, rows, source: `signal:naver(${signal.features.length}\uD2B9\uC9D5)`, signal, probed };
+}
+var UA4;
+var init_nxt_detect = __esm({
+  "data/nxt-detect.js"() {
+    init_nxt_exclusions();
+    init_nxt_signal();
+    UA4 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+  }
+});
+
+// data/nxt-core.js
+var nxt_core_exports = {};
+__export(nxt_core_exports, {
+  AUDIT: () => AUDIT,
+  COLLECT_SOURCES: () => COLLECT_SOURCES,
+  NXT_UNIVERSE: () => NXT_UNIVERSE,
+  activeExclusions: () => activeExclusions,
+  applyExclusions: () => applyExclusions,
+  auditList: () => auditList,
+  blobStore: () => blobStore,
+  clearPinned: () => clearPinned,
+  collect: () => collect,
+  collectOne: () => collectOne,
+  extractRows: () => extractRows,
+  noteObserved: () => noteObserved,
+  parseAttachments: () => parseAttachments,
+  parseBoardList: () => parseBoardList,
+  parseHalts: () => parseHalts,
+  readHistory: () => readHistory,
+  readObserved: () => readObserved,
+  readPinned: () => readPinned,
+  recordHistory: () => recordHistory,
+  resolve: () => resolve2,
+  resolveFast: () => resolveFast,
+  writePinned: () => writePinned
+});
+function jar() {
+  const store = /* @__PURE__ */ new Map();
+  return {
+    absorb(res) {
+      let raw = [];
+      try {
+        raw = res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get("set-cookie")].filter(Boolean);
+      } catch {
+        raw = [];
+      }
+      for (const line of raw || []) {
+        const [pair] = String(line).split(";");
+        const idx = pair.indexOf("=");
+        if (idx > 0) store.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
+      }
+    },
+    header() {
+      return [...store.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+    },
+    size() {
+      return store.size;
+    }
+  };
+}
+async function req(url, opt = {}) {
+  const { method = "GET", body = null, headers = {}, cookies = null, referer = "", ms = 9e3 } = opt;
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), Math.max(800, Math.min(ms, budgetLeft() - 300)));
+  try {
+    const h = { ...BROWSER_HEADERS, ...headers };
+    if (referer) h.Referer = referer;
+    if (cookies && cookies.size()) h.Cookie = cookies.header();
+    const r = await fetch(url, { method, body, headers: h, redirect: "follow", signal: c.signal });
+    if (cookies) cookies.absorb(r);
+    if (!r.ok) return null;
+    if (opt.binary) return Buffer.from(await r.arrayBuffer());
+    return await r.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+function extractRows(text) {
+  if (!text) return null;
+  const out = {};
+  try {
+    const j = JSON.parse(text);
+    const walk = (o, d) => {
+      if (!o || typeof o !== "object" || d > 7) return;
+      if (Array.isArray(o)) {
+        for (const v of o) walk(v, d + 1);
+        return;
+      }
+      let code = "", mkt = "", name = "";
+      for (const [k, v] of Object.entries(o)) {
+        if (v == null || typeof v === "object") continue;
+        const sv = String(v).trim();
+        if (!code && isCode(sv) && /(cd|code|no|코드)/i.test(k)) code = sv;
+        if (!mkt && /(mkt|market|exch|시장)/i.test(k)) mkt = marketOf(sv);
+        if (!name && /(nm|name|종목명|title)/i.test(k) && sv && !isCode(sv)) name = sv;
+      }
+      if (code) out[code] = { market: mkt || out[code] && out[code].market || "", name: name || out[code] && out[code].name || "" };
+      for (const v of Object.values(o)) if (v && typeof v === "object") walk(v, d + 1);
+    };
+    walk(j, 0);
+    if (Object.keys(out).length >= MIN_OK) return out;
+  } catch {
+  }
+  const rows = String(text).replace(/<\/(tr|p|div|li)>/gi, "\n").replace(/<[^>]+>/g, "	").replace(/&nbsp;/g, " ").split(/\r?\n/);
+  for (const row of rows) {
+    const codes = row.match(/(?<![0-9A-Z])([0-9][0-9A-Z]{5})(?![0-9A-Z])/gi);
+    if (!codes) continue;
+    if (!/[가-힣A-Za-z&]/.test(row.replace(/[0-9,.\s\t%\-+()|;"']/g, ""))) continue;
+    const mkt = marketOf(row);
+    const pairs = [...row.matchAll(/(?<![0-9A-Z])([0-9][0-9A-Z]{5})(?![0-9A-Z])[\s\t,|]*([^\t|,0-9]{1,30})?/gi)];
+    for (const m of pairs) {
+      const code = m[1];
+      if (!isCode(code)) continue;
+      const nm = (m[2] || "").trim();
+      out[code] = { market: mkt || out[code] && out[code].market || "", name: nm || out[code] && out[code].name || "" };
+    }
+    for (const code of codes) if (!out[code]) out[code] = { market: mkt, name: "" };
+  }
+  return Object.keys(out).length ? out : null;
+}
+async function fromEnvUrl() {
+  const url = process.env.NXT_LIST_URL;
+  if (!url) return null;
+  const txt = await req(url, { headers: { Accept: "application/json, text/plain, text/csv, */*" } });
+  const rows = extractRows(txt);
+  if (rows && Object.keys(rows).length) return { rows, source: "env:NXT_LIST_URL" };
+  return null;
+}
+function parseBoardList(html) {
+  if (!html) return [];
+  const posts = [];
+  const best = /* @__PURE__ */ new Map();
+  const pats = [
+    /scNttNo=(\d+)[^>]*>\s*([^<]{4,120})/g,
+    /fn_?[eE]gov_?[sS]elect[^(]*\(\s*'?(\d+)'?\s*\)[^>]*>\s*([^<]{4,120})/g,
+    /fn_?view\(\s*'?(\d+)'?\s*\)[^>]*>\s*([^<]{4,120})/g,
+    /goView\(\s*'?(\d+)'?\s*\)[^>]*>\s*([^<]{4,120})/g,
+    /data-ntt-?no=["'](\d+)["'][^>]*>\s*([^<]{4,120})/gi
+  ];
+  for (const re of pats) {
+    for (const m of String(html).matchAll(re)) {
+      const no = m[1];
+      const title = m[2].replace(/\s+/g, " ").trim();
+      const prev = best.get(no);
+      if (prev && !(LIST_TITLE.test(title) && !LIST_TITLE.test(prev))) continue;
+      best.set(no, title);
+    }
+  }
+  for (const [no, title] of best) {
+    posts.push({ no: +no, title, date: (title.match(/20\d{2}[-.]\d{2}[-.]\d{2}/) || [""])[0] });
+  }
+  return posts.sort((a, b) => b.no - a.no);
+}
+function parseHalts(posts) {
+  const state = /* @__PURE__ */ new Map();
+  for (const p of posts) {
+    const m = String(p.title).match(/매매거래(정지|재개)\s*\(([^)]+)\)/);
+    if (!m) continue;
+    const halted = m[1] === "\uC815\uC9C0";
+    for (const raw of m[2].split(/[,·]/)) {
+      const name = raw.trim();
+      if (!name) continue;
+      const cur = state.get(name);
+      if (!cur || p.no > cur.no) state.set(name, { no: p.no, halted });
+    }
+  }
+  return [...state.entries()].filter(([, v]) => v.halted).map(([name]) => name);
+}
+function parseAttachments(html, host) {
+  if (!html) return [];
+  const urls = /* @__PURE__ */ new Set();
+  const push = (u) => {
+    if (u) urls.add(u.startsWith("http") ? u : host + (u.startsWith("/") ? "" : "/") + u);
+  };
+  for (const m of String(html).matchAll(/href=["']([^"']*(?:FileDown|fileDown|download|atchFile)[^"']*)["']/gi)) push(m[1].replace(/&amp;/g, "&"));
+  for (const m of String(html).matchAll(/href=["']([^"']+\.(?:xlsx|xls|csv))["']/gi)) push(m[1].replace(/&amp;/g, "&"));
+  for (const m of String(html).matchAll(/(?:fn_?egov_?downFile|fileDown|fnDownload|fn_?fileDown)\(\s*'([^']+)'\s*(?:,\s*'?([\w-]+)'?)?/gi)) {
+    const id = m[1], sn = m[2] || "0";
+    push(`/cmm/fms/FileDown.do?atchFileId=${id}&fileSn=${sn}`);
+    push(`/file/download.do?atchFileId=${id}&fileSn=${sn}`);
+    push(`/cmm/fms/FileDown.do?atchFileId=${id}&fileSn=${sn}&scBbsKndCode=marketInfo`);
+  }
+  for (const m of String(html).matchAll(/data-(?:file|atch)[\w-]*=["']([^"']+)["']/gi)) {
+    push(`/cmm/fms/FileDown.do?atchFileId=${m[1]}&fileSn=0`);
+  }
+  return [...urls];
+}
+async function attachmentToText(buf) {
+  if (!buf || !buf.length) return null;
+  if (buf[0] === 80 && buf[1] === 75) {
+    try {
+      return await xlsxToText(buf);
+    } catch {
+      return null;
+    }
+  }
+  if (buf[0] === 37 && buf[1] === 80 && buf[2] === 68 && buf[3] === 70) {
+    const raw = buf.toString("latin1");
+    const out = [];
+    for (const m of raw.matchAll(/\(([^()\\]{1,80})\)\s*Tj/g)) out.push(m[1]);
+    const txt = out.join("\n");
+    return txt.length > 200 ? txt : null;
+  }
+  return buf.toString("utf8");
+}
+async function fromNextradeBoard() {
+  for (const host of HOSTS) {
+    if (outOfTime()) break;
+    const cookies = jar();
+    await req(`${host}/main.do`, { cookies });
+    let posts = [];
+    for (let page = 1; page <= 3; page++) {
+      if (outOfTime()) break;
+      const html = await req(BOARD_LIST(host, page), { cookies, referer: `${host}/main.do` });
+      if (!html) break;
+      posts = posts.concat(parseBoardList(html));
+    }
+    const haltedNames = parseHalts(posts);
+    const targets = posts.filter((p) => LIST_TITLE.test(p.title)).slice(0, 8);
+    if (!targets.length) continue;
+    for (const post of targets) {
+      if (outOfTime()) break;
+      const view2 = await req(BOARD_VIEW(host, post.no), { cookies, referer: BOARD_LIST(host, 1) });
+      if (!view2) continue;
+      let rows = extractRows(view2);
+      if (sane(rows)) return { rows, halted: haltedNames, source: `nextrade:board#${post.no}` };
+      for (const url of parseAttachments(view2, host)) {
+        if (outOfTime()) break;
+        const buf = await req(url, { cookies, referer: BOARD_VIEW(host, post.no), binary: true, ms: 15e3 });
+        const txt = await attachmentToText(buf);
+        rows = extractRows(txt);
+        if (sane(rows)) return { rows, halted: haltedNames, source: `nextrade:xlsx#${post.no}` };
+      }
+    }
+  }
+  return null;
+}
+async function fromNextradeConclusion() {
+  for (const host of HOSTS) {
+    if (outOfTime()) break;
+    const cookies = jar();
+    await req(`${host}/main.do`, { cookies });
+    const listUrl = `${host}/menu/transactionStatusConclusion/menuList.do`;
+    const page = await req(listUrl, { cookies, referer: `${host}/main.do` });
+    let rows = extractRows(page);
+    if (sane(rows)) return { rows, source: "nextrade:page" };
+    const candidates = [
+      { u: `${host}/menu/transactionStatusConclusion/excelDownload.do`, m: "POST" },
+      { u: `${host}/menu/transactionStatusConclusion/selectList.do`, m: "POST" },
+      { u: `${host}/menu/transactionStatusConclusion/list.do`, m: "POST" },
+      { u: `${host}/menu/transactionStatusConclusion/selectTradeIsuList.do`, m: "POST" }
+    ];
+    for (const c of candidates) {
+      if (outOfTime()) break;
+      const buf = await req(c.u, {
+        method: c.m,
+        cookies,
+        referer: listUrl,
+        binary: true,
+        ms: 15e3,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest",
+          "Accept": "application/json, text/javascript, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, */*",
+          "Sec-Fetch-Dest": "empty",
+          "Sec-Fetch-Mode": "cors"
+        },
+        body: "pageIndex=1&pageUnit=3000&recordCountPerPage=3000&mktCl=&searchKeyword="
+      });
+      rows = extractRows(await attachmentToText(buf));
+      if (sane(rows)) return { rows, source: "nextrade:excel" };
+    }
+  }
+  return null;
+}
+async function fromNextrade() {
+  return await fromNextradeBoard() || await fromNextradeConclusion();
+}
+async function fromMirrors() {
+  for (const m of MIRRORS) {
+    if (outOfTime()) break;
+    const buf = await req(m.url, { binary: true, ms: 12e3, headers: { Accept: "application/pdf,text/html,*/*" } });
+    const rows = extractRows(await attachmentToText(buf));
+    if (sane(rows)) return { rows, source: "mirror:" + m.tag };
+  }
+  return null;
+}
+function fromSnapshot() {
+  const c = NXT_UNIVERSE && NXT_UNIVERSE.codes || {};
+  if (!Object.keys(c).length) return null;
+  const rows = {};
+  for (const [code, market] of Object.entries(c)) rows[code] = { market: market || "", name: (NXT_UNIVERSE.names || {})[code] || "" };
+  return { rows, source: "snapshot", asOf: NXT_UNIVERSE.asOf };
+}
+function applyExclusions(rows, today) {
+  const ex = activeExclusions(today);
+  const byCode = new Set(ex.filter((e) => e.code).map((e) => e.code));
+  const byName = new Set(ex.map((e) => normName(e.name)));
+  const removed = [];
+  for (const code of Object.keys(rows)) {
+    if (byCode.has(code) || byName.has(normName(rows[code].name))) {
+      removed.push(code);
+      delete rows[code];
+    }
+  }
+  for (const e of ex) if (e.code && !removed.includes(e.code)) removed.push(e.code);
+  return { rows, removed, exclusionCount: ex.length };
+}
+function auditList(rows) {
+  const problems = [];
+  const codes = Object.keys(rows);
+  const n = codes.length;
+  if (n < MIN_OK || n > MAX_OK) problems.push(`\uC885\uBAA9 \uC218 ${n}\uAC1C\uAC00 \uD5C8\uC6A9 \uBC94\uC704(${MIN_OK}~${MAX_OK}) \uBC16`);
+  for (const t of AUDIT.mustInclude) if (!rows[t.code]) problems.push(`\uD3EC\uD568\uB3FC\uC57C \uD560 ${t.name}(${t.code})\uC774 \uBA85\uB2E8\uC5D0 \uC5C6\uC74C`);
+  for (const t of AUDIT.mustExclude) if (rows[t.code]) problems.push(`\uC81C\uC678\uB3FC\uC57C \uD560 ${t.name}(${t.code})\uC774 \uBA85\uB2E8\uC5D0 \uB0A8\uC544 \uC788\uC74C`);
+  const kospi = codes.filter((c) => rows[c].market === "KOSPI").length;
+  const kosdaq = codes.filter((c) => rows[c].market === "KOSDAQ").length;
+  return { ok: problems.length === 0, problems, count: n, kospi, kosdaq };
+}
+async function blobStore() {
+  try {
+    const { getStore: getStore2 } = await Promise.resolve().then(() => (init_blobs_shim(), blobs_shim_exports));
+    return getStore2("nxt-universe");
+  } catch {
+    return null;
+  }
+}
+async function readKey(key) {
+  const s = await blobStore();
+  if (!s) return null;
+  try {
+    return await s.get(key, { type: "json" });
+  } catch {
+    return null;
+  }
+}
+async function writeKey(key, val) {
+  const s = await blobStore();
+  if (!s) return false;
+  try {
+    await s.setJSON(key, val);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function readCache() {
+  const j = await readKey("current");
+  if (!j || !j.codes) return null;
+  return { ...j, stale: Date.now() - (j.fetchedAt || 0) > TTL_MS };
+}
+async function readObserved() {
+  const j = await readKey("observed");
+  const arr = j && Array.isArray(j.codes) ? j.codes : [];
+  for (const c of arr) observedMem.add(c);
+  return [...observedMem];
+}
+async function noteObserved(code) {
+  const c = String(code || "").toUpperCase();
+  if (!/^[0-9A-Z]{6}$/.test(c) || observedMem.has(c)) return false;
+  observedMem.add(c);
+  if (Date.now() - observedFlush < 6e4) return true;
+  observedFlush = Date.now();
+  try {
+    const j = await readKey("observed") || {};
+    const merged = /* @__PURE__ */ new Set([...j.codes || [], ...observedMem]);
+    await writeKey("observed", { codes: [...merged], at: Date.now() });
+  } catch {
+  }
+  return true;
+}
+async function fromProbe() {
+  const left = budgetLeft();
+  if (left < 3 * 60 * 1e3) return null;
+  const observed = await readObserved();
+  const r = await buildFromProbe({
+    budgetMs: Math.min(left - 2e4, 10 * 60 * 1e3),
+    observed,
+    log: (m) => console.log("[probe]", m)
+  });
+  if (!r || !r.ok) {
+    probeWhy = r && r.why || "\uC54C \uC218 \uC5C6\uC74C";
+    return null;
+  }
+  return { rows: r.rows, source: r.source };
+}
+function officialSane(parsed, rawText) {
+  if (!parsed) return { ok: false, why: "\uD30C\uC2F1 \uC2E4\uD328" };
+  const have = NXT_UNIVERSE && NXT_UNIVERSE.asOf || "";
+  if (have && parsed.asOf && parsed.asOf < have)
+    return { ok: false, why: `\uACFC\uAC70 \uC790\uB8CC(${parsed.asOf} < \uBCF4\uC720 ${have})` };
+  const n = parsed.counts.total;
+  if (n < MIN_OK || n > MAX_OK) return { ok: false, why: `\uAC1C\uC218 ${n} \uBC94\uC704 \uBC16(${MIN_OK}~${MAX_OK})` };
+  for (const t of AUDIT.mustInclude)
+    if (!parsed.rows[t.code]) return { ok: false, why: `${t.name}(${t.code}) \uB204\uB77D \u2014 \uD30C\uC2F1 \uC5B4\uAE0B\uB0A8` };
+  if (!parsed.counts.KOSPI || !parsed.counts.KOSDAQ) return { ok: false, why: "\uC2DC\uC7A5 \uAD6C\uBD84\uC774 \uD55C\uCABD\uBFD0" };
+  const cc = crossCheckSummary(rawText, parsed);
+  if (cc.checked && !cc.ok) return { ok: false, why: `\uC694\uC57D\uD45C\uC640 \uBD88\uC77C\uCE58(\uD45C ${cc.expectedSelected} vs \uD30C\uC2F1 ${cc.got})` };
+  return { ok: true, crossChecked: !!cc.checked };
+}
+async function fromOfficialSite() {
+  const tried = [];
+  for (const host of HOSTS) {
+    if (outOfTime()) break;
+    const cookies = jar();
+    await req(`${host}/main.do`, { cookies });
+    for (const boardUrl of OFFICIAL_BOARDS) {
+      if (outOfTime()) break;
+      let posts = [];
+      for (let page = 1; page <= 2; page++) {
+        if (outOfTime()) break;
+        const html = await req(boardUrl(host, page), { cookies, referer: `${host}/main.do` });
+        if (!html) break;
+        posts = posts.concat(parseBoardList(html));
+      }
+      const targets = posts.filter((p) => OFFICIAL_TITLE.test(p.title)).slice(0, 6);
+      for (const post of targets) {
+        if (outOfTime()) break;
+        const view2 = await req(BOARD_VIEW(host, post.no), { cookies, referer: boardUrl(host, 1) });
+        if (!view2) continue;
+        let parsed = parseOfficial(view2);
+        let chk = officialSane(parsed, view2);
+        if (chk.ok) return {
+          rows: parsed.rows,
+          removed: parsed.removed,
+          asOf: parsed.asOf,
+          quarter: parsed.quarter,
+          source: `official:\uBCF8\uBB38#${post.no}`,
+          counts: parsed.counts
+        };
+        tried.push(`\uBCF8\uBB38#${post.no}:${chk.why}`);
+        for (const url of parseAttachments(view2, host)) {
+          if (outOfTime()) break;
+          const buf = await req(url, { cookies, referer: BOARD_VIEW(host, post.no), binary: true, ms: 2e4 });
+          const txt = await attachmentToText(buf);
+          if (!txt) continue;
+          parsed = parseOfficial(txt);
+          chk = officialSane(parsed, txt);
+          if (chk.ok) return {
+            rows: parsed.rows,
+            removed: parsed.removed,
+            asOf: parsed.asOf,
+            quarter: parsed.quarter,
+            source: `official:\uCCA8\uBD80#${post.no}`,
+            counts: parsed.counts
+          };
+          tried.push(`\uCCA8\uBD80#${post.no}:${chk.why}`);
+        }
+      }
+    }
+    for (const listUrl of OFFICIAL_LISTS) {
+      if (outOfTime()) break;
+      const html = await req(listUrl(host), { cookies, referer: `${host}/main.do` });
+      if (!html) continue;
+      const parsed = parseOfficial(html);
+      const chk = officialSane(parsed, html);
+      if (chk.ok) return {
+        rows: parsed.rows,
+        removed: parsed.removed,
+        asOf: parsed.asOf,
+        quarter: parsed.quarter,
+        source: "official:\uBAA9\uB85D\uD398\uC774\uC9C0",
+        counts: parsed.counts
+      };
+      tried.push(`\uBAA9\uB85D:${chk.why}`);
+    }
+  }
+  officialWhy = tried.length ? tried.slice(0, 6).join(" / ") : "\uB125\uC2A4\uD2B8\uB808\uC774\uB4DC \uC811\uC18D \uC2E4\uD328";
+  return null;
+}
+async function fromNaverIntegrated() {
+  const left = budgetLeft();
+  if (left < 6e4) {
+    integWhy = "\uC2DC\uAC04 \uC608\uC0B0 \uBD80\uC871";
+    return null;
+  }
+  const deadline = Date.now() + Math.min(left - 15e3, 10 * 60 * 1e3);
+  const uni = await fetchUniverse(deadline);
+  if (uni.length < 1500) {
+    integWhy = `\uC720\uB2C8\uBC84\uC2A4 \uBD80\uC871(${uni.length})`;
+    return null;
+  }
+  const nameOf = new Map(uni.map((u) => [u.code, u]));
+  const codes = uni.map((u) => u.code);
+  const activeNow = /* @__PURE__ */ new Set();
+  let idx = 0, scanned = 0, integ = 0;
+  const work = async () => {
+    while (idx < codes.length && Date.now() < deadline) {
+      const c = codes[idx++];
+      const j = await getJson(`https://polling.finance.naver.com/api/realtime/domestic/stock/${c}`, 4e3);
+      const arr = j && (j.datas || j.result && j.result.areas && j.result.areas.flatMap((a) => a.datas || []));
+      const d = Array.isArray(arr) ? arr[0] : null;
+      if (!d) continue;
+      scanned++;
+      const hasIntegrated = !!d.integratedPriceInfo;
+      const hasOver = !!d.overMarketPriceInfo;
+      if (hasIntegrated) integ++;
+      if (hasIntegrated || hasOver) activeNow.add(String(d.itemCode || c).toUpperCase());
+    }
+  };
+  await Promise.all(Array.from({ length: 16 }, work));
+  if (activeNow.size < 50) {
+    integWhy = `\uD65C\uB3D9 \uC885\uBAA9 \uB108\uBB34 \uC801\uC74C(${activeNow.size})`;
+    return null;
+  }
+  const now = Date.now();
+  const seen = await readKey("nxtSeen") || {};
+  for (const c of activeNow) seen[c] = now;
+  for (const c of Object.keys(seen)) if (now - seen[c] > NXT_SEEN_WINDOW * 2) delete seen[c];
+  await writeKey("nxtSeen", seen);
+  const active14 = Object.keys(seen).filter((c) => now - seen[c] <= NXT_SEEN_WINDOW);
+  const set14 = new Set(active14);
+  const snapCodes = Object.keys(NXT_UNIVERSE && NXT_UNIVERSE.codes || {});
+  const cov = snapCodes.length ? snapCodes.filter((c) => set14.has(c)).length / snapCodes.length : 1;
+  let memberCodes, mode;
+  if (cov >= 0.85) {
+    memberCodes = active14;
+    mode = `\uC131\uC219 cov${(cov * 100).toFixed(0)}%`;
+  } else {
+    memberCodes = [.../* @__PURE__ */ new Set([...active14, ...snapCodes])];
+    mode = `\uB204\uC801\uC911 cov${(cov * 100).toFixed(0)}%`;
+  }
+  integWhy = `\uC2A4\uCE94 ${scanned} \xB7 \uAE08\uC77C\uD65C\uB3D9 ${activeNow.size} \xB7 14\uC77C\uB204\uC801 ${active14.length} \xB7 ${mode}`;
+  const rows = {};
+  for (const c of memberCodes) {
+    const u = nameOf.get(c);
+    rows[c] = { market: u ? u.market : "", name: u ? u.name : "" };
+  }
+  return { rows, source: `naver-nxt(${memberCodes.length}\xB7${mode})` };
+}
+async function fromPinned() {
+  const j = await readKey("pinned");
+  if (!j || !j.rows || !Object.keys(j.rows).length) return null;
+  return { rows: j.rows, source: "pinned:" + (j.note || "manual"), asOf: j.asOf || null };
+}
+async function recordHistory(payload) {
+  const prev = await readKey("current");
+  const prevSet = new Set(Object.keys(prev && prev.codes || {}));
+  const nowSet = new Set(Object.keys(payload.codes || {}));
+  if (!prevSet.size) return null;
+  const added = [...nowSet].filter((c) => !prevSet.has(c));
+  const dropped = [...prevSet].filter((c) => !nowSet.has(c));
+  if (!added.length && !dropped.length) return null;
+  const log = await readKey("history") || [];
+  const entry = {
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    asOf: payload.asOf,
+    source: payload.source,
+    before: prevSet.size,
+    after: nowSet.size,
+    added: added.map((c) => ({ code: c, name: (payload.names || {})[c] || "" })),
+    dropped: dropped.map((c) => ({ code: c, name: (prev.names || {})[c] || "" }))
+  };
+  log.unshift(entry);
+  await writeKey("history", log.slice(0, 40));
+  return entry;
+}
+async function writePinned(rows, meta) {
+  return writeKey("pinned", { rows, asOf: meta && meta.asOf || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), note: meta && meta.note || "manual", at: Date.now() });
+}
+function finalize(hit, today) {
+  const rows = {};
+  for (const [k, v] of Object.entries(hit.rows)) rows[k] = { ...v };
+  const { rows: kept, removed, exclusionCount } = applyExclusions(rows, today);
+  const audit = auditList(kept);
+  const codes = {}, names = {};
+  for (const [c, v] of Object.entries(kept)) {
+    codes[c] = v.market || "";
+    if (v.name) names[c] = v.name;
+  }
+  const haltedSet = new Set((hit.halted || []).map(normName));
+  const halted = Object.keys(codes).filter((c) => haltedSet.has(normName(names[c])));
+  return {
+    ok: audit.ok,
+    trusted: audit.ok,
+    codes,
+    names,
+    markets: codes,
+    halted,
+    count: audit.count,
+    kospi: audit.kospi,
+    kosdaq: audit.kosdaq,
+    removed,
+    exclusionCount,
+    audit,
+    source: hit.source,
+    asOf: hit.asOf || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+    quarter: hit.quarter || null,
+    official: /official/.test(String(hit.source || "")) || !!hit.official,
+    fetchedAt: Date.now()
+  };
+}
+async function resolveFast() {
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (memo && memo.trusted) return memo;
+  const cached = await readCache();
+  const bundledAsOf = NXT_UNIVERSE && NXT_UNIVERSE.asOf || "";
+  const cachedStale = !!(cached && bundledAsOf && String(cached.asOf || "") < bundledAsOf);
+  if (cached && cached.trusted && !cachedStale) {
+    memo = cached;
+    return cached.stale ? { ...cached, source: (cached.source || "?") + "(stale)" } : cached;
+  }
+  const pinned = await fromPinned();
+  if (pinned) {
+    const p = finalize(pinned, today);
+    if (p.trusted) {
+      memo = p;
+      return p;
+    }
+  }
+  const snap = fromSnapshot();
+  if (snap) {
+    const p = finalize(snap, today);
+    if (p.trusted) {
+      memo = p;
+      return p;
+    }
+    return unavailable([`snapshot: ${p.count}\uC885\uBAA9, \uAC10\uC0AC \uC2E4\uD328 \u2014 ${p.audit.problems.join(" / ")}`]);
+  }
+  return unavailable(["\uBC88\uB4E4 \uC2A4\uB0C5\uC0F7(data/nxt-universe.js)\uC774 \uBE44\uC5B4 \uC788\uACE0 \uC218\uC9D1 \uCE90\uC2DC\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4"]);
+}
+function unavailable(attempts) {
+  return {
+    ok: false,
+    trusted: false,
+    status: "unavailable",
+    codes: {},
+    names: {},
+    markets: {},
+    halted: [],
+    count: 0,
+    kospi: 0,
+    kosdaq: 0,
+    removed: [],
+    asOf: null,
+    source: "none",
+    attempts,
+    audit: { ok: false, problems: attempts, count: 0 }
+  };
+}
+async function collectOne(idx, budgetMs) {
+  const list = COLLECT_SOURCES();
+  if (idx >= list.length) return { done: true, result: { ok: false, why: "\uC804 \uC18C\uC2A4 \uC18C\uC9C4" } };
+  const fn = list[idx];
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  DEADLINE = Date.now() + (budgetMs || 8e3);
+  try {
+    let hit = null, note = "";
+    try {
+      hit = await fn();
+    } catch (e) {
+      note = `${fn.name}: \uC624\uB958 ${String(e).slice(0, 80)}`;
+    }
+    if (!hit) return { done: false, note: note || `${fn.name}: \uC751\uB2F5 \uC5C6\uC74C` };
+    const payload = finalize(hit, today);
+    if (!payload.trusted) return { done: false, note: `${fn.name}(${payload.source}): \uAC10\uC0AC \uC2E4\uD328 \u2014 ${payload.audit.problems.join(" / ")}` };
+    payload.attempts = [`${fn.name}(${payload.source}): ${payload.count}\uC885\uBAA9, \uAC10\uC0AC \uD1B5\uACFC`];
+    try {
+      payload.change = await recordHistory(payload);
+    } catch {
+      payload.change = null;
+    }
+    memo = payload;
+    await writeCache(payload);
+    await writeKey("lastFail", null);
+    return { done: true, result: { ok: true, source: payload.source, count: payload.count, asOf: payload.asOf } };
+  } finally {
+    DEADLINE = 0;
+  }
+}
+async function collect(budgetMs) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  DEADLINE = Date.now() + (budgetMs || 2e4);
+  const attempts = [];
+  try {
+    for (const fn of [fromPinned, fromEnvUrl, fromOfficialSite, fromSnapshot, fromNaverIntegrated, fromProbe, fromNextrade, fromMirrors]) {
+      if (outOfTime()) {
+        attempts.push("\uC2DC\uAC04 \uC608\uC0B0 \uCD08\uACFC \u2014 \uB0A8\uC740 \uC18C\uC2A4 \uC911\uB2E8");
+        break;
+      }
+      let hit = null;
+      try {
+        hit = await fn();
+      } catch (e) {
+        hit = null;
+        attempts.push(`${fn.name}: \uC624\uB958 ${String(e).slice(0, 80)}`);
+      }
+      if (!hit) {
+        attempts.push(`${fn.name}: ${fn === fromProbe && probeWhy ? probeWhy : "\uC751\uB2F5 \uC5C6\uC74C"}`);
+        continue;
+      }
+      const payload = finalize(hit, today);
+      attempts.push(`${fn.name}(${payload.source}): ${payload.count}\uC885\uBAA9, \uAC10\uC0AC ${payload.audit.ok ? "\uD1B5\uACFC" : "\uC2E4\uD328 \u2014 " + payload.audit.problems.join(" / ")}`);
+      if (payload.trusted) {
+        payload.attempts = attempts;
+        try {
+          payload.change = await recordHistory(payload);
+        } catch {
+          payload.change = null;
+        }
+        memo = payload;
+        await writeCache(payload);
+        await writeKey("lastFail", null);
+        return payload;
+      }
+    }
+    const stale = await readCache();
+    if (stale && stale.trusted) return { ...stale, source: (stale.source || "?") + "(stale)", attempts };
+    await writeKey("lastFail", { at: Date.now(), attempts });
+    return unavailable(attempts);
+  } finally {
+    DEADLINE = 0;
+  }
+}
+async function resolve2(force, budgetMs) {
+  if (!force) {
+    const fast = await resolveFast();
+    if (fast.trusted) return fast;
+    const lf = await readKey("lastFail");
+    if (lf && lf.at && Date.now() - lf.at < FAIL_TTL_MS) return unavailable(lf.attempts || []);
+  }
+  return collect(budgetMs || 2e4);
+}
+var TTL_MS, FAIL_TTL_MS, DEADLINE, budgetLeft, outOfTime, MIN_OK, MAX_OK, BROWSER_HEADERS, isCode, normName, marketOf, sane, HOSTS, BOARD_LIST, BOARD_VIEW, LIST_TITLE, MIRRORS, writeCache, observedMem, observedFlush, probeWhy, integWhy, officialWhy, OFFICIAL_BOARDS, OFFICIAL_LISTS, OFFICIAL_TITLE, NXT_SEEN_WINDOW, readHistory, readPinned, clearPinned, memo, COLLECT_SOURCES;
+var init_nxt_core = __esm({
+  "data/nxt-core.js"() {
+    init_nxt_universe();
+    init_xlsx_lite();
+    init_nxt_official();
+    init_nxt_exclusions();
+    init_nxt_detect();
+    TTL_MS = 12 * 60 * 60 * 1e3;
+    FAIL_TTL_MS = 10 * 60 * 1e3;
+    DEADLINE = 0;
+    budgetLeft = () => DEADLINE ? DEADLINE - Date.now() : 1e9;
+    outOfTime = () => budgetLeft() < 1500;
+    MIN_OK = AUDIT.countRange[0];
+    MAX_OK = AUDIT.countRange[1];
+    BROWSER_HEADERS = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "same-origin",
+      "Sec-Fetch-User": "?1"
+    };
+    isCode = (s) => /^[0-9][0-9A-Z]{5}$/.test(String(s).toUpperCase());
+    normName = (s) => String(s || "").replace(/\s+/g, "").replace(/[()]/g, "").toUpperCase();
+    marketOf = (t) => /KOSDAQ|코스닥/i.test(t) ? "KOSDAQ" : /KOSPI|유가증권|코스피/i.test(t) ? "KOSPI" : "";
+    sane = (rows) => {
+      if (!rows) return false;
+      const n = Object.keys(rows).length;
+      return n >= MIN_OK && n <= MAX_OK;
+    };
+    HOSTS = ["https://nextrade.co.kr", "https://www.nextrade.co.kr"];
+    BOARD_LIST = (host, page) => `${host}/menu/marketInfo/menuList.do?pageIndex=${page}&scBbsKndCode=marketInfo&scNttCl=general&searchKeyword=`;
+    BOARD_VIEW = (host, no) => `${host}/menu/marketInfo/view.do?pageIndex=1&scBbsKndCode=marketInfo&scNttCl=general&scNttNo=${no}&scTopViewYn=&searchKeyword=`;
+    LIST_TITLE = /매매체결대상종목|거래대상종목|정기\s*변경|한도\s*관리|종목\s*조정|확대\s*안내/;
+    MIRRORS = [
+      { url: "https://securities.miraeasset.com/bbs/download/2135251.pdf?attachmentId=2135251", tag: "miraeasset:pdf" }
+    ];
+    writeCache = (p) => writeKey("current", p);
+    observedMem = /* @__PURE__ */ new Set();
+    observedFlush = 0;
+    probeWhy = "";
+    integWhy = "";
+    officialWhy = "";
+    OFFICIAL_BOARDS = [
+      (host, page) => `${host}/menu/reportData/menuList.do?pageIndex=${page}`,
+      // 자료실
+      (host, page) => `${host}/menu/notice/menuList.do?pageIndex=${page}`,
+      // 공지사항
+      (host, page) => `${host}/menu/marketInfo/menuList.do?pageIndex=${page}&scBbsKndCode=marketInfo&scNttCl=general&searchKeyword=`
+    ];
+    OFFICIAL_LISTS = [
+      (host) => `${host}/menu/marketData/menuList.do`,
+      // 거래대상종목
+      (host) => `${host}/menu/transactionStatusConclusion/menuList.do`
+    ];
+    OFFICIAL_TITLE = /정기\s*변경|매매체결대상종목|거래대상종목|수시\s*변경/;
+    NXT_SEEN_WINDOW = 14 * 24 * 60 * 60 * 1e3;
+    readHistory = () => readKey("history");
+    readPinned = () => readKey("pinned");
+    clearPinned = () => writeKey("pinned", {});
+    memo = null;
+    COLLECT_SOURCES = () => [
+      fromPinned,
+      fromEnvUrl,
+      fromOfficialSite,
+      fromSnapshot,
+      fromNaverIntegrated,
+      fromProbe,
+      fromNextrade,
+      fromMirrors
+    ];
+  }
+});
+
+// data/market-calendar.js
+function fixedHolidays(year) {
+  const d = (m, day) => `${year}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return [d(1, 1), d(3, 1), d(5, 5), d(6, 6), d(8, 15), d(10, 3), d(10, 9), d(12, 25), d(12, 31)];
+}
+async function jget3(url, ms = 4e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA5, Accept: "application/json" }, signal: c.signal });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function fetchPublic(year) {
+  const j = await jget3(`https://date.nager.at/api/v3/PublicHolidays/${year}/KR`);
+  if (!Array.isArray(j) || !j.length) return null;
+  const days = j.map((x) => String(x.date || "")).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  return days.length ? days : null;
+}
+async function holidaysFor(year, store) {
+  if (memo2.has(year)) return memo2.get(year);
+  let days = null;
+  if (store) {
+    try {
+      const c = await store.get("holidays:" + year, { type: "json" });
+      if (c && Array.isArray(c.days) && c.days.length && Date.now() - (c.at || 0) < 180 * 864e5) days = c.days;
+    } catch {
+    }
+  }
+  if (!days) {
+    days = await fetchPublic(year);
+    if (days && store) {
+      try {
+        await store.setJSON("holidays:" + year, { days, at: Date.now(), src: "public-api" });
+      } catch {
+      }
+    }
+  }
+  const merged = /* @__PURE__ */ new Set([...days || [], ...BUNDLED[year] || [], ...fixedHolidays(year)]);
+  memo2.set(year, merged);
+  return merged;
+}
+async function isTradingDay(date, store) {
+  const w = date.getDay();
+  if (w === 0 || w === 6) return false;
+  const set = await holidaysFor(date.getFullYear(), store);
+  return !set.has(ymd2(date));
+}
+async function nextTradingDay(from, store) {
+  const d = new Date(from);
+  for (let i = 0; i < 40; i++) {
+    d.setDate(d.getDate() + 1);
+    if (await isTradingDay(d, store)) return d;
+  }
+  return d;
+}
+var UA5, BUNDLED, memo2, ymd2;
+var init_market_calendar = __esm({
+  "data/market-calendar.js"() {
+    UA5 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
+    BUNDLED = {
+      2025: [
+        "2025-01-01",
+        "2025-01-28",
+        "2025-01-29",
+        "2025-01-30",
+        "2025-03-03",
+        "2025-05-05",
+        "2025-05-06",
+        "2025-06-03",
+        "2025-06-06",
+        "2025-08-15",
+        "2025-10-03",
+        "2025-10-06",
+        "2025-10-07",
+        "2025-10-08",
+        "2025-10-09",
+        "2025-12-25",
+        "2025-12-31"
+      ],
+      2026: [
+        "2026-01-01",
+        "2026-02-16",
+        "2026-02-17",
+        "2026-02-18",
+        "2026-03-02",
+        "2026-05-05",
+        "2026-05-25",
+        "2026-06-03",
+        "2026-06-08",
+        "2026-08-17",
+        "2026-09-24",
+        "2026-09-25",
+        "2026-09-28",
+        "2026-10-05",
+        "2026-10-09",
+        "2026-12-25",
+        "2026-12-31"
+      ],
+      2027: [
+        "2027-01-01",
+        "2027-02-06",
+        "2027-02-07",
+        "2027-02-08",
+        "2027-03-01",
+        "2027-03-02",
+        "2027-05-05",
+        "2027-05-13",
+        "2027-06-07",
+        "2027-08-16",
+        "2027-09-14",
+        "2027-09-15",
+        "2027-09-16",
+        "2027-10-04",
+        "2027-10-11",
+        "2027-12-25",
+        "2027-12-31"
+      ]
+    };
+    memo2 = /* @__PURE__ */ new Map();
+    ymd2 = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+});
+
+// netlify/functions/picks.js
+var picks_exports = {};
+__export(picks_exports, {
+  buildAndStore: () => buildAndStore,
+  config: () => config,
+  default: () => picks_default
+});
+async function pickTarget(nowK, store) {
+  const hm = nowK.getUTCHours() * 60 + nowK.getUTCMinutes();
+  if (hm < 15 * 60 + 40) {
+    const trading = await isTradingDay(nowK, store).catch(() => false);
+    if (trading) {
+      const t = new Date(nowK);
+      t.setUTCHours(0, 0, 0, 0);
+      return { target: t, isToday: true };
+    }
+  }
+  return { target: await nextTradingDay(nowK, store), isToday: false };
+}
+async function jget4(url, ms = 3500) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA6, Referer: "https://m.stock.naver.com/", Accept: "application/json" }, signal: c.signal });
+    return await r.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function jtext(url, ms = 3500) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA6, Referer: "https://finance.naver.com/" }, signal: c.signal });
+    return await r.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function universe() {
+  const out = [];
+  const pull = async (market, page) => {
+    const j = await jget4(`https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=100`, 4500);
+    const arr = j && (j.stocks || j.result || j.items) || [];
+    for (const x of arr) {
+      const code = String(x.itemCode || x.code || x.reutersCode || "").toUpperCase().replace(/\.(KS|KQ)$/, "");
+      if (!/^[0-9][0-9A-Z]{5}$/.test(code)) continue;
+      out.push({
+        code,
+        name: String(x.stockName || x.name || "").trim(),
+        market: market === "KOSDAQ" ? "\uCF54\uC2A4\uB2E5" : "\uCF54\uC2A4\uD53C",
+        price: num(x.closePrice),
+        rate: num(x.fluctuationsRatio),
+        volume: num(x.accumulatedTradingVolume),
+        value: num(x.accumulatedTradingValue)
+        // 거래대금
+      });
+    }
+  };
+  await Promise.all([pull("KOSPI", 1), pull("KOSPI", 2), pull("KOSPI", 3), pull("KOSDAQ", 1), pull("KOSDAQ", 2)]);
+  const seen = /* @__PURE__ */ new Set();
+  return out.filter((s) => seen.has(s.code) ? false : (seen.add(s.code), true));
+}
+function parseSise2(txt) {
+  txt = String(txt || "").trim().replace(/\n/g, "").replace(/'/g, '"');
+  if (!txt.startsWith("[")) return [];
+  let arr;
+  try {
+    arr = JSON.parse(txt);
+  } catch {
+    try {
+      arr = JSON.parse(txt.replace(/,\s*]/g, "]"));
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.slice(1).filter((r) => Array.isArray(r) && r.length >= 6).map((r) => ({ o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] })).filter((c) => c.c > 0);
+}
+async function candles(code) {
+  const end = /* @__PURE__ */ new Date();
+  const start = /* @__PURE__ */ new Date();
+  start.setMonth(start.getMonth() - 5);
+  const y = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const txt = await jtext(`https://api.finance.naver.com/siseJson.naver?symbol=${code}&requestType=1&startTime=${y(start)}&endTime=${y(end)}&timeframe=day`, 3500);
+  return parseSise2(txt);
+}
+function rsi(closes, n = 14) {
+  if (closes.length < n + 1) return 50;
+  let up = 0, dn = 0;
+  for (let i = closes.length - n; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) up += d;
+    else dn -= d;
+  }
+  if (up + dn === 0) return 50;
+  const rs = up / (dn || 1e-9);
+  return 100 - 100 / (1 + rs);
+}
+function score(cs) {
+  if (!cs || cs.length < 35) return null;
+  const closes = cs.map((x) => x.c), highs = cs.map((x) => x.h), vols = cs.map((x) => x.v);
+  const last = closes[closes.length - 1];
+  const ma = (n) => avg(closes.slice(-n));
+  const ma5 = ma(5), ma20 = ma(20), ma60 = ma(Math.min(60, closes.length));
+  const r = rsi(closes, 14);
+  const volRecent = avg(vols.slice(-5)), volBase = avg(vols.slice(-25, -5)) || 1;
+  const volRatio = volRecent / volBase;
+  const mom20 = last / closes[closes.length - 21] - 1;
+  const mom5 = last / closes[closes.length - 6] - 1;
+  const high20 = Math.max(...highs.slice(-20));
+  const nearHigh = last / high20;
+  const extended = (last - ma20) / ma20;
+  const trendUp = last > ma5 && ma5 > ma20 && ma20 > ma60;
+  let sc = 0;
+  const tags = [];
+  if (trendUp) {
+    sc += 26;
+    tags.push("\uC815\uBC30\uC5F4");
+  } else if (last > ma20) sc += 10;
+  if (last > ma5) sc += 6;
+  sc += Math.max(0, Math.min(16, mom20 * 90));
+  if (mom20 > 0.05 && mom5 > 0) tags.push("\uC0C1\uC2B9 \uBAA8\uBA58\uD140");
+  if (volRatio >= 1.2) {
+    sc += Math.min(16, (volRatio - 1) * 18);
+    tags.push("\uAC70\uB798\uB7C9 \uC99D\uAC00");
+  }
+  if (nearHigh >= 0.97) {
+    sc += 14;
+    tags.push("20\uC77C \uACE0\uAC00 \uADFC\uC811");
+  } else if (nearHigh >= 0.93) sc += 7;
+  if (r >= 52 && r <= 70) {
+    sc += 10;
+    tags.push("RSI \uAC15\uC138");
+  } else if (r > 78) {
+    sc -= 12;
+    tags.push("\uACFC\uB9E4\uC218 \uC8FC\uC758");
+  } else if (r < 40) sc -= 6;
+  if (extended > 0.28) sc -= 14;
+  else if (extended <= 0.12 && trendUp) {
+    sc += 8;
+    tags.push("\uB20C\uB9BC\uBAA9");
+  }
+  if (last < 1500) sc -= 8;
+  return {
+    score: Math.round(Math.max(0, Math.min(100, sc))),
+    tags: [...tags.filter((t) => /주의|과매수/.test(t)), ...tags.filter((t) => !/주의|과매수/.test(t))].slice(0, 3),
+    stats: {
+      ma20: Math.round(ma20),
+      rsi: Math.round(r),
+      volRatio: Number(volRatio.toFixed(2)),
+      mom20: Number((mom20 * 100).toFixed(1)),
+      nearHigh: Number((nearHigh * 100).toFixed(1)),
+      trendUp
+    }
+  };
+}
+async function compute(budgetMs) {
+  const deadline = Date.now() + budgetMs;
+  const uni = await universe();
+  if (uni.length < 100) return { ok: false, why: "\uC720\uB2C8\uBC84\uC2A4 \uBD80\uC871" };
+  const priced = uni.filter((s) => s.price >= 1500);
+  const haveValue = priced.filter((s) => s.value > 0).length > 30;
+  const haveVol = priced.filter((s) => s.volume > 0).length > 30;
+  const cand = (haveValue ? priced.filter((s) => s.value > 0).sort((a, b) => b.value - a.value) : haveVol ? priced.filter((s) => s.volume > 0).sort((a, b) => b.volume - a.volume) : priced).slice(0, 55);
+  const byCode = new Map(cand.map((s) => [s.code, s]));
+  const scored = [];
+  let i = 0;
+  const work = async () => {
+    while (i < cand.length && Date.now() < deadline) {
+      const s = cand[i++];
+      const cs = await candles(s.code);
+      const sig = score(cs);
+      if (sig && sig.score > 0) scored.push({ ...s, ...sig });
+    }
+  };
+  await Promise.all(Array.from({ length: 24 }, work));
+  scored.sort((a, b) => b.score - a.score);
+  const gate = (x) => x.stats && x.stats.trendUp && x.stats.volRatio >= 2.2 && x.stats.rsi >= 48 && x.stats.rsi <= 74 && x.stats.mom20 <= 25 && Number(x.rate) >= 1 && Number(x.rate) <= 13;
+  const strong = scored.filter(gate);
+  const downN = cand.filter((c) => Number(c.rate) < 0).length;
+  const weakMkt = cand.length > 0 && downN / cand.length > 0.6;
+  const minScore = weakMkt ? 64 : 58;
+  const gatePassed = strong.length >= 5;
+  const pool2 = gatePassed ? strong : scored;
+  let sel = pool2.filter((x) => x.score >= minScore);
+  if (sel.length < 3) sel = pool2.slice(0, 3);
+  const picks = sel.slice(0, 12).map((s) => ({
+    code: s.code,
+    name: s.name,
+    market: s.market,
+    price: s.price,
+    rate: s.rate,
+    score: s.score,
+    tags: s.tags,
+    stats: s.stats
+  }));
+  return {
+    ok: picks.length > 0,
+    picks,
+    scanned: scored.length,
+    universe: cand.length,
+    gate: { passed: gatePassed, strongN: strong.length, minScore, weakMkt }
+  };
+}
+async function buildAndStore(store) {
+  const now = KST();
+  const { target } = await pickTarget(now, store);
+  const targetYmd = ymd3(target);
+  const res = await compute(9 * 60 * 1e3);
+  if (!res.ok) return { ok: false, why: res.why };
+  const payload = {
+    ok: true,
+    targetDay: targetYmd,
+    dayLabel: `${target.getMonth() + 1}\uC6D4 ${target.getDate()}\uC77C (${WD[target.getDay()]})`,
+    isReopen: (target - now) / 864e5 > 1.3,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    note: NOTE,
+    picks: res.picks,
+    scanned: res.scanned,
+    universe: res.universe,
+    gate: res.gate || null
+  };
+  if (store) {
+    try {
+      await store.setJSON("picks:" + targetYmd, payload);
+    } catch {
+    }
+  }
+  return payload;
+}
+var UA6, num, KST, ymd3, WD, avg, picks_default, NOTE, json3, config;
+var init_picks = __esm({
+  "netlify/functions/picks.js"() {
+    init_store();
+    init_nxt_core();
+    init_market_calendar();
+    UA6 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
+    num = (v) => {
+      const n = Number(String(v == null ? "" : v).replace(/[^0-9.-]/g, ""));
+      return isFinite(n) ? n : 0;
+    };
+    KST = (d = /* @__PURE__ */ new Date()) => new Date(d.getTime() + (9 * 60 + d.getTimezoneOffset()) * 6e4);
+    ymd3 = ymd2;
+    WD = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"];
+    avg = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
+    picks_default = async (req2) => {
+      const url = new URL(req2.url);
+      const force = url.searchParams.get("refresh") === "1";
+      const store = await blobStore();
+      const now = KST();
+      const { target, isToday } = await pickTarget(now, store);
+      const targetYmd = ymd3(target);
+      const dayLabel = `${isToday ? "\uC624\uB298 \xB7 " : ""}${target.getMonth() + 1}\uC6D4 ${target.getDate()}\uC77C (${WD[target.getDay()]})`;
+      const isReopen = !isToday && (target - now) / 864e5 > 1.3;
+      const cacheKey = "picks:" + targetYmd;
+      if (!force && store) {
+        try {
+          const c = await store.get(cacheKey, { type: "json" });
+          if (c && c.picks && c.picks.length) {
+            let acc = null;
+            try {
+              acc = await store.get("picks:accuracy", { type: "json" });
+            } catch {
+            }
+            let accDays = null;
+            if (acc && acc.scored) accDays = Object.entries(acc.scored).sort((a, b) => a[0] < b[0] ? 1 : -1).slice(0, 10).map(([d, v]) => ({ d, n: v.n, hit: v.hit, avgRet: v.avgRet }));
+            return json3({ ...c, cached: true, accuracy: acc ? { hitRate: acc.hitRate, avgReturn: acc.avgReturn, samples: acc.total } : null, accDays });
+          }
+        } catch {
+        }
+      }
+      const base3 = envGet("URL") || envGet("DEPLOY_PRIME_URL") || envGet("DEPLOY_URL") || "";
+      let building = false;
+      if (store) {
+        try {
+          const lock = await store.get("picks:lock", { type: "json" }).catch(() => null);
+          building = !!(lock && Date.now() - lock.at < 5 * 60 * 1e3 && lock.day === targetYmd);
+          if (!force && !building) {
+            const fail = await store.get("picks:fail", { type: "json" }).catch(() => null);
+            if (fail && fail.at && Date.now() - fail.at < 4 * 60 * 1e3)
+              return json3({
+                ok: false,
+                building: false,
+                targetDay: targetYmd,
+                dayLabel,
+                isReopen,
+                picks: [],
+                why: fail.why || "\uB370\uC774\uD130 \uC218\uC9D1 \uC2E4\uD328",
+                note: NOTE
+              }, "no-store");
+          }
+          if (!building) {
+            await store.setJSON("picks:lock", { at: Date.now(), day: targetYmd });
+            fetch(base3 + "/api/cronstep?job=picks", { method: "POST" }).catch(() => {
+            });
+            building = true;
+          }
+        } catch {
+        }
+      }
+      if (!store) {
+        const res = await compute(7e3);
+        return json3({ ok: res.ok, targetDay: targetYmd, dayLabel, isReopen, picks: res.picks || [], note: NOTE }, "no-store");
+      }
+      if (url.searchParams.get("sync") === "1") {
+        const res = await compute(6500);
+        if (res.ok && res.picks && res.picks.length) {
+          const payload = {
+            ok: true,
+            targetDay: targetYmd,
+            dayLabel,
+            isReopen,
+            generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            note: NOTE,
+            quick: true,
+            picks: res.picks,
+            scanned: res.scanned,
+            universe: res.universe,
+            gate: res.gate || null
+          };
+          if (store) {
+            try {
+              await store.setJSON(cacheKey, payload);
+              await store.setJSON("picks:fail", { at: 0 });
+            } catch {
+            }
+          }
+          return json3(payload, "no-store");
+        }
+      }
+      return json3({
+        ok: false,
+        building: true,
+        targetDay: targetYmd,
+        dayLabel,
+        isReopen,
+        picks: [],
+        note: NOTE,
+        message: "\uB2E4\uC74C \uAC1C\uC7A5\uC77C \uCD94\uCC9C\uC8FC\uB97C \uBD84\uC11D\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4. 20~40\uCD08 \uB4A4 \uC790\uB3D9\uC73C\uB85C \uD45C\uC2DC\uB429\uB2C8\uB2E4."
+      }, "no-store");
+    };
+    NOTE = "\uC720\uB3D9\uC131 \uC0C1\uC704 \uC885\uBAA9\uC744 \uCD94\uC138\xB7\uC218\uAE09\xB7\uACFC\uC5F4 \uBC30\uC81C \uAE30\uC900\uC73C\uB85C \uC815\uBC00 \uC120\uBCC4\uD55C \uACB0\uACFC\uC785\uB2C8\uB2E4(\uBAA9\uD45C \uC801\uC911\uB960 70% \uC9C0\uD5A5 \xB7 \uC2DC\uC7A5 \uC0C1\uD669 \uB530\uB77C \uBCC0\uB3D9, \uC218\uC775 \uBCF4\uC7A5 \uC544\uB2D8). \uD22C\uC790 \uC790\uBB38\uC774 \uC544\uB2CC \uCC38\uACE0\uC6A9\uC785\uB2C8\uB2E4.";
+    json3 = (o, cc = "public, s-maxage=120") => new Response(
+      JSON.stringify(o),
+      { headers: { "content-type": "application/json; charset=utf-8", "cache-control": cc } }
+    );
+    config = { path: "/api/picks" };
+  }
+});
+
+// data/picks-accuracy.js
+var picks_accuracy_exports = {};
+__export(picks_accuracy_exports, {
+  default: () => picks_accuracy_default,
+  scoreAccuracy: () => scoreAccuracy
+});
+async function closeOn(code, dayYmd) {
+  const end = dayYmd.replace(/-/g, "");
+  const start = end;
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 4e3);
+    const r = await fetch(
+      `https://api.finance.naver.com/siseJson.naver?symbol=${code}&requestType=1&startTime=${start}&endTime=${end}&timeframe=day`,
+      { headers: { "User-Agent": UA7, Referer: "https://finance.naver.com/" }, signal: c.signal }
+    );
+    const txt = await r.text();
+    clearTimeout(t);
+    const rows = JSON.parse(String(txt).trim().replace(/'/g, '"').replace(/,\s*]/g, "]"));
+    const row = Array.isArray(rows) && rows.length > 1 ? rows[1] : null;
+    return row ? num2(row[4]) : 0;
+  } catch {
+    return 0;
+  }
+}
+async function scoreAccuracy(store) {
+  if (!store) return null;
+  let acc = null;
+  try {
+    acc = await store.get("picks:accuracy", { type: "json" });
+  } catch {
+  }
+  acc = acc || { scored: {}, total: 0, hit: 0, sumRet: 0, updatedAt: 0 };
+  const today = /* @__PURE__ */ new Date();
+  for (let back = 1; back <= 30; back++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - back);
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (acc.scored[day]) continue;
+    let rec = null;
+    try {
+      rec = await store.get("picks:" + day, { type: "json" });
+    } catch {
+      continue;
+    }
+    if (!rec || !rec.picks || !rec.picks.length) continue;
+    let hit = 0, n = 0, sum = 0;
+    for (const p of rec.picks.slice(0, 12)) {
+      const c = await closeOn(p.code, day);
+      if (!c || !p.price) continue;
+      const ret = (c - p.price) / p.price * 100;
+      n++;
+      sum += ret;
+      if (ret > 0) hit++;
+    }
+    if (!n) continue;
+    acc.scored[day] = { n, hit, avgRet: Number((sum / n).toFixed(2)) };
+    acc.total += n;
+    acc.hit += hit;
+    acc.sumRet += sum;
+  }
+  acc.updatedAt = Date.now();
+  acc.hitRate = acc.total ? Number((acc.hit / acc.total * 100).toFixed(1)) : null;
+  acc.avgReturn = acc.total ? Number((acc.sumRet / acc.total).toFixed(2)) : null;
+  try {
+    await store.setJSON("picks:accuracy", acc);
+  } catch {
+  }
+  return acc;
+}
+var UA7, num2, picks_accuracy_default;
+var init_picks_accuracy = __esm({
+  "data/picks-accuracy.js"() {
+    UA7 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
+    num2 = (v) => {
+      const n = Number(String(v == null ? "" : v).replace(/[^0-9.-]/g, ""));
+      return isFinite(n) ? n : 0;
+    };
+    picks_accuracy_default = scoreAccuracy;
+  }
+});
+
+// netlify/functions/_euckr.js
+function decodeEucKr(buf) {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let out = "", ascii = "";
+  for (let i = 0; i < b.length; i++) {
+    const c = b[i];
+    if (c < 128) {
+      ascii += String.fromCharCode(c);
+      continue;
+    }
+    if (ascii) {
+      out += ascii;
+      ascii = "";
+    }
+    const d = b[i + 1];
+    if (c >= LEAD_LO && d !== void 0 && d >= TRAIL_LO && d <= 254) {
+      out += T[(c - LEAD_LO) * SPAN + (d - TRAIL_LO)] || "\uFFFD";
+      i++;
+    } else out += "\uFFFD";
+  }
+  return out + ascii;
+}
+var T, LEAD_LO, TRAIL_LO, SPAN;
+var init_euckr = __esm({
+  "netlify/functions/_euckr.js"() {
+    T = "\uAC02\uAC03\uAC05\uAC06\uAC0B\uAC0C\uAC0D\uAC0E\uAC0F\uAC18\uAC1E\uAC1F\uAC21\uAC22\uAC23\uAC25\uAC26\uAC27\uAC28\uAC29\uAC2A\uAC2B\uAC2E\uAC32\uAC33\uAC34\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAC35\uAC36\uAC37\uAC3A\uAC3B\uAC3D\uAC3E\uAC3F\uAC41\uAC42\uAC43\uAC44\uAC45\uAC46\uAC47\uAC48\uAC49\uAC4A\uAC4C\uAC4E\uAC4F\uAC50\uAC51\uAC52\uAC53\uAC55\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAC56\uAC57\uAC59\uAC5A\uAC5B\uAC5D\uAC5E\uAC5F\uAC60\uAC61\uAC62\uAC63\uAC64\uAC65\uAC66\uAC67\uAC68\uAC69\uAC6A\uAC6B\uAC6C\uAC6D\uAC6E\uAC6F\uAC72\uAC73\uAC75\uAC76\uAC79\uAC7B\uAC7C\uAC7D\uAC7E\uAC7F\uAC82\uAC87\uAC88\uAC8D\uAC8E\uAC8F\uAC91\uAC92\uAC93\uAC95\uAC96\uAC97\uAC98\uAC99\uAC9A\uAC9B\uAC9E\uACA2\uACA3\uACA4\uACA5\uACA6\uACA7\uACAB\uACAD\uACAE\uACB1\uACB2\uACB3\uACB4\uACB5\uACB6\uACB7\uACBA\uACBE\uACBF\uACC0\uACC2\uACC3\uACC5\uACC6\uACC7\uACC9\uACCA\uACCB\uACCD\uACCE\uACCF\uACD0\uACD1\uACD2\uACD3\uACD4\uACD6\uACD8\uACD9\uACDA\uACDB\uACDC\uACDD\uACDE\uACDF\uACE2\uACE3\uACE5\uACE6\uACE9\uACEB\uACED\uACEE\uACF2\uACF4\uACF7\uACF8\uACF9\uACFA\uACFB\uACFE\uACFF\uAD01\uAD02\uAD03\uAD05\uAD07\uAD08\uAD09\uAD0A\uAD0B\uAD0E\uAD10\uAD12\uAD13\uAD14\uAD15\uAD16\uAD17\uAD19\uAD1A\uAD1B\uAD1D\uAD1E\uAD1F\uAD21\uAD22\uAD23\uAD24\uAD25\uAD26\uAD27\uAD28\uAD2A\uAD2B\uAD2E\uAD2F\uAD30\uAD31\uAD32\uAD33\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAD36\uAD37\uAD39\uAD3A\uAD3B\uAD3D\uAD3E\uAD3F\uAD40\uAD41\uAD42\uAD43\uAD46\uAD48\uAD4A\uAD4B\uAD4C\uAD4D\uAD4E\uAD4F\uAD51\uAD52\uAD53\uAD55\uAD56\uAD57\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAD59\uAD5A\uAD5B\uAD5C\uAD5D\uAD5E\uAD5F\uAD60\uAD62\uAD64\uAD65\uAD66\uAD67\uAD68\uAD69\uAD6A\uAD6B\uAD6E\uAD6F\uAD71\uAD72\uAD77\uAD78\uAD79\uAD7A\uAD7E\uAD80\uAD83\uAD84\uAD85\uAD86\uAD87\uAD8A\uAD8B\uAD8D\uAD8E\uAD8F\uAD91\uAD92\uAD93\uAD94\uAD95\uAD96\uAD97\uAD98\uAD99\uAD9A\uAD9B\uAD9E\uAD9F\uADA0\uADA1\uADA2\uADA3\uADA5\uADA6\uADA7\uADA8\uADA9\uADAA\uADAB\uADAC\uADAD\uADAE\uADAF\uADB0\uADB1\uADB2\uADB3\uADB4\uADB5\uADB6\uADB8\uADB9\uADBA\uADBB\uADBC\uADBD\uADBE\uADBF\uADC2\uADC3\uADC5\uADC6\uADC7\uADC9\uADCA\uADCB\uADCC\uADCD\uADCE\uADCF\uADD2\uADD4\uADD5\uADD6\uADD7\uADD8\uADD9\uADDA\uADDB\uADDD\uADDE\uADDF\uADE1\uADE2\uADE3\uADE5\uADE6\uADE7\uADE8\uADE9\uADEA\uADEB\uADEC\uADED\uADEE\uADEF\uADF0\uADF1\uADF2\uADF3\uADF4\uADF5\uADF6\uADF7\uADFA\uADFB\uADFD\uADFE\uAE02\uAE03\uAE04\uAE05\uAE06\uAE07\uAE0A\uAE0C\uAE0E\uAE0F\uAE10\uAE11\uAE12\uAE13\uAE15\uAE16\uAE17\uAE18\uAE19\uAE1A\uAE1B\uAE1C\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAE1D\uAE1E\uAE1F\uAE20\uAE21\uAE22\uAE23\uAE24\uAE25\uAE26\uAE27\uAE28\uAE29\uAE2A\uAE2B\uAE2C\uAE2D\uAE2E\uAE2F\uAE32\uAE33\uAE35\uAE36\uAE39\uAE3B\uAE3C\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAE3D\uAE3E\uAE3F\uAE42\uAE44\uAE47\uAE48\uAE49\uAE4B\uAE4F\uAE51\uAE52\uAE53\uAE55\uAE57\uAE58\uAE59\uAE5A\uAE5B\uAE5E\uAE62\uAE63\uAE64\uAE66\uAE67\uAE6A\uAE6B\uAE6D\uAE6E\uAE6F\uAE71\uAE72\uAE73\uAE74\uAE75\uAE76\uAE77\uAE7A\uAE7E\uAE7F\uAE80\uAE81\uAE82\uAE83\uAE86\uAE87\uAE88\uAE89\uAE8A\uAE8B\uAE8D\uAE8E\uAE8F\uAE90\uAE91\uAE92\uAE93\uAE94\uAE95\uAE96\uAE97\uAE98\uAE99\uAE9A\uAE9B\uAE9C\uAE9D\uAE9E\uAE9F\uAEA0\uAEA1\uAEA2\uAEA3\uAEA4\uAEA5\uAEA6\uAEA7\uAEA8\uAEA9\uAEAA\uAEAB\uAEAC\uAEAD\uAEAE\uAEAF\uAEB0\uAEB1\uAEB2\uAEB3\uAEB4\uAEB5\uAEB6\uAEB7\uAEB8\uAEB9\uAEBA\uAEBB\uAEBF\uAEC1\uAEC2\uAEC3\uAEC5\uAEC6\uAEC7\uAEC8\uAEC9\uAECA\uAECB\uAECE\uAED2\uAED3\uAED4\uAED5\uAED6\uAED7\uAEDA\uAEDB\uAEDD\uAEDE\uAEDF\uAEE0\uAEE1\uAEE2\uAEE3\uAEE4\uAEE5\uAEE6\uAEE7\uAEE9\uAEEA\uAEEC\uAEEE\uAEEF\uAEF0\uAEF1\uAEF2\uAEF3\uAEF5\uAEF6\uAEF7\uAEF9\uAEFA\uAEFB\uAEFD\uAEFE\uAEFF\uAF00\uAF01\uAF02\uAF03\uAF04\uAF05\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAF06\uAF09\uAF0A\uAF0B\uAF0C\uAF0E\uAF0F\uAF11\uAF12\uAF13\uAF14\uAF15\uAF16\uAF17\uAF18\uAF19\uAF1A\uAF1B\uAF1C\uAF1D\uAF1E\uAF1F\uAF20\uAF21\uAF22\uAF23\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAF24\uAF25\uAF26\uAF27\uAF28\uAF29\uAF2A\uAF2B\uAF2E\uAF2F\uAF31\uAF33\uAF35\uAF36\uAF37\uAF38\uAF39\uAF3A\uAF3B\uAF3E\uAF40\uAF44\uAF45\uAF46\uAF47\uAF4A\uAF4B\uAF4C\uAF4D\uAF4E\uAF4F\uAF51\uAF52\uAF53\uAF54\uAF55\uAF56\uAF57\uAF58\uAF59\uAF5A\uAF5B\uAF5E\uAF5F\uAF60\uAF61\uAF62\uAF63\uAF66\uAF67\uAF68\uAF69\uAF6A\uAF6B\uAF6C\uAF6D\uAF6E\uAF6F\uAF70\uAF71\uAF72\uAF73\uAF74\uAF75\uAF76\uAF77\uAF78\uAF7A\uAF7B\uAF7C\uAF7D\uAF7E\uAF7F\uAF81\uAF82\uAF83\uAF85\uAF86\uAF87\uAF89\uAF8A\uAF8B\uAF8C\uAF8D\uAF8E\uAF8F\uAF92\uAF93\uAF94\uAF96\uAF97\uAF98\uAF99\uAF9A\uAF9B\uAF9D\uAF9E\uAF9F\uAFA0\uAFA1\uAFA2\uAFA3\uAFA4\uAFA5\uAFA6\uAFA7\uAFA8\uAFA9\uAFAA\uAFAB\uAFAC\uAFAD\uAFAE\uAFAF\uAFB0\uAFB1\uAFB2\uAFB3\uAFB4\uAFB5\uAFB6\uAFB7\uAFBA\uAFBB\uAFBD\uAFBE\uAFBF\uAFC1\uAFC2\uAFC3\uAFC4\uAFC5\uAFC6\uAFCA\uAFCC\uAFCF\uAFD0\uAFD1\uAFD2\uAFD3\uAFD5\uAFD6\uAFD7\uAFD8\uAFD9\uAFDA\uAFDB\uAFDD\uAFDE\uAFDF\uAFE0\uAFE1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uAFE2\uAFE3\uAFE4\uAFE5\uAFE6\uAFE7\uAFEA\uAFEB\uAFEC\uAFED\uAFEE\uAFEF\uAFF2\uAFF3\uAFF5\uAFF6\uAFF7\uAFF9\uAFFA\uAFFB\uAFFC\uAFFD\uAFFE\uAFFF\uB002\uB003\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB005\uB006\uB007\uB008\uB009\uB00A\uB00B\uB00D\uB00E\uB00F\uB011\uB012\uB013\uB015\uB016\uB017\uB018\uB019\uB01A\uB01B\uB01E\uB01F\uB020\uB021\uB022\uB023\uB024\uB025\uB026\uB027\uB029\uB02A\uB02B\uB02C\uB02D\uB02E\uB02F\uB030\uB031\uB032\uB033\uB034\uB035\uB036\uB037\uB038\uB039\uB03A\uB03B\uB03C\uB03D\uB03E\uB03F\uB040\uB041\uB042\uB043\uB046\uB047\uB049\uB04B\uB04D\uB04F\uB050\uB051\uB052\uB056\uB058\uB05A\uB05B\uB05C\uB05E\uB05F\uB060\uB061\uB062\uB063\uB064\uB065\uB066\uB067\uB068\uB069\uB06A\uB06B\uB06C\uB06D\uB06E\uB06F\uB070\uB071\uB072\uB073\uB074\uB075\uB076\uB077\uB078\uB079\uB07A\uB07B\uB07E\uB07F\uB081\uB082\uB083\uB085\uB086\uB087\uB088\uB089\uB08A\uB08B\uB08E\uB090\uB092\uB093\uB094\uB095\uB096\uB097\uB09B\uB09D\uB09E\uB0A3\uB0A4\uB0A5\uB0A6\uB0A7\uB0AA\uB0B0\uB0B2\uB0B6\uB0B7\uB0B9\uB0BA\uB0BB\uB0BD\uB0BE\uB0BF\uB0C0\uB0C1\uB0C2\uB0C3\uB0C6\uB0CA\uB0CB\uB0CC\uB0CD\uB0CE\uB0CF\uB0D2\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB0D3\uB0D5\uB0D6\uB0D7\uB0D9\uB0DA\uB0DB\uB0DC\uB0DD\uB0DE\uB0DF\uB0E1\uB0E2\uB0E3\uB0E4\uB0E6\uB0E7\uB0E8\uB0E9\uB0EA\uB0EB\uB0EC\uB0ED\uB0EE\uB0EF\uB0F0\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB0F1\uB0F2\uB0F3\uB0F4\uB0F5\uB0F6\uB0F7\uB0F8\uB0F9\uB0FA\uB0FB\uB0FC\uB0FD\uB0FE\uB0FF\uB100\uB101\uB102\uB103\uB104\uB105\uB106\uB107\uB10A\uB10D\uB10E\uB10F\uB111\uB114\uB115\uB116\uB117\uB11A\uB11E\uB11F\uB120\uB121\uB122\uB126\uB127\uB129\uB12A\uB12B\uB12D\uB12E\uB12F\uB130\uB131\uB132\uB133\uB136\uB13A\uB13B\uB13C\uB13D\uB13E\uB13F\uB142\uB143\uB145\uB146\uB147\uB149\uB14A\uB14B\uB14C\uB14D\uB14E\uB14F\uB152\uB153\uB156\uB157\uB159\uB15A\uB15B\uB15D\uB15E\uB15F\uB161\uB162\uB163\uB164\uB165\uB166\uB167\uB168\uB169\uB16A\uB16B\uB16C\uB16D\uB16E\uB16F\uB170\uB171\uB172\uB173\uB174\uB175\uB176\uB177\uB17A\uB17B\uB17D\uB17E\uB17F\uB181\uB183\uB184\uB185\uB186\uB187\uB18A\uB18C\uB18E\uB18F\uB190\uB191\uB195\uB196\uB197\uB199\uB19A\uB19B\uB19D\uB19E\uB19F\uB1A0\uB1A1\uB1A2\uB1A3\uB1A4\uB1A5\uB1A6\uB1A7\uB1A9\uB1AA\uB1AB\uB1AC\uB1AD\uB1AE\uB1AF\uB1B0\uB1B1\uB1B2\uB1B3\uB1B4\uB1B5\uB1B6\uB1B7\uB1B8\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB1B9\uB1BA\uB1BB\uB1BC\uB1BD\uB1BE\uB1BF\uB1C0\uB1C1\uB1C2\uB1C3\uB1C4\uB1C5\uB1C6\uB1C7\uB1C8\uB1C9\uB1CA\uB1CB\uB1CD\uB1CE\uB1CF\uB1D1\uB1D2\uB1D3\uB1D5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB1D6\uB1D7\uB1D8\uB1D9\uB1DA\uB1DB\uB1DE\uB1E0\uB1E1\uB1E2\uB1E3\uB1E4\uB1E5\uB1E6\uB1E7\uB1EA\uB1EB\uB1ED\uB1EE\uB1EF\uB1F1\uB1F2\uB1F3\uB1F4\uB1F5\uB1F6\uB1F7\uB1F8\uB1FA\uB1FC\uB1FE\uB1FF\uB200\uB201\uB202\uB203\uB206\uB207\uB209\uB20A\uB20D\uB20E\uB20F\uB210\uB211\uB212\uB213\uB216\uB218\uB21A\uB21B\uB21C\uB21D\uB21E\uB21F\uB221\uB222\uB223\uB224\uB225\uB226\uB227\uB228\uB229\uB22A\uB22B\uB22C\uB22D\uB22E\uB22F\uB230\uB231\uB232\uB233\uB235\uB236\uB237\uB238\uB239\uB23A\uB23B\uB23D\uB23E\uB23F\uB240\uB241\uB242\uB243\uB244\uB245\uB246\uB247\uB248\uB249\uB24A\uB24B\uB24C\uB24D\uB24E\uB24F\uB250\uB251\uB252\uB253\uB254\uB255\uB256\uB257\uB259\uB25A\uB25B\uB25D\uB25E\uB25F\uB261\uB262\uB263\uB264\uB265\uB266\uB267\uB26A\uB26B\uB26C\uB26D\uB26E\uB26F\uB270\uB271\uB272\uB273\uB276\uB277\uB278\uB279\uB27A\uB27B\uB27D\uB27E\uB27F\uB280\uB281\uB282\uB283\uB286\uB287\uB288\uB28A\uB28B\uB28C\uB28D\uB28E\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB28F\uB292\uB293\uB295\uB296\uB297\uB29B\uB29C\uB29D\uB29E\uB29F\uB2A2\uB2A4\uB2A7\uB2A8\uB2A9\uB2AB\uB2AD\uB2AE\uB2AF\uB2B1\uB2B2\uB2B3\uB2B5\uB2B6\uB2B7\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB2B8\uB2B9\uB2BA\uB2BB\uB2BC\uB2BD\uB2BE\uB2BF\uB2C0\uB2C1\uB2C2\uB2C3\uB2C4\uB2C5\uB2C6\uB2C7\uB2CA\uB2CB\uB2CD\uB2CE\uB2CF\uB2D1\uB2D3\uB2D4\uB2D5\uB2D6\uB2D7\uB2DA\uB2DC\uB2DE\uB2DF\uB2E0\uB2E1\uB2E3\uB2E7\uB2E9\uB2EA\uB2F0\uB2F1\uB2F2\uB2F6\uB2FC\uB2FD\uB2FE\uB302\uB303\uB305\uB306\uB307\uB309\uB30A\uB30B\uB30C\uB30D\uB30E\uB30F\uB312\uB316\uB317\uB318\uB319\uB31A\uB31B\uB31D\uB31E\uB31F\uB320\uB321\uB322\uB323\uB324\uB325\uB326\uB327\uB328\uB329\uB32A\uB32B\uB32C\uB32D\uB32E\uB32F\uB330\uB331\uB332\uB333\uB334\uB335\uB336\uB337\uB338\uB339\uB33A\uB33B\uB33C\uB33D\uB33E\uB33F\uB340\uB341\uB342\uB343\uB344\uB345\uB346\uB347\uB348\uB349\uB34A\uB34B\uB34C\uB34D\uB34E\uB34F\uB350\uB351\uB352\uB353\uB357\uB359\uB35A\uB35D\uB360\uB361\uB362\uB363\uB366\uB368\uB36A\uB36C\uB36D\uB36F\uB372\uB373\uB375\uB376\uB377\uB379\uB37A\uB37B\uB37C\uB37D\uB37E\uB37F\uB382\uB386\uB387\uB388\uB389\uB38A\uB38B\uB38D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB38E\uB38F\uB391\uB392\uB393\uB395\uB396\uB397\uB398\uB399\uB39A\uB39B\uB39C\uB39D\uB39E\uB39F\uB3A2\uB3A3\uB3A4\uB3A5\uB3A6\uB3A7\uB3A9\uB3AA\uB3AB\uB3AD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB3AE\uB3AF\uB3B0\uB3B1\uB3B2\uB3B3\uB3B4\uB3B5\uB3B6\uB3B7\uB3B8\uB3B9\uB3BA\uB3BB\uB3BC\uB3BD\uB3BE\uB3BF\uB3C0\uB3C1\uB3C2\uB3C3\uB3C6\uB3C7\uB3C9\uB3CA\uB3CD\uB3CF\uB3D1\uB3D2\uB3D3\uB3D6\uB3D8\uB3DA\uB3DC\uB3DE\uB3DF\uB3E1\uB3E2\uB3E3\uB3E5\uB3E6\uB3E7\uB3E9\uB3EA\uB3EB\uB3EC\uB3ED\uB3EE\uB3EF\uB3F0\uB3F1\uB3F2\uB3F3\uB3F4\uB3F5\uB3F6\uB3F7\uB3F8\uB3F9\uB3FA\uB3FB\uB3FD\uB3FE\uB3FF\uB400\uB401\uB402\uB403\uB404\uB405\uB406\uB407\uB408\uB409\uB40A\uB40B\uB40C\uB40D\uB40E\uB40F\uB411\uB412\uB413\uB414\uB415\uB416\uB417\uB419\uB41A\uB41B\uB41D\uB41E\uB41F\uB421\uB422\uB423\uB424\uB425\uB426\uB427\uB42A\uB42C\uB42D\uB42E\uB42F\uB430\uB431\uB432\uB433\uB435\uB436\uB437\uB438\uB439\uB43A\uB43B\uB43C\uB43D\uB43E\uB43F\uB440\uB441\uB442\uB443\uB444\uB445\uB446\uB447\uB448\uB449\uB44A\uB44B\uB44C\uB44D\uB44E\uB44F\uB452\uB453\uB455\uB456\uB457\uB459\uB45A\uB45B\uB45C\uB45D\uB45E\uB45F\uB462\uB464\uB466\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB467\uB468\uB469\uB46A\uB46B\uB46D\uB46E\uB46F\uB470\uB471\uB472\uB473\uB474\uB475\uB476\uB477\uB478\uB479\uB47A\uB47B\uB47C\uB47D\uB47E\uB47F\uB481\uB482\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB483\uB484\uB485\uB486\uB487\uB489\uB48A\uB48B\uB48C\uB48D\uB48E\uB48F\uB490\uB491\uB492\uB493\uB494\uB495\uB496\uB497\uB498\uB499\uB49A\uB49B\uB49C\uB49E\uB49F\uB4A0\uB4A1\uB4A2\uB4A3\uB4A5\uB4A6\uB4A7\uB4A9\uB4AA\uB4AB\uB4AD\uB4AE\uB4AF\uB4B0\uB4B1\uB4B2\uB4B3\uB4B4\uB4B6\uB4B8\uB4BA\uB4BB\uB4BC\uB4BD\uB4BE\uB4BF\uB4C1\uB4C2\uB4C3\uB4C5\uB4C6\uB4C7\uB4C9\uB4CA\uB4CB\uB4CC\uB4CD\uB4CE\uB4CF\uB4D1\uB4D2\uB4D3\uB4D4\uB4D6\uB4D7\uB4D8\uB4D9\uB4DA\uB4DB\uB4DE\uB4DF\uB4E1\uB4E2\uB4E5\uB4E7\uB4E8\uB4E9\uB4EA\uB4EB\uB4EE\uB4F0\uB4F2\uB4F3\uB4F4\uB4F5\uB4F6\uB4F7\uB4F9\uB4FA\uB4FB\uB4FC\uB4FD\uB4FE\uB4FF\uB500\uB501\uB502\uB503\uB504\uB505\uB506\uB507\uB508\uB509\uB50A\uB50B\uB50C\uB50D\uB50E\uB50F\uB510\uB511\uB512\uB513\uB516\uB517\uB519\uB51A\uB51D\uB51E\uB51F\uB520\uB521\uB522\uB523\uB526\uB52B\uB52C\uB52D\uB52E\uB52F\uB532\uB533\uB535\uB536\uB537\uB539\uB53A\uB53B\uB53C\uB53D\uB53E\uB53F\uB542\uB546\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB547\uB548\uB549\uB54A\uB54E\uB54F\uB551\uB552\uB553\uB555\uB556\uB557\uB558\uB559\uB55A\uB55B\uB55E\uB562\uB563\uB564\uB565\uB566\uB567\uB568\uB569\uB56A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB56B\uB56C\uB56D\uB56E\uB56F\uB570\uB571\uB572\uB573\uB574\uB575\uB576\uB577\uB578\uB579\uB57A\uB57B\uB57C\uB57D\uB57E\uB57F\uB580\uB581\uB582\uB583\uB584\uB585\uB586\uB587\uB588\uB589\uB58A\uB58B\uB58C\uB58D\uB58E\uB58F\uB590\uB591\uB592\uB593\uB594\uB595\uB596\uB597\uB598\uB599\uB59A\uB59B\uB59C\uB59D\uB59E\uB59F\uB5A2\uB5A3\uB5A5\uB5A6\uB5A7\uB5A9\uB5AC\uB5AD\uB5AE\uB5AF\uB5B2\uB5B6\uB5B7\uB5B8\uB5B9\uB5BA\uB5BE\uB5BF\uB5C1\uB5C2\uB5C3\uB5C5\uB5C6\uB5C7\uB5C8\uB5C9\uB5CA\uB5CB\uB5CE\uB5D2\uB5D3\uB5D4\uB5D5\uB5D6\uB5D7\uB5D9\uB5DA\uB5DB\uB5DC\uB5DD\uB5DE\uB5DF\uB5E0\uB5E1\uB5E2\uB5E3\uB5E4\uB5E5\uB5E6\uB5E7\uB5E8\uB5E9\uB5EA\uB5EB\uB5ED\uB5EE\uB5EF\uB5F0\uB5F1\uB5F2\uB5F3\uB5F4\uB5F5\uB5F6\uB5F7\uB5F8\uB5F9\uB5FA\uB5FB\uB5FC\uB5FD\uB5FE\uB5FF\uB600\uB601\uB602\uB603\uB604\uB605\uB606\uB607\uB608\uB609\uB60A\uB60B\uB60C\uB60D\uB60E\uB60F\uB612\uB613\uB615\uB616\uB617\uB619\uB61A\uB61B\uB61C\uB61D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB61E\uB61F\uB620\uB621\uB622\uB623\uB624\uB626\uB627\uB628\uB629\uB62A\uB62B\uB62D\uB62E\uB62F\uB630\uB631\uB632\uB633\uB635\uB636\uB637\uB638\uB639\uB63A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB63B\uB63C\uB63D\uB63E\uB63F\uB640\uB641\uB642\uB643\uB644\uB645\uB646\uB647\uB649\uB64A\uB64B\uB64C\uB64D\uB64E\uB64F\uB650\uB651\uB652\uB653\uB654\uB655\uB656\uB657\uB658\uB659\uB65A\uB65B\uB65C\uB65D\uB65E\uB65F\uB660\uB661\uB662\uB663\uB665\uB666\uB667\uB669\uB66A\uB66B\uB66C\uB66D\uB66E\uB66F\uB670\uB671\uB672\uB673\uB674\uB675\uB676\uB677\uB678\uB679\uB67A\uB67B\uB67C\uB67D\uB67E\uB67F\uB680\uB681\uB682\uB683\uB684\uB685\uB686\uB687\uB688\uB689\uB68A\uB68B\uB68C\uB68D\uB68E\uB68F\uB690\uB691\uB692\uB693\uB694\uB695\uB696\uB697\uB698\uB699\uB69A\uB69B\uB69E\uB69F\uB6A1\uB6A2\uB6A3\uB6A5\uB6A6\uB6A7\uB6A8\uB6A9\uB6AA\uB6AD\uB6AE\uB6AF\uB6B0\uB6B2\uB6B3\uB6B4\uB6B5\uB6B6\uB6B7\uB6B8\uB6B9\uB6BA\uB6BB\uB6BC\uB6BD\uB6BE\uB6BF\uB6C0\uB6C1\uB6C2\uB6C3\uB6C4\uB6C5\uB6C6\uB6C7\uB6C8\uB6C9\uB6CA\uB6CB\uB6CC\uB6CD\uB6CE\uB6CF\uB6D0\uB6D1\uB6D2\uB6D3\uB6D5\uB6D6\uB6D7\uB6D8\uB6D9\uB6DA\uB6DB\uB6DC\uB6DD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB6DE\uB6DF\uB6E0\uB6E1\uB6E2\uB6E3\uB6E4\uB6E5\uB6E6\uB6E7\uB6E8\uB6E9\uB6EA\uB6EB\uB6EC\uB6ED\uB6EE\uB6EF\uB6F1\uB6F2\uB6F3\uB6F5\uB6F6\uB6F7\uB6F9\uB6FA\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB6FB\uB6FC\uB6FD\uB6FE\uB6FF\uB702\uB703\uB704\uB706\uB707\uB708\uB709\uB70A\uB70B\uB70C\uB70D\uB70E\uB70F\uB710\uB711\uB712\uB713\uB714\uB715\uB716\uB717\uB718\uB719\uB71A\uB71B\uB71C\uB71D\uB71E\uB71F\uB720\uB721\uB722\uB723\uB724\uB725\uB726\uB727\uB72A\uB72B\uB72D\uB72E\uB731\uB732\uB733\uB734\uB735\uB736\uB737\uB73A\uB73C\uB73D\uB73E\uB73F\uB740\uB741\uB742\uB743\uB745\uB746\uB747\uB749\uB74A\uB74B\uB74D\uB74E\uB74F\uB750\uB751\uB752\uB753\uB756\uB757\uB758\uB759\uB75A\uB75B\uB75C\uB75D\uB75E\uB75F\uB761\uB762\uB763\uB765\uB766\uB767\uB769\uB76A\uB76B\uB76C\uB76D\uB76E\uB76F\uB772\uB774\uB776\uB777\uB778\uB779\uB77A\uB77B\uB77E\uB77F\uB781\uB782\uB783\uB785\uB786\uB787\uB788\uB789\uB78A\uB78B\uB78E\uB793\uB794\uB795\uB79A\uB79B\uB79D\uB79E\uB79F\uB7A1\uB7A2\uB7A3\uB7A4\uB7A5\uB7A6\uB7A7\uB7AA\uB7AE\uB7AF\uB7B0\uB7B1\uB7B2\uB7B3\uB7B6\uB7B7\uB7B9\uB7BA\uB7BB\uB7BC\uB7BD\uB7BE\uB7BF\uB7C0\uB7C1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB7C2\uB7C3\uB7C4\uB7C5\uB7C6\uB7C8\uB7CA\uB7CB\uB7CC\uB7CD\uB7CE\uB7CF\uB7D0\uB7D1\uB7D2\uB7D3\uB7D4\uB7D5\uB7D6\uB7D7\uB7D8\uB7D9\uB7DA\uB7DB\uB7DC\uB7DD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB7DE\uB7DF\uB7E0\uB7E1\uB7E2\uB7E3\uB7E4\uB7E5\uB7E6\uB7E7\uB7E8\uB7E9\uB7EA\uB7EB\uB7EE\uB7EF\uB7F1\uB7F2\uB7F3\uB7F5\uB7F6\uB7F7\uB7F8\uB7F9\uB7FA\uB7FB\uB7FE\uB802\uB803\uB804\uB805\uB806\uB80A\uB80B\uB80D\uB80E\uB80F\uB811\uB812\uB813\uB814\uB815\uB816\uB817\uB81A\uB81C\uB81E\uB81F\uB820\uB821\uB822\uB823\uB826\uB827\uB829\uB82A\uB82B\uB82D\uB82E\uB82F\uB830\uB831\uB832\uB833\uB836\uB83A\uB83B\uB83C\uB83D\uB83E\uB83F\uB841\uB842\uB843\uB845\uB846\uB847\uB848\uB849\uB84A\uB84B\uB84C\uB84D\uB84E\uB84F\uB850\uB852\uB854\uB855\uB856\uB857\uB858\uB859\uB85A\uB85B\uB85E\uB85F\uB861\uB862\uB863\uB865\uB866\uB867\uB868\uB869\uB86A\uB86B\uB86E\uB870\uB872\uB873\uB874\uB875\uB876\uB877\uB879\uB87A\uB87B\uB87D\uB87E\uB87F\uB880\uB881\uB882\uB883\uB884\uB885\uB886\uB887\uB888\uB889\uB88A\uB88B\uB88C\uB88E\uB88F\uB890\uB891\uB892\uB893\uB894\uB895\uB896\uB897\uB898\uB899\uB89A\uB89B\uB89C\uB89D\uB89E\uB89F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB8A0\uB8A1\uB8A2\uB8A3\uB8A4\uB8A5\uB8A6\uB8A7\uB8A9\uB8AA\uB8AB\uB8AC\uB8AD\uB8AE\uB8AF\uB8B1\uB8B2\uB8B3\uB8B5\uB8B6\uB8B7\uB8B9\uB8BA\uB8BB\uB8BC\uB8BD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB8BE\uB8BF\uB8C2\uB8C4\uB8C6\uB8C7\uB8C8\uB8C9\uB8CA\uB8CB\uB8CD\uB8CE\uB8CF\uB8D1\uB8D2\uB8D3\uB8D5\uB8D6\uB8D7\uB8D8\uB8D9\uB8DA\uB8DB\uB8DC\uB8DE\uB8E0\uB8E2\uB8E3\uB8E4\uB8E5\uB8E6\uB8E7\uB8EA\uB8EB\uB8ED\uB8EE\uB8EF\uB8F1\uB8F2\uB8F3\uB8F4\uB8F5\uB8F6\uB8F7\uB8FA\uB8FC\uB8FE\uB8FF\uB900\uB901\uB902\uB903\uB905\uB906\uB907\uB908\uB909\uB90A\uB90B\uB90C\uB90D\uB90E\uB90F\uB910\uB911\uB912\uB913\uB914\uB915\uB916\uB917\uB919\uB91A\uB91B\uB91C\uB91D\uB91E\uB91F\uB921\uB922\uB923\uB924\uB925\uB926\uB927\uB928\uB929\uB92A\uB92B\uB92C\uB92D\uB92E\uB92F\uB930\uB931\uB932\uB933\uB934\uB935\uB936\uB937\uB938\uB939\uB93A\uB93B\uB93E\uB93F\uB941\uB942\uB943\uB945\uB946\uB947\uB948\uB949\uB94A\uB94B\uB94D\uB94E\uB950\uB952\uB953\uB954\uB955\uB956\uB957\uB95A\uB95B\uB95D\uB95E\uB95F\uB961\uB962\uB963\uB964\uB965\uB966\uB967\uB96A\uB96C\uB96E\uB96F\uB970\uB971\uB972\uB973\uB976\uB977\uB979\uB97A\uB97B\uB97D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB97E\uB97F\uB980\uB981\uB982\uB983\uB986\uB988\uB98B\uB98C\uB98F\uB990\uB991\uB992\uB993\uB994\uB995\uB996\uB997\uB998\uB999\uB99A\uB99B\uB99C\uB99D\uB99E\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uB99F\uB9A0\uB9A1\uB9A2\uB9A3\uB9A4\uB9A5\uB9A6\uB9A7\uB9A8\uB9A9\uB9AA\uB9AB\uB9AE\uB9AF\uB9B1\uB9B2\uB9B3\uB9B5\uB9B6\uB9B7\uB9B8\uB9B9\uB9BA\uB9BB\uB9BE\uB9C0\uB9C2\uB9C3\uB9C4\uB9C5\uB9C6\uB9C7\uB9CA\uB9CB\uB9CD\uB9D3\uB9D4\uB9D5\uB9D6\uB9D7\uB9DA\uB9DC\uB9DF\uB9E0\uB9E2\uB9E6\uB9E7\uB9E9\uB9EA\uB9EB\uB9ED\uB9EE\uB9EF\uB9F0\uB9F1\uB9F2\uB9F3\uB9F6\uB9FB\uB9FC\uB9FD\uB9FE\uB9FF\uBA02\uBA03\uBA04\uBA05\uBA06\uBA07\uBA09\uBA0A\uBA0B\uBA0C\uBA0D\uBA0E\uBA0F\uBA10\uBA11\uBA12\uBA13\uBA14\uBA16\uBA17\uBA18\uBA19\uBA1A\uBA1B\uBA1C\uBA1D\uBA1E\uBA1F\uBA20\uBA21\uBA22\uBA23\uBA24\uBA25\uBA26\uBA27\uBA28\uBA29\uBA2A\uBA2B\uBA2C\uBA2D\uBA2E\uBA2F\uBA30\uBA31\uBA32\uBA33\uBA34\uBA35\uBA36\uBA37\uBA3A\uBA3B\uBA3D\uBA3E\uBA3F\uBA41\uBA43\uBA44\uBA45\uBA46\uBA47\uBA4A\uBA4C\uBA4F\uBA50\uBA51\uBA52\uBA56\uBA57\uBA59\uBA5A\uBA5B\uBA5D\uBA5E\uBA5F\uBA60\uBA61\uBA62\uBA63\uBA66\uBA6A\uBA6B\uBA6C\uBA6D\uBA6E\uBA6F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBA72\uBA73\uBA75\uBA76\uBA77\uBA79\uBA7A\uBA7B\uBA7C\uBA7D\uBA7E\uBA7F\uBA80\uBA81\uBA82\uBA86\uBA88\uBA89\uBA8A\uBA8B\uBA8D\uBA8E\uBA8F\uBA90\uBA91\uBA92\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBA93\uBA94\uBA95\uBA96\uBA97\uBA98\uBA99\uBA9A\uBA9B\uBA9C\uBA9D\uBA9E\uBA9F\uBAA0\uBAA1\uBAA2\uBAA3\uBAA4\uBAA5\uBAA6\uBAA7\uBAAA\uBAAD\uBAAE\uBAAF\uBAB1\uBAB3\uBAB4\uBAB5\uBAB6\uBAB7\uBABA\uBABC\uBABE\uBABF\uBAC0\uBAC1\uBAC2\uBAC3\uBAC5\uBAC6\uBAC7\uBAC9\uBACA\uBACB\uBACC\uBACD\uBACE\uBACF\uBAD0\uBAD1\uBAD2\uBAD3\uBAD4\uBAD5\uBAD6\uBAD7\uBADA\uBADB\uBADC\uBADD\uBADE\uBADF\uBAE0\uBAE1\uBAE2\uBAE3\uBAE4\uBAE5\uBAE6\uBAE7\uBAE8\uBAE9\uBAEA\uBAEB\uBAEC\uBAED\uBAEE\uBAEF\uBAF0\uBAF1\uBAF2\uBAF3\uBAF4\uBAF5\uBAF6\uBAF7\uBAF8\uBAF9\uBAFA\uBAFB\uBAFD\uBAFE\uBAFF\uBB01\uBB02\uBB03\uBB05\uBB06\uBB07\uBB08\uBB09\uBB0A\uBB0B\uBB0C\uBB0E\uBB10\uBB12\uBB13\uBB14\uBB15\uBB16\uBB17\uBB19\uBB1A\uBB1B\uBB1D\uBB1E\uBB1F\uBB21\uBB22\uBB23\uBB24\uBB25\uBB26\uBB27\uBB28\uBB2A\uBB2C\uBB2D\uBB2E\uBB2F\uBB30\uBB31\uBB32\uBB33\uBB37\uBB39\uBB3A\uBB3F\uBB40\uBB41\uBB42\uBB43\uBB46\uBB48\uBB4A\uBB4B\uBB4C\uBB4E\uBB51\uBB52\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBB53\uBB55\uBB56\uBB57\uBB59\uBB5A\uBB5B\uBB5C\uBB5D\uBB5E\uBB5F\uBB60\uBB62\uBB64\uBB65\uBB66\uBB67\uBB68\uBB69\uBB6A\uBB6B\uBB6D\uBB6E\uBB6F\uBB70\uBB71\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBB72\uBB73\uBB74\uBB75\uBB76\uBB77\uBB78\uBB79\uBB7A\uBB7B\uBB7C\uBB7D\uBB7E\uBB7F\uBB80\uBB81\uBB82\uBB83\uBB84\uBB85\uBB86\uBB87\uBB89\uBB8A\uBB8B\uBB8D\uBB8E\uBB8F\uBB91\uBB92\uBB93\uBB94\uBB95\uBB96\uBB97\uBB98\uBB99\uBB9A\uBB9B\uBB9C\uBB9D\uBB9E\uBB9F\uBBA0\uBBA1\uBBA2\uBBA3\uBBA5\uBBA6\uBBA7\uBBA9\uBBAA\uBBAB\uBBAD\uBBAE\uBBAF\uBBB0\uBBB1\uBBB2\uBBB3\uBBB5\uBBB6\uBBB8\uBBB9\uBBBA\uBBBB\uBBBC\uBBBD\uBBBE\uBBBF\uBBC1\uBBC2\uBBC3\uBBC5\uBBC6\uBBC7\uBBC9\uBBCA\uBBCB\uBBCC\uBBCD\uBBCE\uBBCF\uBBD1\uBBD2\uBBD4\uBBD5\uBBD6\uBBD7\uBBD8\uBBD9\uBBDA\uBBDB\uBBDC\uBBDD\uBBDE\uBBDF\uBBE0\uBBE1\uBBE2\uBBE3\uBBE4\uBBE5\uBBE6\uBBE7\uBBE8\uBBE9\uBBEA\uBBEB\uBBEC\uBBED\uBBEE\uBBEF\uBBF0\uBBF1\uBBF2\uBBF3\uBBF4\uBBF5\uBBF6\uBBF7\uBBFA\uBBFB\uBBFD\uBBFE\uBC01\uBC03\uBC04\uBC05\uBC06\uBC07\uBC0A\uBC0E\uBC10\uBC12\uBC13\uBC19\uBC1A\uBC20\uBC21\uBC22\uBC23\uBC26\uBC28\uBC2A\uBC2B\uBC2C\uBC2E\uBC2F\uBC32\uBC33\uBC35\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBC36\uBC37\uBC39\uBC3A\uBC3B\uBC3C\uBC3D\uBC3E\uBC3F\uBC42\uBC46\uBC47\uBC48\uBC4A\uBC4B\uBC4E\uBC4F\uBC51\uBC52\uBC53\uBC54\uBC55\uBC56\uBC57\uBC58\uBC59\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBC5A\uBC5B\uBC5C\uBC5E\uBC5F\uBC60\uBC61\uBC62\uBC63\uBC64\uBC65\uBC66\uBC67\uBC68\uBC69\uBC6A\uBC6B\uBC6C\uBC6D\uBC6E\uBC6F\uBC70\uBC71\uBC72\uBC73\uBC74\uBC75\uBC76\uBC77\uBC78\uBC79\uBC7A\uBC7B\uBC7C\uBC7D\uBC7E\uBC7F\uBC80\uBC81\uBC82\uBC83\uBC86\uBC87\uBC89\uBC8A\uBC8D\uBC8F\uBC90\uBC91\uBC92\uBC93\uBC96\uBC98\uBC9B\uBC9C\uBC9D\uBC9E\uBC9F\uBCA2\uBCA3\uBCA5\uBCA6\uBCA9\uBCAA\uBCAB\uBCAC\uBCAD\uBCAE\uBCAF\uBCB2\uBCB6\uBCB7\uBCB8\uBCB9\uBCBA\uBCBB\uBCBE\uBCBF\uBCC1\uBCC2\uBCC3\uBCC5\uBCC6\uBCC7\uBCC8\uBCC9\uBCCA\uBCCB\uBCCC\uBCCE\uBCD2\uBCD3\uBCD4\uBCD6\uBCD7\uBCD9\uBCDA\uBCDB\uBCDD\uBCDE\uBCDF\uBCE0\uBCE1\uBCE2\uBCE3\uBCE4\uBCE5\uBCE6\uBCE7\uBCE8\uBCE9\uBCEA\uBCEB\uBCEC\uBCED\uBCEE\uBCEF\uBCF0\uBCF1\uBCF2\uBCF3\uBCF7\uBCF9\uBCFA\uBCFB\uBCFD\uBCFE\uBCFF\uBD00\uBD01\uBD02\uBD03\uBD06\uBD08\uBD0A\uBD0B\uBD0C\uBD0D\uBD0E\uBD0F\uBD11\uBD12\uBD13\uBD15\uBD16\uBD17\uBD18\uBD19\uBD1A\uBD1B\uBD1C\uBD1D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBD1E\uBD1F\uBD20\uBD21\uBD22\uBD23\uBD25\uBD26\uBD27\uBD28\uBD29\uBD2A\uBD2B\uBD2D\uBD2E\uBD2F\uBD30\uBD31\uBD32\uBD33\uBD34\uBD35\uBD36\uBD37\uBD38\uBD39\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBD3A\uBD3B\uBD3C\uBD3D\uBD3E\uBD3F\uBD41\uBD42\uBD43\uBD44\uBD45\uBD46\uBD47\uBD4A\uBD4B\uBD4D\uBD4E\uBD4F\uBD51\uBD52\uBD53\uBD54\uBD55\uBD56\uBD57\uBD5A\uBD5B\uBD5C\uBD5D\uBD5E\uBD5F\uBD60\uBD61\uBD62\uBD63\uBD65\uBD66\uBD67\uBD69\uBD6A\uBD6B\uBD6C\uBD6D\uBD6E\uBD6F\uBD70\uBD71\uBD72\uBD73\uBD74\uBD75\uBD76\uBD77\uBD78\uBD79\uBD7A\uBD7B\uBD7C\uBD7D\uBD7E\uBD7F\uBD82\uBD83\uBD85\uBD86\uBD8B\uBD8C\uBD8D\uBD8E\uBD8F\uBD92\uBD94\uBD96\uBD97\uBD98\uBD9B\uBD9D\uBD9E\uBD9F\uBDA0\uBDA1\uBDA2\uBDA3\uBDA5\uBDA6\uBDA7\uBDA8\uBDA9\uBDAA\uBDAB\uBDAC\uBDAD\uBDAE\uBDAF\uBDB1\uBDB2\uBDB3\uBDB4\uBDB5\uBDB6\uBDB7\uBDB9\uBDBA\uBDBB\uBDBC\uBDBD\uBDBE\uBDBF\uBDC0\uBDC1\uBDC2\uBDC3\uBDC4\uBDC5\uBDC6\uBDC7\uBDC8\uBDC9\uBDCA\uBDCB\uBDCC\uBDCD\uBDCE\uBDCF\uBDD0\uBDD1\uBDD2\uBDD3\uBDD6\uBDD7\uBDD9\uBDDA\uBDDB\uBDDD\uBDDE\uBDDF\uBDE0\uBDE1\uBDE2\uBDE3\uBDE4\uBDE5\uBDE6\uBDE7\uBDE8\uBDEA\uBDEB\uBDEC\uBDED\uBDEE\uBDEF\uBDF1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBDF2\uBDF3\uBDF5\uBDF6\uBDF7\uBDF9\uBDFA\uBDFB\uBDFC\uBDFD\uBDFE\uBDFF\uBE01\uBE02\uBE04\uBE06\uBE07\uBE08\uBE09\uBE0A\uBE0B\uBE0E\uBE0F\uBE11\uBE12\uBE13\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBE15\uBE16\uBE17\uBE18\uBE19\uBE1A\uBE1B\uBE1E\uBE20\uBE21\uBE22\uBE23\uBE24\uBE25\uBE26\uBE27\uBE28\uBE29\uBE2A\uBE2B\uBE2C\uBE2D\uBE2E\uBE2F\uBE30\uBE31\uBE32\uBE33\uBE34\uBE35\uBE36\uBE37\uBE38\uBE39\uBE3A\uBE3B\uBE3C\uBE3D\uBE3E\uBE3F\uBE40\uBE41\uBE42\uBE43\uBE46\uBE47\uBE49\uBE4A\uBE4B\uBE4D\uBE4F\uBE50\uBE51\uBE52\uBE53\uBE56\uBE58\uBE5C\uBE5D\uBE5E\uBE5F\uBE62\uBE63\uBE65\uBE66\uBE67\uBE69\uBE6B\uBE6C\uBE6D\uBE6E\uBE6F\uBE72\uBE76\uBE77\uBE78\uBE79\uBE7A\uBE7E\uBE7F\uBE81\uBE82\uBE83\uBE85\uBE86\uBE87\uBE88\uBE89\uBE8A\uBE8B\uBE8E\uBE92\uBE93\uBE94\uBE95\uBE96\uBE97\uBE9A\uBE9B\uBE9C\uBE9D\uBE9E\uBE9F\uBEA0\uBEA1\uBEA2\uBEA3\uBEA4\uBEA5\uBEA6\uBEA7\uBEA9\uBEAA\uBEAB\uBEAC\uBEAD\uBEAE\uBEAF\uBEB0\uBEB1\uBEB2\uBEB3\uBEB4\uBEB5\uBEB6\uBEB7\uBEB8\uBEB9\uBEBA\uBEBB\uBEBC\uBEBD\uBEBE\uBEBF\uBEC0\uBEC1\uBEC2\uBEC3\uBEC4\uBEC5\uBEC6\uBEC7\uBEC8\uBEC9\uBECA\uBECB\uBECC\uBECD\uBECE\uBECF\uBED2\uBED3\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBED5\uBED6\uBED9\uBEDA\uBEDB\uBEDC\uBEDD\uBEDE\uBEDF\uBEE1\uBEE2\uBEE6\uBEE7\uBEE8\uBEE9\uBEEA\uBEEB\uBEED\uBEEE\uBEEF\uBEF0\uBEF1\uBEF2\uBEF3\uBEF4\uBEF5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBEF6\uBEF7\uBEF8\uBEF9\uBEFA\uBEFB\uBEFC\uBEFD\uBEFE\uBEFF\uBF00\uBF02\uBF03\uBF04\uBF05\uBF06\uBF07\uBF0A\uBF0B\uBF0C\uBF0D\uBF0E\uBF0F\uBF10\uBF11\uBF12\uBF13\uBF14\uBF15\uBF16\uBF17\uBF1A\uBF1E\uBF1F\uBF20\uBF21\uBF22\uBF23\uBF24\uBF25\uBF26\uBF27\uBF28\uBF29\uBF2A\uBF2B\uBF2C\uBF2D\uBF2E\uBF2F\uBF30\uBF31\uBF32\uBF33\uBF34\uBF35\uBF36\uBF37\uBF38\uBF39\uBF3A\uBF3B\uBF3C\uBF3D\uBF3E\uBF3F\uBF42\uBF43\uBF45\uBF46\uBF47\uBF49\uBF4A\uBF4B\uBF4C\uBF4D\uBF4E\uBF4F\uBF52\uBF53\uBF54\uBF56\uBF57\uBF58\uBF59\uBF5A\uBF5B\uBF5C\uBF5D\uBF5E\uBF5F\uBF60\uBF61\uBF62\uBF63\uBF64\uBF65\uBF66\uBF67\uBF68\uBF69\uBF6A\uBF6B\uBF6C\uBF6D\uBF6E\uBF6F\uBF70\uBF71\uBF72\uBF73\uBF74\uBF75\uBF76\uBF77\uBF78\uBF79\uBF7A\uBF7B\uBF7C\uBF7D\uBF7E\uBF7F\uBF80\uBF81\uBF82\uBF83\uBF84\uBF85\uBF86\uBF87\uBF88\uBF89\uBF8A\uBF8B\uBF8C\uBF8D\uBF8E\uBF8F\uBF90\uBF91\uBF92\uBF93\uBF95\uBF96\uBF97\uBF98\uBF99\uBF9A\uBF9B\uBF9C\uBF9D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBF9E\uBF9F\uBFA0\uBFA1\uBFA2\uBFA3\uBFA4\uBFA5\uBFA6\uBFA7\uBFA8\uBFA9\uBFAA\uBFAB\uBFAC\uBFAD\uBFAE\uBFAF\uBFB1\uBFB2\uBFB3\uBFB4\uBFB5\uBFB6\uBFB7\uBFB8\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uBFB9\uBFBA\uBFBB\uBFBC\uBFBD\uBFBE\uBFBF\uBFC0\uBFC1\uBFC2\uBFC3\uBFC4\uBFC6\uBFC7\uBFC8\uBFC9\uBFCA\uBFCB\uBFCE\uBFCF\uBFD1\uBFD2\uBFD3\uBFD5\uBFD6\uBFD7\uBFD8\uBFD9\uBFDA\uBFDB\uBFDD\uBFDE\uBFE0\uBFE2\uBFE3\uBFE4\uBFE5\uBFE6\uBFE7\uBFE8\uBFE9\uBFEA\uBFEB\uBFEC\uBFED\uBFEE\uBFEF\uBFF0\uBFF1\uBFF2\uBFF3\uBFF4\uBFF5\uBFF6\uBFF7\uBFF8\uBFF9\uBFFA\uBFFB\uBFFC\uBFFD\uBFFE\uBFFF\uC000\uC001\uC002\uC003\uC004\uC005\uC006\uC007\uC008\uC009\uC00A\uC00B\uC00C\uC00D\uC00E\uC00F\uC010\uC011\uC012\uC013\uC014\uC015\uC016\uC017\uC018\uC019\uC01A\uC01B\uC01C\uC01D\uC01E\uC01F\uC020\uC021\uC022\uC023\uC024\uC025\uC026\uC027\uC028\uC029\uC02A\uC02B\uC02C\uC02D\uC02E\uC02F\uC030\uC031\uC032\uC033\uC034\uC035\uC036\uC037\uC038\uC039\uC03A\uC03B\uC03D\uC03E\uC03F\uC040\uC041\uC042\uC043\uC044\uC045\uC046\uC047\uC048\uC049\uC04A\uC04B\uC04C\uC04D\uC04E\uC04F\uC050\uC052\uC053\uC054\uC055\uC056\uC057\uC059\uC05A\uC05B\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC05D\uC05E\uC05F\uC061\uC062\uC063\uC064\uC065\uC066\uC067\uC06A\uC06B\uC06C\uC06D\uC06E\uC06F\uC070\uC071\uC072\uC073\uC074\uC075\uC076\uC077\uC078\uC079\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC07A\uC07B\uC07C\uC07D\uC07E\uC07F\uC080\uC081\uC082\uC083\uC084\uC085\uC086\uC087\uC088\uC089\uC08A\uC08B\uC08C\uC08D\uC08E\uC08F\uC092\uC093\uC095\uC096\uC097\uC099\uC09A\uC09B\uC09C\uC09D\uC09E\uC09F\uC0A2\uC0A4\uC0A6\uC0A7\uC0A8\uC0A9\uC0AA\uC0AB\uC0AE\uC0B1\uC0B2\uC0B7\uC0B8\uC0B9\uC0BA\uC0BB\uC0BE\uC0C2\uC0C3\uC0C4\uC0C6\uC0C7\uC0CA\uC0CB\uC0CD\uC0CE\uC0CF\uC0D1\uC0D2\uC0D3\uC0D4\uC0D5\uC0D6\uC0D7\uC0DA\uC0DE\uC0DF\uC0E0\uC0E1\uC0E2\uC0E3\uC0E6\uC0E7\uC0E9\uC0EA\uC0EB\uC0ED\uC0EE\uC0EF\uC0F0\uC0F1\uC0F2\uC0F3\uC0F6\uC0F8\uC0FA\uC0FB\uC0FC\uC0FD\uC0FE\uC0FF\uC101\uC102\uC103\uC105\uC106\uC107\uC109\uC10A\uC10B\uC10C\uC10D\uC10E\uC10F\uC111\uC112\uC113\uC114\uC116\uC117\uC118\uC119\uC11A\uC11B\uC121\uC122\uC125\uC128\uC129\uC12A\uC12B\uC12E\uC132\uC133\uC134\uC135\uC137\uC13A\uC13B\uC13D\uC13E\uC13F\uC141\uC142\uC143\uC144\uC145\uC146\uC147\uC14A\uC14E\uC14F\uC150\uC151\uC152\uC153\uC156\uC157\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC159\uC15A\uC15B\uC15D\uC15E\uC15F\uC160\uC161\uC162\uC163\uC166\uC16A\uC16B\uC16C\uC16D\uC16E\uC16F\uC171\uC172\uC173\uC175\uC176\uC177\uC179\uC17A\uC17B\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC17C\uC17D\uC17E\uC17F\uC180\uC181\uC182\uC183\uC184\uC186\uC187\uC188\uC189\uC18A\uC18B\uC18F\uC191\uC192\uC193\uC195\uC197\uC198\uC199\uC19A\uC19B\uC19E\uC1A0\uC1A2\uC1A3\uC1A4\uC1A6\uC1A7\uC1AA\uC1AB\uC1AD\uC1AE\uC1AF\uC1B1\uC1B2\uC1B3\uC1B4\uC1B5\uC1B6\uC1B7\uC1B8\uC1B9\uC1BA\uC1BB\uC1BC\uC1BE\uC1BF\uC1C0\uC1C1\uC1C2\uC1C3\uC1C5\uC1C6\uC1C7\uC1C9\uC1CA\uC1CB\uC1CD\uC1CE\uC1CF\uC1D0\uC1D1\uC1D2\uC1D3\uC1D5\uC1D6\uC1D9\uC1DA\uC1DB\uC1DC\uC1DD\uC1DE\uC1DF\uC1E1\uC1E2\uC1E3\uC1E5\uC1E6\uC1E7\uC1E9\uC1EA\uC1EB\uC1EC\uC1ED\uC1EE\uC1EF\uC1F2\uC1F4\uC1F5\uC1F6\uC1F7\uC1F8\uC1F9\uC1FA\uC1FB\uC1FE\uC1FF\uC201\uC202\uC203\uC205\uC206\uC207\uC208\uC209\uC20A\uC20B\uC20E\uC210\uC212\uC213\uC214\uC215\uC216\uC217\uC21A\uC21B\uC21D\uC21E\uC221\uC222\uC223\uC224\uC225\uC226\uC227\uC22A\uC22C\uC22E\uC230\uC233\uC235\uC236\uC237\uC238\uC239\uC23A\uC23B\uC23C\uC23D\uC23E\uC23F\uC240\uC241\uC242\uC243\uC244\uC245\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC246\uC247\uC249\uC24A\uC24B\uC24C\uC24D\uC24E\uC24F\uC252\uC253\uC255\uC256\uC257\uC259\uC25A\uC25B\uC25C\uC25D\uC25E\uC25F\uC261\uC262\uC263\uC264\uC266\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC267\uC268\uC269\uC26A\uC26B\uC26E\uC26F\uC271\uC272\uC273\uC275\uC276\uC277\uC278\uC279\uC27A\uC27B\uC27E\uC280\uC282\uC283\uC284\uC285\uC286\uC287\uC28A\uC28B\uC28C\uC28D\uC28E\uC28F\uC291\uC292\uC293\uC294\uC295\uC296\uC297\uC299\uC29A\uC29C\uC29E\uC29F\uC2A0\uC2A1\uC2A2\uC2A3\uC2A6\uC2A7\uC2A9\uC2AA\uC2AB\uC2AE\uC2AF\uC2B0\uC2B1\uC2B2\uC2B3\uC2B6\uC2B8\uC2BA\uC2BB\uC2BC\uC2BD\uC2BE\uC2BF\uC2C0\uC2C1\uC2C2\uC2C3\uC2C4\uC2C5\uC2C6\uC2C7\uC2C8\uC2C9\uC2CA\uC2CB\uC2CC\uC2CD\uC2CE\uC2CF\uC2D0\uC2D1\uC2D2\uC2D3\uC2D4\uC2D5\uC2D6\uC2D7\uC2D8\uC2D9\uC2DA\uC2DB\uC2DE\uC2DF\uC2E1\uC2E2\uC2E5\uC2E6\uC2E7\uC2E8\uC2E9\uC2EA\uC2EE\uC2F0\uC2F2\uC2F3\uC2F4\uC2F5\uC2F7\uC2FA\uC2FD\uC2FE\uC2FF\uC301\uC302\uC303\uC304\uC305\uC306\uC307\uC30A\uC30B\uC30E\uC30F\uC310\uC311\uC312\uC316\uC317\uC319\uC31A\uC31B\uC31D\uC31E\uC31F\uC320\uC321\uC322\uC323\uC326\uC327\uC32A\uC32B\uC32C\uC32D\uC32E\uC32F\uC330\uC331\uC332\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC333\uC334\uC335\uC336\uC337\uC338\uC339\uC33A\uC33B\uC33C\uC33D\uC33E\uC33F\uC340\uC341\uC342\uC343\uC344\uC346\uC347\uC348\uC349\uC34A\uC34B\uC34C\uC34D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC34E\uC34F\uC350\uC351\uC352\uC353\uC354\uC355\uC356\uC357\uC358\uC359\uC35A\uC35B\uC35C\uC35D\uC35E\uC35F\uC360\uC361\uC362\uC363\uC364\uC365\uC366\uC367\uC36A\uC36B\uC36D\uC36E\uC36F\uC371\uC373\uC374\uC375\uC376\uC377\uC37A\uC37B\uC37E\uC37F\uC380\uC381\uC382\uC383\uC385\uC386\uC387\uC389\uC38A\uC38B\uC38D\uC38E\uC38F\uC390\uC391\uC392\uC393\uC394\uC395\uC396\uC397\uC398\uC399\uC39A\uC39B\uC39C\uC39D\uC39E\uC39F\uC3A0\uC3A1\uC3A2\uC3A3\uC3A4\uC3A5\uC3A6\uC3A7\uC3A8\uC3A9\uC3AA\uC3AB\uC3AC\uC3AD\uC3AE\uC3AF\uC3B0\uC3B1\uC3B2\uC3B3\uC3B4\uC3B5\uC3B6\uC3B7\uC3B8\uC3B9\uC3BA\uC3BB\uC3BC\uC3BD\uC3BE\uC3BF\uC3C1\uC3C2\uC3C3\uC3C4\uC3C5\uC3C6\uC3C7\uC3C8\uC3C9\uC3CA\uC3CB\uC3CC\uC3CD\uC3CE\uC3CF\uC3D0\uC3D1\uC3D2\uC3D3\uC3D4\uC3D5\uC3D6\uC3D7\uC3DA\uC3DB\uC3DD\uC3DE\uC3E1\uC3E3\uC3E4\uC3E5\uC3E6\uC3E7\uC3EA\uC3EB\uC3EC\uC3EE\uC3EF\uC3F0\uC3F1\uC3F2\uC3F3\uC3F6\uC3F7\uC3F9\uC3FA\uC3FB\uC3FC\uC3FD\uC3FE\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC3FF\uC400\uC401\uC402\uC403\uC404\uC405\uC406\uC407\uC409\uC40A\uC40B\uC40C\uC40D\uC40E\uC40F\uC411\uC412\uC413\uC414\uC415\uC416\uC417\uC418\uC419\uC41A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC41B\uC41C\uC41D\uC41E\uC41F\uC420\uC421\uC422\uC423\uC425\uC426\uC427\uC428\uC429\uC42A\uC42B\uC42D\uC42E\uC42F\uC431\uC432\uC433\uC435\uC436\uC437\uC438\uC439\uC43A\uC43B\uC43E\uC43F\uC440\uC441\uC442\uC443\uC444\uC445\uC446\uC447\uC449\uC44A\uC44B\uC44C\uC44D\uC44E\uC44F\uC450\uC451\uC452\uC453\uC454\uC455\uC456\uC457\uC458\uC459\uC45A\uC45B\uC45C\uC45D\uC45E\uC45F\uC460\uC461\uC462\uC463\uC466\uC467\uC469\uC46A\uC46B\uC46D\uC46E\uC46F\uC470\uC471\uC472\uC473\uC476\uC477\uC478\uC47A\uC47B\uC47C\uC47D\uC47E\uC47F\uC481\uC482\uC483\uC484\uC485\uC486\uC487\uC488\uC489\uC48A\uC48B\uC48C\uC48D\uC48E\uC48F\uC490\uC491\uC492\uC493\uC495\uC496\uC497\uC498\uC499\uC49A\uC49B\uC49D\uC49E\uC49F\uC4A0\uC4A1\uC4A2\uC4A3\uC4A4\uC4A5\uC4A6\uC4A7\uC4A8\uC4A9\uC4AA\uC4AB\uC4AC\uC4AD\uC4AE\uC4AF\uC4B0\uC4B1\uC4B2\uC4B3\uC4B4\uC4B5\uC4B6\uC4B7\uC4B9\uC4BA\uC4BB\uC4BD\uC4BE\uC4BF\uC4C0\uC4C1\uC4C2\uC4C3\uC4C4\uC4C5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC4C6\uC4C7\uC4C8\uC4C9\uC4CA\uC4CB\uC4CC\uC4CD\uC4CE\uC4CF\uC4D0\uC4D1\uC4D2\uC4D3\uC4D4\uC4D5\uC4D6\uC4D7\uC4D8\uC4D9\uC4DA\uC4DB\uC4DC\uC4DD\uC4DE\uC4DF\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC4E0\uC4E1\uC4E2\uC4E3\uC4E4\uC4E5\uC4E6\uC4E7\uC4E8\uC4EA\uC4EB\uC4EC\uC4ED\uC4EE\uC4EF\uC4F2\uC4F3\uC4F5\uC4F6\uC4F7\uC4F9\uC4FB\uC4FC\uC4FD\uC4FE\uC502\uC503\uC504\uC505\uC506\uC507\uC508\uC509\uC50A\uC50B\uC50D\uC50E\uC50F\uC511\uC512\uC513\uC515\uC516\uC517\uC518\uC519\uC51A\uC51B\uC51D\uC51E\uC51F\uC520\uC521\uC522\uC523\uC524\uC525\uC526\uC527\uC52A\uC52B\uC52D\uC52E\uC52F\uC531\uC532\uC533\uC534\uC535\uC536\uC537\uC53A\uC53C\uC53E\uC53F\uC540\uC541\uC542\uC543\uC546\uC547\uC54B\uC54F\uC550\uC551\uC552\uC556\uC55A\uC55B\uC55C\uC55F\uC562\uC563\uC565\uC566\uC567\uC569\uC56A\uC56B\uC56C\uC56D\uC56E\uC56F\uC572\uC576\uC577\uC578\uC579\uC57A\uC57B\uC57E\uC57F\uC581\uC582\uC583\uC585\uC586\uC588\uC589\uC58A\uC58B\uC58E\uC590\uC592\uC593\uC594\uC596\uC599\uC59A\uC59B\uC59D\uC59E\uC59F\uC5A1\uC5A2\uC5A3\uC5A4\uC5A5\uC5A6\uC5A7\uC5A8\uC5AA\uC5AB\uC5AC\uC5AD\uC5AE\uC5AF\uC5B0\uC5B1\uC5B2\uC5B3\uC5B6\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC5B7\uC5BA\uC5BF\uC5C0\uC5C1\uC5C2\uC5C3\uC5CB\uC5CD\uC5CF\uC5D2\uC5D3\uC5D5\uC5D6\uC5D7\uC5D9\uC5DA\uC5DB\uC5DC\uC5DD\uC5DE\uC5DF\uC5E2\uC5E4\uC5E6\uC5E7\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC5E8\uC5E9\uC5EA\uC5EB\uC5EF\uC5F1\uC5F2\uC5F3\uC5F5\uC5F8\uC5F9\uC5FA\uC5FB\uC602\uC603\uC604\uC609\uC60A\uC60B\uC60D\uC60E\uC60F\uC611\uC612\uC613\uC614\uC615\uC616\uC617\uC61A\uC61D\uC61E\uC61F\uC620\uC621\uC622\uC623\uC626\uC627\uC629\uC62A\uC62B\uC62F\uC631\uC632\uC636\uC638\uC63A\uC63C\uC63D\uC63E\uC63F\uC642\uC643\uC645\uC646\uC647\uC649\uC64A\uC64B\uC64C\uC64D\uC64E\uC64F\uC652\uC656\uC657\uC658\uC659\uC65A\uC65B\uC65E\uC65F\uC661\uC662\uC663\uC664\uC665\uC666\uC667\uC668\uC669\uC66A\uC66B\uC66D\uC66E\uC670\uC672\uC673\uC674\uC675\uC676\uC677\uC67A\uC67B\uC67D\uC67E\uC67F\uC681\uC682\uC683\uC684\uC685\uC686\uC687\uC68A\uC68C\uC68E\uC68F\uC690\uC691\uC692\uC693\uC696\uC697\uC699\uC69A\uC69B\uC69D\uC69E\uC69F\uC6A0\uC6A1\uC6A2\uC6A3\uC6A6\uC6A8\uC6AA\uC6AB\uC6AC\uC6AD\uC6AE\uC6AF\uC6B2\uC6B3\uC6B5\uC6B6\uC6B7\uC6BB\uC6BC\uC6BD\uC6BE\uC6BF\uC6C2\uC6C4\uC6C6\uC6C7\uC6C8\uC6C9\uC6CA\uC6CB\uC6CE\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC6CF\uC6D1\uC6D2\uC6D3\uC6D5\uC6D6\uC6D7\uC6D8\uC6D9\uC6DA\uC6DB\uC6DE\uC6DF\uC6E2\uC6E3\uC6E4\uC6E5\uC6E6\uC6E7\uC6EA\uC6EB\uC6ED\uC6EE\uC6EF\uC6F1\uC6F2\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC6F3\uC6F4\uC6F5\uC6F6\uC6F7\uC6FA\uC6FB\uC6FC\uC6FE\uC6FF\uC700\uC701\uC702\uC703\uC706\uC707\uC709\uC70A\uC70B\uC70D\uC70E\uC70F\uC710\uC711\uC712\uC713\uC716\uC718\uC71A\uC71B\uC71C\uC71D\uC71E\uC71F\uC722\uC723\uC725\uC726\uC727\uC729\uC72A\uC72B\uC72C\uC72D\uC72E\uC72F\uC732\uC734\uC736\uC738\uC739\uC73A\uC73B\uC73E\uC73F\uC741\uC742\uC743\uC745\uC746\uC747\uC748\uC749\uC74B\uC74E\uC750\uC759\uC75A\uC75B\uC75D\uC75E\uC75F\uC761\uC762\uC763\uC764\uC765\uC766\uC767\uC769\uC76A\uC76C\uC76D\uC76E\uC76F\uC770\uC771\uC772\uC773\uC776\uC777\uC779\uC77A\uC77B\uC77F\uC780\uC781\uC782\uC786\uC78B\uC78C\uC78D\uC78F\uC792\uC793\uC795\uC799\uC79B\uC79C\uC79D\uC79E\uC79F\uC7A2\uC7A7\uC7A8\uC7A9\uC7AA\uC7AB\uC7AE\uC7AF\uC7B1\uC7B2\uC7B3\uC7B5\uC7B6\uC7B7\uC7B8\uC7B9\uC7BA\uC7BB\uC7BE\uC7C2\uC7C3\uC7C4\uC7C5\uC7C6\uC7C7\uC7CA\uC7CB\uC7CD\uC7CF\uC7D1\uC7D2\uC7D3\uC7D4\uC7D5\uC7D6\uC7D7\uC7D9\uC7DA\uC7DB\uC7DC\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC7DE\uC7DF\uC7E0\uC7E1\uC7E2\uC7E3\uC7E5\uC7E6\uC7E7\uC7E9\uC7EA\uC7EB\uC7ED\uC7EE\uC7EF\uC7F0\uC7F1\uC7F2\uC7F3\uC7F4\uC7F5\uC7F6\uC7F7\uC7F8\uC7F9\uC7FA\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC7FB\uC7FC\uC7FD\uC7FE\uC7FF\uC802\uC803\uC805\uC806\uC807\uC809\uC80B\uC80C\uC80D\uC80E\uC80F\uC812\uC814\uC817\uC818\uC819\uC81A\uC81B\uC81E\uC81F\uC821\uC822\uC823\uC825\uC826\uC827\uC828\uC829\uC82A\uC82B\uC82E\uC830\uC832\uC833\uC834\uC835\uC836\uC837\uC839\uC83A\uC83B\uC83D\uC83E\uC83F\uC841\uC842\uC843\uC844\uC845\uC846\uC847\uC84A\uC84B\uC84E\uC84F\uC850\uC851\uC852\uC853\uC855\uC856\uC857\uC858\uC859\uC85A\uC85B\uC85C\uC85D\uC85E\uC85F\uC860\uC861\uC862\uC863\uC864\uC865\uC866\uC867\uC868\uC869\uC86A\uC86B\uC86C\uC86D\uC86E\uC86F\uC872\uC873\uC875\uC876\uC877\uC879\uC87B\uC87C\uC87D\uC87E\uC87F\uC882\uC884\uC888\uC889\uC88A\uC88E\uC88F\uC890\uC891\uC892\uC893\uC895\uC896\uC897\uC898\uC899\uC89A\uC89B\uC89C\uC89E\uC8A0\uC8A2\uC8A3\uC8A4\uC8A5\uC8A6\uC8A7\uC8A9\uC8AA\uC8AB\uC8AC\uC8AD\uC8AE\uC8AF\uC8B0\uC8B1\uC8B2\uC8B3\uC8B4\uC8B5\uC8B6\uC8B7\uC8B8\uC8B9\uC8BA\uC8BB\uC8BE\uC8BF\uC8C0\uC8C1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC8C2\uC8C3\uC8C5\uC8C6\uC8C7\uC8C9\uC8CA\uC8CB\uC8CD\uC8CE\uC8CF\uC8D0\uC8D1\uC8D2\uC8D3\uC8D6\uC8D8\uC8DA\uC8DB\uC8DC\uC8DD\uC8DE\uC8DF\uC8E2\uC8E3\uC8E5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC8E6\uC8E7\uC8E8\uC8E9\uC8EA\uC8EB\uC8EC\uC8ED\uC8EE\uC8EF\uC8F0\uC8F1\uC8F2\uC8F3\uC8F4\uC8F6\uC8F7\uC8F8\uC8F9\uC8FA\uC8FB\uC8FE\uC8FF\uC901\uC902\uC903\uC907\uC908\uC909\uC90A\uC90B\uC90E\u3000\u3001\u3002\xB7\u2025\u2026\xA8\u3003\xAD\u2015\u2225\uFF3C\u223C\u2018\u2019\u201C\u201D\u3014\u3015\u3008\u3009\u300A\u300B\u300C\u300D\u300E\u300F\u3010\u3011\xB1\xD7\xF7\u2260\u2264\u2265\u221E\u2234\xB0\u2032\u2033\u2103\u212B\uFFE0\uFFE1\uFFE5\u2642\u2640\u2220\u22A5\u2312\u2202\u2207\u2261\u2252\xA7\u203B\u2606\u2605\u25CB\u25CF\u25CE\u25C7\u25C6\u25A1\u25A0\u25B3\u25B2\u25BD\u25BC\u2192\u2190\u2191\u2193\u2194\u3013\u226A\u226B\u221A\u223D\u221D\u2235\u222B\u222C\u2208\u220B\u2286\u2287\u2282\u2283\u222A\u2229\u2227\u2228\uFFE2\uC910\uC912\uC913\uC914\uC915\uC916\uC917\uC919\uC91A\uC91B\uC91C\uC91D\uC91E\uC91F\uC920\uC921\uC922\uC923\uC924\uC925\uC926\uC927\uC928\uC929\uC92A\uC92B\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC92D\uC92E\uC92F\uC930\uC931\uC932\uC933\uC935\uC936\uC937\uC938\uC939\uC93A\uC93B\uC93C\uC93D\uC93E\uC93F\uC940\uC941\uC942\uC943\uC944\uC945\uC946\uC947\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC948\uC949\uC94A\uC94B\uC94C\uC94D\uC94E\uC94F\uC952\uC953\uC955\uC956\uC957\uC959\uC95A\uC95B\uC95C\uC95D\uC95E\uC95F\uC962\uC964\uC965\uC966\uC967\uC968\uC969\uC96A\uC96B\uC96D\uC96E\uC96F\u21D2\u21D4\u2200\u2203\xB4\uFF5E\u02C7\u02D8\u02DD\u02DA\u02D9\xB8\u02DB\xA1\xBF\u02D0\u222E\u2211\u220F\xA4\u2109\u2030\u25C1\u25C0\u25B7\u25B6\u2664\u2660\u2661\u2665\u2667\u2663\u2299\u25C8\u25A3\u25D0\u25D1\u2592\u25A4\u25A5\u25A8\u25A7\u25A6\u25A9\u2668\u260F\u260E\u261C\u261E\xB6\u2020\u2021\u2195\u2197\u2199\u2196\u2198\u266D\u2669\u266A\u266C\u327F\u321C\u2116\u33C7\u2122\u33C2\u33D8\u2121\u20AC\xAE\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC971\uC972\uC973\uC975\uC976\uC977\uC978\uC979\uC97A\uC97B\uC97D\uC97E\uC97F\uC980\uC981\uC982\uC983\uC984\uC985\uC986\uC987\uC98A\uC98B\uC98D\uC98E\uC98F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC991\uC992\uC993\uC994\uC995\uC996\uC997\uC99A\uC99C\uC99E\uC99F\uC9A0\uC9A1\uC9A2\uC9A3\uC9A4\uC9A5\uC9A6\uC9A7\uC9A8\uC9A9\uC9AA\uC9AB\uC9AC\uC9AD\uC9AE\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uC9AF\uC9B0\uC9B1\uC9B2\uC9B3\uC9B4\uC9B5\uC9B6\uC9B7\uC9B8\uC9B9\uC9BA\uC9BB\uC9BC\uC9BD\uC9BE\uC9BF\uC9C2\uC9C3\uC9C5\uC9C6\uC9C9\uC9CB\uC9CC\uC9CD\uC9CE\uC9CF\uC9D2\uC9D4\uC9D7\uC9D8\uC9DB\uFF01\uFF02\uFF03\uFF04\uFF05\uFF06\uFF07\uFF08\uFF09\uFF0A\uFF0B\uFF0C\uFF0D\uFF0E\uFF0F\uFF10\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18\uFF19\uFF1A\uFF1B\uFF1C\uFF1D\uFF1E\uFF1F\uFF20\uFF21\uFF22\uFF23\uFF24\uFF25\uFF26\uFF27\uFF28\uFF29\uFF2A\uFF2B\uFF2C\uFF2D\uFF2E\uFF2F\uFF30\uFF31\uFF32\uFF33\uFF34\uFF35\uFF36\uFF37\uFF38\uFF39\uFF3A\uFF3B\uFFE6\uFF3D\uFF3E\uFF3F\uFF40\uFF41\uFF42\uFF43\uFF44\uFF45\uFF46\uFF47\uFF48\uFF49\uFF4A\uFF4B\uFF4C\uFF4D\uFF4E\uFF4F\uFF50\uFF51\uFF52\uFF53\uFF54\uFF55\uFF56\uFF57\uFF58\uFF59\uFF5A\uFF5B\uFF5C\uFF5D\uFFE3\uC9DE\uC9DF\uC9E1\uC9E3\uC9E5\uC9E6\uC9E8\uC9E9\uC9EA\uC9EB\uC9EE\uC9F2\uC9F3\uC9F4\uC9F5\uC9F6\uC9F7\uC9FA\uC9FB\uC9FD\uC9FE\uC9FF\uCA01\uCA02\uCA03\uCA04\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCA05\uCA06\uCA07\uCA0A\uCA0E\uCA0F\uCA10\uCA11\uCA12\uCA13\uCA15\uCA16\uCA17\uCA19\uCA1A\uCA1B\uCA1C\uCA1D\uCA1E\uCA1F\uCA20\uCA21\uCA22\uCA23\uCA24\uCA25\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCA26\uCA27\uCA28\uCA2A\uCA2B\uCA2C\uCA2D\uCA2E\uCA2F\uCA30\uCA31\uCA32\uCA33\uCA34\uCA35\uCA36\uCA37\uCA38\uCA39\uCA3A\uCA3B\uCA3C\uCA3D\uCA3E\uCA3F\uCA40\uCA41\uCA42\uCA43\uCA44\uCA45\uCA46\u3131\u3132\u3133\u3134\u3135\u3136\u3137\u3138\u3139\u313A\u313B\u313C\u313D\u313E\u313F\u3140\u3141\u3142\u3143\u3144\u3145\u3146\u3147\u3148\u3149\u314A\u314B\u314C\u314D\u314E\u314F\u3150\u3151\u3152\u3153\u3154\u3155\u3156\u3157\u3158\u3159\u315A\u315B\u315C\u315D\u315E\u315F\u3160\u3161\u3162\u3163\u3164\u3165\u3166\u3167\u3168\u3169\u316A\u316B\u316C\u316D\u316E\u316F\u3170\u3171\u3172\u3173\u3174\u3175\u3176\u3177\u3178\u3179\u317A\u317B\u317C\u317D\u317E\u317F\u3180\u3181\u3182\u3183\u3184\u3185\u3186\u3187\u3188\u3189\u318A\u318B\u318C\u318D\u318E\uCA47\uCA48\uCA49\uCA4A\uCA4B\uCA4E\uCA4F\uCA51\uCA52\uCA53\uCA55\uCA56\uCA57\uCA58\uCA59\uCA5A\uCA5B\uCA5E\uCA62\uCA63\uCA64\uCA65\uCA66\uCA67\uCA69\uCA6A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCA6B\uCA6C\uCA6D\uCA6E\uCA6F\uCA70\uCA71\uCA72\uCA73\uCA74\uCA75\uCA76\uCA77\uCA78\uCA79\uCA7A\uCA7B\uCA7C\uCA7E\uCA7F\uCA80\uCA81\uCA82\uCA83\uCA85\uCA86\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCA87\uCA88\uCA89\uCA8A\uCA8B\uCA8C\uCA8D\uCA8E\uCA8F\uCA90\uCA91\uCA92\uCA93\uCA94\uCA95\uCA96\uCA97\uCA99\uCA9A\uCA9B\uCA9C\uCA9D\uCA9E\uCA9F\uCAA0\uCAA1\uCAA2\uCAA3\uCAA4\uCAA5\uCAA6\uCAA7\u2170\u2171\u2172\u2173\u2174\u2175\u2176\u2177\u2178\u2179\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u2160\u2161\u2162\u2163\u2164\u2165\u2166\u2167\u2168\u2169\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u0391\u0392\u0393\u0394\u0395\u0396\u0397\u0398\u0399\u039A\u039B\u039C\u039D\u039E\u039F\u03A0\u03A1\u03A3\u03A4\u03A5\u03A6\u03A7\u03A8\u03A9\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u03B1\u03B2\u03B3\u03B4\u03B5\u03B6\u03B7\u03B8\u03B9\u03BA\u03BB\u03BC\u03BD\u03BE\u03BF\u03C0\u03C1\u03C3\u03C4\u03C5\u03C6\u03C7\u03C8\u03C9\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCAA8\uCAA9\uCAAA\uCAAB\uCAAC\uCAAD\uCAAE\uCAAF\uCAB0\uCAB1\uCAB2\uCAB3\uCAB4\uCAB5\uCAB6\uCAB7\uCAB8\uCAB9\uCABA\uCABB\uCABE\uCABF\uCAC1\uCAC2\uCAC3\uCAC5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCAC6\uCAC7\uCAC8\uCAC9\uCACA\uCACB\uCACE\uCAD0\uCAD2\uCAD4\uCAD5\uCAD6\uCAD7\uCADA\uCADB\uCADC\uCADD\uCADE\uCADF\uCAE1\uCAE2\uCAE3\uCAE4\uCAE5\uCAE6\uCAE7\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCAE8\uCAE9\uCAEA\uCAEB\uCAED\uCAEE\uCAEF\uCAF0\uCAF1\uCAF2\uCAF3\uCAF5\uCAF6\uCAF7\uCAF8\uCAF9\uCAFA\uCAFB\uCAFC\uCAFD\uCAFE\uCAFF\uCB00\uCB01\uCB02\uCB03\uCB04\uCB05\uCB06\uCB07\uCB09\uCB0A\u2500\u2502\u250C\u2510\u2518\u2514\u251C\u252C\u2524\u2534\u253C\u2501\u2503\u250F\u2513\u251B\u2517\u2523\u2533\u252B\u253B\u254B\u2520\u252F\u2528\u2537\u253F\u251D\u2530\u2525\u2538\u2542\u2512\u2511\u251A\u2519\u2516\u2515\u250E\u250D\u251E\u251F\u2521\u2522\u2526\u2527\u2529\u252A\u252D\u252E\u2531\u2532\u2535\u2536\u2539\u253A\u253D\u253E\u2540\u2541\u2543\u2544\u2545\u2546\u2547\u2548\u2549\u254A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCB0B\uCB0C\uCB0D\uCB0E\uCB0F\uCB11\uCB12\uCB13\uCB15\uCB16\uCB17\uCB19\uCB1A\uCB1B\uCB1C\uCB1D\uCB1E\uCB1F\uCB22\uCB23\uCB24\uCB25\uCB26\uCB27\uCB28\uCB29\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCB2A\uCB2B\uCB2C\uCB2D\uCB2E\uCB2F\uCB30\uCB31\uCB32\uCB33\uCB34\uCB35\uCB36\uCB37\uCB38\uCB39\uCB3A\uCB3B\uCB3C\uCB3D\uCB3E\uCB3F\uCB40\uCB42\uCB43\uCB44\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCB45\uCB46\uCB47\uCB4A\uCB4B\uCB4D\uCB4E\uCB4F\uCB51\uCB52\uCB53\uCB54\uCB55\uCB56\uCB57\uCB5A\uCB5B\uCB5C\uCB5E\uCB5F\uCB60\uCB61\uCB62\uCB63\uCB65\uCB66\uCB67\uCB68\uCB69\uCB6A\uCB6B\uCB6C\u3395\u3396\u3397\u2113\u3398\u33C4\u33A3\u33A4\u33A5\u33A6\u3399\u339A\u339B\u339C\u339D\u339E\u339F\u33A0\u33A1\u33A2\u33CA\u338D\u338E\u338F\u33CF\u3388\u3389\u33C8\u33A7\u33A8\u33B0\u33B1\u33B2\u33B3\u33B4\u33B5\u33B6\u33B7\u33B8\u33B9\u3380\u3381\u3382\u3383\u3384\u33BA\u33BB\u33BC\u33BD\u33BE\u33BF\u3390\u3391\u3392\u3393\u3394\u2126\u33C0\u33C1\u338A\u338B\u338C\u33D6\u33C5\u33AD\u33AE\u33AF\u33DB\u33A9\u33AA\u33AB\u33AC\u33DD\u33D0\u33D3\u33C3\u33C9\u33DC\u33C6\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCB6D\uCB6E\uCB6F\uCB70\uCB71\uCB72\uCB73\uCB74\uCB75\uCB76\uCB77\uCB7A\uCB7B\uCB7C\uCB7D\uCB7E\uCB7F\uCB80\uCB81\uCB82\uCB83\uCB84\uCB85\uCB86\uCB87\uCB88\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCB89\uCB8A\uCB8B\uCB8C\uCB8D\uCB8E\uCB8F\uCB90\uCB91\uCB92\uCB93\uCB94\uCB95\uCB96\uCB97\uCB98\uCB99\uCB9A\uCB9B\uCB9D\uCB9E\uCB9F\uCBA0\uCBA1\uCBA2\uCBA3\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCBA4\uCBA5\uCBA6\uCBA7\uCBA8\uCBA9\uCBAA\uCBAB\uCBAC\uCBAD\uCBAE\uCBAF\uCBB0\uCBB1\uCBB2\uCBB3\uCBB4\uCBB5\uCBB6\uCBB7\uCBB9\uCBBA\uCBBB\uCBBC\uCBBD\uCBBE\uCBBF\uCBC0\uCBC1\uCBC2\uCBC3\uCBC4\xC6\xD0\xAA\u0126\uFFFD\u0132\uFFFD\u013F\u0141\xD8\u0152\xBA\xDE\u0166\u014A\uFFFD\u3260\u3261\u3262\u3263\u3264\u3265\u3266\u3267\u3268\u3269\u326A\u326B\u326C\u326D\u326E\u326F\u3270\u3271\u3272\u3273\u3274\u3275\u3276\u3277\u3278\u3279\u327A\u327B\u24D0\u24D1\u24D2\u24D3\u24D4\u24D5\u24D6\u24D7\u24D8\u24D9\u24DA\u24DB\u24DC\u24DD\u24DE\u24DF\u24E0\u24E1\u24E2\u24E3\u24E4\u24E5\u24E6\u24E7\u24E8\u24E9\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468\u2469\u246A\u246B\u246C\u246D\u246E\xBD\u2153\u2154\xBC\xBE\u215B\u215C\u215D\u215E\uCBC5\uCBC6\uCBC7\uCBC8\uCBC9\uCBCA\uCBCB\uCBCC\uCBCD\uCBCE\uCBCF\uCBD0\uCBD1\uCBD2\uCBD3\uCBD5\uCBD6\uCBD7\uCBD8\uCBD9\uCBDA\uCBDB\uCBDC\uCBDD\uCBDE\uCBDF\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCBE0\uCBE1\uCBE2\uCBE3\uCBE5\uCBE6\uCBE8\uCBEA\uCBEB\uCBEC\uCBED\uCBEE\uCBEF\uCBF0\uCBF1\uCBF2\uCBF3\uCBF4\uCBF5\uCBF6\uCBF7\uCBF8\uCBF9\uCBFA\uCBFB\uCBFC\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCBFD\uCBFE\uCBFF\uCC00\uCC01\uCC02\uCC03\uCC04\uCC05\uCC06\uCC07\uCC08\uCC09\uCC0A\uCC0B\uCC0E\uCC0F\uCC11\uCC12\uCC13\uCC15\uCC16\uCC17\uCC18\uCC19\uCC1A\uCC1B\uCC1E\uCC1F\uCC20\uCC23\uCC24\xE6\u0111\xF0\u0127\u0131\u0133\u0138\u0140\u0142\xF8\u0153\xDF\xFE\u0167\u014B\u0149\u3200\u3201\u3202\u3203\u3204\u3205\u3206\u3207\u3208\u3209\u320A\u320B\u320C\u320D\u320E\u320F\u3210\u3211\u3212\u3213\u3214\u3215\u3216\u3217\u3218\u3219\u321A\u321B\u249C\u249D\u249E\u249F\u24A0\u24A1\u24A2\u24A3\u24A4\u24A5\u24A6\u24A7\u24A8\u24A9\u24AA\u24AB\u24AC\u24AD\u24AE\u24AF\u24B0\u24B1\u24B2\u24B3\u24B4\u24B5\u2474\u2475\u2476\u2477\u2478\u2479\u247A\u247B\u247C\u247D\u247E\u247F\u2480\u2481\u2482\xB9\xB2\xB3\u2074\u207F\u2081\u2082\u2083\u2084\uCC25\uCC26\uCC2A\uCC2B\uCC2D\uCC2F\uCC31\uCC32\uCC33\uCC34\uCC35\uCC36\uCC37\uCC3A\uCC3F\uCC40\uCC41\uCC42\uCC43\uCC46\uCC47\uCC49\uCC4A\uCC4B\uCC4D\uCC4E\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCC4F\uCC50\uCC51\uCC52\uCC53\uCC56\uCC5A\uCC5B\uCC5C\uCC5D\uCC5E\uCC5F\uCC61\uCC62\uCC63\uCC65\uCC67\uCC69\uCC6A\uCC6B\uCC6C\uCC6D\uCC6E\uCC6F\uCC71\uCC72\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCC73\uCC74\uCC76\uCC77\uCC78\uCC79\uCC7A\uCC7B\uCC7C\uCC7D\uCC7E\uCC7F\uCC80\uCC81\uCC82\uCC83\uCC84\uCC85\uCC86\uCC87\uCC88\uCC89\uCC8A\uCC8B\uCC8C\uCC8D\uCC8E\uCC8F\uCC90\uCC91\uCC92\uCC93\u3041\u3042\u3043\u3044\u3045\u3046\u3047\u3048\u3049\u304A\u304B\u304C\u304D\u304E\u304F\u3050\u3051\u3052\u3053\u3054\u3055\u3056\u3057\u3058\u3059\u305A\u305B\u305C\u305D\u305E\u305F\u3060\u3061\u3062\u3063\u3064\u3065\u3066\u3067\u3068\u3069\u306A\u306B\u306C\u306D\u306E\u306F\u3070\u3071\u3072\u3073\u3074\u3075\u3076\u3077\u3078\u3079\u307A\u307B\u307C\u307D\u307E\u307F\u3080\u3081\u3082\u3083\u3084\u3085\u3086\u3087\u3088\u3089\u308A\u308B\u308C\u308D\u308E\u308F\u3090\u3091\u3092\u3093\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCC94\uCC95\uCC96\uCC97\uCC9A\uCC9B\uCC9D\uCC9E\uCC9F\uCCA1\uCCA2\uCCA3\uCCA4\uCCA5\uCCA6\uCCA7\uCCAA\uCCAE\uCCAF\uCCB0\uCCB1\uCCB2\uCCB3\uCCB6\uCCB7\uCCB9\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCCBA\uCCBB\uCCBD\uCCBE\uCCBF\uCCC0\uCCC1\uCCC2\uCCC3\uCCC6\uCCC8\uCCCA\uCCCB\uCCCC\uCCCD\uCCCE\uCCCF\uCCD1\uCCD2\uCCD3\uCCD5\uCCD6\uCCD7\uCCD8\uCCD9\uCCDA\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCCDB\uCCDC\uCCDD\uCCDE\uCCDF\uCCE0\uCCE1\uCCE2\uCCE3\uCCE5\uCCE6\uCCE7\uCCE8\uCCE9\uCCEA\uCCEB\uCCED\uCCEE\uCCEF\uCCF1\uCCF2\uCCF3\uCCF4\uCCF5\uCCF6\uCCF7\uCCF8\uCCF9\uCCFA\uCCFB\uCCFC\uCCFD\u30A1\u30A2\u30A3\u30A4\u30A5\u30A6\u30A7\u30A8\u30A9\u30AA\u30AB\u30AC\u30AD\u30AE\u30AF\u30B0\u30B1\u30B2\u30B3\u30B4\u30B5\u30B6\u30B7\u30B8\u30B9\u30BA\u30BB\u30BC\u30BD\u30BE\u30BF\u30C0\u30C1\u30C2\u30C3\u30C4\u30C5\u30C6\u30C7\u30C8\u30C9\u30CA\u30CB\u30CC\u30CD\u30CE\u30CF\u30D0\u30D1\u30D2\u30D3\u30D4\u30D5\u30D6\u30D7\u30D8\u30D9\u30DA\u30DB\u30DC\u30DD\u30DE\u30DF\u30E0\u30E1\u30E2\u30E3\u30E4\u30E5\u30E6\u30E7\u30E8\u30E9\u30EA\u30EB\u30EC\u30ED\u30EE\u30EF\u30F0\u30F1\u30F2\u30F3\u30F4\u30F5\u30F6\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCCFE\uCCFF\uCD00\uCD02\uCD03\uCD04\uCD05\uCD06\uCD07\uCD0A\uCD0B\uCD0D\uCD0E\uCD0F\uCD11\uCD12\uCD13\uCD14\uCD15\uCD16\uCD17\uCD1A\uCD1C\uCD1E\uCD1F\uCD20\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCD21\uCD22\uCD23\uCD25\uCD26\uCD27\uCD29\uCD2A\uCD2B\uCD2D\uCD2E\uCD2F\uCD30\uCD31\uCD32\uCD33\uCD34\uCD35\uCD36\uCD37\uCD38\uCD3A\uCD3B\uCD3C\uCD3D\uCD3E\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCD3F\uCD40\uCD41\uCD42\uCD43\uCD44\uCD45\uCD46\uCD47\uCD48\uCD49\uCD4A\uCD4B\uCD4C\uCD4D\uCD4E\uCD4F\uCD50\uCD51\uCD52\uCD53\uCD54\uCD55\uCD56\uCD57\uCD58\uCD59\uCD5A\uCD5B\uCD5D\uCD5E\uCD5F\u0410\u0411\u0412\u0413\u0414\u0415\u0401\u0416\u0417\u0418\u0419\u041A\u041B\u041C\u041D\u041E\u041F\u0420\u0421\u0422\u0423\u0424\u0425\u0426\u0427\u0428\u0429\u042A\u042B\u042C\u042D\u042E\u042F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u0430\u0431\u0432\u0433\u0434\u0435\u0451\u0436\u0437\u0438\u0439\u043A\u043B\u043C\u043D\u043E\u043F\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447\u0448\u0449\u044A\u044B\u044C\u044D\u044E\u044F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCD61\uCD62\uCD63\uCD65\uCD66\uCD67\uCD68\uCD69\uCD6A\uCD6B\uCD6E\uCD70\uCD72\uCD73\uCD74\uCD75\uCD76\uCD77\uCD79\uCD7A\uCD7B\uCD7C\uCD7D\uCD7E\uCD7F\uCD80\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCD81\uCD82\uCD83\uCD84\uCD85\uCD86\uCD87\uCD89\uCD8A\uCD8B\uCD8C\uCD8D\uCD8E\uCD8F\uCD90\uCD91\uCD92\uCD93\uCD96\uCD97\uCD99\uCD9A\uCD9B\uCD9D\uCD9E\uCD9F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCDA0\uCDA1\uCDA2\uCDA3\uCDA6\uCDA8\uCDAA\uCDAB\uCDAC\uCDAD\uCDAE\uCDAF\uCDB1\uCDB2\uCDB3\uCDB4\uCDB5\uCDB6\uCDB7\uCDB8\uCDB9\uCDBA\uCDBB\uCDBC\uCDBD\uCDBE\uCDBF\uCDC0\uCDC1\uCDC2\uCDC3\uCDC5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCDC6\uCDC7\uCDC8\uCDC9\uCDCA\uCDCB\uCDCD\uCDCE\uCDCF\uCDD1\uCDD2\uCDD3\uCDD4\uCDD5\uCDD6\uCDD7\uCDD8\uCDD9\uCDDA\uCDDB\uCDDC\uCDDD\uCDDE\uCDDF\uCDE0\uCDE1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCDE2\uCDE3\uCDE4\uCDE5\uCDE6\uCDE7\uCDE9\uCDEA\uCDEB\uCDED\uCDEE\uCDEF\uCDF1\uCDF2\uCDF3\uCDF4\uCDF5\uCDF6\uCDF7\uCDFA\uCDFC\uCDFE\uCDFF\uCE00\uCE01\uCE02\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCE03\uCE05\uCE06\uCE07\uCE09\uCE0A\uCE0B\uCE0D\uCE0E\uCE0F\uCE10\uCE11\uCE12\uCE13\uCE15\uCE16\uCE17\uCE18\uCE1A\uCE1B\uCE1C\uCE1D\uCE1E\uCE1F\uCE22\uCE23\uCE25\uCE26\uCE27\uCE29\uCE2A\uCE2B\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCE2C\uCE2D\uCE2E\uCE2F\uCE32\uCE34\uCE36\uCE37\uCE38\uCE39\uCE3A\uCE3B\uCE3C\uCE3D\uCE3E\uCE3F\uCE40\uCE41\uCE42\uCE43\uCE44\uCE45\uCE46\uCE47\uCE48\uCE49\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCE4A\uCE4B\uCE4C\uCE4D\uCE4E\uCE4F\uCE50\uCE51\uCE52\uCE53\uCE54\uCE55\uCE56\uCE57\uCE5A\uCE5B\uCE5D\uCE5E\uCE62\uCE63\uCE64\uCE65\uCE66\uCE67\uCE6A\uCE6C\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCE6E\uCE6F\uCE70\uCE71\uCE72\uCE73\uCE76\uCE77\uCE79\uCE7A\uCE7B\uCE7D\uCE7E\uCE7F\uCE80\uCE81\uCE82\uCE83\uCE86\uCE88\uCE8A\uCE8B\uCE8C\uCE8D\uCE8E\uCE8F\uCE92\uCE93\uCE95\uCE96\uCE97\uCE99\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCE9A\uCE9B\uCE9C\uCE9D\uCE9E\uCE9F\uCEA2\uCEA6\uCEA7\uCEA8\uCEA9\uCEAA\uCEAB\uCEAE\uCEAF\uCEB0\uCEB1\uCEB2\uCEB3\uCEB4\uCEB5\uCEB6\uCEB7\uCEB8\uCEB9\uCEBA\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCEBB\uCEBC\uCEBD\uCEBE\uCEBF\uCEC0\uCEC2\uCEC3\uCEC4\uCEC5\uCEC6\uCEC7\uCEC8\uCEC9\uCECA\uCECB\uCECC\uCECD\uCECE\uCECF\uCED0\uCED1\uCED2\uCED3\uCED4\uCED5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCED6\uCED7\uCED8\uCED9\uCEDA\uCEDB\uCEDC\uCEDD\uCEDE\uCEDF\uCEE0\uCEE1\uCEE2\uCEE3\uCEE6\uCEE7\uCEE9\uCEEA\uCEED\uCEEE\uCEEF\uCEF0\uCEF1\uCEF2\uCEF3\uCEF6\uCEFA\uCEFB\uCEFC\uCEFD\uCEFE\uCEFF\uAC00\uAC01\uAC04\uAC07\uAC08\uAC09\uAC0A\uAC10\uAC11\uAC12\uAC13\uAC14\uAC15\uAC16\uAC17\uAC19\uAC1A\uAC1B\uAC1C\uAC1D\uAC20\uAC24\uAC2C\uAC2D\uAC2F\uAC30\uAC31\uAC38\uAC39\uAC3C\uAC40\uAC4B\uAC4D\uAC54\uAC58\uAC5C\uAC70\uAC71\uAC74\uAC77\uAC78\uAC7A\uAC80\uAC81\uAC83\uAC84\uAC85\uAC86\uAC89\uAC8A\uAC8B\uAC8C\uAC90\uAC94\uAC9C\uAC9D\uAC9F\uACA0\uACA1\uACA8\uACA9\uACAA\uACAC\uACAF\uACB0\uACB8\uACB9\uACBB\uACBC\uACBD\uACC1\uACC4\uACC8\uACCC\uACD5\uACD7\uACE0\uACE1\uACE4\uACE7\uACE8\uACEA\uACEC\uACEF\uACF0\uACF1\uACF3\uACF5\uACF6\uACFC\uACFD\uAD00\uAD04\uAD06\uCF02\uCF03\uCF05\uCF06\uCF07\uCF09\uCF0A\uCF0B\uCF0C\uCF0D\uCF0E\uCF0F\uCF12\uCF14\uCF16\uCF17\uCF18\uCF19\uCF1A\uCF1B\uCF1D\uCF1E\uCF1F\uCF21\uCF22\uCF23\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCF25\uCF26\uCF27\uCF28\uCF29\uCF2A\uCF2B\uCF2E\uCF32\uCF33\uCF34\uCF35\uCF36\uCF37\uCF39\uCF3A\uCF3B\uCF3C\uCF3D\uCF3E\uCF3F\uCF40\uCF41\uCF42\uCF43\uCF44\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCF45\uCF46\uCF47\uCF48\uCF49\uCF4A\uCF4B\uCF4C\uCF4D\uCF4E\uCF4F\uCF50\uCF51\uCF52\uCF53\uCF56\uCF57\uCF59\uCF5A\uCF5B\uCF5D\uCF5E\uCF5F\uCF60\uCF61\uCF62\uCF63\uCF66\uCF68\uCF6A\uCF6B\uCF6C\uAD0C\uAD0D\uAD0F\uAD11\uAD18\uAD1C\uAD20\uAD29\uAD2C\uAD2D\uAD34\uAD35\uAD38\uAD3C\uAD44\uAD45\uAD47\uAD49\uAD50\uAD54\uAD58\uAD61\uAD63\uAD6C\uAD6D\uAD70\uAD73\uAD74\uAD75\uAD76\uAD7B\uAD7C\uAD7D\uAD7F\uAD81\uAD82\uAD88\uAD89\uAD8C\uAD90\uAD9C\uAD9D\uADA4\uADB7\uADC0\uADC1\uADC4\uADC8\uADD0\uADD1\uADD3\uADDC\uADE0\uADE4\uADF8\uADF9\uADFC\uADFF\uAE00\uAE01\uAE08\uAE09\uAE0B\uAE0D\uAE14\uAE30\uAE31\uAE34\uAE37\uAE38\uAE3A\uAE40\uAE41\uAE43\uAE45\uAE46\uAE4A\uAE4C\uAE4D\uAE4E\uAE50\uAE54\uAE56\uAE5C\uAE5D\uAE5F\uAE60\uAE61\uAE65\uAE68\uAE69\uAE6C\uAE70\uAE78\uCF6D\uCF6E\uCF6F\uCF72\uCF73\uCF75\uCF76\uCF77\uCF79\uCF7A\uCF7B\uCF7C\uCF7D\uCF7E\uCF7F\uCF81\uCF82\uCF83\uCF84\uCF86\uCF87\uCF88\uCF89\uCF8A\uCF8B\uCF8D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCF8E\uCF8F\uCF90\uCF91\uCF92\uCF93\uCF94\uCF95\uCF96\uCF97\uCF98\uCF99\uCF9A\uCF9B\uCF9C\uCF9D\uCF9E\uCF9F\uCFA0\uCFA2\uCFA3\uCFA4\uCFA5\uCFA6\uCFA7\uCFA9\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCFAA\uCFAB\uCFAC\uCFAD\uCFAE\uCFAF\uCFB1\uCFB2\uCFB3\uCFB4\uCFB5\uCFB6\uCFB7\uCFB8\uCFB9\uCFBA\uCFBB\uCFBC\uCFBD\uCFBE\uCFBF\uCFC0\uCFC1\uCFC2\uCFC3\uCFC5\uCFC6\uCFC7\uCFC8\uCFC9\uCFCA\uCFCB\uAE79\uAE7B\uAE7C\uAE7D\uAE84\uAE85\uAE8C\uAEBC\uAEBD\uAEBE\uAEC0\uAEC4\uAECC\uAECD\uAECF\uAED0\uAED1\uAED8\uAED9\uAEDC\uAEE8\uAEEB\uAEED\uAEF4\uAEF8\uAEFC\uAF07\uAF08\uAF0D\uAF10\uAF2C\uAF2D\uAF30\uAF32\uAF34\uAF3C\uAF3D\uAF3F\uAF41\uAF42\uAF43\uAF48\uAF49\uAF50\uAF5C\uAF5D\uAF64\uAF65\uAF79\uAF80\uAF84\uAF88\uAF90\uAF91\uAF95\uAF9C\uAFB8\uAFB9\uAFBC\uAFC0\uAFC7\uAFC8\uAFC9\uAFCB\uAFCD\uAFCE\uAFD4\uAFDC\uAFE8\uAFE9\uAFF0\uAFF1\uAFF4\uAFF8\uB000\uB001\uB004\uB00C\uB010\uB014\uB01C\uB01D\uB028\uB044\uB045\uB048\uB04A\uB04C\uB04E\uB053\uB054\uB055\uB057\uB059\uCFCC\uCFCD\uCFCE\uCFCF\uCFD0\uCFD1\uCFD2\uCFD3\uCFD4\uCFD5\uCFD6\uCFD7\uCFD8\uCFD9\uCFDA\uCFDB\uCFDC\uCFDD\uCFDE\uCFDF\uCFE2\uCFE3\uCFE5\uCFE6\uCFE7\uCFE9\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uCFEA\uCFEB\uCFEC\uCFED\uCFEE\uCFEF\uCFF2\uCFF4\uCFF6\uCFF7\uCFF8\uCFF9\uCFFA\uCFFB\uCFFD\uCFFE\uCFFF\uD001\uD002\uD003\uD005\uD006\uD007\uD008\uD009\uD00A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD00B\uD00C\uD00D\uD00E\uD00F\uD010\uD012\uD013\uD014\uD015\uD016\uD017\uD019\uD01A\uD01B\uD01C\uD01D\uD01E\uD01F\uD020\uD021\uD022\uD023\uD024\uD025\uD026\uD027\uD028\uD029\uD02A\uD02B\uD02C\uB05D\uB07C\uB07D\uB080\uB084\uB08C\uB08D\uB08F\uB091\uB098\uB099\uB09A\uB09C\uB09F\uB0A0\uB0A1\uB0A2\uB0A8\uB0A9\uB0AB\uB0AC\uB0AD\uB0AE\uB0AF\uB0B1\uB0B3\uB0B4\uB0B5\uB0B8\uB0BC\uB0C4\uB0C5\uB0C7\uB0C8\uB0C9\uB0D0\uB0D1\uB0D4\uB0D8\uB0E0\uB0E5\uB108\uB109\uB10B\uB10C\uB110\uB112\uB113\uB118\uB119\uB11B\uB11C\uB11D\uB123\uB124\uB125\uB128\uB12C\uB134\uB135\uB137\uB138\uB139\uB140\uB141\uB144\uB148\uB150\uB151\uB154\uB155\uB158\uB15C\uB160\uB178\uB179\uB17C\uB180\uB182\uB188\uB189\uB18B\uB18D\uB192\uB193\uB194\uB198\uB19C\uB1A8\uB1CC\uB1D0\uB1D4\uB1DC\uB1DD\uD02E\uD02F\uD030\uD031\uD032\uD033\uD036\uD037\uD039\uD03A\uD03B\uD03D\uD03E\uD03F\uD040\uD041\uD042\uD043\uD046\uD048\uD04A\uD04B\uD04C\uD04D\uD04E\uD04F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD051\uD052\uD053\uD055\uD056\uD057\uD059\uD05A\uD05B\uD05C\uD05D\uD05E\uD05F\uD061\uD062\uD063\uD064\uD065\uD066\uD067\uD068\uD069\uD06A\uD06B\uD06E\uD06F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD071\uD072\uD073\uD075\uD076\uD077\uD078\uD079\uD07A\uD07B\uD07E\uD07F\uD080\uD082\uD083\uD084\uD085\uD086\uD087\uD088\uD089\uD08A\uD08B\uD08C\uD08D\uD08E\uD08F\uD090\uD091\uD092\uD093\uD094\uB1DF\uB1E8\uB1E9\uB1EC\uB1F0\uB1F9\uB1FB\uB1FD\uB204\uB205\uB208\uB20B\uB20C\uB214\uB215\uB217\uB219\uB220\uB234\uB23C\uB258\uB25C\uB260\uB268\uB269\uB274\uB275\uB27C\uB284\uB285\uB289\uB290\uB291\uB294\uB298\uB299\uB29A\uB2A0\uB2A1\uB2A3\uB2A5\uB2A6\uB2AA\uB2AC\uB2B0\uB2B4\uB2C8\uB2C9\uB2CC\uB2D0\uB2D2\uB2D8\uB2D9\uB2DB\uB2DD\uB2E2\uB2E4\uB2E5\uB2E6\uB2E8\uB2EB\uB2EC\uB2ED\uB2EE\uB2EF\uB2F3\uB2F4\uB2F5\uB2F7\uB2F8\uB2F9\uB2FA\uB2FB\uB2FF\uB300\uB301\uB304\uB308\uB310\uB311\uB313\uB314\uB315\uB31C\uB354\uB355\uB356\uB358\uB35B\uB35C\uB35E\uB35F\uB364\uB365\uD095\uD096\uD097\uD098\uD099\uD09A\uD09B\uD09C\uD09D\uD09E\uD09F\uD0A0\uD0A1\uD0A2\uD0A3\uD0A6\uD0A7\uD0A9\uD0AA\uD0AB\uD0AD\uD0AE\uD0AF\uD0B0\uD0B1\uD0B2\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD0B3\uD0B6\uD0B8\uD0BA\uD0BB\uD0BC\uD0BD\uD0BE\uD0BF\uD0C2\uD0C3\uD0C5\uD0C6\uD0C7\uD0CA\uD0CB\uD0CC\uD0CD\uD0CE\uD0CF\uD0D2\uD0D6\uD0D7\uD0D8\uD0D9\uD0DA\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD0DB\uD0DE\uD0DF\uD0E1\uD0E2\uD0E3\uD0E5\uD0E6\uD0E7\uD0E8\uD0E9\uD0EA\uD0EB\uD0EE\uD0F2\uD0F3\uD0F4\uD0F5\uD0F6\uD0F7\uD0F9\uD0FA\uD0FB\uD0FC\uD0FD\uD0FE\uD0FF\uD100\uD101\uD102\uD103\uD104\uB367\uB369\uB36B\uB36E\uB370\uB371\uB374\uB378\uB380\uB381\uB383\uB384\uB385\uB38C\uB390\uB394\uB3A0\uB3A1\uB3A8\uB3AC\uB3C4\uB3C5\uB3C8\uB3CB\uB3CC\uB3CE\uB3D0\uB3D4\uB3D5\uB3D7\uB3D9\uB3DB\uB3DD\uB3E0\uB3E4\uB3E8\uB3FC\uB410\uB418\uB41C\uB420\uB428\uB429\uB42B\uB434\uB450\uB451\uB454\uB458\uB460\uB461\uB463\uB465\uB46C\uB480\uB488\uB49D\uB4A4\uB4A8\uB4AC\uB4B5\uB4B7\uB4B9\uB4C0\uB4C4\uB4C8\uB4D0\uB4D5\uB4DC\uB4DD\uB4E0\uB4E3\uB4E4\uB4E6\uB4EC\uB4ED\uB4EF\uB4F1\uB4F8\uB514\uB515\uB518\uB51B\uB51C\uB524\uB525\uB527\uB528\uB529\uB52A\uB530\uB531\uB534\uB538\uD105\uD106\uD107\uD108\uD109\uD10A\uD10B\uD10C\uD10E\uD10F\uD110\uD111\uD112\uD113\uD114\uD115\uD116\uD117\uD118\uD119\uD11A\uD11B\uD11C\uD11D\uD11E\uD11F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD120\uD121\uD122\uD123\uD124\uD125\uD126\uD127\uD128\uD129\uD12A\uD12B\uD12C\uD12D\uD12E\uD12F\uD132\uD133\uD135\uD136\uD137\uD139\uD13B\uD13C\uD13D\uD13E\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD13F\uD142\uD146\uD147\uD148\uD149\uD14A\uD14B\uD14E\uD14F\uD151\uD152\uD153\uD155\uD156\uD157\uD158\uD159\uD15A\uD15B\uD15E\uD160\uD162\uD163\uD164\uD165\uD166\uD167\uD169\uD16A\uD16B\uD16D\uB540\uB541\uB543\uB544\uB545\uB54B\uB54C\uB54D\uB550\uB554\uB55C\uB55D\uB55F\uB560\uB561\uB5A0\uB5A1\uB5A4\uB5A8\uB5AA\uB5AB\uB5B0\uB5B1\uB5B3\uB5B4\uB5B5\uB5BB\uB5BC\uB5BD\uB5C0\uB5C4\uB5CC\uB5CD\uB5CF\uB5D0\uB5D1\uB5D8\uB5EC\uB610\uB611\uB614\uB618\uB625\uB62C\uB634\uB648\uB664\uB668\uB69C\uB69D\uB6A0\uB6A4\uB6AB\uB6AC\uB6B1\uB6D4\uB6F0\uB6F4\uB6F8\uB700\uB701\uB705\uB728\uB729\uB72C\uB72F\uB730\uB738\uB739\uB73B\uB744\uB748\uB74C\uB754\uB755\uB760\uB764\uB768\uB770\uB771\uB773\uB775\uB77C\uB77D\uB780\uB784\uB78C\uB78D\uB78F\uB790\uB791\uB792\uB796\uB797\uD16E\uD16F\uD170\uD171\uD172\uD173\uD174\uD175\uD176\uD177\uD178\uD179\uD17A\uD17B\uD17D\uD17E\uD17F\uD180\uD181\uD182\uD183\uD185\uD186\uD187\uD189\uD18A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD18B\uD18C\uD18D\uD18E\uD18F\uD190\uD191\uD192\uD193\uD194\uD195\uD196\uD197\uD198\uD199\uD19A\uD19B\uD19C\uD19D\uD19E\uD19F\uD1A2\uD1A3\uD1A5\uD1A6\uD1A7\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD1A9\uD1AA\uD1AB\uD1AC\uD1AD\uD1AE\uD1AF\uD1B2\uD1B4\uD1B6\uD1B7\uD1B8\uD1B9\uD1BB\uD1BD\uD1BE\uD1BF\uD1C1\uD1C2\uD1C3\uD1C4\uD1C5\uD1C6\uD1C7\uD1C8\uD1C9\uD1CA\uD1CB\uD1CC\uD1CD\uD1CE\uD1CF\uB798\uB799\uB79C\uB7A0\uB7A8\uB7A9\uB7AB\uB7AC\uB7AD\uB7B4\uB7B5\uB7B8\uB7C7\uB7C9\uB7EC\uB7ED\uB7F0\uB7F4\uB7FC\uB7FD\uB7FF\uB800\uB801\uB807\uB808\uB809\uB80C\uB810\uB818\uB819\uB81B\uB81D\uB824\uB825\uB828\uB82C\uB834\uB835\uB837\uB838\uB839\uB840\uB844\uB851\uB853\uB85C\uB85D\uB860\uB864\uB86C\uB86D\uB86F\uB871\uB878\uB87C\uB88D\uB8A8\uB8B0\uB8B4\uB8B8\uB8C0\uB8C1\uB8C3\uB8C5\uB8CC\uB8D0\uB8D4\uB8DD\uB8DF\uB8E1\uB8E8\uB8E9\uB8EC\uB8F0\uB8F8\uB8F9\uB8FB\uB8FD\uB904\uB918\uB920\uB93C\uB93D\uB940\uB944\uB94C\uB94F\uB951\uB958\uB959\uB95C\uB960\uB968\uB969\uD1D0\uD1D1\uD1D2\uD1D3\uD1D4\uD1D5\uD1D6\uD1D7\uD1D9\uD1DA\uD1DB\uD1DC\uD1DD\uD1DE\uD1DF\uD1E0\uD1E1\uD1E2\uD1E3\uD1E4\uD1E5\uD1E6\uD1E7\uD1E8\uD1E9\uD1EA\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD1EB\uD1EC\uD1ED\uD1EE\uD1EF\uD1F0\uD1F1\uD1F2\uD1F3\uD1F5\uD1F6\uD1F7\uD1F9\uD1FA\uD1FB\uD1FC\uD1FD\uD1FE\uD1FF\uD200\uD201\uD202\uD203\uD204\uD205\uD206\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD208\uD20A\uD20B\uD20C\uD20D\uD20E\uD20F\uD211\uD212\uD213\uD214\uD215\uD216\uD217\uD218\uD219\uD21A\uD21B\uD21C\uD21D\uD21E\uD21F\uD220\uD221\uD222\uD223\uD224\uD225\uD226\uD227\uD228\uD229\uB96B\uB96D\uB974\uB975\uB978\uB97C\uB984\uB985\uB987\uB989\uB98A\uB98D\uB98E\uB9AC\uB9AD\uB9B0\uB9B4\uB9BC\uB9BD\uB9BF\uB9C1\uB9C8\uB9C9\uB9CC\uB9CE\uB9CF\uB9D0\uB9D1\uB9D2\uB9D8\uB9D9\uB9DB\uB9DD\uB9DE\uB9E1\uB9E3\uB9E4\uB9E5\uB9E8\uB9EC\uB9F4\uB9F5\uB9F7\uB9F8\uB9F9\uB9FA\uBA00\uBA01\uBA08\uBA15\uBA38\uBA39\uBA3C\uBA40\uBA42\uBA48\uBA49\uBA4B\uBA4D\uBA4E\uBA53\uBA54\uBA55\uBA58\uBA5C\uBA64\uBA65\uBA67\uBA68\uBA69\uBA70\uBA71\uBA74\uBA78\uBA83\uBA84\uBA85\uBA87\uBA8C\uBAA8\uBAA9\uBAAB\uBAAC\uBAB0\uBAB2\uBAB8\uBAB9\uBABB\uBABD\uBAC4\uBAC8\uBAD8\uBAD9\uBAFC\uD22A\uD22B\uD22E\uD22F\uD231\uD232\uD233\uD235\uD236\uD237\uD238\uD239\uD23A\uD23B\uD23E\uD240\uD242\uD243\uD244\uD245\uD246\uD247\uD249\uD24A\uD24B\uD24C\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD24D\uD24E\uD24F\uD250\uD251\uD252\uD253\uD254\uD255\uD256\uD257\uD258\uD259\uD25A\uD25B\uD25D\uD25E\uD25F\uD260\uD261\uD262\uD263\uD265\uD266\uD267\uD268\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD269\uD26A\uD26B\uD26C\uD26D\uD26E\uD26F\uD270\uD271\uD272\uD273\uD274\uD275\uD276\uD277\uD278\uD279\uD27A\uD27B\uD27C\uD27D\uD27E\uD27F\uD282\uD283\uD285\uD286\uD287\uD289\uD28A\uD28B\uD28C\uBB00\uBB04\uBB0D\uBB0F\uBB11\uBB18\uBB1C\uBB20\uBB29\uBB2B\uBB34\uBB35\uBB36\uBB38\uBB3B\uBB3C\uBB3D\uBB3E\uBB44\uBB45\uBB47\uBB49\uBB4D\uBB4F\uBB50\uBB54\uBB58\uBB61\uBB63\uBB6C\uBB88\uBB8C\uBB90\uBBA4\uBBA8\uBBAC\uBBB4\uBBB7\uBBC0\uBBC4\uBBC8\uBBD0\uBBD3\uBBF8\uBBF9\uBBFC\uBBFF\uBC00\uBC02\uBC08\uBC09\uBC0B\uBC0C\uBC0D\uBC0F\uBC11\uBC14\uBC15\uBC16\uBC17\uBC18\uBC1B\uBC1C\uBC1D\uBC1E\uBC1F\uBC24\uBC25\uBC27\uBC29\uBC2D\uBC30\uBC31\uBC34\uBC38\uBC40\uBC41\uBC43\uBC44\uBC45\uBC49\uBC4C\uBC4D\uBC50\uBC5D\uBC84\uBC85\uBC88\uBC8B\uBC8C\uBC8E\uBC94\uBC95\uBC97\uD28D\uD28E\uD28F\uD292\uD293\uD294\uD296\uD297\uD298\uD299\uD29A\uD29B\uD29D\uD29E\uD29F\uD2A1\uD2A2\uD2A3\uD2A5\uD2A6\uD2A7\uD2A8\uD2A9\uD2AA\uD2AB\uD2AD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD2AE\uD2AF\uD2B0\uD2B2\uD2B3\uD2B4\uD2B5\uD2B6\uD2B7\uD2BA\uD2BB\uD2BD\uD2BE\uD2C1\uD2C3\uD2C4\uD2C5\uD2C6\uD2C7\uD2CA\uD2CC\uD2CD\uD2CE\uD2CF\uD2D0\uD2D1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD2D2\uD2D3\uD2D5\uD2D6\uD2D7\uD2D9\uD2DA\uD2DB\uD2DD\uD2DE\uD2DF\uD2E0\uD2E1\uD2E2\uD2E3\uD2E6\uD2E7\uD2E8\uD2E9\uD2EA\uD2EB\uD2EC\uD2ED\uD2EE\uD2EF\uD2F2\uD2F3\uD2F5\uD2F6\uD2F7\uD2F9\uD2FA\uBC99\uBC9A\uBCA0\uBCA1\uBCA4\uBCA7\uBCA8\uBCB0\uBCB1\uBCB3\uBCB4\uBCB5\uBCBC\uBCBD\uBCC0\uBCC4\uBCCD\uBCCF\uBCD0\uBCD1\uBCD5\uBCD8\uBCDC\uBCF4\uBCF5\uBCF6\uBCF8\uBCFC\uBD04\uBD05\uBD07\uBD09\uBD10\uBD14\uBD24\uBD2C\uBD40\uBD48\uBD49\uBD4C\uBD50\uBD58\uBD59\uBD64\uBD68\uBD80\uBD81\uBD84\uBD87\uBD88\uBD89\uBD8A\uBD90\uBD91\uBD93\uBD95\uBD99\uBD9A\uBD9C\uBDA4\uBDB0\uBDB8\uBDD4\uBDD5\uBDD8\uBDDC\uBDE9\uBDF0\uBDF4\uBDF8\uBE00\uBE03\uBE05\uBE0C\uBE0D\uBE10\uBE14\uBE1C\uBE1D\uBE1F\uBE44\uBE45\uBE48\uBE4C\uBE4E\uBE54\uBE55\uBE57\uBE59\uBE5A\uBE5B\uBE60\uBE61\uBE64\uD2FB\uD2FC\uD2FD\uD2FE\uD2FF\uD302\uD304\uD306\uD307\uD308\uD309\uD30A\uD30B\uD30F\uD311\uD312\uD313\uD315\uD317\uD318\uD319\uD31A\uD31B\uD31E\uD322\uD323\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD324\uD326\uD327\uD32A\uD32B\uD32D\uD32E\uD32F\uD331\uD332\uD333\uD334\uD335\uD336\uD337\uD33A\uD33E\uD33F\uD340\uD341\uD342\uD343\uD346\uD347\uD348\uD349\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD34A\uD34B\uD34C\uD34D\uD34E\uD34F\uD350\uD351\uD352\uD353\uD354\uD355\uD356\uD357\uD358\uD359\uD35A\uD35B\uD35C\uD35D\uD35E\uD35F\uD360\uD361\uD362\uD363\uD364\uD365\uD366\uD367\uD368\uD369\uBE68\uBE6A\uBE70\uBE71\uBE73\uBE74\uBE75\uBE7B\uBE7C\uBE7D\uBE80\uBE84\uBE8C\uBE8D\uBE8F\uBE90\uBE91\uBE98\uBE99\uBEA8\uBED0\uBED1\uBED4\uBED7\uBED8\uBEE0\uBEE3\uBEE4\uBEE5\uBEEC\uBF01\uBF08\uBF09\uBF18\uBF19\uBF1B\uBF1C\uBF1D\uBF40\uBF41\uBF44\uBF48\uBF50\uBF51\uBF55\uBF94\uBFB0\uBFC5\uBFCC\uBFCD\uBFD0\uBFD4\uBFDC\uBFDF\uBFE1\uC03C\uC051\uC058\uC05C\uC060\uC068\uC069\uC090\uC091\uC094\uC098\uC0A0\uC0A1\uC0A3\uC0A5\uC0AC\uC0AD\uC0AF\uC0B0\uC0B3\uC0B4\uC0B5\uC0B6\uC0BC\uC0BD\uC0BF\uC0C0\uC0C1\uC0C5\uC0C8\uC0C9\uC0CC\uC0D0\uC0D8\uC0D9\uC0DB\uC0DC\uC0DD\uC0E4\uD36A\uD36B\uD36C\uD36D\uD36E\uD36F\uD370\uD371\uD372\uD373\uD374\uD375\uD376\uD377\uD378\uD379\uD37A\uD37B\uD37E\uD37F\uD381\uD382\uD383\uD385\uD386\uD387\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD388\uD389\uD38A\uD38B\uD38E\uD392\uD393\uD394\uD395\uD396\uD397\uD39A\uD39B\uD39D\uD39E\uD39F\uD3A1\uD3A2\uD3A3\uD3A4\uD3A5\uD3A6\uD3A7\uD3AA\uD3AC\uD3AE\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD3AF\uD3B0\uD3B1\uD3B2\uD3B3\uD3B5\uD3B6\uD3B7\uD3B9\uD3BA\uD3BB\uD3BD\uD3BE\uD3BF\uD3C0\uD3C1\uD3C2\uD3C3\uD3C6\uD3C7\uD3CA\uD3CB\uD3CC\uD3CD\uD3CE\uD3CF\uD3D1\uD3D2\uD3D3\uD3D4\uD3D5\uD3D6\uC0E5\uC0E8\uC0EC\uC0F4\uC0F5\uC0F7\uC0F9\uC100\uC104\uC108\uC110\uC115\uC11C\uC11D\uC11E\uC11F\uC120\uC123\uC124\uC126\uC127\uC12C\uC12D\uC12F\uC130\uC131\uC136\uC138\uC139\uC13C\uC140\uC148\uC149\uC14B\uC14C\uC14D\uC154\uC155\uC158\uC15C\uC164\uC165\uC167\uC168\uC169\uC170\uC174\uC178\uC185\uC18C\uC18D\uC18E\uC190\uC194\uC196\uC19C\uC19D\uC19F\uC1A1\uC1A5\uC1A8\uC1A9\uC1AC\uC1B0\uC1BD\uC1C4\uC1C8\uC1CC\uC1D4\uC1D7\uC1D8\uC1E0\uC1E4\uC1E8\uC1F0\uC1F1\uC1F3\uC1FC\uC1FD\uC200\uC204\uC20C\uC20D\uC20F\uC211\uC218\uC219\uC21C\uC21F\uC220\uC228\uC229\uC22B\uC22D\uD3D7\uD3D9\uD3DA\uD3DB\uD3DC\uD3DD\uD3DE\uD3DF\uD3E0\uD3E2\uD3E4\uD3E5\uD3E6\uD3E7\uD3E8\uD3E9\uD3EA\uD3EB\uD3EE\uD3EF\uD3F1\uD3F2\uD3F3\uD3F5\uD3F6\uD3F7\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD3F8\uD3F9\uD3FA\uD3FB\uD3FE\uD400\uD402\uD403\uD404\uD405\uD406\uD407\uD409\uD40A\uD40B\uD40C\uD40D\uD40E\uD40F\uD410\uD411\uD412\uD413\uD414\uD415\uD416\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD417\uD418\uD419\uD41A\uD41B\uD41C\uD41E\uD41F\uD420\uD421\uD422\uD423\uD424\uD425\uD426\uD427\uD428\uD429\uD42A\uD42B\uD42C\uD42D\uD42E\uD42F\uD430\uD431\uD432\uD433\uD434\uD435\uD436\uD437\uC22F\uC231\uC232\uC234\uC248\uC250\uC251\uC254\uC258\uC260\uC265\uC26C\uC26D\uC270\uC274\uC27C\uC27D\uC27F\uC281\uC288\uC289\uC290\uC298\uC29B\uC29D\uC2A4\uC2A5\uC2A8\uC2AC\uC2AD\uC2B4\uC2B5\uC2B7\uC2B9\uC2DC\uC2DD\uC2E0\uC2E3\uC2E4\uC2EB\uC2EC\uC2ED\uC2EF\uC2F1\uC2F6\uC2F8\uC2F9\uC2FB\uC2FC\uC300\uC308\uC309\uC30C\uC30D\uC313\uC314\uC315\uC318\uC31C\uC324\uC325\uC328\uC329\uC345\uC368\uC369\uC36C\uC370\uC372\uC378\uC379\uC37C\uC37D\uC384\uC388\uC38C\uC3C0\uC3D8\uC3D9\uC3DC\uC3DF\uC3E0\uC3E2\uC3E8\uC3E9\uC3ED\uC3F4\uC3F5\uC3F8\uC408\uC410\uC424\uC42C\uC430\uD438\uD439\uD43A\uD43B\uD43C\uD43D\uD43E\uD43F\uD441\uD442\uD443\uD445\uD446\uD447\uD448\uD449\uD44A\uD44B\uD44C\uD44D\uD44E\uD44F\uD450\uD451\uD452\uD453\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD454\uD455\uD456\uD457\uD458\uD459\uD45A\uD45B\uD45D\uD45E\uD45F\uD461\uD462\uD463\uD465\uD466\uD467\uD468\uD469\uD46A\uD46B\uD46C\uD46E\uD470\uD471\uD472\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD473\uD474\uD475\uD476\uD477\uD47A\uD47B\uD47D\uD47E\uD481\uD483\uD484\uD485\uD486\uD487\uD48A\uD48C\uD48E\uD48F\uD490\uD491\uD492\uD493\uD495\uD496\uD497\uD498\uD499\uD49A\uD49B\uD49C\uD49D\uC434\uC43C\uC43D\uC448\uC464\uC465\uC468\uC46C\uC474\uC475\uC479\uC480\uC494\uC49C\uC4B8\uC4BC\uC4E9\uC4F0\uC4F1\uC4F4\uC4F8\uC4FA\uC4FF\uC500\uC501\uC50C\uC510\uC514\uC51C\uC528\uC529\uC52C\uC530\uC538\uC539\uC53B\uC53D\uC544\uC545\uC548\uC549\uC54A\uC54C\uC54D\uC54E\uC553\uC554\uC555\uC557\uC558\uC559\uC55D\uC55E\uC560\uC561\uC564\uC568\uC570\uC571\uC573\uC574\uC575\uC57C\uC57D\uC580\uC584\uC587\uC58C\uC58D\uC58F\uC591\uC595\uC597\uC598\uC59C\uC5A0\uC5A9\uC5B4\uC5B5\uC5B8\uC5B9\uC5BB\uC5BC\uC5BD\uC5BE\uC5C4\uC5C5\uC5C6\uC5C7\uC5C8\uC5C9\uC5CA\uC5CC\uC5CE\uD49E\uD49F\uD4A0\uD4A1\uD4A2\uD4A3\uD4A4\uD4A5\uD4A6\uD4A7\uD4A8\uD4AA\uD4AB\uD4AC\uD4AD\uD4AE\uD4AF\uD4B0\uD4B1\uD4B2\uD4B3\uD4B4\uD4B5\uD4B6\uD4B7\uD4B8\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD4B9\uD4BA\uD4BB\uD4BC\uD4BD\uD4BE\uD4BF\uD4C0\uD4C1\uD4C2\uD4C3\uD4C4\uD4C5\uD4C6\uD4C7\uD4C8\uD4C9\uD4CA\uD4CB\uD4CD\uD4CE\uD4CF\uD4D1\uD4D2\uD4D3\uD4D5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD4D6\uD4D7\uD4D8\uD4D9\uD4DA\uD4DB\uD4DD\uD4DE\uD4E0\uD4E1\uD4E2\uD4E3\uD4E4\uD4E5\uD4E6\uD4E7\uD4E9\uD4EA\uD4EB\uD4ED\uD4EE\uD4EF\uD4F1\uD4F2\uD4F3\uD4F4\uD4F5\uD4F6\uD4F7\uD4F9\uD4FA\uD4FC\uC5D0\uC5D1\uC5D4\uC5D8\uC5E0\uC5E1\uC5E3\uC5E5\uC5EC\uC5ED\uC5EE\uC5F0\uC5F4\uC5F6\uC5F7\uC5FC\uC5FD\uC5FE\uC5FF\uC600\uC601\uC605\uC606\uC607\uC608\uC60C\uC610\uC618\uC619\uC61B\uC61C\uC624\uC625\uC628\uC62C\uC62D\uC62E\uC630\uC633\uC634\uC635\uC637\uC639\uC63B\uC640\uC641\uC644\uC648\uC650\uC651\uC653\uC654\uC655\uC65C\uC65D\uC660\uC66C\uC66F\uC671\uC678\uC679\uC67C\uC680\uC688\uC689\uC68B\uC68D\uC694\uC695\uC698\uC69C\uC6A4\uC6A5\uC6A7\uC6A9\uC6B0\uC6B1\uC6B4\uC6B8\uC6B9\uC6BA\uC6C0\uC6C1\uC6C3\uC6C5\uC6CC\uC6CD\uC6D0\uC6D4\uC6DC\uC6DD\uC6E0\uC6E1\uC6E8\uD4FE\uD4FF\uD500\uD501\uD502\uD503\uD505\uD506\uD507\uD509\uD50A\uD50B\uD50D\uD50E\uD50F\uD510\uD511\uD512\uD513\uD516\uD518\uD519\uD51A\uD51B\uD51C\uD51D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD51E\uD51F\uD520\uD521\uD522\uD523\uD524\uD525\uD526\uD527\uD528\uD529\uD52A\uD52B\uD52C\uD52D\uD52E\uD52F\uD530\uD531\uD532\uD533\uD534\uD535\uD536\uD537\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD538\uD539\uD53A\uD53B\uD53E\uD53F\uD541\uD542\uD543\uD545\uD546\uD547\uD548\uD549\uD54A\uD54B\uD54E\uD550\uD552\uD553\uD554\uD555\uD556\uD557\uD55A\uD55B\uD55D\uD55E\uD55F\uD561\uD562\uD563\uC6E9\uC6EC\uC6F0\uC6F8\uC6F9\uC6FD\uC704\uC705\uC708\uC70C\uC714\uC715\uC717\uC719\uC720\uC721\uC724\uC728\uC730\uC731\uC733\uC735\uC737\uC73C\uC73D\uC740\uC744\uC74A\uC74C\uC74D\uC74F\uC751\uC752\uC753\uC754\uC755\uC756\uC757\uC758\uC75C\uC760\uC768\uC76B\uC774\uC775\uC778\uC77C\uC77D\uC77E\uC783\uC784\uC785\uC787\uC788\uC789\uC78A\uC78E\uC790\uC791\uC794\uC796\uC797\uC798\uC79A\uC7A0\uC7A1\uC7A3\uC7A4\uC7A5\uC7A6\uC7AC\uC7AD\uC7B0\uC7B4\uC7BC\uC7BD\uC7BF\uC7C0\uC7C1\uC7C8\uC7C9\uC7CC\uC7CE\uC7D0\uC7D8\uC7DD\uC7E4\uC7E8\uC7EC\uC800\uC801\uC804\uC808\uC80A\uD564\uD566\uD567\uD56A\uD56C\uD56E\uD56F\uD570\uD571\uD572\uD573\uD576\uD577\uD579\uD57A\uD57B\uD57D\uD57E\uD57F\uD580\uD581\uD582\uD583\uD586\uD58A\uD58B\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD58C\uD58D\uD58E\uD58F\uD591\uD592\uD593\uD594\uD595\uD596\uD597\uD598\uD599\uD59A\uD59B\uD59C\uD59D\uD59E\uD59F\uD5A0\uD5A1\uD5A2\uD5A3\uD5A4\uD5A6\uD5A7\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD5A8\uD5A9\uD5AA\uD5AB\uD5AC\uD5AD\uD5AE\uD5AF\uD5B0\uD5B1\uD5B2\uD5B3\uD5B4\uD5B5\uD5B6\uD5B7\uD5B8\uD5B9\uD5BA\uD5BB\uD5BC\uD5BD\uD5BE\uD5BF\uD5C0\uD5C1\uD5C2\uD5C3\uD5C4\uD5C5\uD5C6\uD5C7\uC810\uC811\uC813\uC815\uC816\uC81C\uC81D\uC820\uC824\uC82C\uC82D\uC82F\uC831\uC838\uC83C\uC840\uC848\uC849\uC84C\uC84D\uC854\uC870\uC871\uC874\uC878\uC87A\uC880\uC881\uC883\uC885\uC886\uC887\uC88B\uC88C\uC88D\uC894\uC89D\uC89F\uC8A1\uC8A8\uC8BC\uC8BD\uC8C4\uC8C8\uC8CC\uC8D4\uC8D5\uC8D7\uC8D9\uC8E0\uC8E1\uC8E4\uC8F5\uC8FC\uC8FD\uC900\uC904\uC905\uC906\uC90C\uC90D\uC90F\uC911\uC918\uC92C\uC934\uC950\uC951\uC954\uC958\uC960\uC961\uC963\uC96C\uC970\uC974\uC97C\uC988\uC989\uC98C\uC990\uC998\uC999\uC99B\uC99D\uC9C0\uC9C1\uC9C4\uC9C7\uC9C8\uC9CA\uC9D0\uC9D1\uC9D3\uD5CA\uD5CB\uD5CD\uD5CE\uD5CF\uD5D1\uD5D3\uD5D4\uD5D5\uD5D6\uD5D7\uD5DA\uD5DC\uD5DE\uD5DF\uD5E0\uD5E1\uD5E2\uD5E3\uD5E6\uD5E7\uD5E9\uD5EA\uD5EB\uD5ED\uD5EE\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD5EF\uD5F0\uD5F1\uD5F2\uD5F3\uD5F6\uD5F8\uD5FA\uD5FB\uD5FC\uD5FD\uD5FE\uD5FF\uD602\uD603\uD605\uD606\uD607\uD609\uD60A\uD60B\uD60C\uD60D\uD60E\uD60F\uD612\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD616\uD617\uD618\uD619\uD61A\uD61B\uD61D\uD61E\uD61F\uD621\uD622\uD623\uD625\uD626\uD627\uD628\uD629\uD62A\uD62B\uD62C\uD62E\uD62F\uD630\uD631\uD632\uD633\uD634\uD635\uD636\uD637\uD63A\uD63B\uC9D5\uC9D6\uC9D9\uC9DA\uC9DC\uC9DD\uC9E0\uC9E2\uC9E4\uC9E7\uC9EC\uC9ED\uC9EF\uC9F0\uC9F1\uC9F8\uC9F9\uC9FC\uCA00\uCA08\uCA09\uCA0B\uCA0C\uCA0D\uCA14\uCA18\uCA29\uCA4C\uCA4D\uCA50\uCA54\uCA5C\uCA5D\uCA5F\uCA60\uCA61\uCA68\uCA7D\uCA84\uCA98\uCABC\uCABD\uCAC0\uCAC4\uCACC\uCACD\uCACF\uCAD1\uCAD3\uCAD8\uCAD9\uCAE0\uCAEC\uCAF4\uCB08\uCB10\uCB14\uCB18\uCB20\uCB21\uCB41\uCB48\uCB49\uCB4C\uCB50\uCB58\uCB59\uCB5D\uCB64\uCB78\uCB79\uCB9C\uCBB8\uCBD4\uCBE4\uCBE7\uCBE9\uCC0C\uCC0D\uCC10\uCC14\uCC1C\uCC1D\uCC21\uCC22\uCC27\uCC28\uCC29\uCC2C\uCC2E\uCC30\uCC38\uCC39\uCC3B\uD63D\uD63E\uD63F\uD641\uD642\uD643\uD644\uD646\uD647\uD64A\uD64C\uD64E\uD64F\uD650\uD652\uD653\uD656\uD657\uD659\uD65A\uD65B\uD65D\uD65E\uD65F\uD660\uD661\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD662\uD663\uD664\uD665\uD666\uD668\uD66A\uD66B\uD66C\uD66D\uD66E\uD66F\uD672\uD673\uD675\uD676\uD677\uD678\uD679\uD67A\uD67B\uD67C\uD67D\uD67E\uD67F\uD680\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD681\uD682\uD684\uD686\uD687\uD688\uD689\uD68A\uD68B\uD68E\uD68F\uD691\uD692\uD693\uD695\uD696\uD697\uD698\uD699\uD69A\uD69B\uD69C\uD69E\uD6A0\uD6A2\uD6A3\uD6A4\uD6A5\uD6A6\uD6A7\uD6A9\uD6AA\uCC3C\uCC3D\uCC3E\uCC44\uCC45\uCC48\uCC4C\uCC54\uCC55\uCC57\uCC58\uCC59\uCC60\uCC64\uCC66\uCC68\uCC70\uCC75\uCC98\uCC99\uCC9C\uCCA0\uCCA8\uCCA9\uCCAB\uCCAC\uCCAD\uCCB4\uCCB5\uCCB8\uCCBC\uCCC4\uCCC5\uCCC7\uCCC9\uCCD0\uCCD4\uCCE4\uCCEC\uCCF0\uCD01\uCD08\uCD09\uCD0C\uCD10\uCD18\uCD19\uCD1B\uCD1D\uCD24\uCD28\uCD2C\uCD39\uCD5C\uCD60\uCD64\uCD6C\uCD6D\uCD6F\uCD71\uCD78\uCD88\uCD94\uCD95\uCD98\uCD9C\uCDA4\uCDA5\uCDA7\uCDA9\uCDB0\uCDC4\uCDCC\uCDD0\uCDE8\uCDEC\uCDF0\uCDF8\uCDF9\uCDFB\uCDFD\uCE04\uCE08\uCE0C\uCE14\uCE19\uCE20\uCE21\uCE24\uCE28\uCE30\uCE31\uCE33\uCE35\uD6AB\uD6AD\uD6AE\uD6AF\uD6B1\uD6B2\uD6B3\uD6B4\uD6B5\uD6B6\uD6B7\uD6B8\uD6BA\uD6BC\uD6BD\uD6BE\uD6BF\uD6C0\uD6C1\uD6C2\uD6C3\uD6C6\uD6C7\uD6C9\uD6CA\uD6CB\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD6CD\uD6CE\uD6CF\uD6D0\uD6D2\uD6D3\uD6D5\uD6D6\uD6D8\uD6DA\uD6DB\uD6DC\uD6DD\uD6DE\uD6DF\uD6E1\uD6E2\uD6E3\uD6E5\uD6E6\uD6E7\uD6E9\uD6EA\uD6EB\uD6EC\uD6ED\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD6EE\uD6EF\uD6F1\uD6F2\uD6F3\uD6F4\uD6F6\uD6F7\uD6F8\uD6F9\uD6FA\uD6FB\uD6FE\uD6FF\uD701\uD702\uD703\uD705\uD706\uD707\uD708\uD709\uD70A\uD70B\uD70C\uD70D\uD70E\uD70F\uD710\uD712\uD713\uD714\uCE58\uCE59\uCE5C\uCE5F\uCE60\uCE61\uCE68\uCE69\uCE6B\uCE6D\uCE74\uCE75\uCE78\uCE7C\uCE84\uCE85\uCE87\uCE89\uCE90\uCE91\uCE94\uCE98\uCEA0\uCEA1\uCEA3\uCEA4\uCEA5\uCEAC\uCEAD\uCEC1\uCEE4\uCEE5\uCEE8\uCEEB\uCEEC\uCEF4\uCEF5\uCEF7\uCEF8\uCEF9\uCF00\uCF01\uCF04\uCF08\uCF10\uCF11\uCF13\uCF15\uCF1C\uCF20\uCF24\uCF2C\uCF2D\uCF2F\uCF30\uCF31\uCF38\uCF54\uCF55\uCF58\uCF5C\uCF64\uCF65\uCF67\uCF69\uCF70\uCF71\uCF74\uCF78\uCF80\uCF85\uCF8C\uCFA1\uCFA8\uCFB0\uCFC4\uCFE0\uCFE1\uCFE4\uCFE8\uCFF0\uCFF1\uCFF3\uCFF5\uCFFC\uD000\uD004\uD011\uD018\uD02D\uD034\uD035\uD038\uD03C\uD715\uD716\uD717\uD71A\uD71B\uD71D\uD71E\uD71F\uD721\uD722\uD723\uD724\uD725\uD726\uD727\uD72A\uD72C\uD72E\uD72F\uD730\uD731\uD732\uD733\uD736\uD737\uD739\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD73A\uD73B\uD73D\uD73E\uD73F\uD740\uD741\uD742\uD743\uD745\uD746\uD748\uD74A\uD74B\uD74C\uD74D\uD74E\uD74F\uD752\uD753\uD755\uD75A\uD75B\uD75C\uD75D\uD75E\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD75F\uD762\uD764\uD766\uD767\uD768\uD76A\uD76B\uD76D\uD76E\uD76F\uD771\uD772\uD773\uD775\uD776\uD777\uD778\uD779\uD77A\uD77B\uD77E\uD77F\uD780\uD782\uD783\uD784\uD785\uD786\uD787\uD78A\uD78B\uD044\uD045\uD047\uD049\uD050\uD054\uD058\uD060\uD06C\uD06D\uD070\uD074\uD07C\uD07D\uD081\uD0A4\uD0A5\uD0A8\uD0AC\uD0B4\uD0B5\uD0B7\uD0B9\uD0C0\uD0C1\uD0C4\uD0C8\uD0C9\uD0D0\uD0D1\uD0D3\uD0D4\uD0D5\uD0DC\uD0DD\uD0E0\uD0E4\uD0EC\uD0ED\uD0EF\uD0F0\uD0F1\uD0F8\uD10D\uD130\uD131\uD134\uD138\uD13A\uD140\uD141\uD143\uD144\uD145\uD14C\uD14D\uD150\uD154\uD15C\uD15D\uD15F\uD161\uD168\uD16C\uD17C\uD184\uD188\uD1A0\uD1A1\uD1A4\uD1A8\uD1B0\uD1B1\uD1B3\uD1B5\uD1BA\uD1BC\uD1C0\uD1D8\uD1F4\uD1F8\uD207\uD209\uD210\uD22C\uD22D\uD230\uD234\uD23C\uD23D\uD23F\uD241\uD248\uD25C\uD78D\uD78E\uD78F\uD791\uD792\uD793\uD794\uD795\uD796\uD797\uD79A\uD79C\uD79E\uD79F\uD7A0\uD7A1\uD7A2\uD7A3\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD264\uD280\uD281\uD284\uD288\uD290\uD291\uD295\uD29C\uD2A0\uD2A4\uD2AC\uD2B1\uD2B8\uD2B9\uD2BC\uD2BF\uD2C0\uD2C2\uD2C8\uD2C9\uD2CB\uD2D4\uD2D8\uD2DC\uD2E4\uD2E5\uD2F0\uD2F1\uD2F4\uD2F8\uD300\uD301\uD303\uD305\uD30C\uD30D\uD30E\uD310\uD314\uD316\uD31C\uD31D\uD31F\uD320\uD321\uD325\uD328\uD329\uD32C\uD330\uD338\uD339\uD33B\uD33C\uD33D\uD344\uD345\uD37C\uD37D\uD380\uD384\uD38C\uD38D\uD38F\uD390\uD391\uD398\uD399\uD39C\uD3A0\uD3A8\uD3A9\uD3AB\uD3AD\uD3B4\uD3B8\uD3BC\uD3C4\uD3C5\uD3C8\uD3C9\uD3D0\uD3D8\uD3E1\uD3E3\uD3EC\uD3ED\uD3F0\uD3F4\uD3FC\uD3FD\uD3FF\uD401\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD408\uD41D\uD440\uD444\uD45C\uD460\uD464\uD46D\uD46F\uD478\uD479\uD47C\uD47F\uD480\uD482\uD488\uD489\uD48B\uD48D\uD494\uD4A9\uD4CC\uD4D0\uD4D4\uD4DC\uD4DF\uD4E8\uD4EC\uD4F0\uD4F8\uD4FB\uD4FD\uD504\uD508\uD50C\uD514\uD515\uD517\uD53C\uD53D\uD540\uD544\uD54C\uD54D\uD54F\uD551\uD558\uD559\uD55C\uD560\uD565\uD568\uD569\uD56B\uD56D\uD574\uD575\uD578\uD57C\uD584\uD585\uD587\uD588\uD589\uD590\uD5A5\uD5C8\uD5C9\uD5CC\uD5D0\uD5D2\uD5D8\uD5D9\uD5DB\uD5DD\uD5E4\uD5E5\uD5E8\uD5EC\uD5F4\uD5F5\uD5F7\uD5F9\uD600\uD601\uD604\uD608\uD610\uD611\uD613\uD614\uD615\uD61C\uD620\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uD624\uD62D\uD638\uD639\uD63C\uD640\uD645\uD648\uD649\uD64B\uD64D\uD651\uD654\uD655\uD658\uD65C\uD667\uD669\uD670\uD671\uD674\uD683\uD685\uD68C\uD68D\uD690\uD694\uD69D\uD69F\uD6A1\uD6A8\uD6AC\uD6B0\uD6B9\uD6BB\uD6C4\uD6C5\uD6C8\uD6CC\uD6D1\uD6D4\uD6D7\uD6D9\uD6E0\uD6E4\uD6E8\uD6F0\uD6F5\uD6FC\uD6FD\uD700\uD704\uD711\uD718\uD719\uD71C\uD720\uD728\uD729\uD72B\uD72D\uD734\uD735\uD738\uD73C\uD744\uD747\uD749\uD750\uD751\uD754\uD756\uD757\uD758\uD759\uD760\uD761\uD763\uD765\uD769\uD76C\uD770\uD774\uD77C\uD77D\uD781\uD788\uD789\uD78C\uD790\uD798\uD799\uD79B\uD79D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u4F3D\u4F73\u5047\u50F9\u52A0\u53EF\u5475\u54E5\u5609\u5AC1\u5BB6\u6687\u67B6\u67B7\u67EF\u6B4C\u73C2\u75C2\u7A3C\u82DB\u8304\u8857\u8888\u8A36\u8CC8\u8DCF\u8EFB\u8FE6\u99D5\u523B\u5374\u5404\u606A\u6164\u6BBC\u73CF\u811A\u89BA\u89D2\u95A3\u4F83\u520A\u58BE\u5978\u59E6\u5E72\u5E79\u61C7\u63C0\u6746\u67EC\u687F\u6F97\u764E\u770B\u78F5\u7A08\u7AFF\u7C21\u809D\u826E\u8271\u8AEB\u9593\u4E6B\u559D\u66F7\u6E34\u78A3\u7AED\u845B\u8910\u874E\u97A8\u52D8\u574E\u582A\u5D4C\u611F\u61BE\u6221\u6562\u67D1\u6A44\u6E1B\u7518\u75B3\u76E3\u77B0\u7D3A\u90AF\u9451\u9452\u9F95\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u5323\u5CAC\u7532\u80DB\u9240\u9598\u525B\u5808\u59DC\u5CA1\u5D17\u5EB7\u5F3A\u5F4A\u6177\u6C5F\u757A\u7586\u7CE0\u7D73\u7DB1\u7F8C\u8154\u8221\u8591\u8941\u8B1B\u92FC\u964D\u9C47\u4ECB\u4EF7\u500B\u51F1\u584F\u6137\u613E\u6168\u6539\u69EA\u6F11\u75A5\u7686\u76D6\u7B87\u82A5\u84CB\uF900\u93A7\u958B\u5580\u5BA2\u5751\uF901\u7CB3\u7FB9\u91B5\u5028\u53BB\u5C45\u5DE8\u62D2\u636E\u64DA\u64E7\u6E20\u70AC\u795B\u8DDD\u8E1E\uF902\u907D\u9245\u92F8\u4E7E\u4EF6\u5065\u5DFE\u5EFA\u6106\u6957\u8171\u8654\u8E47\u9375\u9A2B\u4E5E\u5091\u6770\u6840\u5109\u528D\u5292\u6AA2\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u77BC\u9210\u9ED4\u52AB\u602F\u8FF2\u5048\u61A9\u63ED\u64CA\u683C\u6A84\u6FC0\u8188\u89A1\u9694\u5805\u727D\u72AC\u7504\u7D79\u7E6D\u80A9\u898B\u8B74\u9063\u9D51\u6289\u6C7A\u6F54\u7D50\u7F3A\u8A23\u517C\u614A\u7B9D\u8B19\u9257\u938C\u4EAC\u4FD3\u501E\u50BE\u5106\u52C1\u52CD\u537F\u5770\u5883\u5E9A\u5F91\u6176\u61AC\u64CE\u656C\u666F\u66BB\u66F4\u6897\u6D87\u7085\u70F1\u749F\u74A5\u74CA\u75D9\u786C\u78EC\u7ADF\u7AF6\u7D45\u7D93\u8015\u803F\u811B\u8396\u8B66\u8F15\u9015\u93E1\u9803\u9838\u9A5A\u9BE8\u4FC2\u5553\u583A\u5951\u5B63\u5C46\u60B8\u6212\u6842\u68B0\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u68E8\u6EAA\u754C\u7678\u78CE\u7A3D\u7CFB\u7E6B\u7E7C\u8A08\u8AA1\u8C3F\u968E\u9DC4\u53E4\u53E9\u544A\u5471\u56FA\u59D1\u5B64\u5C3B\u5EAB\u62F7\u6537\u6545\u6572\u66A0\u67AF\u69C1\u6CBD\u75FC\u7690\u777E\u7A3F\u7F94\u8003\u80A1\u818F\u82E6\u82FD\u83F0\u85C1\u8831\u88B4\u8AA5\uF903\u8F9C\u932E\u96C7\u9867\u9AD8\u9F13\u54ED\u659B\u66F2\u688F\u7A40\u8C37\u9D60\u56F0\u5764\u5D11\u6606\u68B1\u68CD\u6EFE\u7428\u889E\u9BE4\u6C68\uF904\u9AA8\u4F9B\u516C\u5171\u529F\u5B54\u5DE5\u6050\u606D\u62F1\u63A7\u653B\u73D9\u7A7A\u86A3\u8CA2\u978F\u4E32\u5BE1\u6208\u679C\u74DC\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u79D1\u83D3\u8A87\u8AB2\u8DE8\u904E\u934B\u9846\u5ED3\u69E8\u85FF\u90ED\uF905\u51A0\u5B98\u5BEC\u6163\u68FA\u6B3E\u704C\u742F\u74D8\u7BA1\u7F50\u83C5\u89C0\u8CAB\u95DC\u9928\u522E\u605D\u62EC\u9002\u4F8A\u5149\u5321\u58D9\u5EE3\u66E0\u6D38\u709A\u72C2\u73D6\u7B50\u80F1\u945B\u5366\u639B\u7F6B\u4E56\u5080\u584A\u58DE\u602A\u6127\u62D0\u69D0\u9B41\u5B8F\u7D18\u80B1\u8F5F\u4EA4\u50D1\u54AC\u55AC\u5B0C\u5DA0\u5DE7\u652A\u654E\u6821\u6A4B\u72E1\u768E\u77EF\u7D5E\u7FF9\u81A0\u854E\u86DF\u8F03\u8F4E\u90CA\u9903\u9A55\u9BAB\u4E18\u4E45\u4E5D\u4EC7\u4FF1\u5177\u52FE\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u5340\u53E3\u53E5\u548E\u5614\u5775\u57A2\u5BC7\u5D87\u5ED0\u61FC\u62D8\u6551\u67B8\u67E9\u69CB\u6B50\u6BC6\u6BEC\u6C42\u6E9D\u7078\u72D7\u7396\u7403\u77BF\u77E9\u7A76\u7D7F\u8009\u81FC\u8205\u820A\u82DF\u8862\u8B33\u8CFC\u8EC0\u9011\u90B1\u9264\u92B6\u99D2\u9A45\u9CE9\u9DD7\u9F9C\u570B\u5C40\u83CA\u97A0\u97AB\u9EB4\u541B\u7A98\u7FA4\u88D9\u8ECD\u90E1\u5800\u5C48\u6398\u7A9F\u5BAE\u5F13\u7A79\u7AAE\u828E\u8EAC\u5026\u5238\u52F8\u5377\u5708\u62F3\u6372\u6B0A\u6DC3\u7737\u53A5\u7357\u8568\u8E76\u95D5\u673A\u6AC3\u6F70\u8A6D\u8ECC\u994B\uF906\u6677\u6B78\u8CB4\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u9B3C\uF907\u53EB\u572D\u594E\u63C6\u69FB\u73EA\u7845\u7ABA\u7AC5\u7CFE\u8475\u898F\u8D73\u9035\u95A8\u52FB\u5747\u7547\u7B60\u83CC\u921E\uF908\u6A58\u514B\u524B\u5287\u621F\u68D8\u6975\u9699\u50C5\u52A4\u52E4\u61C3\u65A4\u6839\u69FF\u747E\u7B4B\u82B9\u83EB\u89B2\u8B39\u8FD1\u9949\uF909\u4ECA\u5997\u64D2\u6611\u6A8E\u7434\u7981\u79BD\u82A9\u887E\u887F\u895F\uF90A\u9326\u4F0B\u53CA\u6025\u6271\u6C72\u7D1A\u7D66\u4E98\u5162\u77DC\u80AF\u4F01\u4F0E\u5176\u5180\u55DC\u5668\u573B\u57FA\u57FC\u5914\u5947\u5993\u5BC4\u5C90\u5D0E\u5DF1\u5E7E\u5FCC\u6280\u65D7\u65E3\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u671E\u671F\u675E\u68CB\u68C4\u6A5F\u6B3A\u6C23\u6C7D\u6C82\u6DC7\u7398\u7426\u742A\u7482\u74A3\u7578\u757F\u7881\u78EF\u7941\u7947\u7948\u797A\u7B95\u7D00\u7DBA\u7F88\u8006\u802D\u808C\u8A18\u8B4F\u8C48\u8D77\u9321\u9324\u98E2\u9951\u9A0E\u9A0F\u9A65\u9E92\u7DCA\u4F76\u5409\u62EE\u6854\u91D1\u55AB\u513A\uF90B\uF90C\u5A1C\u61E6\uF90D\u62CF\u62FF\uF90E\uF90F\uF910\uF911\uF912\uF913\u90A3\uF914\uF915\uF916\uF917\uF918\u8AFE\uF919\uF91A\uF91B\uF91C\u6696\uF91D\u7156\uF91E\uF91F\u96E3\uF920\u634F\u637A\u5357\uF921\u678F\u6960\u6E73\uF922\u7537\uF923\uF924\uF925\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u7D0D\uF926\uF927\u8872\u56CA\u5A18\uF928\uF929\uF92A\uF92B\uF92C\u4E43\uF92D\u5167\u5948\u67F0\u8010\uF92E\u5973\u5E74\u649A\u79CA\u5FF5\u606C\u62C8\u637B\u5BE7\u5BD7\u52AA\uF92F\u5974\u5F29\u6012\uF930\uF931\uF932\u7459\uF933\uF934\uF935\uF936\uF937\uF938\u99D1\uF939\uF93A\uF93B\uF93C\uF93D\uF93E\uF93F\uF940\uF941\uF942\uF943\u6FC3\uF944\uF945\u81BF\u8FB2\u60F1\uF946\uF947\u8166\uF948\uF949\u5C3F\uF94A\uF94B\uF94C\uF94D\uF94E\uF94F\uF950\uF951\u5AE9\u8A25\u677B\u7D10\uF952\uF953\uF954\uF955\uF956\uF957\u80FD\uF958\uF959\u5C3C\u6CE5\u533F\u6EBA\u591A\u8336\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u4E39\u4EB6\u4F46\u55AE\u5718\u58C7\u5F56\u65B7\u65E6\u6A80\u6BB5\u6E4D\u77ED\u7AEF\u7C1E\u7DDE\u86CB\u8892\u9132\u935B\u64BB\u6FBE\u737A\u75B8\u9054\u5556\u574D\u61BA\u64D4\u66C7\u6DE1\u6E5B\u6F6D\u6FB9\u75F0\u8043\u81BD\u8541\u8983\u8AC7\u8B5A\u931F\u6C93\u7553\u7B54\u8E0F\u905D\u5510\u5802\u5858\u5E62\u6207\u649E\u68E0\u7576\u7CD6\u87B3\u9EE8\u4EE3\u5788\u576E\u5927\u5C0D\u5CB1\u5E36\u5F85\u6234\u64E1\u73B3\u81FA\u888B\u8CB8\u968A\u9EDB\u5B85\u5FB7\u60B3\u5012\u5200\u5230\u5716\u5835\u5857\u5C0E\u5C60\u5CF6\u5D8B\u5EA6\u5F92\u60BC\u6311\u6389\u6417\u6843\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u68F9\u6AC2\u6DD8\u6E21\u6ED4\u6FE4\u71FE\u76DC\u7779\u79B1\u7A3B\u8404\u89A9\u8CED\u8DF3\u8E48\u9003\u9014\u9053\u90FD\u934D\u9676\u97DC\u6BD2\u7006\u7258\u72A2\u7368\u7763\u79BF\u7BE4\u7E9B\u8B80\u58A9\u60C7\u6566\u65FD\u66BE\u6C8C\u711E\u71C9\u8C5A\u9813\u4E6D\u7A81\u4EDD\u51AC\u51CD\u52D5\u540C\u61A7\u6771\u6850\u68DF\u6D1E\u6F7C\u75BC\u77B3\u7AE5\u80F4\u8463\u9285\u515C\u6597\u675C\u6793\u75D8\u7AC7\u8373\uF95A\u8C46\u9017\u982D\u5C6F\u81C0\u829A\u9041\u906F\u920D\u5F97\u5D9D\u6A59\u71C8\u767B\u7B49\u85E4\u8B04\u9127\u9A30\u5587\u61F6\uF95B\u7669\u7F85\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u863F\u87BA\u88F8\u908F\uF95C\u6D1B\u70D9\u73DE\u7D61\u843D\uF95D\u916A\u99F1\uF95E\u4E82\u5375\u6B04\u6B12\u703E\u721B\u862D\u9E1E\u524C\u8FA3\u5D50\u64E5\u652C\u6B16\u6FEB\u7C43\u7E9C\u85CD\u8964\u89BD\u62C9\u81D8\u881F\u5ECA\u6717\u6D6A\u72FC\u7405\u746F\u8782\u90DE\u4F86\u5D0D\u5FA0\u840A\u51B7\u63A0\u7565\u4EAE\u5006\u5169\u51C9\u6881\u6A11\u7CAE\u7CB1\u7CE7\u826F\u8AD2\u8F1B\u91CF\u4FB6\u5137\u52F5\u5442\u5EEC\u616E\u623E\u65C5\u6ADA\u6FFE\u792A\u85DC\u8823\u95AD\u9A62\u9A6A\u9E97\u9ECE\u529B\u66C6\u6B77\u701D\u792B\u8F62\u9742\u6190\u6200\u6523\u6F23\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u7149\u7489\u7DF4\u806F\u84EE\u8F26\u9023\u934A\u51BD\u5217\u52A3\u6D0C\u70C8\u88C2\u5EC9\u6582\u6BAE\u6FC2\u7C3E\u7375\u4EE4\u4F36\u56F9\uF95F\u5CBA\u5DBA\u601C\u73B2\u7B2D\u7F9A\u7FCE\u8046\u901E\u9234\u96F6\u9748\u9818\u9F61\u4F8B\u6FA7\u79AE\u91B4\u96B7\u52DE\uF960\u6488\u64C4\u6AD3\u6F5E\u7018\u7210\u76E7\u8001\u8606\u865C\u8DEF\u8F05\u9732\u9B6F\u9DFA\u9E75\u788C\u797F\u7DA0\u83C9\u9304\u9E7F\u9E93\u8AD6\u58DF\u5F04\u6727\u7027\u74CF\u7C60\u807E\u5121\u7028\u7262\u78CA\u8CC2\u8CDA\u8CF4\u96F7\u4E86\u50DA\u5BEE\u5ED6\u6599\u71CE\u7642\u77AD\u804A\u84FC\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u907C\u9B27\u9F8D\u58D8\u5A41\u5C62\u6A13\u6DDA\u6F0F\u763B\u7D2F\u7E37\u851E\u8938\u93E4\u964B\u5289\u65D2\u67F3\u69B4\u6D41\u6E9C\u700F\u7409\u7460\u7559\u7624\u786B\u8B2C\u985E\u516D\u622E\u9678\u4F96\u502B\u5D19\u6DEA\u7DB8\u8F2A\u5F8B\u6144\u6817\uF961\u9686\u52D2\u808B\u51DC\u51CC\u695E\u7A1C\u7DBE\u83F1\u9675\u4FDA\u5229\u5398\u540F\u550E\u5C65\u60A7\u674E\u68A8\u6D6C\u7281\u72F8\u7406\u7483\uF962\u75E2\u7C6C\u7F79\u7FB8\u8389\u88CF\u88E1\u91CC\u91D0\u96E2\u9BC9\u541D\u6F7E\u71D0\u7498\u85FA\u8EAA\u96A3\u9C57\u9E9F\u6797\u6DCB\u7433\u81E8\u9716\u782C\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u7ACB\u7B20\u7C92\u6469\u746A\u75F2\u78BC\u78E8\u99AC\u9B54\u9EBB\u5BDE\u5E55\u6F20\u819C\u83AB\u9088\u4E07\u534D\u5A29\u5DD2\u5F4E\u6162\u633D\u6669\u66FC\u6EFF\u6F2B\u7063\u779E\u842C\u8513\u883B\u8F13\u9945\u9C3B\u551C\u62B9\u672B\u6CAB\u8309\u896A\u977A\u4EA1\u5984\u5FD8\u5FD9\u671B\u7DB2\u7F54\u8292\u832B\u83BD\u8F1E\u9099\u57CB\u59B9\u5A92\u5BD0\u6627\u679A\u6885\u6BCF\u7164\u7F75\u8CB7\u8CE3\u9081\u9B45\u8108\u8C8A\u964C\u9A40\u9EA5\u5B5F\u6C13\u731B\u76F2\u76DF\u840C\u51AA\u8993\u514D\u5195\u52C9\u68C9\u6C94\u7704\u7720\u7DBF\u7DEC\u9762\u9EB5\u6EC5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u8511\u51A5\u540D\u547D\u660E\u669D\u6927\u6E9F\u76BF\u7791\u8317\u84C2\u879F\u9169\u9298\u9CF4\u8882\u4FAE\u5192\u52DF\u59C6\u5E3D\u6155\u6478\u6479\u66AE\u67D0\u6A21\u6BCD\u6BDB\u725F\u7261\u7441\u7738\u77DB\u8017\u82BC\u8305\u8B00\u8B28\u8C8C\u6728\u6C90\u7267\u76EE\u7766\u7A46\u9DA9\u6B7F\u6C92\u5922\u6726\u8499\u536F\u5893\u5999\u5EDF\u63CF\u6634\u6773\u6E3A\u732B\u7AD7\u82D7\u9328\u52D9\u5DEB\u61AE\u61CB\u620A\u62C7\u64AB\u65E0\u6959\u6B66\u6BCB\u7121\u73F7\u755D\u7E46\u821E\u8302\u856A\u8AA3\u8CBF\u9727\u9D61\u58A8\u9ED8\u5011\u520E\u543B\u554F\u6587\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u6C76\u7D0A\u7D0B\u805E\u868A\u9580\u96EF\u52FF\u6C95\u7269\u5473\u5A9A\u5C3E\u5D4B\u5F4C\u5FAE\u672A\u68B6\u6963\u6E3C\u6E44\u7709\u7C73\u7F8E\u8587\u8B0E\u8FF7\u9761\u9EF4\u5CB7\u60B6\u610D\u61AB\u654F\u65FB\u65FC\u6C11\u6CEF\u739F\u73C9\u7DE1\u9594\u5BC6\u871C\u8B10\u525D\u535A\u62CD\u640F\u64B2\u6734\u6A38\u6CCA\u73C0\u749E\u7B94\u7C95\u7E1B\u818A\u8236\u8584\u8FEB\u96F9\u99C1\u4F34\u534A\u53CD\u53DB\u62CC\u642C\u6500\u6591\u69C3\u6CEE\u6F58\u73ED\u7554\u7622\u76E4\u76FC\u78D0\u78FB\u792C\u7D46\u822C\u87E0\u8FD4\u9812\u98EF\u52C3\u62D4\u64A5\u6E24\u6F51\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u767C\u8DCB\u91B1\u9262\u9AEE\u9B43\u5023\u508D\u574A\u59A8\u5C28\u5E47\u5F77\u623F\u653E\u65B9\u65C1\u6609\u678B\u699C\u6EC2\u78C5\u7D21\u80AA\u8180\u822B\u82B3\u84A1\u868C\u8A2A\u8B17\u90A6\u9632\u9F90\u500D\u4FF3\uF963\u57F9\u5F98\u62DC\u6392\u676F\u6E43\u7119\u76C3\u80CC\u80DA\u88F4\u88F5\u8919\u8CE0\u8F29\u914D\u966A\u4F2F\u4F70\u5E1B\u67CF\u6822\u767D\u767E\u9B44\u5E61\u6A0A\u7169\u71D4\u756A\uF964\u7E41\u8543\u85E9\u98DC\u4F10\u7B4F\u7F70\u95A5\u51E1\u5E06\u68B5\u6C3E\u6C4E\u6CDB\u72AF\u7BC4\u8303\u6CD5\u743A\u50FB\u5288\u58C1\u64D8\u6A97\u74A7\u7656\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u78A7\u8617\u95E2\u9739\uF965\u535E\u5F01\u8B8A\u8FA8\u8FAF\u908A\u5225\u77A5\u9C49\u9F08\u4E19\u5002\u5175\u5C5B\u5E77\u661E\u663A\u67C4\u68C5\u70B3\u7501\u75C5\u79C9\u7ADD\u8F27\u9920\u9A08\u4FDD\u5821\u5831\u5BF6\u666E\u6B65\u6D11\u6E7A\u6F7D\u73E4\u752B\u83E9\u88DC\u8913\u8B5C\u8F14\u4F0F\u50D5\u5310\u535C\u5B93\u5FA9\u670D\u798F\u8179\u832F\u8514\u8907\u8986\u8F39\u8F3B\u99A5\u9C12\u672C\u4E76\u4FF8\u5949\u5C01\u5CEF\u5CF0\u6367\u68D2\u70FD\u71A2\u742B\u7E2B\u84EC\u8702\u9022\u92D2\u9CF3\u4E0D\u4ED8\u4FEF\u5085\u5256\u526F\u5426\u5490\u57E0\u592B\u5A66\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u5B5A\u5B75\u5BCC\u5E9C\uF966\u6276\u6577\u65A7\u6D6E\u6EA5\u7236\u7B26\u7C3F\u7F36\u8150\u8151\u819A\u8240\u8299\u83A9\u8A03\u8CA0\u8CE6\u8CFB\u8D74\u8DBA\u90E8\u91DC\u961C\u9644\u99D9\u9CE7\u5317\u5206\u5429\u5674\u58B3\u5954\u596E\u5FFF\u61A4\u626E\u6610\u6C7E\u711A\u76C6\u7C89\u7CDE\u7D1B\u82AC\u8CC1\u96F0\uF967\u4F5B\u5F17\u5F7F\u62C2\u5D29\u670B\u68DA\u787C\u7E43\u9D6C\u4E15\u5099\u5315\u532A\u5351\u5983\u5A62\u5E87\u60B2\u618A\u6249\u6279\u6590\u6787\u69A7\u6BD4\u6BD6\u6BD7\u6BD8\u6CB8\uF968\u7435\u75FA\u7812\u7891\u79D5\u79D8\u7C83\u7DCB\u7FE1\u80A5\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u813E\u81C2\u83F2\u871A\u88E8\u8AB9\u8B6C\u8CBB\u9119\u975E\u98DB\u9F3B\u56AC\u5B2A\u5F6C\u658C\u6AB3\u6BAF\u6D5C\u6FF1\u7015\u725D\u73AD\u8CA7\u8CD3\u983B\u6191\u6C37\u8058\u9A01\u4E4D\u4E8B\u4E9B\u4ED5\u4F3A\u4F3C\u4F7F\u4FDF\u50FF\u53F2\u53F8\u5506\u55E3\u56DB\u58EB\u5962\u5A11\u5BEB\u5BFA\u5C04\u5DF3\u5E2B\u5F99\u601D\u6368\u659C\u65AF\u67F6\u67FB\u68AD\u6B7B\u6C99\u6CD7\u6E23\u7009\u7345\u7802\u793E\u7940\u7960\u79C1\u7BE9\u7D17\u7D72\u8086\u820D\u838E\u84D1\u86C7\u88DF\u8A50\u8A5E\u8B1D\u8CDC\u8D66\u8FAD\u90AA\u98FC\u99DF\u9E9D\u524A\uF969\u6714\uF96A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u5098\u522A\u5C71\u6563\u6C55\u73CA\u7523\u759D\u7B97\u849C\u9178\u9730\u4E77\u6492\u6BBA\u715E\u85A9\u4E09\uF96B\u6749\u68EE\u6E17\u829F\u8518\u886B\u63F7\u6F81\u9212\u98AF\u4E0A\u50B7\u50CF\u511F\u5546\u55AA\u5617\u5B40\u5C19\u5CE0\u5E38\u5E8A\u5EA0\u5EC2\u60F3\u6851\u6A61\u6E58\u723D\u7240\u72C0\u76F8\u7965\u7BB1\u7FD4\u88F3\u89F4\u8A73\u8C61\u8CDE\u971C\u585E\u74BD\u8CFD\u55C7\uF96C\u7A61\u7D22\u8272\u7272\u751F\u7525\uF96D\u7B19\u5885\u58FB\u5DBC\u5E8F\u5EB6\u5F90\u6055\u6292\u637F\u654D\u6691\u66D9\u66F8\u6816\u68F2\u7280\u745E\u7B6E\u7D6E\u7DD6\u7F72\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u80E5\u8212\u85AF\u897F\u8A93\u901D\u92E4\u9ECD\u9F20\u5915\u596D\u5E2D\u60DC\u6614\u6673\u6790\u6C50\u6DC5\u6F5F\u77F3\u78A9\u84C6\u91CB\u932B\u4ED9\u50CA\u5148\u5584\u5B0B\u5BA3\u6247\u657E\u65CB\u6E32\u717D\u7401\u7444\u7487\u74BF\u766C\u79AA\u7DDA\u7E55\u7FA8\u817A\u81B3\u8239\u861A\u87EC\u8A75\u8DE3\u9078\u9291\u9425\u994D\u9BAE\u5368\u5C51\u6954\u6CC4\u6D29\u6E2B\u820C\u859B\u893B\u8A2D\u8AAA\u96EA\u9F67\u5261\u66B9\u6BB2\u7E96\u87FE\u8D0D\u9583\u965D\u651D\u6D89\u71EE\uF96E\u57CE\u59D3\u5BAC\u6027\u60FA\u6210\u661F\u665F\u7329\u73F9\u76DB\u7701\u7B6C\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u8056\u8072\u8165\u8AA0\u9192\u4E16\u52E2\u6B72\u6D17\u7A05\u7B39\u7D30\uF96F\u8CB0\u53EC\u562F\u5851\u5BB5\u5C0F\u5C11\u5DE2\u6240\u6383\u6414\u662D\u68B3\u6CBC\u6D88\u6EAF\u701F\u70A4\u71D2\u7526\u758F\u758E\u7619\u7B11\u7BE0\u7C2B\u7D20\u7D39\u852C\u856D\u8607\u8A34\u900D\u9061\u90B5\u92B7\u97F6\u9A37\u4FD7\u5C6C\u675F\u6D91\u7C9F\u7E8C\u8B16\u8D16\u901F\u5B6B\u5DFD\u640D\u84C0\u905C\u98E1\u7387\u5B8B\u609A\u677E\u6DDE\u8A1F\u8AA6\u9001\u980C\u5237\uF970\u7051\u788E\u9396\u8870\u91D7\u4FEE\u53D7\u55FD\u56DA\u5782\u58FD\u5AC2\u5B88\u5CAB\u5CC0\u5E25\u6101\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u620D\u624B\u6388\u641C\u6536\u6578\u6A39\u6B8A\u6C34\u6D19\u6F31\u71E7\u72E9\u7378\u7407\u74B2\u7626\u7761\u79C0\u7A57\u7AEA\u7CB9\u7D8F\u7DAC\u7E61\u7F9E\u8129\u8331\u8490\u84DA\u85EA\u8896\u8AB0\u8B90\u8F38\u9042\u9083\u916C\u9296\u92B9\u968B\u96A7\u96A8\u96D6\u9700\u9808\u9996\u9AD3\u9B1A\u53D4\u587E\u5919\u5B70\u5BBF\u6DD1\u6F5A\u719F\u7421\u74B9\u8085\u83FD\u5DE1\u5F87\u5FAA\u6042\u65EC\u6812\u696F\u6A53\u6B89\u6D35\u6DF3\u73E3\u76FE\u77AC\u7B4D\u7D14\u8123\u821C\u8340\u84F4\u8563\u8A62\u8AC4\u9187\u931E\u9806\u99B4\u620C\u8853\u8FF0\u9265\u5D07\u5D27\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u5D69\u745F\u819D\u8768\u6FD5\u62FE\u7FD2\u8936\u8972\u4E1E\u4E58\u50E7\u52DD\u5347\u627F\u6607\u7E69\u8805\u965E\u4F8D\u5319\u5636\u59CB\u5AA4\u5C38\u5C4E\u5C4D\u5E02\u5F11\u6043\u65BD\u662F\u6642\u67BE\u67F4\u731C\u77E2\u793A\u7FC5\u8494\u84CD\u8996\u8A66\u8A69\u8AE1\u8C55\u8C7A\u57F4\u5BD4\u5F0F\u606F\u62ED\u690D\u6B96\u6E5C\u7184\u7BD2\u8755\u8B58\u8EFE\u98DF\u98FE\u4F38\u4F81\u4FE1\u547B\u5A20\u5BB8\u613C\u65B0\u6668\u71FC\u7533\u795E\u7D33\u814E\u81E3\u8398\u85AA\u85CE\u8703\u8A0A\u8EAB\u8F9B\uF971\u8FC5\u5931\u5BA4\u5BE6\u6089\u5BE9\u5C0B\u5FC3\u6C81\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uF972\u6DF1\u700B\u751A\u82AF\u8AF6\u4EC0\u5341\uF973\u96D9\u6C0F\u4E9E\u4FC4\u5152\u555E\u5A25\u5CE8\u6211\u7259\u82BD\u83AA\u86FE\u8859\u8A1D\u963F\u96C5\u9913\u9D09\u9D5D\u580A\u5CB3\u5DBD\u5E44\u60E1\u6115\u63E1\u6A02\u6E25\u9102\u9354\u984E\u9C10\u9F77\u5B89\u5CB8\u6309\u664F\u6848\u773C\u96C1\u978D\u9854\u9B9F\u65A1\u8B01\u8ECB\u95BC\u5535\u5CA9\u5DD6\u5EB5\u6697\u764C\u83F4\u95C7\u58D3\u62BC\u72CE\u9D28\u4EF0\u592E\u600F\u663B\u6B83\u79E7\u9D26\u5393\u54C0\u57C3\u5D16\u611B\u66D6\u6DAF\u788D\u827E\u9698\u9744\u5384\u627C\u6396\u6DB2\u7E0A\u814B\u984D\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u6AFB\u7F4C\u9DAF\u9E1A\u4E5F\u503B\u51B6\u591C\u60F9\u63F6\u6930\u723A\u8036\uF974\u91CE\u5F31\uF975\uF976\u7D04\u82E5\u846F\u84BB\u85E5\u8E8D\uF977\u4F6F\uF978\uF979\u58E4\u5B43\u6059\u63DA\u6518\u656D\u6698\uF97A\u694A\u6A23\u6D0B\u7001\u716C\u75D2\u760D\u79B3\u7A70\uF97B\u7F8A\uF97C\u8944\uF97D\u8B93\u91C0\u967D\uF97E\u990A\u5704\u5FA1\u65BC\u6F01\u7600\u79A6\u8A9E\u99AD\u9B5A\u9F6C\u5104\u61B6\u6291\u6A8D\u81C6\u5043\u5830\u5F66\u7109\u8A00\u8AFA\u5B7C\u8616\u4FFA\u513C\u56B4\u5944\u63A9\u6DF9\u5DAA\u696D\u5186\u4E88\u4F59\uF97F\uF980\uF981\u5982\uF982\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uF983\u6B5F\u6C5D\uF984\u74B5\u7916\uF985\u8207\u8245\u8339\u8F3F\u8F5D\uF986\u9918\uF987\uF988\uF989\u4EA6\uF98A\u57DF\u5F79\u6613\uF98B\uF98C\u75AB\u7E79\u8B6F\uF98D\u9006\u9A5B\u56A5\u5827\u59F8\u5A1F\u5BB4\uF98E\u5EF6\uF98F\uF990\u6350\u633B\uF991\u693D\u6C87\u6CBF\u6D8E\u6D93\u6DF5\u6F14\uF992\u70DF\u7136\u7159\uF993\u71C3\u71D5\uF994\u784F\u786F\uF995\u7B75\u7DE3\uF996\u7E2F\uF997\u884D\u8EDF\uF998\uF999\uF99A\u925B\uF99B\u9CF6\uF99C\uF99D\uF99E\u6085\u6D85\uF99F\u71B1\uF9A0\uF9A1\u95B1\u53AD\uF9A2\uF9A3\uF9A4\u67D3\uF9A5\u708E\u7130\u7430\u8276\u82D2\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uF9A6\u95BB\u9AE5\u9E7D\u66C4\uF9A7\u71C1\u8449\uF9A8\uF9A9\u584B\uF9AA\uF9AB\u5DB8\u5F71\uF9AC\u6620\u668E\u6979\u69AE\u6C38\u6CF3\u6E36\u6F41\u6FDA\u701B\u702F\u7150\u71DF\u7370\uF9AD\u745B\uF9AE\u74D4\u76C8\u7A4E\u7E93\uF9AF\uF9B0\u82F1\u8A60\u8FCE\uF9B1\u9348\uF9B2\u9719\uF9B3\uF9B4\u4E42\u502A\uF9B5\u5208\u53E1\u66F3\u6C6D\u6FCA\u730A\u777F\u7A62\u82AE\u85DD\u8602\uF9B6\u88D4\u8A63\u8B7D\u8C6B\uF9B7\u92B3\uF9B8\u9713\u9810\u4E94\u4F0D\u4FC9\u50B2\u5348\u543E\u5433\u55DA\u5862\u58BA\u5967\u5A1B\u5BE4\u609F\uF9B9\u61CA\u6556\u65FF\u6664\u68A7\u6C5A\u6FB3\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u70CF\u71AC\u7352\u7B7D\u8708\u8AA4\u9C32\u9F07\u5C4B\u6C83\u7344\u7389\u923A\u6EAB\u7465\u761F\u7A69\u7E15\u860A\u5140\u58C5\u64C1\u74EE\u7515\u7670\u7FC1\u9095\u96CD\u9954\u6E26\u74E6\u7AA9\u7AAA\u81E5\u86D9\u8778\u8A1B\u5A49\u5B8C\u5B9B\u68A1\u6900\u6D63\u73A9\u7413\u742C\u7897\u7DE9\u7FEB\u8118\u8155\u839E\u8C4C\u962E\u9811\u66F0\u5F80\u65FA\u6789\u6C6A\u738B\u502D\u5A03\u6B6A\u77EE\u5916\u5D6C\u5DCD\u7325\u754F\uF9BA\uF9BB\u50E5\u51F9\u582F\u592D\u5996\u59DA\u5BE5\uF9BC\uF9BD\u5DA2\u62D7\u6416\u6493\u64FE\uF9BE\u66DC\uF9BF\u6A48\uF9C0\u71FF\u7464\uF9C1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u7A88\u7AAF\u7E47\u7E5E\u8000\u8170\uF9C2\u87EF\u8981\u8B20\u9059\uF9C3\u9080\u9952\u617E\u6B32\u6D74\u7E1F\u8925\u8FB1\u4FD1\u50AD\u5197\u52C7\u57C7\u5889\u5BB9\u5EB8\u6142\u6995\u6D8C\u6E67\u6EB6\u7194\u7462\u7528\u752C\u8073\u8338\u84C9\u8E0A\u9394\u93DE\uF9C4\u4E8E\u4F51\u5076\u512A\u53C8\u53CB\u53F3\u5B87\u5BD3\u5C24\u611A\u6182\u65F4\u725B\u7397\u7440\u76C2\u7950\u7991\u79B9\u7D06\u7FBD\u828B\u85D5\u865E\u8FC2\u9047\u90F5\u91EA\u9685\u96E8\u96E9\u52D6\u5F67\u65ED\u6631\u682F\u715C\u7A36\u90C1\u980A\u4E91\uF9C5\u6A52\u6B9E\u6F90\u7189\u8018\u82B8\u8553\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u904B\u9695\u96F2\u97FB\u851A\u9B31\u4E90\u718A\u96C4\u5143\u539F\u54E1\u5713\u5712\u57A3\u5A9B\u5AC4\u5BC3\u6028\u613F\u63F4\u6C85\u6D39\u6E72\u6E90\u7230\u733F\u7457\u82D1\u8881\u8F45\u9060\uF9C6\u9662\u9858\u9D1B\u6708\u8D8A\u925E\u4F4D\u5049\u50DE\u5371\u570D\u59D4\u5A01\u5C09\u6170\u6690\u6E2D\u7232\u744B\u7DEF\u80C3\u840E\u8466\u853F\u875F\u885B\u8918\u8B02\u9055\u97CB\u9B4F\u4E73\u4F91\u5112\u516A\uF9C7\u552F\u55A9\u5B7A\u5BA5\u5E7C\u5E7D\u5EBE\u60A0\u60DF\u6108\u6109\u63C4\u6538\u6709\uF9C8\u67D4\u67DA\uF9C9\u6961\u6962\u6CB9\u6D27\uF9CA\u6E38\uF9CB\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u6FE1\u7336\u7337\uF9CC\u745C\u7531\uF9CD\u7652\uF9CE\uF9CF\u7DAD\u81FE\u8438\u88D5\u8A98\u8ADB\u8AED\u8E30\u8E42\u904A\u903E\u907A\u9149\u91C9\u936E\uF9D0\uF9D1\u5809\uF9D2\u6BD3\u8089\u80B2\uF9D3\uF9D4\u5141\u596B\u5C39\uF9D5\uF9D6\u6F64\u73A7\u80E4\u8D07\uF9D7\u9217\u958F\uF9D8\uF9D9\uF9DA\uF9DB\u807F\u620E\u701C\u7D68\u878D\uF9DC\u57A0\u6069\u6147\u6BB7\u8ABE\u9280\u96B1\u4E59\u541F\u6DEB\u852D\u9670\u97F3\u98EE\u63D6\u6CE3\u9091\u51DD\u61C9\u81BA\u9DF9\u4F9D\u501A\u5100\u5B9C\u610F\u61FF\u64EC\u6905\u6BC5\u7591\u77E3\u7FA9\u8264\u858F\u87FB\u8863\u8ABC\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u8B70\u91AB\u4E8C\u4EE5\u4F0A\uF9DD\uF9DE\u5937\u59E8\uF9DF\u5DF2\u5F1B\u5F5B\u6021\uF9E0\uF9E1\uF9E2\uF9E3\u723E\u73E5\uF9E4\u7570\u75CD\uF9E5\u79FB\uF9E6\u800C\u8033\u8084\u82E1\u8351\uF9E7\uF9E8\u8CBD\u8CB3\u9087\uF9E9\uF9EA\u98F4\u990C\uF9EB\uF9EC\u7037\u76CA\u7FCA\u7FCC\u7FFC\u8B1A\u4EBA\u4EC1\u5203\u5370\uF9ED\u54BD\u56E0\u59FB\u5BC5\u5F15\u5FCD\u6E6E\uF9EE\uF9EF\u7D6A\u8335\uF9F0\u8693\u8A8D\uF9F1\u976D\u9777\uF9F2\uF9F3\u4E00\u4F5A\u4F7E\u58F9\u65E5\u6EA2\u9038\u93B0\u99B9\u4EFB\u58EC\u598A\u59D9\u6041\uF9F4\uF9F5\u7A14\uF9F6\u834F\u8CC3\u5165\u5344\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uF9F7\uF9F8\uF9F9\u4ECD\u5269\u5B55\u82BF\u4ED4\u523A\u54A8\u59C9\u59FF\u5B50\u5B57\u5B5C\u6063\u6148\u6ECB\u7099\u716E\u7386\u74F7\u75B5\u78C1\u7D2B\u8005\u81EA\u8328\u8517\u85C9\u8AEE\u8CC7\u96CC\u4F5C\u52FA\u56BC\u65AB\u6628\u707C\u70B8\u7235\u7DBD\u828D\u914C\u96C0\u9D72\u5B71\u68E7\u6B98\u6F7A\u76DE\u5C91\u66AB\u6F5B\u7BB4\u7C2A\u8836\u96DC\u4E08\u4ED7\u5320\u5834\u58BB\u58EF\u596C\u5C07\u5E33\u5E84\u5F35\u638C\u66B2\u6756\u6A1F\u6AA3\u6B0C\u6F3F\u7246\uF9FA\u7350\u748B\u7AE0\u7CA7\u8178\u81DF\u81E7\u838A\u846C\u8523\u8594\u85CF\u88DD\u8D13\u91AC\u9577\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u969C\u518D\u54C9\u5728\u5BB0\u624D\u6750\u683D\u6893\u6E3D\u6ED3\u707D\u7E21\u88C1\u8CA1\u8F09\u9F4B\u9F4E\u722D\u7B8F\u8ACD\u931A\u4F47\u4F4E\u5132\u5480\u59D0\u5E95\u62B5\u6775\u696E\u6A17\u6CAE\u6E1A\u72D9\u732A\u75BD\u7BB8\u7D35\u82E7\u83F9\u8457\u85F7\u8A5B\u8CAF\u8E87\u9019\u90B8\u96CE\u9F5F\u52E3\u540A\u5AE1\u5BC2\u6458\u6575\u6EF4\u72C4\uF9FB\u7684\u7A4D\u7B1B\u7C4D\u7E3E\u7FDF\u837B\u8B2B\u8CCA\u8D64\u8DE1\u8E5F\u8FEA\u8FF9\u9069\u93D1\u4F43\u4F7A\u50B3\u5168\u5178\u524D\u526A\u5861\u587C\u5960\u5C08\u5C55\u5EDB\u609B\u6230\u6813\u6BBF\u6C08\u6FB1\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u714E\u7420\u7530\u7538\u7551\u7672\u7B4C\u7B8B\u7BAD\u7BC6\u7E8F\u8A6E\u8F3E\u8F49\u923F\u9293\u9322\u942B\u96FB\u985A\u986B\u991E\u5207\u622A\u6298\u6D59\u7664\u7ACA\u7BC0\u7D76\u5360\u5CBE\u5E97\u6F38\u70B9\u7C98\u9711\u9B8E\u9EDE\u63A5\u647A\u8776\u4E01\u4E95\u4EAD\u505C\u5075\u5448\u59C3\u5B9A\u5E40\u5EAD\u5EF7\u5F81\u60C5\u633A\u653F\u6574\u65CC\u6676\u6678\u67FE\u6968\u6A89\u6B63\u6C40\u6DC0\u6DE8\u6E1F\u6E5E\u701E\u70A1\u738E\u73FD\u753A\u775B\u7887\u798E\u7A0B\u7A7D\u7CBE\u7D8E\u8247\u8A02\u8AEA\u8C9E\u912D\u914A\u91D8\u9266\u92CC\u9320\u9706\u9756\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u975C\u9802\u9F0E\u5236\u5291\u557C\u5824\u5E1D\u5F1F\u608C\u63D0\u68AF\u6FDF\u796D\u7B2C\u81CD\u85BA\u88FD\u8AF8\u8E44\u918D\u9664\u969B\u973D\u984C\u9F4A\u4FCE\u5146\u51CB\u52A9\u5632\u5F14\u5F6B\u63AA\u64CD\u65E9\u6641\u66FA\u66F9\u671D\u689D\u68D7\u69FD\u6F15\u6F6E\u7167\u71E5\u722A\u74AA\u773A\u7956\u795A\u79DF\u7A20\u7A95\u7C97\u7CDF\u7D44\u7E70\u8087\u85FB\u86A4\u8A54\u8ABF\u8D99\u8E81\u9020\u906D\u91E3\u963B\u96D5\u9CE5\u65CF\u7C07\u8DB3\u93C3\u5B58\u5C0A\u5352\u62D9\u731D\u5027\u5B97\u5F9E\u60B0\u616B\u68D5\u6DD9\u742E\u7A2E\u7D42\u7D9C\u7E31\u816B\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u8E2A\u8E35\u937E\u9418\u4F50\u5750\u5DE6\u5EA7\u632B\u7F6A\u4E3B\u4F4F\u4F8F\u505A\u59DD\u80C4\u546A\u5468\u55FE\u594F\u5B99\u5DDE\u5EDA\u665D\u6731\u67F1\u682A\u6CE8\u6D32\u6E4A\u6F8D\u70B7\u73E0\u7587\u7C4C\u7D02\u7D2C\u7DA2\u821F\u86DB\u8A3B\u8A85\u8D70\u8E8A\u8F33\u9031\u914E\u9152\u9444\u99D0\u7AF9\u7CA5\u4FCA\u5101\u51C6\u57C8\u5BEF\u5CFB\u6659\u6A3D\u6D5A\u6E96\u6FEC\u710C\u756F\u7AE3\u8822\u9021\u9075\u96CB\u99FF\u8301\u4E2D\u4EF2\u8846\u91CD\u537D\u6ADB\u696B\u6C41\u847A\u589E\u618E\u66FE\u62EF\u70DD\u7511\u75C7\u7E52\u84B8\u8B49\u8D08\u4E4B\u53EA\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u54AB\u5730\u5740\u5FD7\u6301\u6307\u646F\u652F\u65E8\u667A\u679D\u67B3\u6B62\u6C60\u6C9A\u6F2C\u77E5\u7825\u7949\u7957\u7D19\u80A2\u8102\u81F3\u829D\u82B7\u8718\u8A8C\uF9FC\u8D04\u8DBE\u9072\u76F4\u7A19\u7A37\u7E54\u8077\u5507\u55D4\u5875\u632F\u6422\u6649\u664B\u686D\u699B\u6B84\u6D25\u6EB1\u73CD\u7468\u74A1\u755B\u75B9\u76E1\u771E\u778B\u79E6\u7E09\u7E1D\u81FB\u852F\u8897\u8A3A\u8CD1\u8EEB\u8FB0\u9032\u93AD\u9663\u9673\u9707\u4F84\u53F1\u59EA\u5AC9\u5E19\u684E\u74C6\u75BE\u79E9\u7A92\u81A3\u86ED\u8CEA\u8DCC\u8FED\u659F\u6715\uF9FD\u57F7\u6F57\u7DDD\u8F2F\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u93F6\u96C6\u5FB5\u61F2\u6F84\u4E14\u4F98\u501F\u53C9\u55DF\u5D6F\u5DEE\u6B21\u6B64\u78CB\u7B9A\uF9FE\u8E49\u8ECA\u906E\u6349\u643E\u7740\u7A84\u932F\u947F\u9F6A\u64B0\u6FAF\u71E6\u74A8\u74DA\u7AC4\u7C12\u7E82\u7CB2\u7E98\u8B9A\u8D0A\u947D\u9910\u994C\u5239\u5BDF\u64E6\u672D\u7D2E\u50ED\u53C3\u5879\u6158\u6159\u61FA\u65AC\u7AD9\u8B92\u8B96\u5009\u5021\u5275\u5531\u5A3C\u5EE0\u5F70\u6134\u655E\u660C\u6636\u66A2\u69CD\u6EC4\u6F32\u7316\u7621\u7A93\u8139\u8259\u83D6\u84BC\u50B5\u57F0\u5BC0\u5BE8\u5F69\u63A1\u7826\u7DB5\u83DC\u8521\u91C7\u91F5\u518A\u67F5\u7B56\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u8CAC\u51C4\u59BB\u60BD\u8655\u501C\uF9FF\u5254\u5C3A\u617D\u621A\u62D3\u64F2\u65A5\u6ECC\u7620\u810A\u8E60\u965F\u96BB\u4EDF\u5343\u5598\u5929\u5DDD\u64C5\u6CC9\u6DFA\u7394\u7A7F\u821B\u85A6\u8CE4\u8E10\u9077\u91E7\u95E1\u9621\u97C6\u51F8\u54F2\u5586\u5FB9\u64A4\u6F88\u7DB4\u8F1F\u8F4D\u9435\u50C9\u5C16\u6CBE\u6DFB\u751B\u77BB\u7C3D\u7C64\u8A79\u8AC2\u581E\u59BE\u5E16\u6377\u7252\u758A\u776B\u8ADC\u8CBC\u8F12\u5EF3\u6674\u6DF8\u807D\u83C1\u8ACB\u9751\u9BD6\uFA00\u5243\u66FF\u6D95\u6EEF\u7DE0\u8AE6\u902E\u905E\u9AD4\u521D\u527F\u54E8\u6194\u6284\u62DB\u68A2\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u6912\u695A\u6A35\u7092\u7126\u785D\u7901\u790E\u79D2\u7A0D\u8096\u8278\u82D5\u8349\u8549\u8C82\u8D85\u9162\u918B\u91AE\u4FC3\u56D1\u71ED\u77D7\u8700\u89F8\u5BF8\u5FD6\u6751\u90A8\u53E2\u585A\u5BF5\u60A4\u6181\u6460\u7E3D\u8070\u8525\u9283\u64AE\u50AC\u5D14\u6700\u589C\u62BD\u63A8\u690E\u6978\u6A1E\u6E6B\u76BA\u79CB\u82BB\u8429\u8ACF\u8DA8\u8FFD\u9112\u914B\u919C\u9310\u9318\u939A\u96DB\u9A36\u9C0D\u4E11\u755C\u795D\u7AFA\u7B51\u7BC9\u7E2E\u84C4\u8E59\u8E74\u8EF8\u9010\u6625\u693F\u7443\u51FA\u672E\u9EDC\u5145\u5FE0\u6C96\u87F2\u885D\u8877\u60B4\u81B5\u8403\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u8D05\u53D6\u5439\u5634\u5A36\u5C31\u708A\u7FE0\u805A\u8106\u81ED\u8DA3\u9189\u9A5F\u9DF2\u5074\u4EC4\u53A0\u60FB\u6E2C\u5C64\u4F88\u5024\u55E4\u5CD9\u5E5F\u6065\u6894\u6CBB\u6DC4\u71BE\u75D4\u75F4\u7661\u7A1A\u7A49\u7DC7\u7DFB\u7F6E\u81F4\u86A9\u8F1C\u96C9\u99B3\u9F52\u5247\u52C5\u98ED\u89AA\u4E03\u67D2\u6F06\u4FB5\u5BE2\u6795\u6C88\u6D78\u741B\u7827\u91DD\u937C\u87C4\u79E4\u7A31\u5FEB\u4ED6\u54A4\u553E\u58AE\u59A5\u60F0\u6253\u62D6\u6736\u6955\u8235\u9640\u99B1\u99DD\u502C\u5353\u5544\u577C\uFA01\u6258\uFA02\u64E2\u666B\u67DD\u6FC1\u6FEF\u7422\u7438\u8A17\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u9438\u5451\u5606\u5766\u5F48\u619A\u6B4E\u7058\u70AD\u7DBB\u8A95\u596A\u812B\u63A2\u7708\u803D\u8CAA\u5854\u642D\u69BB\u5B95\u5E11\u6E6F\uFA03\u8569\u514C\u53F0\u592A\u6020\u614B\u6B86\u6C70\u6CF0\u7B1E\u80CE\u82D4\u8DC6\u90B0\u98B1\uFA04\u64C7\u6FA4\u6491\u6504\u514E\u5410\u571F\u8A0E\u615F\u6876\uFA05\u75DB\u7B52\u7D71\u901A\u5806\u69CC\u817F\u892A\u9000\u9839\u5078\u5957\u59AC\u6295\u900F\u9B2A\u615D\u7279\u95D6\u5761\u5A46\u5DF4\u628A\u64AD\u64FA\u6777\u6CE2\u6D3E\u722C\u7436\u7834\u7F77\u82AD\u8DDB\u9817\u5224\u5742\u677F\u7248\u74E3\u8CA9\u8FA6\u9211\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u962A\u516B\u53ED\u634C\u4F69\u5504\u6096\u6557\u6C9B\u6D7F\u724C\u72FD\u7A17\u8987\u8C9D\u5F6D\u6F8E\u70F9\u81A8\u610E\u4FBF\u504F\u6241\u7247\u7BC7\u7DE8\u7FE9\u904D\u97AD\u9A19\u8CB6\u576A\u5E73\u67B0\u840D\u8A55\u5420\u5B16\u5E63\u5EE2\u5F0A\u6583\u80BA\u853D\u9589\u965B\u4F48\u5305\u530D\u530F\u5486\u54FA\u5703\u5E03\u6016\u629B\u62B1\u6355\uFA06\u6CE1\u6D66\u75B1\u7832\u80DE\u812F\u82DE\u8461\u84B2\u888D\u8912\u900B\u92EA\u98FD\u9B91\u5E45\u66B4\u66DD\u7011\u7206\uFA07\u4FF5\u527D\u5F6A\u6153\u6753\u6A19\u6F02\u74E2\u7968\u8868\u8C79\u98C7\u98C4\u9A43\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u54C1\u7A1F\u6953\u8AF7\u8C4A\u98A8\u99AE\u5F7C\u62AB\u75B2\u76AE\u88AB\u907F\u9642\u5339\u5F3C\u5FC5\u6CCC\u73CC\u7562\u758B\u7B46\u82FE\u999D\u4E4F\u903C\u4E0B\u4F55\u53A6\u590F\u5EC8\u6630\u6CB3\u7455\u8377\u8766\u8CC0\u9050\u971E\u9C15\u58D1\u5B78\u8650\u8B14\u9DB4\u5BD2\u6068\u608D\u65F1\u6C57\u6F22\u6FA3\u701A\u7F55\u7FF0\u9591\u9592\u9650\u97D3\u5272\u8F44\u51FD\u542B\u54B8\u5563\u558A\u6ABB\u6DB5\u7DD8\u8266\u929C\u9677\u9E79\u5408\u54C8\u76D2\u86E4\u95A4\u95D4\u965C\u4EA2\u4F09\u59EE\u5AE6\u5DF7\u6052\u6297\u676D\u6841\u6C86\u6E2F\u7F38\u809B\u822A\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFA08\uFA09\u9805\u4EA5\u5055\u54B3\u5793\u595A\u5B69\u5BB3\u61C8\u6977\u6D77\u7023\u87F9\u89E3\u8A72\u8AE7\u9082\u99ED\u9AB8\u52BE\u6838\u5016\u5E78\u674F\u8347\u884C\u4EAB\u5411\u56AE\u73E6\u9115\u97FF\u9909\u9957\u9999\u5653\u589F\u865B\u8A31\u61B2\u6AF6\u737B\u8ED2\u6B47\u96AA\u9A57\u5955\u7200\u8D6B\u9769\u4FD4\u5CF4\u5F26\u61F8\u665B\u6CEB\u70AB\u7384\u73B9\u73FE\u7729\u774D\u7D43\u7D62\u7E23\u8237\u8852\uFA0A\u8CE2\u9249\u986F\u5B51\u7A74\u8840\u9801\u5ACC\u4FE0\u5354\u593E\u5CFD\u633E\u6D79\u72F9\u8105\u8107\u83A2\u92CF\u9830\u4EA8\u5144\u5211\u578B\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u5F62\u6CC2\u6ECE\u7005\u7050\u70AF\u7192\u73E9\u7469\u834A\u87A2\u8861\u9008\u90A2\u93A3\u99A8\u516E\u5F57\u60E0\u6167\u66B3\u8559\u8E4A\u91AF\u978B\u4E4E\u4E92\u547C\u58D5\u58FA\u597D\u5CB5\u5F27\u6236\u6248\u660A\u6667\u6BEB\u6D69\u6DCF\u6E56\u6EF8\u6F94\u6FE0\u6FE9\u705D\u72D0\u7425\u745A\u74E0\u7693\u795C\u7CCA\u7E1E\u80E1\u82A6\u846B\u84BF\u864E\u865F\u8774\u8B77\u8C6A\u93AC\u9800\u9865\u60D1\u6216\u9177\u5A5A\u660F\u6DF7\u6E3E\u743F\u9B42\u5FFD\u60DA\u7B0F\u54C4\u5F18\u6C5E\u6CD3\u6D2A\u70D8\u7D05\u8679\u8A0C\u9D3B\u5316\u548C\u5B05\u6A3A\u706B\u7575\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u798D\u79BE\u82B1\u83EF\u8A71\u8B41\u8CA8\u9774\uFA0B\u64F4\u652B\u78BA\u78BB\u7A6B\u4E38\u559A\u5950\u5BA6\u5E7B\u60A3\u63DB\u6B61\u6665\u6853\u6E19\u7165\u74B0\u7D08\u9084\u9A69\u9C25\u6D3B\u6ED1\u733E\u8C41\u95CA\u51F0\u5E4C\u5FA8\u604D\u60F6\u6130\u614C\u6643\u6644\u69A5\u6CC1\u6E5F\u6EC9\u6F62\u714C\u749C\u7687\u7BC1\u7C27\u8352\u8757\u9051\u968D\u9EC3\u532F\u56DE\u5EFB\u5F8A\u6062\u6094\u61F7\u6666\u6703\u6A9C\u6DEE\u6FAE\u7070\u736A\u7E6A\u81BE\u8334\u86D4\u8AA8\u8CC4\u5283\u7372\u5B96\u6A6B\u9404\u54EE\u5686\u5B5D\u6548\u6585\u66C9\u689F\u6D8D\u6DC6\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\u723B\u80B4\u9175\u9A4D\u4FAF\u5019\u539A\u540E\u543C\u5589\u55C5\u5E3F\u5F8C\u673D\u7166\u73DD\u9005\u52DB\u52F3\u5864\u58CE\u7104\u718F\u71FB\u85B0\u8A13\u6688\u85A8\u55A7\u6684\u714A\u8431\u5349\u5599\u6BC1\u5F59\u5FBD\u63EE\u6689\u7147\u8AF1\u8F1D\u9EBE\u4F11\u643A\u70CB\u7566\u8667\u6064\u8B4E\u9DF8\u5147\u51F6\u5308\u6D36\u80F8\u9ED1\u6615\u6B23\u7098\u75D5\u5403\u5C79\u7D07\u8A16\u6B20\u6B3D\u6B46\u5438\u6070\u6D3D\u7FD5\u8208\u50D6\u51DE\u559C\u566B\u56CD\u59EC\u5B09\u5E0C\u6199\u6198\u6231\u665E\u66E6\u7199\u71B9\u71BA\u72A7\u79A7\u7A00\u7FB2\u8A70\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD";
+    LEAD_LO = 129;
+    TRAIL_LO = 65;
+    SPAN = 190;
+  }
+});
+
+// netlify/functions/etf.js
+var etf_exports = {};
+__export(etf_exports, {
+  config: () => config2,
+  default: () => etf_default
+});
+function _mkDec(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+async function fetchJsonEuc(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: Object.assign({ "User-Agent": UA8, "Accept": "application/json" }, headers || {}), signal: c.signal });
+    const buf = await r.arrayBuffer();
+    const txt = decodeSmart2(buf, r.headers.get("content-type"));
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function fetchJson(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: Object.assign({ "User-Agent": UA8, "Accept": "application/json" }, headers || {}), signal: c.signal });
+    const txt = await r.text();
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function withTimeout(fn, ms) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    return await fn(c.signal);
+  } finally {
+    clearTimeout(t);
+  }
+}
+function decodeSmart2(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\uD800-\uDFFF\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+async function fetchHtmlEuc(url, ms, headers) {
+  return withTimeout(async (sig) => {
+    const r = await fetch(url, { headers: Object.assign({ "User-Agent": UA8, "Accept": "text/html,*/*" }, headers || {}), signal: sig });
+    const buf = await r.arrayBuffer();
+    return decodeSmart2(buf, r.headers.get("content-type"));
+  }, ms);
+}
+function leverageOf(name) {
+  const n = String(name || "");
+  if (/인버스\s*2X|곱버스/.test(n)) return -2;
+  if (/인버스/.test(n)) return -1;
+  if (/레버리지|2X/i.test(n)) return 2;
+  return 1;
+}
+async function fromList(code) {
+  let list = null;
+  if (LIST_CACHE.list && Date.now() - LIST_CACHE.at < 3e5) list = LIST_CACHE.list;
+  if (!list) {
+    const j = await fetchJsonEuc(
+      "https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc",
+      5200,
+      { "Referer": "https://finance.naver.com/sise/etf.naver" }
+    );
+    list = j && j.result && j.result.etfItemList || [];
+    if (list.length) LIST_CACHE = { at: Date.now(), list };
+  }
+  if (!list.length) return { ok: false, n: 0, me: null, peers: [] };
+  const up = String(code).toUpperCase();
+  const me = list.find((x) => String(x.itemcode || "").toUpperCase() === up) || null;
+  const sameTab = me ? list.filter((x) => x.etfTabCode === me.etfTabCode && String(x.itemcode).toUpperCase() !== up) : [];
+  const peers = sameTab.slice(0, 5);
+  const peerPool = me ? list.filter((x) => String(x.itemcode).toUpperCase() !== up).slice(0, 400) : [];
+  const mk = (x) => ({
+    code: String(x.itemcode || "").toUpperCase(),
+    name: x.itemname,
+    price: num3(x.nowVal),
+    changeRate: num3(x.changeRate),
+    nav: num3(x.nav),
+    m3: num3(x.threeMonthEarnRate),
+    volume: num3(x.quant),
+    value: num3(x.amonut),
+    // 거래대금(백만원)
+    marketSum: num3(x.marketSum),
+    // 순자산총액(억원)
+    tab: TAB[x.etfTabCode] || ""
+  });
+  return { ok: !!me, n: list.length, me: me ? mk(me) : null, peers: peers.map(mk), peerPool: peerPool.map(mk) };
+}
+function pick(obj, keys) {
+  for (const k of keys) if (obj[k] !== void 0 && obj[k] !== null && obj[k] !== "") return obj[k];
+  return null;
+}
+function asComponents(arr, keyHinted) {
+  if (!Array.isArray(arr) || arr.length < 3 || arr.length > 400) return null;
+  const objs = arr.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+  if (objs.length !== arr.length) return null;
+  const out = [];
+  for (const o of objs) {
+    const nm = pick(o, NAME_KEYS);
+    if (!nm || typeof nm !== "string" || !nm.trim()) return null;
+    let w = num3(pick(o, WEIGHT_KEYS));
+    if (w === null) {
+      for (const [k, v] of Object.entries(o)) {
+        if (NAME_KEYS.includes(k) || CODE_KEYS.includes(k) || SKIP_NUM_KEYS.test(k)) continue;
+        const n = num3(v);
+        if (n !== null && n > 0 && n <= 100) {
+          w = n;
+          break;
+        }
+      }
+    }
+    if (w === null || w < 0) return null;
+    out.push({ name: nm.trim(), code: String(pick(o, CODE_KEYS) || "").toUpperCase().replace(/\.(KS|KQ)$/, "").replace(/^A(?=[0-9])/, ""), weight: w });
+  }
+  let total = out.reduce((a, b) => a + b.weight, 0);
+  let scale = 1;
+  if (total > 0.5 && total <= 2) scale = 100;
+  else if (total >= 5e3 && total <= 2e4) scale = 0.01;
+  if (scale !== 1) {
+    out.forEach((x) => {
+      x.weight *= scale;
+    });
+    total *= scale;
+  }
+  if (total > 120) return null;
+  if (out.some((x) => x.weight > 100)) return null;
+  const codeN = out.filter((x) => /^[0-9A-Z]{6}$/.test(x.code)).length;
+  const partialOK = keyHinted && codeN >= Math.max(3, out.length * 0.5) && total >= 8 && out.length >= 5;
+  if (total < 80 && !partialOK) return null;
+  const brandish = out.filter((x) => ETF_BRAND_RE.test(x.name)).length;
+  if (brandish > out.length * 0.3) return null;
+  const withCode = out.filter((x) => /^[0-9A-Z]{6}$/.test(x.code)).length;
+  if (!keyHinted && withCode < out.length * 0.5) return null;
+  return out.sort((a, b) => b.weight - a.weight).slice(0, 120);
+}
+function asBondComponents(arr) {
+  if (!Array.isArray(arr) || arr.length < 2 || arr.length > 400) return null;
+  const objs = arr.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+  if (objs.length !== arr.length) return null;
+  const out = [];
+  for (const o of objs) {
+    const nm = pick(o, NAME_KEYS) || o.bondName || o.assetName || o.itemNm;
+    if (!nm || typeof nm !== "string" || !nm.trim()) return null;
+    const w = num3(pick(o, WEIGHT_KEYS));
+    if (w === null || w < 0 || w > 100) return null;
+    out.push({ name: String(nm).trim(), code: "", weight: w });
+  }
+  let total = out.reduce((a, b) => a + b.weight, 0);
+  if (total > 0.5 && total <= 2) {
+    out.forEach((x) => {
+      x.weight *= 100;
+    });
+    total *= 100;
+  }
+  if (total < 80 || total > 120) return null;
+  return out.sort((a, b) => b.weight - a.weight).slice(0, 120);
+}
+function deepFindBonds(node, depth) {
+  if (!node || depth > 5) return null;
+  if (Array.isArray(node)) {
+    const got = asBondComponents(node);
+    if (got) return got;
+    for (const v of node) {
+      const r = deepFindBonds(v, depth + 1);
+      if (r) return r;
+    }
+    return null;
+  }
+  if (typeof node === "object") {
+    for (const v of Object.values(node)) {
+      const r = deepFindBonds(v, depth + 1);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+function collectComponents(node, depth, out) {
+  if (!node || depth > 6 || out.length > 40) return out;
+  if (Array.isArray(node)) {
+    const got = asComponents(node, false);
+    if (got) out.push(got);
+    for (const v of node) collectComponents(v, depth + 1, out);
+    return out;
+  }
+  if (typeof node === "object") {
+    for (const v of Object.values(node)) collectComponents(v, depth + 1, out);
+  }
+  return out;
+}
+function bestComponents(cands) {
+  if (!cands || !cands.length) return null;
+  return cands.slice().sort((a, b) => {
+    if (b.length !== a.length) return b.length - a.length;
+    const sa = Math.abs(100 - a.reduce((x, y) => x + y.weight, 0));
+    const sb = Math.abs(100 - b.reduce((x, y) => x + y.weight, 0));
+    return sa - sb;
+  })[0];
+}
+async function yahooAuth2() {
+  if (YA_CACHE.v && Date.now() - YA_CACHE.at < 6e5) return YA_CACHE.v;
+  let cookie = "";
+  for (const u of ["https://finance.yahoo.com/", "https://fc.yahoo.com/"]) {
+    try {
+      const r = await withTimeout((sig) => fetch(u, { headers: { "User-Agent": UA8, "Accept": "text/html,*/*" }, signal: sig }), 2500);
+      const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [r.headers.get("set-cookie") || ""];
+      const ck = sc.map((x) => String(x).split(";")[0]).filter(Boolean).join("; ");
+      if (ck) {
+        cookie = ck;
+        break;
+      }
+    } catch {
+    }
+  }
+  let crumb = "";
+  try {
+    const r = await withTimeout((sig) => fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", { headers: { "User-Agent": UA8, "Cookie": cookie, "Accept": "text/plain" }, signal: sig }), 2500);
+    crumb = (await r.text()).trim();
+  } catch {
+  }
+  const v = { cookie, crumb };
+  if (crumb) YA_CACHE = { at: Date.now(), v };
+  return v;
+}
+function normHoldings(arr) {
+  if (!Array.isArray(arr) || !arr.length) return null;
+  let out = arr.map((h) => {
+    const w = num3(h.holdingPercent && h.holdingPercent.raw !== void 0 ? h.holdingPercent.raw : h.holdingPercent);
+    return {
+      name: String(h.holdingName || h.symbol || "").trim(),
+      code: String(h.symbol || "").toUpperCase().replace(/\.(KS|KQ)$/, "").replace(/^A(?=[0-9])/, ""),
+      weight: w
+    };
+  }).filter((x) => x.name && x.weight != null);
+  if (!out.length) return null;
+  const sum = out.reduce((a, b) => a + b.weight, 0);
+  if (sum > 0 && sum <= 2) out = out.map((x) => ({ ...x, weight: x.weight * 100 }));
+  const tot = out.reduce((a, b) => a + b.weight, 0);
+  if (tot < 30 || tot > 130) return null;
+  return out.sort((a, b) => b.weight - a.weight).slice(0, 120);
+}
+function proxyFor(name, baseIndex) {
+  const hay = `${baseIndex || ""} ${name || ""}`;
+  for (const [re, sym, label] of INDEX_PROXY) if (re.test(hay)) return { sym, label };
+  return null;
+}
+function domProxyFor(name) {
+  const n = String(name || "");
+  if (/미국|해외|글로벌|중국|일본|인도|베트남|유로|선진국|이머징/i.test(n)) return null;
+  for (const [re, code, label] of DOM_PROXY) if (re.test(n)) return { code, label };
+  return null;
+}
+function assetKindOf(name) {
+  const n = String(name || "");
+  if (/TDF|타겟데이트|생애주기|자산배분|밸런스|EMP/i.test(n)) return "tdf";
+  if (/CD\s*\d*\s*년?\s*금리|KOFR|머니마켓|MMF|파킹|초단기\s*금리/i.test(n)) return "money";
+  if (/레버리지|인버스|선물|2X|곱버스/i.test(n)) return "derivative";
+  if (/금\s*현물|KRX\s*금|골드|GOLD|은\s*현물|실버|SILVER|원유|WTI|천연가스|구리|農|농산물|팔라듐|백금/i.test(n)) return "commodity";
+  if (/혼합|채권혼합|\d+\s*[:：]\s*\d+/i.test(n)) return "mixed";
+  if (/통안채|국고채|회사채|종합채권|단기채|금융채|은행채|전단채|특수채|카드채|여전채|크레딧|채권|국채|CP\b/i.test(n)) return "bond";
+  return null;
+}
+async function fromIndexProxy(name, baseIndex, auth) {
+  const p = proxyFor(name, baseIndex);
+  if (!p) return { holdings: [], sectors: [], tried: ["noproxy"], label: null };
+  const { cookie, crumb } = auth || {};
+  const u = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${p.sym}?modules=topHoldings${crumb ? "&crumb=" + encodeURIComponent(crumb) : ""}`;
+  let j = null;
+  try {
+    j = await fetchJson(u, 5e3, { "Cookie": cookie || "", "Referer": "https://finance.yahoo.com/" });
+  } catch {
+  }
+  const th = j && j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0] && j.quoteSummary.result[0].topHoldings;
+  if (!th) return { holdings: [], sectors: [], tried: [p.sym + ":x"], label: p.label };
+  const holdings = normHoldings(th.holdings) || [];
+  const sectors = Array.isArray(th.sectorWeightings) ? th.sectorWeightings.map((o) => {
+    const k = Object.keys(o)[0];
+    const v = num3(o[k] && o[k].raw !== void 0 ? o[k].raw : o[k]);
+    return { name: SECTOR_KO[k] || k, weight: v != null && v <= 2 ? v * 100 : v };
+  }).filter((x) => x.name && x.weight != null && x.weight > 0) : [];
+  return { holdings, sectors, tried: [p.sym + ":h" + holdings.length], label: p.label, proxy: p.sym };
+}
+async function fromYahoo(code) {
+  const { cookie, crumb } = await yahooAuth2();
+  const syms = [code + ".KS", code + ".KQ"];
+  const tried = [];
+  for (const sym of syms) {
+    const u = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=topHoldings${crumb ? "&crumb=" + encodeURIComponent(crumb) : ""}`;
+    let j = null;
+    try {
+      j = await fetchJson(u, 6e3, { "Cookie": cookie, "Referer": "https://finance.yahoo.com/" });
+    } catch {
+    }
+    const res = j && j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
+    const th = res && res.topHoldings;
+    if (!th) {
+      tried.push(sym + ":x");
+      continue;
+    }
+    const holdings = normHoldings(th.holdings);
+    const sectors = Array.isArray(th.sectorWeightings) ? th.sectorWeightings.map((o) => {
+      const k = Object.keys(o)[0];
+      const v = num3(o[k] && o[k].raw !== void 0 ? o[k].raw : o[k]);
+      return { name: SECTOR_KO[k] || k, weight: v != null && v <= 2 ? v * 100 : v };
+    }).filter((x) => x.name && x.weight != null && x.weight > 0) : [];
+    tried.push(sym + ":h" + (holdings ? holdings.length : 0) + "s" + sectors.length);
+    if (holdings) return { holdings, sectors, tried };
+  }
+  return { holdings: [], sectors: [], tried };
+}
+function cellsOf2(row) {
+  const out = [];
+  const re = /<(t[hd])[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while (m = re.exec(row)) {
+    out.push(m[2].replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim());
+  }
+  return out;
+}
+function looksLikeName(v) {
+  const t = String(v || "").trim();
+  if (!t || t.length > 40) return false;
+  if (DATE_LIKE.test(t)) return false;
+  if (/^[\d.,%\-+\s]+$/.test(t)) return false;
+  if (!/[가-힣A-Za-z]/.test(t)) return false;
+  return true;
+}
+function parseWeightTable(tableHtml, labeled) {
+  const rawRows = tableHtml.split(/<tr[^>]*>/i).slice(1);
+  if (rawRows.length < 3) return null;
+  let wIdx = -1, nIdx = -1;
+  for (const row of rawRows.slice(0, 3)) {
+    const cs = cellsOf2(row);
+    if (!cs.length) continue;
+    const w = cs.findIndex((c) => /비중|가중치|weight/i.test(c));
+    const n = cs.findIndex((c) => /종목|이름|name/i.test(c));
+    if (w >= 0) {
+      wIdx = w;
+      nIdx = n >= 0 ? n : 0;
+      break;
+    }
+  }
+  const out = [];
+  for (const row of rawRows) {
+    const cs = cellsOf2(row);
+    if (cs.length < 2) continue;
+    if (/비중|종목명|주식수|평가금액/.test(cs.join(" ")) && !/\d/.test(cs.join(""))) continue;
+    const mc = row.match(/code=([0-9A-Za-z]{6})/);
+    let name = (wIdx >= 0 ? cs[nIdx] : cs[0]) || "";
+    name = name.trim();
+    if (!looksLikeName(name)) continue;
+    let w = null;
+    if (wIdx >= 0 && cs[wIdx] != null) {
+      const n = Number(String(cs[wIdx]).replace(/[^0-9.-]/g, ""));
+      if (Number.isFinite(n) && n > 0 && n <= 100) w = n;
+    }
+    if (w == null) {
+      for (let i = cs.length - 1; i >= 1; i--) {
+        const n = Number(String(cs[i]).replace(/[^0-9.-]/g, ""));
+        if (Number.isFinite(n) && n > 0 && n <= 100) {
+          w = n;
+          break;
+        }
+      }
+    }
+    if (w == null) continue;
+    out.push({ name, code: mc ? mc[1].toUpperCase() : "", weight: w });
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const uniq = out.filter((x) => {
+    const k = x.code || x.name;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (uniq.length < 3) return null;
+  const total = uniq.reduce((a, b) => a + b.weight, 0);
+  if (total > 120) return null;
+  const withCodeN = uniq.filter((x) => /^[0-9A-Z]{6}$/.test(x.code)).length;
+  const partialOk = labeled && withCodeN >= Math.max(3, uniq.length * 0.6) && total >= 8;
+  if (total < 80 && !partialOk) return null;
+  const withCode = uniq.filter((x) => /^[0-9A-Z]{6}$/.test(x.code)).length;
+  if (!labeled && withCode < uniq.length * 0.6) return null;
+  if (labeled && withCode === 0 && !uniq.some((x) => /채권|국고|통안|금융채|회사채|예금|현금|원화/.test(x.name))) return null;
+  return uniq.sort((a, b) => b.weight - a.weight).slice(0, 120);
+}
+function infoFromHtml(html) {
+  const text = String(html || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+  const out = {};
+  let m;
+  if (m = /(?:총\s*)?보수(?:율)?\s*:?\s*(?:연\s*)?([0-9]+(?:\.[0-9]+)?)\s*%/.exec(text)) out.fee = Number(m[1]);
+  if (m = /기초지수\s*:?\s*([A-Za-z0-9가-힣&()\-\.\s]{2,40}?)(?=\s{2,}|\s*(?:상장일|운용사|총보수|NAV|괴리율|추적))/.exec(text)) out.indexName = m[1].trim();
+  if (m = /([가-힣A-Za-z]{2,12}자산운용)/.exec(text)) out.company = m[1].trim();
+  if (m = /상장일\s*:?\s*(\d{4}[.\-\/]\s?\d{1,2}[.\-\/]\s?\d{1,2})/.exec(text)) out.listedDate = m[1].replace(/\s/g, "");
+  if (m = /NAV\s*:?\s*([0-9,]+(?:\.[0-9]+)?)/.exec(text)) out.navDetail = Number(m[1].replace(/,/g, ""));
+  if (m = /괴리율\s*:?\s*([-+]?[0-9]+(?:\.[0-9]+)?)\s*%/.exec(text)) out.deviationRate = Number(m[1]);
+  if (m = /추적오차(?:율)?\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*%/.exec(text)) out.trackingError = Number(m[1]);
+  if (m = /구성\s*종목\s*수\s*:?\s*([0-9]{1,4})\s*(?:개|종목)?/.exec(text)) out.holdingsCount = Number(m[1]);
+  else if (m = /총\s*([0-9]{1,4})\s*종목/.exec(text)) out.holdingsCount = Number(m[1]);
+  if (out.holdingsCount != null && (out.holdingsCount < 1 || out.holdingsCount > 2e3)) delete out.holdingsCount;
+  return out;
+}
+async function fromNaverHtml(code, ms) {
+  const tried = [];
+  let htmlR;
+  try {
+    htmlR = { status: "fulfilled", value: await fetchHtmlEuc(`https://finance.naver.com/item/main.naver?code=${code}`, ms || 4600, { "Referer": "https://finance.naver.com/" }) };
+  } catch (e) {
+    htmlR = { status: "rejected" };
+  }
+  const j = null;
+  const arr = j && (j.result?.etfItemPdfList || j.etfItemPdfList || j.result?.pdfList) || null;
+  if (Array.isArray(arr) && arr.length) {
+    const got = arr.map((x) => ({
+      name: String(x.itemname || x.itemName || x.stockName || "").trim(),
+      code: String(x.itemcode || x.itemCode || "").toUpperCase(),
+      weight: Number(String(x.weight ?? x.amonut ?? x.rate ?? "").replace(/[^0-9.-]/g, ""))
+    })).filter((x) => x.name && Number.isFinite(x.weight) && x.weight > 0 && looksLikeName(x.name));
+    const tot = got.reduce((a, b) => a + b.weight, 0);
+    tried.push("pdfapi:" + got.length + "/" + tot.toFixed(0) + "%");
+    if (got.length >= 3 && tot >= 80 && tot <= 120) {
+      return { holdings: got.sort((a, b) => b.weight - a.weight).slice(0, 120), info: {}, tried };
+    }
+  } else tried.push("pdfapi:x");
+  const html = htmlR.status === "fulfilled" ? htmlR.value : "";
+  if (!html) {
+    tried.push("html:x");
+    return { holdings: [], info: {}, tried };
+  }
+  const htmlInfo = infoFromHtml(html);
+  const parts = html.split(/<table[^>]*>/i);
+  const tables = parts.slice(1).map((t) => t.split(/<\/table>/i)[0]);
+  const idx = parts.slice(0, -1);
+  const scored = tables.map((t, i) => {
+    const ctx = (idx[i] || "").slice(-400) + t.slice(0, 300);
+    return { t, label: /구성종목|구성비중|CU당|PDF/.test(ctx) ? 2 : 0 };
+  }).sort((a, b) => b.label - a.label);
+  for (const { t, label } of scored) {
+    const got = parseWeightTable(t, label > 0);
+    if (got) {
+      tried.push("html:tbl" + (label ? "(labeled)" : "") + ":" + got.length);
+      return { holdings: got, info: htmlInfo, tried };
+    }
+  }
+  tried.push("html:notbl(" + tables.length + ")");
+  return { holdings: [], info: htmlInfo, tried };
+}
+async function fromPdfApi(code, ms) {
+  try {
+    const j = await fetchJsonEuc(
+      `https://finance.naver.com/api/sise/etfItemPdfList.nhn?etfCode=${code}`,
+      ms || 2500,
+      { "Referer": `https://finance.naver.com/item/main.naver?code=${code}` }
+    );
+    const arr = j && (j.result?.etfItemPdfList || j.etfItemPdfList || j.result?.pdfList) || null;
+    if (!Array.isArray(arr) || !arr.length) return { holdings: [], tried: ["pdfapi:x"] };
+    const got = arr.map((x) => ({
+      name: String(x.itemname || x.itemName || x.stockName || "").trim(),
+      code: String(x.itemcode || x.itemCode || "").toUpperCase(),
+      weight: Number(String(x.weight ?? x.amonut ?? x.rate ?? "").replace(/[^0-9.-]/g, ""))
+    })).filter((x) => x.name && Number.isFinite(x.weight) && x.weight > 0 && looksLikeName(x.name));
+    const tot = got.reduce((a, b) => a + b.weight, 0);
+    if (got.length >= 3 && tot >= 80 && tot <= 120) {
+      return { holdings: got.sort((a, b) => b.weight - a.weight).slice(0, 120), tried: ["pdfapi:" + got.length] };
+    }
+    return { holdings: [], tried: ["pdfapi:" + got.length + "/" + tot.toFixed(0) + "%"] };
+  } catch {
+    return { holdings: [], tried: ["pdfapi:err"] };
+  }
+}
+async function fromDetail(code, maxMs) {
+  const T2 = Date.now();
+  const left = () => (maxMs || 6500) - (Date.now() - T2);
+  const hdr = { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total` };
+  const tried = [];
+  const info = {};
+  let holdings = [];
+  const absorb = (tag, j) => {
+    if (!j || typeof j !== "object") {
+      tried.push(tag + ":x");
+      return;
+    }
+    tried.push(tag + "{" + shapeOf(j).slice(0, 200) + "}");
+    const comp = j.etfComponentList || j.componentList || j.etfComponents || j.components || j.cuList || j.holdings || j.portfolio || j.stocks || j.etfAnalysis && (j.etfAnalysis.componentList || j.etfAnalysis.etfComponentList) || j.result && (j.result.componentList || j.result.components) || null;
+    const cands = [];
+    if (Array.isArray(comp) && comp.length) {
+      const g = asComponents(comp, true);
+      if (g) cands.push(g);
+    }
+    collectComponents(j, 0, cands);
+    const best = bestComponents(cands);
+    if (best && best.length > holdings.length) {
+      holdings = best;
+      tried.push(tag + ":n" + best.length);
+    }
+    if (!holdings.length) {
+      const gb = deepFindBonds(j, 0);
+      if (gb) {
+        holdings = gb;
+        tried.push(tag + ":bond" + gb.length);
+      }
+    }
+    const b = j.etfBasicInfo || j.basicInfo || j.etfInfo || j;
+    if (b && typeof b === "object") {
+      info.indexName = info.indexName || b.etfBaseIndex || b.baseIndexName || b.benchmarkName || b.underlyingIndexName || b.baseIndex || null;
+      info.company = info.company || b.issuerName || b.amcName || b.companyName || b.managementCompany || null;
+      info.category = info.category || b.etfType || b.category || b.groupName || null;
+      info.listedDate = info.listedDate || b.listedDate || b.listingDate || null;
+      info.summary = info.summary || b.etfSummary || b.summary || b.description || null;
+      if (info.fee == null) info.fee = num3(b.totalFeeRatio ?? b.feeRatio ?? b.expenseRatio ?? b.fee ?? b.etfFee ?? b.totalFee);
+      if (info.navDetail == null) info.navDetail = num3(b.nav ?? b.totalNav);
+      if (info.deviationRate == null && b.deviationRate !== void 0) {
+        let d = num3(b.deviationRate);
+        if (d != null) {
+          const sg = String(b.deviationSign ?? "");
+          if (/^(4|5)$/.test(sg) || sg === "-") d = -Math.abs(d);
+          else if (/^(1|2)$/.test(sg) || sg === "+") d = Math.abs(d);
+          info.deviationRate = d;
+        }
+      }
+      if (info.trackingError == null) info.trackingError = num3(b.chaseErrorRate);
+    }
+    if (Array.isArray(j.totalInfos)) {
+      for (const it of j.totalInfos) {
+        const k = String(it.key || it.code || "");
+        const v = it.value;
+        if (/기초지수|추종지수/.test(k) && !info.indexName) info.indexName = String(v);
+        if (/운용사|자산운용/.test(k) && !info.company) info.company = String(v);
+        if (/보수/.test(k) && info.fee == null) info.fee = num3(v);
+        if (/상장일|설정일/.test(k) && !info.listedDate) info.listedDate = String(v);
+        if (/^NAV$|순자산가치/i.test(k) && info.navDetail == null) info.navDetail = num3(v);
+      }
+      info.totalInfos = j.totalInfos.map((x) => ({ k: String(x.key || x.code || ""), v: String(x.value ?? "") })).filter((x) => x.k && x.v).slice(0, 14);
+    }
+  };
+  let j1 = null;
+  try {
+    j1 = await fetchJson(`https://m.stock.naver.com/api/stock/${code}/etfAnalysis`, Math.max(700, Math.min(1400, left() - 200)), hdr);
+  } catch {
+  }
+  absorb("etfAnalysis", j1);
+  if (!holdings.length && left() > 1300) {
+    const more = [
+      ["etfComponent", `https://m.stock.naver.com/api/stock/${code}/etfComponent`],
+      ["integration", `https://m.stock.naver.com/api/stock/${code}/integration`]
+    ];
+    const rs = await Promise.allSettled(more.map(([, u]) => fetchJson(u, Math.max(900, left() - 400), hdr)));
+    more.forEach(([tag], i) => absorb(tag, rs[i].status === "fulfilled" ? rs[i].value : null));
+  } else if ((info.fee == null || !info.indexName) && left() > 1300) {
+    let j2 = null;
+    try {
+      j2 = await fetchJson(`https://m.stock.naver.com/api/stock/${code}/integration`, Math.max(900, left() - 400), hdr);
+    } catch {
+    }
+    absorb("integration", j2);
+  }
+  return { info, holdings, tried };
+}
+function themeKeyOf(name) {
+  let n = String(name || "");
+  n = n.replace(/^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KBSTAR|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|히어로즈|마이다스|파워)\s*/i, "");
+  n = n.replace(/(TOP\s*\d+|플러스|Plus|액티브|Active|레버리지|인버스|선물|합성|\(H\)|H\)|\d+X|ETF|커버드콜|타겟|프리미엄|고배당|채권혼합|EQ)/gi, "");
+  const m = n.match(/[가-힣A-Za-z]{2,}/);
+  return m ? m[0].trim() : "";
+}
+function longestCommon(a, b) {
+  a = String(a || "");
+  b = String(b || "");
+  let best = "";
+  for (let i = 0; i < a.length; i++) {
+    for (let j = i + 2; j <= a.length; j++) {
+      const sub = a.slice(i, j);
+      if (sub.length <= best.length) continue;
+      if (b.includes(sub)) best = sub;
+    }
+  }
+  return best;
+}
+function peerByTheme(name, peers) {
+  const clean3 = themeKeyOf(name) ? String(name).replace(/^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KBSTAR|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|히어로즈|마이다스|파워)\s*/i, "") : "";
+  if (!clean3) return null;
+  const scored = (peers || []).map((p) => {
+    const other = String(p.name || "").replace(/^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KBSTAR|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|히어로즈|마이다스|파워)\s*/i, "");
+    const lc = longestCommon(clean3, other);
+    return { p, score: /[가-힣]/.test(lc) ? lc.length : 0, key: lc };
+  }).filter((x) => x.score >= 2);
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.score - a.score || (b.p.marketSum || 0) - (a.p.marketSum || 0));
+  return Object.assign({}, scored[0].p, { themeKey: scored[0].key });
+}
+var UA8, num3, TAB, BRAND, companyOf, LIST_CACHE, NAME_KEYS, WEIGHT_KEYS, CODE_KEYS, ETF_BRAND_RE, SKIP_NUM_KEYS, YA_CACHE, INDEX_PROXY, DOM_PROXY, SECTOR_KO, DATE_LIKE, etf_default, config2;
+var init_etf = __esm({
+  "netlify/functions/etf.js"() {
+    init_euckr();
+    UA8 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+    num3 = (v) => {
+      if (v === null || v === void 0 || v === "") return null;
+      const n = Number(String(v).replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(n) ? n : null;
+    };
+    TAB = { 1: "\uAD6D\uB0B4 \uC2DC\uC7A5\uC9C0\uC218", 2: "\uAD6D\uB0B4 \uC5C5\uC885\xB7\uD14C\uB9C8", 3: "\uAD6D\uB0B4 \uD30C\uC0DD", 4: "\uD574\uC678 \uC8FC\uC2DD", 5: "\uC6D0\uC790\uC7AC", 6: "\uCC44\uAD8C", 7: "\uAE30\uD0C0" };
+    BRAND = {
+      KODEX: "\uC0BC\uC131\uC790\uC0B0\uC6B4\uC6A9",
+      TIGER: "\uBBF8\uB798\uC5D0\uC14B\uC790\uC0B0\uC6B4\uC6A9",
+      SOL: "\uC2E0\uD55C\uC790\uC0B0\uC6B4\uC6A9",
+      ACE: "\uD55C\uAD6D\uD22C\uC790\uC2E0\uD0C1\uC6B4\uC6A9",
+      RISE: "KB\uC790\uC0B0\uC6B4\uC6A9",
+      KBSTAR: "KB\uC790\uC0B0\uC6B4\uC6A9",
+      PLUS: "\uD55C\uD654\uC790\uC0B0\uC6B4\uC6A9",
+      ARIRANG: "\uD55C\uD654\uC790\uC0B0\uC6B4\uC6A9",
+      HANARO: "NH\uC544\uBB38\uB514\uC790\uC0B0\uC6B4\uC6A9",
+      KOSEF: "\uD0A4\uC6C0\uD22C\uC790\uC790\uC0B0\uC6B4\uC6A9",
+      \uD788\uC5B4\uB85C\uC988: "\uD0A4\uC6C0\uD22C\uC790\uC790\uC0B0\uC6B4\uC6A9",
+      TIMEFOLIO: "\uD0C0\uC784\uD3F4\uB9AC\uC624\uC790\uC0B0\uC6B4\uC6A9",
+      WOORI: "\uC6B0\uB9AC\uC790\uC0B0\uC6B4\uC6A9",
+      BNK: "BNK\uC790\uC0B0\uC6B4\uC6A9",
+      \uB9C8\uC774\uB2E4\uC2A4: "\uB9C8\uC774\uB2E4\uC2A4\uC5D0\uC14B\uC790\uC0B0\uC6B4\uC6A9",
+      \uD30C\uC6CC: "\uAD50\uBCF4\uC545\uC0AC\uC790\uC0B0\uC6B4\uC6A9"
+    };
+    companyOf = (name) => {
+      const b = String(name || "").trim().split(/\s+/)[0].toUpperCase();
+      for (const k of Object.keys(BRAND)) if (b === k.toUpperCase()) return BRAND[k];
+      return null;
+    };
+    LIST_CACHE = { at: 0, list: null };
+    NAME_KEYS = ["stockName", "itemName", "name", "stockNameKor", "hname", "issueName", "korSecnNm", "stkNm"];
+    WEIGHT_KEYS = ["weight", "componentRatio", "ratio", "cuRatio", "compstRatio", "compRt", "weightRatio", "portion"];
+    CODE_KEYS = ["itemCode", "stockCode", "code", "cd", "shortCode", "srtnCd"];
+    ETF_BRAND_RE = /^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KBSTAR|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|히어로즈|마이다스|파워)\b/i;
+    SKIP_NUM_KEYS = /price|amt|amount|volume|qty|quantity|count|nav|value|sum|cap|date|time|no$|id$|rank|seq|shares|stock_?cnt/i;
+    YA_CACHE = { at: 0, v: null };
+    INDEX_PROXY = [
+      // ⚠️ 순서 중요: 구체적인 패턴을 먼저 둔다.
+      // 정규식 사이에 다른 단어가 끼어도 매칭되도록 .* 를 사용한다.
+      //  (예: '필라델피아AI반도체' → /필라델피아.*반도체/ 로 매칭)
+      [/S&P\s*500|SP500|에스앤피\s*500/i, "SPY", "S&P 500"],
+      [/나스닥\s*100|NASDAQ\s*100/i, "QQQ", "\uB098\uC2A4\uB2E5 100"],
+      [/다우존스\s*산업|다우\s*30/i, "DIA", "\uB2E4\uC6B0\uC874\uC2A4 \uC0B0\uC5C5\uD3C9\uADE0"],
+      [/러셀\s*2000/i, "IWM", "\uB7EC\uC140 2000"],
+      // 반도체 계열(미국·글로벌·필라델피아·AI반도체 등 모두 포함)
+      [/필라델피아.*반도체|반도체.*필라델피아|SOX(?!X)/i, "SOXX", "\uD544\uB77C\uB378\uD53C\uC544 \uBC18\uB3C4\uCCB4"],
+      [/(미국|글로벌|세계|해외).*반도체|반도체.*(TOP\s*\d|칩|밸류체인)/i, "SOXX", "\uBBF8\uAD6D\xB7\uAE00\uB85C\uBC8C \uBC18\uB3C4\uCCB4"],
+      // AI·기술
+      [/(글로벌|미국|해외).*(AI|인공지능)|AI.*(테크|반도체|밸류)|빅테크|매그니피센트|테크\s*TOP/i, "XLK", "\uBBF8\uAD6D \uAE30\uC220\xB7AI"],
+      [/(미국|글로벌).*소프트웨어|클라우드/i, "IGV", "\uC18C\uD504\uD2B8\uC6E8\uC5B4\xB7\uD074\uB77C\uC6B0\uB4DC"],
+      [/(미국|글로벌).*사이버\s*보안/i, "CIBR", "\uC0AC\uC774\uBC84\uBCF4\uC548"],
+      // 우주·항공·방산
+      [/우주|스페이스|항공우주|(글로벌|미국).*방산|방위산업/i, "ITA", "\uD56D\uACF5\uC6B0\uC8FC\xB7\uBC29\uC0B0"],
+      // 로보틱스·클린에너지·리튬
+      [/엔비디아|NVIDIA|메모리\s*반도체|HBM/i, "SOXX", "\uBC18\uB3C4\uCCB4(\uC5D4\uBE44\uB514\uC544 \uBC38\uB958\uCCB4\uC778)"],
+      [/애플|APPLE.*밸류|테슬라|TESLA.*밸류/i, "XLK", "\uBBF8\uAD6D \uAE30\uC220 \uB300\uD615\uC8FC"],
+      [/전력|SMR|원자력.*미국|유틸리티/i, "XLU", "\uBBF8\uAD6D \uC804\uB825\xB7\uC720\uD2F8\uB9AC\uD2F0"],
+      [/로보틱스|로봇/i, "BOTZ", "\uAE00\uB85C\uBC8C \uB85C\uBCF4\uD2F1\uC2A4"],
+      [/클린에너지|친환경|재생에너지|태양광/i, "ICLN", "\uD074\uB9B0\uC5D0\uB108\uC9C0"],
+      [/리튬|(글로벌|해외).*2차전지|배터리.*(글로벌|해외)/i, "LIT", "\uAE00\uB85C\uBC8C \uB9AC\uD2AC\xB7\uBC30\uD130\uB9AC"],
+      // 배당·팩터
+      [/배당\s*다우존스|SCHD/i, "SCHD", "\uB2E4\uC6B0\uC874\uC2A4 \uBC30\uB2F9 100"],
+      [/(미국|글로벌).*고배당/i, "VYM", "\uBBF8\uAD6D \uACE0\uBC30\uB2F9"],
+      [/배당귀족/i, "NOBL", "S&P \uBC30\uB2F9\uADC0\uC871"],
+      [/(미국|글로벌).*배당/i, "SCHD", "\uBBF8\uAD6D \uBC30\uB2F9\uC8FC"],
+      [/(미국|글로벌).*(성장|그로스)/i, "VUG", "\uBBF8\uAD6D \uC131\uC7A5\uC8FC"],
+      [/(미국|글로벌).*가치|밸류/i, "VTV", "\uBBF8\uAD6D \uAC00\uCE58\uC8FC"],
+      // 섹터
+      [/(미국|글로벌).*금융|은행.*(미국|글로벌)/i, "XLF", "\uBBF8\uAD6D \uAE08\uC735"],
+      [/(미국|글로벌).*(헬스케어|바이오|제약)/i, "XLV", "\uBBF8\uAD6D \uD5EC\uC2A4\uCF00\uC5B4"],
+      [/(미국|글로벌).*에너지/i, "XLE", "\uBBF8\uAD6D \uC5D0\uB108\uC9C0"],
+      [/(미국|글로벌).*소비재|컨슈머/i, "XLY", "\uBBF8\uAD6D \uC18C\uBE44\uC7AC"],
+      [/(미국|글로벌).*산업재/i, "XLI", "\uBBF8\uAD6D \uC0B0\uC5C5\uC7AC"],
+      [/(미국|글로벌).*리츠|US\s*REIT|리츠.*(미국|글로벌)/i, "VNQ", "\uBBF8\uAD6D\xB7\uAE00\uB85C\uBC8C \uB9AC\uCE20"],
+      // 국가·지역
+      [/일본|니케이|TOPIX/i, "EWJ", "\uC77C\uBCF8 \uC8FC\uC2DD"],
+      [/인도|NIFTY/i, "INDA", "\uC778\uB3C4 \uC8FC\uC2DD"],
+      [/베트남/i, "VNM", "\uBCA0\uD2B8\uB0A8 \uC8FC\uC2DD"],
+      [/차이나|중국|항셍|CSI|심천|상해/i, "MCHI", "\uC911\uAD6D \uC8FC\uC2DD"],
+      [/대만|타이완/i, "EWT", "\uB300\uB9CC \uC8FC\uC2DD"],
+      [/유로|유럽|EURO\s*STOXX|독일|DAX|명품|럭셔리/i, "FEZ", "\uC720\uB7FD \uC8FC\uC2DD"],
+      [/이머징|신흥국/i, "EEM", "\uC2E0\uD765\uAD6D \uC8FC\uC2DD"],
+      [/전세계|글로벌\s*주식|MSCI\s*World|선진국/i, "URTH", "\uC804\uC138\uACC4 \uC8FC\uC2DD"],
+      // 채권·원자재(해외)
+      [/미국.*30년.*국채|장기\s*국채/i, "TLT", "\uBBF8\uAD6D \uC7A5\uAE30 \uAD6D\uCC44"],
+      [/미국.*10년.*국채/i, "IEF", "\uBBF8\uAD6D \uC911\uAE30 \uAD6D\uCC44"],
+      [/미국.*단기.*국채|1-3년/i, "SHY", "\uBBF8\uAD6D \uB2E8\uAE30 \uAD6D\uCC44"],
+      [/미국.*하이일드/i, "HYG", "\uBBF8\uAD6D \uD558\uC774\uC77C\uB4DC"],
+      [/미국.*회사채|투자등급.*회사채/i, "LQD", "\uBBF8\uAD6D \uD68C\uC0AC\uCC44"],
+      [/미국.*국채|미국채/i, "IEF", "\uBBF8\uAD6D \uAD6D\uCC44"],
+      // 마지막 안전망: 국가/지역 키워드만 있어도 대표 지수로
+      [/미국|나스닥|뉴욕/i, "SPY", "\uBBF8\uAD6D \uC8FC\uC2DD"],
+      [/글로벌|해외|세계/i, "URTH", "\uAE00\uB85C\uBC8C \uC8FC\uC2DD"]
+    ];
+    DOM_PROXY = [
+      [/코스닥\s*150/i, "229200", "\uCF54\uC2A4\uB2E5 150"],
+      [/MSCI\s*Korea|한국\s*대표|KRX\s*300/i, "069500", "\uCF54\uC2A4\uD53C 200"],
+      [/배당|고배당/i, "279530", "\uAD6D\uB0B4 \uBC30\uB2F9\uC8FC"],
+      [/ESG|지배구조/i, "069500", "\uCF54\uC2A4\uD53C 200"],
+      [/코스피\s*200|K200|200\s*선물|^KODEX\s*레버리지|^KODEX\s*인버스|인버스\s*2X|곱버스/i, "069500", "\uCF54\uC2A4\uD53C 200"],
+      [/코스피\s*100/i, "069500", "\uCF54\uC2A4\uD53C 200"],
+      [/반도체/i, "091160", "\uAD6D\uB0B4 \uBC18\uB3C4\uCCB4"],
+      [/2차전지|배터리/i, "305720", "\uAD6D\uB0B4 2\uCC28\uC804\uC9C0"],
+      [/삼성그룹/i, "102780", "\uC0BC\uC131\uADF8\uB8F9\uC8FC"],
+      [/고배당|배당성장|배당주/i, "211900", "\uAD6D\uB0B4 \uBC30\uB2F9\uC8FC"]
+    ];
+    SECTOR_KO = {
+      realestate: "\uBD80\uB3D9\uC0B0",
+      consumer_cyclical: "\uACBD\uAE30\uC18C\uBE44\uC7AC",
+      basic_materials: "\uC18C\uC7AC",
+      consumer_defensive: "\uD544\uC218\uC18C\uBE44\uC7AC",
+      technology: "\uC815\uBCF4\uAE30\uC220",
+      communication_services: "\uCEE4\uBBA4\uB2C8\uCF00\uC774\uC158",
+      financial_services: "\uAE08\uC735",
+      utilities: "\uC720\uD2F8\uB9AC\uD2F0",
+      industrials: "\uC0B0\uC5C5\uC7AC",
+      energy: "\uC5D0\uB108\uC9C0",
+      healthcare: "\uD5EC\uC2A4\uCF00\uC5B4"
+    };
+    DATE_LIKE = /^(\d{1,2}[\/.\-]\d{1,2}|\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}|\d{4}[.\-\/]\d{1,2}|\d{1,2}월\s*\d{1,2}일)$/;
+    etf_default = async (req2) => {
+      const url = new URL(req2.url);
+      const code = String(url.searchParams.get("code") || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+      if (!code) return new Response(
+        JSON.stringify({ ok: false, metrics: {}, info: {}, holdings: [], similar: [], diag: { err: "no code" } }),
+        { headers: { "content-type": "application/json" } }
+      );
+      const SRC_MS = { list: 6e3, html: 5600, yahoo: 4500, detail: 1800 };
+      const INNER_MS = { list: 5500, html: 4200, yahoo: 3e3, detail: 1600 };
+      for (const k of Object.keys(SRC_MS)) {
+        if (INNER_MS[k] >= SRC_MS[k]) console.warn(`[etf] budget inversion: ${k} inner ${INNER_MS[k]} >= outer ${SRC_MS[k]}`);
+      }
+      const budget = (pr, ms, fb) => Promise.race([
+        Promise.resolve(pr).catch((e) => Object.assign({}, fb, { tried: ["err:" + String(e && e.message || e).slice(0, 60)] })),
+        new Promise((res) => setTimeout(() => res(Object.assign({}, fb, { tried: ["timeout"] })), ms))
+      ]);
+      const T0 = Date.now();
+      const leftMs = () => 8800 - (Date.now() - T0);
+      const [L, H2] = await Promise.all([
+        budget(fromList(code), 6200, { ok: false, n: 0, me: null, peers: [], peerPool: [] }),
+        budget(fromNaverHtml(code, 5200), 5800, { holdings: [], info: {}, tried: ["timeout"] })
+      ]);
+      const D = { info: {}, holdings: [], tried: ["pending"] };
+      const Y = { holdings: [], sectors: [], tried: [] };
+      if (H2 && H2.info) {
+        for (const k of Object.keys(H2.info)) if (H2.info[k] != null && H2.info[k] !== "") D.info[k] = H2.info[k];
+      }
+      let holdings = H2.holdings && H2.holdings.length ? H2.holdings : [];
+      let holdSrc = holdings.length ? "naver-html" : "none";
+      const extra = [];
+      let proxyInfo = null, proxySectors = [];
+      if (!holdings.length && leftMs() > 2200) {
+        const P = await budget(fromPdfApi(code, Math.min(2500, leftMs() - 400)), Math.min(2900, leftMs() - 200), { holdings: [], tried: ["pdf:timeout"] });
+        extra.push(...P.tried || []);
+        if (P.holdings.length) {
+          holdings = P.holdings;
+          holdSrc = "pdfapi";
+        }
+      }
+      if (!holdings.length && leftMs() > 3e3) {
+        const R = await budget(fromDetail(code, Math.min(3600, leftMs() - 500)), Math.min(4e3, leftMs() - 300), { info: {}, holdings: [], tried: ["detail:timeout"] });
+        D.tried = R.tried || [];
+        extra.push(...(R.tried || []).slice(0, 2));
+        for (const k of Object.keys(R.info || {})) if (R.info[k] != null && R.info[k] !== "" && (D.info[k] == null || D.info[k] === "")) D.info[k] = R.info[k];
+        if (R.holdings && R.holdings.length) {
+          holdings = R.holdings;
+          holdSrc = "mstock";
+        }
+      }
+      if (!holdings.length && leftMs() > 2500) {
+        const R = await budget(fromYahoo(code), Math.min(3200, leftMs() - 300), { holdings: [], sectors: [], tried: ["yh:timeout"] });
+        Y.holdings = R.holdings || [];
+        Y.sectors = R.sectors || [];
+        Y.tried = R.tried || [];
+        if (Y.holdings.length) {
+          holdings = Y.holdings;
+          holdSrc = "yahoo";
+        }
+      }
+      if (!holdings.length && leftMs() > 1500) {
+        const nm0 = L.me ? L.me.name : "";
+        const dp = domProxyFor(nm0);
+        if (dp && dp.code !== code) {
+          const R = await budget(fromNaverHtml(dp.code, Math.min(2600, leftMs() - 400)), Math.min(3e3, leftMs() - 200), { holdings: [], tried: [] });
+          extra.push("dom:" + dp.code + ":" + (R.holdings || []).length);
+          if (R.holdings && R.holdings.length) {
+            holdings = R.holdings;
+            holdSrc = "dom-proxy";
+            proxyInfo = { label: dp.label, symbol: dp.code };
+          }
+        }
+        if (!holdings.length && leftMs() > 2600) {
+          const pk = peerByTheme(nm0, L.peerPool && L.peerPool.length ? L.peerPool : L.peers);
+          if (pk && pk.code !== code) {
+            const R2 = await budget(fromNaverHtml(pk.code, Math.min(2600, leftMs() - 400)), Math.min(3e3, leftMs() - 200), { holdings: [], tried: [] });
+            extra.push("peer:" + pk.code + ":" + (R2.holdings || []).length);
+            if (R2.holdings && R2.holdings.length) {
+              holdings = R2.holdings;
+              holdSrc = "peer-proxy";
+              proxyInfo = { label: (pk.themeKey || "") + " \uD14C\uB9C8 \xB7 " + pk.name, symbol: pk.code };
+            }
+          } else extra.push("peer:none");
+        }
+        if (!holdings.length && leftMs() > 1200) {
+          const P = await budget(
+            fromIndexProxy(nm0, D.info.indexName, await budget(yahooAuth2(), 1500, {})),
+            Math.min(2600, leftMs() - 200),
+            { holdings: [], sectors: [], tried: ["idx:timeout"], label: null }
+          );
+          extra.push("idx:" + (P.tried || []).join(","));
+          if (P.holdings && P.holdings.length) {
+            holdings = P.holdings;
+            holdSrc = "index-proxy";
+            proxyInfo = { label: P.label, symbol: P.proxy };
+            proxySectors = P.sectors || [];
+          }
+        }
+      }
+      const assetKind = holdings.length ? null : assetKindOf(L.me ? L.me.name : "");
+      const me = L.me;
+      const navLive = D.info.navDetail != null;
+      const nav = navLive ? D.info.navDetail : me && me.nav != null ? me.nav : null;
+      const price = me ? me.price : null;
+      let disparity = null, navStale = false, dispSrc = "none";
+      if (D.info.deviationRate != null) {
+        disparity = D.info.deviationRate;
+        dispSrc = "naver";
+      } else if (price != null && nav) {
+        const d = (price - nav) / nav * 100;
+        if (Math.abs(d) <= 5) {
+          disparity = d;
+          dispSrc = "calc";
+        } else {
+          navStale = true;
+        }
+      }
+      const name = me ? me.name : "";
+      const metrics = {
+        price,
+        nav,
+        disparity,
+        marketSum: me ? me.marketSum : null,
+        m3: me ? me.m3 : null,
+        volume: me ? me.volume : null,
+        value: me ? me.value : null,
+        changeRate: me ? me.changeRate : null,
+        fee: D.info.fee != null ? D.info.fee : null,
+        leverage: leverageOf(name),
+        trackingError: D.info.trackingError != null ? D.info.trackingError : null,
+        navLive
+      };
+      const info = {
+        summary: D.info.summary || null,
+        totalInfos: D.info.totalInfos || [],
+        indexName: D.info.indexName || null,
+        company: D.info.company || companyOf(name),
+        category: D.info.category || (me ? me.tab : null),
+        listedDate: D.info.listedDate || null
+      };
+      const similar = (L.peers || []).map((p) => ({ code: p.code, name: p.name, changeRate: p.changeRate, m3: p.m3, marketSum: p.marketSum }));
+      return new Response(JSON.stringify({
+        ok: !!(me || holdings.length),
+        code,
+        name,
+        metrics,
+        info,
+        holdings,
+        holdingsTotalWeight: Number(holdings.reduce((a, b) => a + (b.weight || 0), 0).toFixed(2)),
+        // 실제 보유 종목 수: 출처에서 확인된 값이 있으면 그것을, 없고 비중 합이 100%면 목록 길이를 사용.
+        // 확인 불가하면 null(추측 금지 — 화면에서는 'N+' 로 표기)
+        holdingsCount: D.info.holdingsCount != null ? D.info.holdingsCount : holdings.length && holdings.reduce((a, b) => a + (b.weight || 0), 0) >= 99.5 ? holdings.length : null,
+        // 비중 합이 99.5% 미만이면 상위 종목만 받은 것이므로 '전체'라고 표시하면 안 된다.
+        holdingsComplete: holdings.length > 0 && holdings.reduce((a, b) => a + (b.weight || 0), 0) >= 99.5,
+        holdingsProxy: proxyInfo,
+        holdingsKind: assetKind,
+        sectors: Y.sectors && Y.sectors.length ? Y.sectors : proxySectors,
+        similar,
+        diag: {
+          list: L.ok ? "ok(" + L.n + ")" : "miss",
+          hold: holdings.length,
+          src: holdSrc,
+          navStale: navStale ? "y" : "n",
+          disp: dispSrc,
+          html: (H2.tried || []).join(","),
+          extra: extra.join(" | ").slice(0, 200)
+        }
+      }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
+    };
+    config2 = { path: "/api/etf" };
+  }
+});
+
+// functions/api/[[route]].js
+init_store();
+
+// netlify/functions/accounts.js
+init_store();
+var ENV = null;
+function json(o) {
+  return new Response(JSON.stringify(o), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+var webcrypto = globalThis.crypto;
+var toHex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+async function sha256(str) {
+  const d = await webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(String(str)));
+  return toHex(d);
+}
+var newSalt = () => toHex(webcrypto.getRandomValues(new Uint8Array(16)));
+var derive = (salt, pass) => sha256(salt + "|" + pass);
+async function verify(acc, pass, legacy) {
+  if (!acc) return { ok: false };
+  if (acc.salt && acc.hash) {
+    if (pass && await derive(acc.salt, pass) === acc.hash) return { ok: true };
+    if (legacy && await derive(acc.salt, legacy) === acc.hash) return { ok: true, rehash: pass };
+    return { ok: false };
+  }
+  if (acc.pass && (acc.pass === pass || acc.pass === legacy)) return { ok: true, upgraded: true };
+  return { ok: false };
+}
+async function setPassword(acc, pass) {
+  acc.salt = newSalt();
+  acc.hash = await derive(acc.salt, pass);
+  delete acc.pass;
+  return acc;
+}
+var TRY_WINDOW = 15 * 60 * 1e3;
+var TRY_MAX = 10;
+function tooManyTries(db, id) {
+  if (!db.tries) db.tries = {};
+  const now = Date.now();
+  const list = (db.tries[id] || []).filter((t) => now - t < TRY_WINDOW);
+  db.tries[id] = list;
+  return list.length >= TRY_MAX;
+}
+function noteFail(db, id) {
+  if (!db.tries) db.tries = {};
+  (db.tries[id] = db.tries[id] || []).push(Date.now());
+}
+function clearTries(db, id) {
+  if (db.tries) delete db.tries[id];
+}
+async function openStore() {
+  const mod = await Promise.resolve().then(() => (init_blobs_shim(), blobs_shim_exports));
+  return await getStoreX({ name: "live-accounts" }, ENV);
+}
+var accounts_default = async (req2) => {
+  if (req2.method !== "POST") return json({ ok: false, err: "method" });
+  let body;
+  try {
+    body = await req2.json();
+  } catch {
+    return json({ ok: false, err: "badbody" });
+  }
+  let store;
+  try {
+    store = await openStore();
+  } catch {
+    return json({ ok: false, err: "nostore" });
+  }
+  let db;
+  try {
+    db = await store.get("db", { type: "json" }) || { accounts: {}, users: {} };
+  } catch {
+    db = { accounts: {}, users: {} };
+  }
+  if (!db.accounts) db.accounts = {};
+  if (!db.users) db.users = {};
+  const { action, id, pass, legacy } = body;
+  const acc = id ? db.accounts[id] : null;
+  if (["login", "sync", "profile", "ensure"].includes(action) && id && tooManyTries(db, id))
+    return json({ ok: false, err: "toomany", retryAfterMin: 15 });
+  try {
+    if (action === "signup") {
+      if (!id || !pass) return json({ ok: false, err: "param" });
+      if (db.accounts[id]) return json({ ok: false, err: "exists" });
+      db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: Date.now() }, pass);
+      db.users[id] = { watchlist: ["005930", "000660", "035420"], holdings: [], cash: Number(body.cash) || 0, ipoPlans: [], acctPass: body.acctPass || "" };
+      await store.setJSON("db", db);
+      return json({ ok: true });
+    }
+    if (action === "ensure") {
+      if (!id || !pass) return json({ ok: false, err: "param" });
+      if (!db.accounts[id]) {
+        db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: body.created || Date.now() }, pass);
+        db.users[id] = body.user || { watchlist: [], holdings: [], cash: 0, ipoPlans: [] };
+        await store.setJSON("db", db);
+        return json({ ok: true, created: true });
+      }
+      {
+        const v = await verify(db.accounts[id], pass, legacy);
+        if (!v.ok) {
+          noteFail(db, id);
+          await store.setJSON("db", db);
+          return json({ ok: false, err: "exists-diff" });
+        }
+        if (v.upgraded || v.rehash) {
+          await setPassword(db.accounts[id], pass);
+          await store.setJSON("db", db);
+        }
+        clearTries(db, id);
+        return json({ ok: true, created: false });
+      }
+    }
+    if (action === "status") return json({ ok: true, cloud: true });
+    if (action === "login") {
+      const v = await verify(acc, pass, legacy);
+      if (!v.ok) {
+        noteFail(db, id);
+        await store.setJSON("db", db);
+        return json({ ok: false, err: "invalid" });
+      }
+      if (v.upgraded || v.rehash) {
+        await setPassword(acc, pass);
+      }
+      clearTries(db, id);
+      await store.setJSON("db", db);
+      return json({ ok: true, name: acc.name, email: acc.email, created: acc.created, user: db.users[id] || {} });
+    }
+    if (action === "sync") {
+      const v = await verify(acc, pass, legacy);
+      if (!v.ok) {
+        noteFail(db, id);
+        await store.setJSON("db", db);
+        return json({ ok: false, err: "invalid" });
+      }
+      if (v.upgraded || v.rehash) await setPassword(acc, pass);
+      clearTries(db, id);
+      db.users[id] = body.user || db.users[id] || {};
+      await store.setJSON("db", db);
+      return json({ ok: true });
+    }
+    if (action === "delete") {
+      if (!acc) return json({ ok: false, err: "noacct" });
+      const v = await verify(acc, pass, legacy);
+      if (!v.ok) {
+        noteFail(db, id);
+        await store.setJSON("db", db);
+        return json({ ok: false, err: "wrongpass" });
+      }
+      delete db.accounts[id];
+      delete db.users[id];
+      if (db.tries) delete db.tries[id];
+      await store.setJSON("db", db);
+      return json({ ok: true, deleted: id });
+    }
+    if (action === "profile") {
+      const v = await verify(acc, pass, legacy);
+      if (!v.ok) {
+        noteFail(db, id);
+        await store.setJSON("db", db);
+        return json({ ok: false, err: "invalid" });
+      }
+      if (v.upgraded || v.rehash) await setPassword(acc, pass);
+      clearTries(db, id);
+      if (body.name != null) acc.name = body.name;
+      if (body.email != null) acc.email = body.email;
+      if (body.newPass) await setPassword(acc, body.newPass);
+      if (body.acctPass) {
+        acc.acctPass = body.acctPass;
+        if (db.users[id]) db.users[id].acctPass = body.acctPass;
+      }
+      await store.setJSON("db", db);
+      return json({ ok: true });
+    }
+  } catch (e) {
+    return json({ ok: false, err: "store", detail: String(e) });
+  }
+  return json({ ok: false, err: "action" });
+};
+
+// netlify/functions/calendar.js
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var US = {
+  "AAPL": "\uC560\uD50C",
+  "MSFT": "\uB9C8\uC774\uD06C\uB85C\uC18C\uD504\uD2B8",
+  "GOOGL": "\uC54C\uD30C\uBCB3(\uAD6C\uAE00)",
+  "AMZN": "\uC544\uB9C8\uC874",
+  "META": "\uBA54\uD0C0",
+  "TSLA": "\uD14C\uC2AC\uB77C",
+  "NVDA": "\uC5D4\uBE44\uB514\uC544",
+  "NFLX": "\uB137\uD50C\uB9AD\uC2A4",
+  "INTC": "\uC778\uD154",
+  "AMD": "AMD",
+  "IBM": "IBM",
+  "TSM": "TSMC",
+  "ASML": "ASML",
+  "MU": "\uB9C8\uC774\uD06C\uB860",
+  "QCOM": "\uD004\uCEF4",
+  "AVGO": "\uBE0C\uB85C\uB4DC\uCEF4",
+  "ORCL": "\uC624\uB77C\uD074",
+  "CRM": "\uC138\uC77C\uC988\uD3EC\uC2A4",
+  "ADBE": "\uC5B4\uB3C4\uBE44",
+  "CSCO": "\uC2DC\uC2A4\uCF54",
+  "JPM": "JP\uBAA8\uAC74",
+  "GS": "\uACE8\uB4DC\uB9CC\uC0AD\uC2A4",
+  "BAC": "\uBC45\uD06C\uC624\uBE0C\uC544\uBA54\uB9AC\uCE74",
+  "V": "\uBE44\uC790",
+  "MA": "\uB9C8\uC2A4\uD130\uCE74\uB4DC",
+  "KO": "\uCF54\uCE74\uCF5C\uB77C",
+  "PEP": "\uD3A9\uC2DC\uCF54",
+  "DIS": "\uB514\uC988\uB2C8",
+  "PYPL": "\uD398\uC774\uD314",
+  "UBER": "\uC6B0\uBC84",
+  "PLTR": "\uD314\uB780\uD2F0\uC5B4",
+  "COIN": "\uCF54\uC778\uBCA0\uC774\uC2A4",
+  "MRVL": "\uB9C8\uBCA8",
+  "ARM": "ARM",
+  "JNJ": "\uC874\uC2A8\uC564\uB4DC\uC874\uC2A8",
+  "UNH": "\uC720\uB098\uC774\uD2F0\uB4DC\uD5EC\uC2A4",
+  "ISRG": "\uC778\uD29C\uC774\uD2F0\uBE0C\uC11C\uC9C0\uCEEC"
+};
+var US_TICKERS = Object.keys(US);
+async function fetchText(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers, signal: c.signal });
+    return await r.text();
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function jget(url, ms, headers) {
+  try {
+    const txt = await fetchText(url, ms, { "User-Agent": UA, Accept: "application/json", Referer: "https://m.stock.naver.com/", ...headers || {} });
+    return JSON.parse(txt);
+  } catch {
+    return null;
+  }
+}
+var _yA = { at: 0, cookie: "", crumb: "" };
+async function yahooAuth() {
+  if (_yA.crumb && Date.now() - _yA.at < 6 * 36e5) return _yA;
+  let cookie = "";
+  for (const u of ["https://fc.yahoo.com/", "https://finance.yahoo.com/"]) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 3e3);
+      const r = await fetch(u, { headers: { "User-Agent": UA, "Accept": "text/html,*/*" }, signal: c.signal });
+      clearTimeout(t);
+      const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [r.headers.get("set-cookie") || ""];
+      const ck = sc.map((s) => String(s).split(";")[0]).filter(Boolean).join("; ");
+      if (ck) {
+        cookie = ck;
+        break;
+      }
+    } catch {
+    }
+  }
+  let crumb = "";
+  for (const u of ["https://query2.finance.yahoo.com/v1/test/getcrumb", "https://query1.finance.yahoo.com/v1/test/getcrumb"]) {
+    try {
+      const tx = (await fetchText(u, 3e3, { "User-Agent": UA, Cookie: cookie, Accept: "text/plain" })).trim();
+      if (tx && tx.length < 30 && !/[<{]/.test(tx)) {
+        crumb = tx;
+        break;
+      }
+    } catch {
+    }
+  }
+  _yA = { at: Date.now(), cookie, crumb };
+  return _yA;
+}
+async function tvKrEarnings() {
+  const body = JSON.stringify({
+    markets: ["korea"],
+    options: { lang: "ko" },
+    columns: [
+      "name",
+      "description",
+      "earnings_release_next_date",
+      "earnings_release_date",
+      "market_cap_basic",
+      "earnings_per_share_forecast_next_fq",
+      "revenue_forecast_next_fq"
+    ],
+    sort: { sortBy: "market_cap_basic", sortOrder: "desc" },
+    range: [0, 450]
+  });
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 7e3);
+  try {
+    const r = await fetch("https://scanner.tradingview.com/korea/scan", {
+      method: "POST",
+      body,
+      signal: c.signal,
+      headers: {
+        "User-Agent": UA,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Origin: "https://kr.tradingview.com",
+        Referer: "https://kr.tradingview.com/"
+      }
+    });
+    if (!r.ok) return { items: [], why: "HTTP " + r.status };
+    const j = await r.json();
+    const raw = [];
+    const nowS = Date.now() / 1e3;
+    for (const row of j && j.data || []) {
+      const code = String(row.s || "").split(":")[1] || "";
+      if (!/^[0-9][0-9A-Z]{5}$/.test(code)) continue;
+      const d = row.d || [];
+      const nm = String(d[1] || d[0] || code).trim();
+      const next = Number(d[2]) || 0, last = Number(d[3]) || 0;
+      const epsF = d[5] != null && isFinite(Number(d[5])) ? Number(d[5]) : null;
+      const revF = d[6] != null && isFinite(Number(d[6])) ? Number(d[6]) : null;
+      if (next && next > nowS - 86400) raw.push({ code, name: nm, ts: next, past: false, epsF, revF });
+      else if (last && nowS - last < 7 * 86400) raw.push({ code, name: nm, ts: last, past: true, epsF, revF });
+    }
+    const PREF = /([0-9]*우선주(\(신형\))?|[0-9]우(B|C)?|우(B|C))$/;
+    const cleaned = raw.map((x) => {
+      const nm0 = x.name.replace(/보통주$/, "").trim();
+      const isPref = PREF.test(nm0) && nm0.replace(PREF, "").trim().length >= 2;
+      const base3 = isPref ? nm0.replace(PREF, "").trim() : nm0;
+      return { ...x, name: isPref ? base3 + " \uC6B0\uC120\uC8FC" : base3, base: base3, isPref };
+    });
+    const commons = new Set(cleaned.filter((x) => !x.isPref).map((x) => x.base));
+    const items = cleaned.filter((x) => {
+      if (/스팩/.test(x.name)) return false;
+      if (x.isPref && commons.has(x.base)) return false;
+      return true;
+    });
+    return { items, why: "ok " + items.length };
+  } catch (e) {
+    return { items: [], why: String(e).slice(0, 60) };
+  } finally {
+    clearTimeout(t);
+  }
+}
+var pad = (n) => String(n).padStart(2, "0");
+var isoKST = (ms) => {
+  const d = new Date(ms + 9 * 36e5);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+};
+async function quoteBatch(symsArr, cookie, crumb) {
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symsArr.map(encodeURIComponent).join(",")}${crumb ? "&crumb=" + encodeURIComponent(crumb) : ""}`;
+  const txt = await fetchText(url, 6e3, { "User-Agent": UA, "Cookie": cookie, "Accept": "application/json" });
+  let j;
+  try {
+    j = JSON.parse(txt);
+  } catch {
+    return [];
+  }
+  return j && j.quoteResponse && j.quoteResponse.result || [];
+}
+var numish = (v) => {
+  if (v == null || v === "") return null;
+  const n = Number(String(v).replace(/[,\s]/g, ""));
+  return isFinite(n) ? n : null;
+};
+async function naverQuarterly(code) {
+  for (const kind of ["quarter", "annual"]) {
+    const d = await jget(`https://m.stock.naver.com/api/stock/${code}/finance/${kind}`, 5e3);
+    const fi = d && (d.financeInfo || d);
+    const titles = fi && (fi.trTitleList || fi.titleList);
+    const rowList = fi && (fi.rowList || fi.rows);
+    if (!Array.isArray(titles) || !Array.isArray(rowList)) continue;
+    const periods = titles.map((t) => ({ key: t.key || t.title, title: String(t.title || t.key || "").replace(/\.$/, ""), est: t.isConsensus === "Y" }));
+    const rowOf = (test) => {
+      const r = rowList.find((x) => test(String(x.title || "").replace(/\s/g, "")));
+      if (!r) return null;
+      const cols = r.columns || {};
+      const out = {};
+      for (const k of Object.keys(cols)) {
+        const cell = cols[k];
+        out[k] = numish(cell && (cell.value != null ? cell.value : cell));
+      }
+      return out;
+    };
+    const rev = rowOf((t) => t === "\uB9E4\uCD9C\uC561"), op = rowOf((t) => t === "\uC601\uC5C5\uC774\uC775"), ni = rowOf((t) => t.startsWith("\uB2F9\uAE30\uC21C\uC774\uC775"));
+    if (!rev && !op) continue;
+    const qLabel = (title) => {
+      const m = String(title).match(/(20\d{2})[./]?(\d{2})/);
+      if (!m) return String(title);
+      if (kind === "annual") return `${m[1]}\uB144`;
+      const q = { "03": "1", "06": "2", "09": "3", "12": "4" }[m[2]];
+      return q ? `${m[1]}\uB144 ${q}\uBD84\uAE30` : `${m[1]}.${m[2]}`;
+    };
+    const quarters = periods.map((p) => ({
+      p: p.title,
+      label: qLabel(p.title) + (p.est ? " (\uC608\uC0C1)" : ""),
+      est: !!p.est,
+      rev: rev ? rev[p.key] : null,
+      op: op ? op[p.key] : null,
+      ni: ni ? ni[p.key] : null
+    })).filter((q) => q.rev != null || q.op != null || q.ni != null);
+    return { quarters, kind };
+  }
+  return null;
+}
+function yoyOf(cur, quarters, idx, field, kind) {
+  const v = cur[field];
+  if (v == null) return null;
+  const ym = String(cur.p).match(/(20\d{2})[./]?(\d{2})/);
+  let prev = null;
+  if (ym) {
+    const want = Number(ym[1]) - 1 + "." + ym[2];
+    const hit = quarters.find((q) => String(q.p).replace("/", ".") === want && !q.est);
+    if (hit) prev = hit[field];
+  }
+  if (prev == null) {
+    const back = kind === "annual" ? 1 : 4;
+    if (idx - back >= 0 && !quarters[idx - back].est) prev = quarters[idx - back][field];
+  }
+  if (prev == null) return { prev: null, pct: null, turn: null };
+  if (prev < 0 && v >= 0) return { prev, pct: null, turn: "\uD751\uC790\uC804\uD658" };
+  if (prev >= 0 && v < 0) return { prev, pct: null, turn: "\uC801\uC790\uC804\uD658" };
+  if (prev === 0) return { prev, pct: null, turn: null };
+  return { prev, pct: Math.round((v - prev) / Math.abs(prev) * 1e4) / 100, turn: null };
+}
+async function buildDetail(code) {
+  const q = await naverQuarterly(code);
+  if (!q || !q.quarters.length) return { ok: false, code, error: "\uC7AC\uBB34 \uB370\uC774\uD130\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4" };
+  const qs = q.quarters.slice(-9);
+  const withYoy = (item) => {
+    const idx = q.quarters.indexOf(item);
+    return { ...item, yoy: { rev: yoyOf(item, q.quarters, idx, "rev", q.kind), op: yoyOf(item, q.quarters, idx, "op", q.kind), ni: yoyOf(item, q.quarters, idx, "ni", q.kind) } };
+  };
+  const actuals = q.quarters.filter((x) => !x.est && (x.rev != null || x.op != null));
+  const latest = actuals.length ? withYoy(actuals[actuals.length - 1]) : null;
+  const nextEst = q.quarters.find((x) => x.est && (x.rev != null || x.op != null || x.ni != null));
+  const next = nextEst ? withYoy(nextEst) : null;
+  return {
+    ok: true,
+    code,
+    unit: "\uC5B5\uC6D0",
+    period: q.kind === "quarter" ? "\uBD84\uAE30" : "\uC5F0\uAC04",
+    quarters: qs,
+    latest,
+    next,
+    src: "\uB124\uC774\uBC84 \uAE08\uC735 \xB7 \uCEE8\uC13C\uC11C\uC2A4\uB294 \uC99D\uAD8C\uC0AC \uCD94\uC815 \uD3C9\uADE0"
+  };
+}
+var calendar_default = async (req2) => {
+  const url = new URL(req2.url);
+  const detail = String(url.searchParams.get("detail") || "").replace(/[^0-9A-Z]/gi, "");
+  if (/^[0-9][0-9A-Z]{5}$/.test(detail)) {
+    const body = await buildDetail(detail.toUpperCase());
+    return new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": body.ok ? "s-maxage=3600" : "no-store" } });
+  }
+  const diag = {};
+  const events = [];
+  try {
+    const { cookie, crumb } = await yahooAuth();
+    diag.crumb = crumb ? "ok" : "none";
+    const settled = await Promise.allSettled([quoteBatch(US_TICKERS, cookie, crumb), tvKrEarnings()]);
+    const results = settled[0].status === "fulfilled" && Array.isArray(settled[0].value) ? settled[0].value : [];
+    const tv = settled[1].status === "fulfilled" ? settled[1].value : { items: [], why: "fail" };
+    diag.us = results.length;
+    diag.tv = tv.why;
+    const now = Date.now();
+    const lo = now - 2 * 864e5, hi = now + 140 * 864e5;
+    for (const q of results) {
+      const sym = q.symbol;
+      const nm = US[sym] || q.shortName || sym;
+      const ts = q.earningsTimestamp || q.earningsTimestampStart || null;
+      if (!ts) continue;
+      const ms = ts * 1e3;
+      if (ms < lo || ms > hi) continue;
+      const est = !!q.isEarningsDateEstimate;
+      events.push({ date: isoKST(ms), title: nm + " \uC2E4\uC801 \uBC1C\uD45C" + (est ? " \uC608\uC815" : ""), tag: "\uC2E4\uC801", country: "us", ticker: sym, sure: !est });
+    }
+    for (const x of tv.items) {
+      const ms = x.ts * 1e3;
+      if (ms < now - 7 * 864e5 || ms > hi) continue;
+      const cons = [];
+      if (!x.past) {
+        if (x.epsF != null) cons.push("EPS \uC608\uC0C1 " + Math.round(x.epsF).toLocaleString() + "\uC6D0");
+        if (x.revF != null) cons.push("\uB9E4\uCD9C \uC608\uC0C1 " + (x.revF >= 1e12 ? (x.revF / 1e12).toFixed(1) + "\uC870" : Math.round(x.revF / 1e8).toLocaleString() + "\uC5B5"));
+      }
+      events.push({
+        date: isoKST(ms),
+        title: x.name + " \uC2E4\uC801 \uBC1C\uD45C",
+        tag: x.past ? "\uC2E4\uC801 \xB7 \uBC1C\uD45C \uC644\uB8CC" : cons.length ? "\uC2E4\uC801 \xB7 " + cons.join(" \xB7 ") : "\uC2E4\uC801",
+        country: "kr",
+        ticker: x.code + ".KS",
+        code: x.code,
+        sure: true,
+        past: !!x.past,
+        epsF: !x.past && x.epsF != null ? Math.round(x.epsF) : null,
+        revF: !x.past && x.revF != null ? Math.round(x.revF / 1e8) : null
+      });
+    }
+  } catch (e) {
+    diag.err = String(e).slice(0, 60);
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const uniq = events.filter((e) => {
+    const k = e.date + "|" + e.ticker;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).sort((a, b) => a.date < b.date ? -1 : 1);
+  return new Response(
+    JSON.stringify({ ok: uniq.length > 0, events: uniq, diag }),
+    { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } }
+  );
+};
+
+// netlify/functions/_cache.js
+function kstMin() {
+  const d = new Date(Date.now() + 9 * 36e5);
+  return { wd: d.getUTCDay(), hm: d.getUTCHours() * 60 + d.getUTCMinutes() };
+}
+function krLive() {
+  const { wd, hm } = kstMin();
+  if (wd === 0 || wd === 6) return false;
+  return hm >= 480 && hm < 1200;
+}
+function cacheHdr(live, idle, isLive) {
+  const on = isLive === void 0 ? krLive() : !!isLive;
+  const s = on ? live : idle;
+  const swr = Math.max(s * 5, 30);
+  return {
+    "content-type": "application/json",
+    "cache-control": `public, max-age=${s}, stale-while-revalidate=${swr}`,
+    "cloudflare-cdn-cache-control": `public, max-age=${s}, stale-while-revalidate=${swr}`,
+    "netlify-cdn-cache-control": `public, s-maxage=${s}, stale-while-revalidate=${swr}`,
+    "x-cache-policy": on ? `live-${s}s` : `idle-${s}s`
+  };
+}
+
+// netlify/functions/chart.js
+var UA2 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+async function fetchText2(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers, signal: c.signal });
+    return await r.text();
+  } finally {
+    clearTimeout(t);
+  }
+}
+function parseSise(txt) {
+  txt = String(txt || "").trim().replace(/\n/g, "").replace(/'/g, '"');
+  if (!txt.startsWith("[")) return [];
+  let arr;
+  try {
+    arr = JSON.parse(txt);
+  } catch {
+    try {
+      arr = JSON.parse(txt.replace(/,\s*]/g, "]"));
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.slice(1).filter((r) => Array.isArray(r) && r.length >= 6).map((r) => ({ d: String(r[0]).replace(/[^0-9]/g, ""), o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] })).filter((c) => c.c > 0);
+}
+async function siseJson(code, timeframe, years) {
+  const end = /* @__PURE__ */ new Date();
+  const start = /* @__PURE__ */ new Date();
+  start.setFullYear(start.getFullYear() - years);
+  const url = `https://api.finance.naver.com/siseJson.naver?symbol=${code}&requestType=1&startTime=${ymd(start)}&endTime=${ymd(end)}&timeframe=${timeframe}`;
+  return parseSise(await fetchText2(url, 5e3, { "User-Agent": UA2, "Referer": "https://finance.naver.com/" }));
+}
+function parseStooq(csv) {
+  const rows = String(csv || "").trim().split("\n");
+  if (rows.length < 2 || !/date/i.test(rows[0])) return [];
+  return rows.slice(1).map((l) => {
+    const p = l.split(",");
+    return { d: (p[0] || "").replace(/-/g, ""), o: +p[1], h: +p[2], l: +p[3], c: +p[4], v: +p[5] };
+  }).filter((c) => c.c > 0);
+}
+async function stooq(code, interval) {
+  const csv = await fetchText2(`https://stooq.com/q/d/l/?s=${code}.kr&i=${interval}`, 5e3, { "User-Agent": UA2 });
+  return parseStooq(csv);
+}
+function aggYear(months) {
+  const map = /* @__PURE__ */ new Map();
+  for (const c of months) {
+    const y = c.d.slice(0, 4);
+    const g = map.get(y);
+    if (!g) map.set(y, { d: y + "1231", o: c.o, h: c.h, l: c.l, c: c.c, v: c.v });
+    else {
+      g.h = Math.max(g.h, c.h);
+      g.l = Math.min(g.l, c.l);
+      g.c = c.c;
+      g.v += c.v;
+    }
+  }
+  return [...map.values()];
+}
+function med(arr) {
+  const a = arr.filter((x) => isFinite(x)).sort((x, y) => x - y);
+  return a.length ? a[Math.floor(a.length / 2)] : 0;
+}
+function rowsToCandles(rows) {
+  const all = [];
+  rows.forEach((r) => r.slice(1).forEach((v) => {
+    const n = Number(v);
+    if (isFinite(n) && n > 0) all.push(n);
+  }));
+  const M = med(all);
+  if (!M) return [];
+  const lo = M * 0.5, hi = M * 2;
+  const out = [];
+  for (const r of rows) {
+    const d = String(r[0]).replace(/[^0-9]/g, "");
+    if (d.length < 8) continue;
+    const nums = r.slice(1).map(Number).filter((x) => isFinite(x));
+    const prices = nums.filter((x) => x >= lo && x <= hi);
+    if (!prices.length) continue;
+    const high = Math.max(...prices), low = Math.min(...prices);
+    const open = prices[0], close = prices[prices.length - 1];
+    const nonp = nums.filter((x) => x < lo || x > hi).map((x) => Math.abs(x));
+    const vol = nonp.length ? Math.max(...nonp) : 0;
+    if (close > 0) out.push({ d, o: open, h: high, l: low, c: close, v: vol });
+  }
+  out.sort((a, b) => a.d < b.d ? -1 : 1);
+  return out.slice(-500);
+}
+function fchartRows(txt) {
+  const rows = [];
+  const re = /data="([^"]+)"/g;
+  let m;
+  while (m = re.exec(txt)) {
+    const p = m[1].split("|");
+    if (p.length >= 3) rows.push(p);
+  }
+  return rows;
+}
+async function fchartMinute(code) {
+  const url = `https://fchart.stock.naver.com/sise.nhn?symbol=${code}&timeframe=minute&count=500&requestType=0`;
+  const txt = await fetchText2(url, 6e3, { "User-Agent": UA2, "Referer": `https://finance.naver.com/item/main.naver?code=${code}` });
+  return rowsToCandles(fchartRows(txt));
+}
+async function frontMinute(code) {
+  const end = /* @__PURE__ */ new Date();
+  const start = /* @__PURE__ */ new Date();
+  start.setDate(start.getDate() - 5);
+  const url = `https://m.stock.naver.com/front-api/external/chart/domestic/info?symbol=${code}&requestType=1&startTime=${ymd(start)}&endTime=${ymd(end)}&timeframe=minute`;
+  const txt = await fetchText2(url, 6e3, { "User-Agent": UA2, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" });
+  const t = String(txt || "").trim();
+  let rows = [];
+  if (t.startsWith("[")) {
+    try {
+      const arr = JSON.parse(t.replace(/'/g, '"').replace(/,\s*]/g, "]"));
+      if (Array.isArray(arr)) rows = arr.slice(1).filter(Array.isArray);
+    } catch {
+    }
+  } else {
+    try {
+      const j = JSON.parse(t);
+      const a = j && (j.result || j.datas || j.data || j.result && j.result.datas) || [];
+      if (Array.isArray(a)) rows = a.map((o) => Array.isArray(o) ? o : [o.localDateTime || o.localDate || o.dt || o.date || o.time, o.openPrice ?? o.open, o.highPrice ?? o.high, o.lowPrice ?? o.low, o.closePrice ?? o.close, o.accumulatedTradingVolume ?? o.volume]);
+    } catch {
+    }
+  }
+  return rowsToCandles(rows);
+}
+async function naverMinute(code) {
+  try {
+    const c = await frontMinute(code);
+    if (c.length > 2) return { candles: c, src: "front:" + c.length };
+  } catch (e) {
+  }
+  try {
+    const c = await fchartMinute(code);
+    if (c.length > 2) return { candles: c, src: "fchart:" + c.length };
+  } catch (e) {
+  }
+  return { candles: [], src: "none" };
+}
+async function tryBoth(code, tf) {
+  const naverTf = { D: "day", W: "week", M: "month" }[tf];
+  const stooqI = { D: "d", W: "w", M: "m" }[tf];
+  const years = tf === "M" ? 20 : tf === "W" ? 6 : 2;
+  let c = [];
+  try {
+    c = await siseJson(code, naverTf, years);
+  } catch {
+    c = [];
+  }
+  if (c.length > 1) return { src: "naver", candles: c };
+  try {
+    c = await stooq(code, stooqI);
+  } catch {
+    c = [];
+  }
+  if (c.length > 1) return { src: "stooq", candles: c.slice(-300) };
+  return { src: "none", candles: [] };
+}
+async function yahooIndex(sym) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=8mo&interval=1d`;
+  const txt = await fetchText2(url, 5e3, { "User-Agent": UA2, "Accept": "application/json" });
+  let j;
+  try {
+    j = JSON.parse(txt);
+  } catch {
+    return [];
+  }
+  const r = j && j.chart && j.chart.result && j.chart.result[0];
+  if (!r) return [];
+  const ts = r.timestamp || [];
+  const q = r.indicators && r.indicators.quote && r.indicators.quote[0] || {};
+  const cl = q.close || [];
+  const out = [];
+  for (let i = 0; i < ts.length; i++) {
+    if (cl[i] == null) continue;
+    const d = new Date(ts[i] * 1e3);
+    out.push({ d: ymd(d), o: q.open && q.open[i] || cl[i], h: q.high && q.high[i] || cl[i], l: q.low && q.low[i] || cl[i], c: cl[i], v: q.volume && q.volume[i] || 0 });
+  }
+  return out;
+}
+var pad2 = (n) => String(n).padStart(2, "0");
+async function yahooMinute(code, mkt) {
+  const order = mkt === "KOSDAQ" ? [".KQ", ".KS"] : [".KS", ".KQ"];
+  for (const sfx of order) {
+    try {
+      const u = `https://query1.finance.yahoo.com/v8/finance/chart/${code}${sfx}?interval=1m&range=5d`;
+      const txt = await fetchText2(u, 6e3, { "User-Agent": UA2, "Accept": "application/json" });
+      const j = JSON.parse(txt);
+      const r = j && j.chart && j.chart.result && j.chart.result[0];
+      if (!r || !r.timestamp) continue;
+      const ts = r.timestamp;
+      const q = r.indicators && r.indicators.quote && r.indicators.quote[0] || {};
+      const out = [];
+      for (let i = 0; i < ts.length; i++) {
+        const c = q.close && q.close[i];
+        if (c == null) continue;
+        const d = new Date(ts[i] * 1e3 + 9 * 36e5);
+        const dd = `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}`;
+        out.push({ d: dd, o: q.open && q.open[i] != null ? q.open[i] : c, h: q.high && q.high[i] != null ? q.high[i] : c, l: q.low && q.low[i] != null ? q.low[i] : c, c, v: q.volume && q.volume[i] || 0 });
+      }
+      if (out.length > 2) return { candles: out, src: "yahoo" + sfx + ":" + out.length };
+    } catch (e) {
+    }
+  }
+  return null;
+}
+async function getMinute(code, mkt) {
+  const y = await yahooMinute(code, mkt);
+  if (y) return y;
+  return await naverMinute(code);
+}
+var chart_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "005930").replace(/[^0-9A-Za-z]/g, "");
+  const tf = String(url.searchParams.get("tf") || "D").toUpperCase();
+  try {
+    let out;
+    if (code === "KOSPI" || code === "KOSDAQ") {
+      let c = [];
+      try {
+        c = await yahooIndex(code === "KOSPI" ? "^KS11" : "^KQ11");
+      } catch {
+        c = [];
+      }
+      out = { src: "yahoo-index", candles: c };
+    } else if (tf === "MIN") {
+      const mkt = String(url.searchParams.get("mkt") || "").toUpperCase();
+      let r = { candles: [], src: "none" };
+      try {
+        r = await getMinute(code, mkt);
+      } catch (e) {
+        r = { candles: [], src: "err:" + String(e).slice(0, 40) };
+      }
+      out = { src: r.src, candles: r.candles };
+    } else if (tf === "Y") {
+      const m = await tryBoth(code, "M");
+      out = { src: m.src, candles: aggYear(m.candles) };
+    } else out = await tryBoth(code, ["D", "W", "M"].includes(tf) ? tf : "D");
+    return new Response(JSON.stringify({ ok: out.candles.length > 0, tf, src: out.src, candles: out.candles }), { headers: cacheHdr(30, 900) });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, error: String(e), candles: [] }), { headers: { "content-type": "application/json" } });
+  }
+};
+
+// netlify/functions/clan.js
+init_store();
+var ENV2 = null;
+var webcrypto2 = globalThis.crypto;
+var json2 = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+var toHex2 = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+async function sha2562(s) {
+  return toHex2(await webcrypto2.subtle.digest("SHA-256", new TextEncoder().encode(String(s))));
+}
+var derive2 = (salt, pass) => sha2562(salt + "|" + pass);
+var clip = (s, n) => String(s || "").replace(/[<>]/g, "").trim().slice(0, n);
+var genId = () => "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+var genCode = () => Array.from({ length: 6 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
+var EMBLEMS = ["\u{1F6E1}\uFE0F", "\u2694\uFE0F", "\u{1F525}", "\u{1F680}", "\u{1F48E}", "\u{1F402}", "\u{1F43B}", "\u{1F985}", "\u{1F319}", "\u2B50", "\u{1F340}", "\u{1F451}"];
+async function stores() {
+  const mod = await Promise.resolve().then(() => (init_blobs_shim(), blobs_shim_exports));
+  return {
+    acc: await getStoreX({ name: "live-accounts" }, ENV2),
+    clan: await getStoreX({ name: "live-clans" }, ENV2)
+  };
+}
+async function verifyUser(db, id, pass, legacy) {
+  if (!id) return false;
+  const acc = db.accounts && db.accounts[id];
+  if (!acc) return false;
+  if (acc.salt && acc.hash) {
+    if (pass && await derive2(acc.salt, pass) === acc.hash) return acc;
+    if (legacy && await derive2(acc.salt, legacy) === acc.hash) return acc;
+    return false;
+  }
+  if (acc.pass && (acc.pass === pass || acc.pass === legacy)) return acc;
+  return false;
+}
+var clan_default = async (req2) => {
+  if (req2.method !== "POST") return json2({ ok: false, err: "method" });
+  let b;
+  try {
+    b = await req2.json();
+  } catch {
+    return json2({ ok: false, err: "body" });
+  }
+  let st;
+  try {
+    st = await stores();
+  } catch {
+    return json2({ ok: false, err: "nostore" });
+  }
+  const db = await st.acc.get("db", { type: "json" }).catch(() => null) || { accounts: {}, users: {} };
+  const user = await verifyUser(db, b.id, b.pass, b.legacy);
+  if (!user) return json2({ ok: false, err: "auth" });
+  const uid = String(b.id);
+  const uname = clip(b.name || user.name || uid, 12);
+  const myClanId = user.clanId || null;
+  const loadClan = (cid) => st.clan.get("clan:" + cid, { type: "json" }).catch(() => null);
+  const saveClan = async (c) => {
+    await st.clan.setJSON("clan:" + c.cid, c);
+    await touchIndex(st, c);
+  };
+  const saveUserClan = async (cid) => {
+    if (cid) user.clanId = cid;
+    else delete user.clanId;
+    db.accounts[uid] = user;
+    await st.acc.setJSON("db", db);
+  };
+  const isLeader = (c) => c.leader === uid;
+  const isStaff = (c) => c.leader === uid || c.members[uid] && c.members[uid].role === "sub";
+  const act = String(b.action || "");
+  try {
+    if (act === "list") {
+      const idx = await st.clan.get("index", { type: "json" }).catch(() => null) || {};
+      const q = clip(b.q, 16);
+      let arr = Object.values(idx).filter((x) => x && x.open !== false);
+      if (q) arr = arr.filter((x) => String(x.name || "").includes(q));
+      arr.sort((x, y) => (y.avg ?? -1e9) - (x.avg ?? -1e9));
+      return json2({ ok: true, clans: arr.slice(0, 30), mine: myClanId });
+    }
+    if (act === "get") {
+      if (!myClanId) return json2({ ok: true, clan: null });
+      const c = await loadClan(myClanId);
+      if (!c) {
+        await saveUserClan(null);
+        return json2({ ok: true, clan: null });
+      }
+      if (rollSeason(c, b.ym)) await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "create") {
+      if (myClanId) return json2({ ok: false, err: "already" });
+      const name = clip(b.clanName, 16);
+      if (name.length < 2) return json2({ ok: false, err: "name" });
+      const c = {
+        cid: genId(),
+        code: genCode(),
+        name,
+        leader: uid,
+        createdAt: Date.now(),
+        emblem: EMBLEMS.includes(b.emblem) ? b.emblem : "\u{1F6E1}\uFE0F",
+        intro: clip(b.intro, 60),
+        open: b.open !== false,
+        goal: null,
+        ym: String(b.ym || "").slice(0, 7) || null,
+        members: {},
+        pending: {},
+        chat: [],
+        feed: [],
+        hof: []
+      };
+      c.members[uid] = { name: uname, rate: null, msg: "", role: "", tr: 0, hold: 0, joinedAt: Date.now(), updatedAt: Date.now() };
+      pushFeed(c, `\u{1F3D7}\uFE0F ${uname}\uB2D8\uC774 \uD074\uB79C\uC744 \uCC3D\uC124\uD588\uC2B5\uB2C8\uB2E4`);
+      await saveClan(c);
+      await st.clan.setJSON("code:" + c.code, { cid: c.cid });
+      await saveUserClan(c.cid);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "join" || act === "apply") {
+      if (myClanId) return json2({ ok: false, err: "already" });
+      let cid = clip(b.cid, 24);
+      if (!cid) {
+        const code = clip(b.code, 8).toUpperCase();
+        const ref = await st.clan.get("code:" + code, { type: "json" }).catch(() => null);
+        if (!ref) return json2({ ok: false, err: "nocode" });
+        cid = ref.cid;
+      }
+      const c = await loadClan(cid);
+      if (!c) return json2({ ok: false, err: "nocode" });
+      if (Object.keys(c.members).length >= 30) return json2({ ok: false, err: "full" });
+      if (c.open === false && !b.code) {
+        c.pending = c.pending || {};
+        if (!c.pending[uid]) {
+          c.pending[uid] = { name: uname, ts: Date.now() };
+          pushFeed(c, `\u270B ${uname}\uB2D8\uC774 \uAC00\uC785\uC744 \uC2E0\uCCAD\uD588\uC2B5\uB2C8\uB2E4`);
+        }
+        await saveClan(c);
+        return json2({ ok: true, applied: true });
+      }
+      c.members[uid] = { name: uname, rate: null, msg: "", role: "", tr: 0, hold: 0, joinedAt: Date.now(), updatedAt: Date.now() };
+      if (c.pending) delete c.pending[uid];
+      pushFeed(c, `\u{1F389} ${uname}\uB2D8\uC774 \uD074\uB79C\uC5D0 \uD569\uB958\uD588\uC2B5\uB2C8\uB2E4`);
+      sysChat(c, `${uname}\uB2D8\uC774 \uC785\uC7A5\uD588\uC2B5\uB2C8\uB2E4`);
+      await saveClan(c);
+      await saveUserClan(c.cid);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "sync") {
+      if (!myClanId) return json2({ ok: false, err: "noclan" });
+      const c = await loadClan(myClanId);
+      if (!c) return json2({ ok: false, err: "noclan" });
+      rollSeason(c, b.ym);
+      const m = c.members[uid] || { name: uname, role: "", joinedAt: Date.now() };
+      m.name = uname;
+      if (b.rate != null && isFinite(+b.rate)) m.rate = Math.max(-99, Math.min(999, Math.round(+b.rate * 100) / 100));
+      if (b.msg !== void 0) m.msg = clip(b.msg, 30);
+      if (b.tr != null && isFinite(+b.tr)) m.tr = Math.max(0, Math.min(999999, Math.round(+b.tr)));
+      if (b.hold != null && isFinite(+b.hold)) m.hold = Math.max(0, Math.min(999, Math.round(+b.hold)));
+      m.updatedAt = Date.now();
+      c.members[uid] = m;
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "chat") {
+      if (!myClanId) return json2({ ok: false, err: "noclan" });
+      const c = await loadClan(myClanId);
+      if (!c) return json2({ ok: false, err: "noclan" });
+      const text = clip(b.text, 200);
+      if (!text) return json2({ ok: false, err: "empty" });
+      const now = Date.now();
+      c.chat = Array.isArray(c.chat) ? c.chat : [];
+      if (c.chat.filter((x) => x.id === uid && now - x.ts < 1e4).length >= 5) return json2({ ok: false, err: "slow" });
+      c.chat.push({ mid: "m" + now.toString(36) + Math.random().toString(36).slice(2, 5), id: uid, name: uname, text, ts: now });
+      if (c.chat.length > 120) c.chat = c.chat.slice(-120);
+      const me = c.members[uid];
+      if (me) {
+        me.updatedAt = now;
+        me.name = uname;
+      }
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "notice") {
+      const c = await loadClan(myClanId);
+      if (!c || !isStaff(c)) return json2({ ok: false, err: "noauth" });
+      c.notice = clip(b.notice, 80);
+      c.noticeAt = Date.now();
+      if (c.notice) {
+        pushFeed(c, `\u{1F4E2} \uACF5\uC9C0\uAC00 \uB4F1\uB85D\uB410\uC2B5\uB2C8\uB2E4`);
+        sysChat(c, `\uACF5\uC9C0: ${c.notice}`);
+      }
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "settings") {
+      const c = await loadClan(myClanId);
+      if (!c || !isLeader(c)) return json2({ ok: false, err: "noauth" });
+      if (b.clanName !== void 0) {
+        const nm = clip(b.clanName, 16);
+        if (nm.length >= 2) c.name = nm;
+      }
+      if (b.emblem !== void 0 && EMBLEMS.includes(b.emblem)) c.emblem = b.emblem;
+      if (b.intro !== void 0) c.intro = clip(b.intro, 60);
+      if (b.open !== void 0) c.open = !!b.open;
+      if (b.goal !== void 0) {
+        const g = Number(b.goal);
+        c.goal = isFinite(g) && g !== 0 ? Math.max(-50, Math.min(200, Math.round(g * 10) / 10)) : null;
+      }
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "rename") {
+      const c = await loadClan(myClanId);
+      if (!c || !isLeader(c)) return json2({ ok: false, err: "noauth" });
+      const nm = clip(b.clanName, 16);
+      if (nm.length < 2) return json2({ ok: false, err: "name" });
+      c.name = nm;
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "newcode") {
+      const c = await loadClan(myClanId);
+      if (!c || !isLeader(c)) return json2({ ok: false, err: "noauth" });
+      const old = c.code;
+      c.code = genCode();
+      await st.clan.setJSON("code:" + c.code, { cid: c.cid });
+      if (old) await st.clan.delete("code:" + old).catch(() => {
+      });
+      pushFeed(c, `\u{1F39F}\uFE0F \uCD08\uB300 \uCF54\uB4DC\uAC00 \uC7AC\uBC1C\uAE09\uB410\uC2B5\uB2C8\uB2E4`);
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "transfer") {
+      const c = await loadClan(myClanId);
+      if (!c || !isLeader(c)) return json2({ ok: false, err: "noauth" });
+      const t = String(b.target || "");
+      if (!c.members[t]) return json2({ ok: false, err: "nomember" });
+      c.leader = t;
+      if (c.members[t]) c.members[t].role = "";
+      pushFeed(c, `\u{1F451} ${c.members[t].name}\uB2D8\uC774 \uC0C8 \uB9AC\uB354\uAC00 \uB410\uC2B5\uB2C8\uB2E4`);
+      sysChat(c, `${c.members[t].name}\uB2D8\uC774 \uC0C8 \uB9AC\uB354\uAC00 \uB418\uC5C8\uC2B5\uB2C8\uB2E4`);
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "role") {
+      const c = await loadClan(myClanId);
+      if (!c || !isLeader(c)) return json2({ ok: false, err: "noauth" });
+      const t = String(b.target || "");
+      const m = c.members[t];
+      if (!m) return json2({ ok: false, err: "nomember" });
+      m.role = b.role === "sub" ? "sub" : "";
+      pushFeed(c, m.role === "sub" ? `\u2B50 ${m.name}\uB2D8\uC774 \uBD80\uB9AC\uB354\uAC00 \uB410\uC2B5\uB2C8\uB2E4` : `${m.name}\uB2D8\uC758 \uBD80\uB9AC\uB354 \uAD8C\uD55C\uC774 \uD574\uC81C\uB410\uC2B5\uB2C8\uB2E4`);
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "approve" || act === "deny") {
+      const c = await loadClan(myClanId);
+      if (!c || !isStaff(c)) return json2({ ok: false, err: "noauth" });
+      const t = String(b.target || "");
+      const p = c.pending && c.pending[t];
+      if (!p) return json2({ ok: false, err: "noreq" });
+      delete c.pending[t];
+      if (act === "approve") {
+        if (Object.keys(c.members).length >= 30) return json2({ ok: false, err: "full" });
+        c.members[t] = { name: p.name, rate: null, msg: "", role: "", tr: 0, hold: 0, joinedAt: Date.now(), updatedAt: Date.now() };
+        const tu = db.accounts[t];
+        if (tu) {
+          tu.clanId = c.cid;
+          db.accounts[t] = tu;
+          await st.acc.setJSON("db", db);
+        }
+        pushFeed(c, `\u{1F389} ${p.name}\uB2D8\uC774 \uD074\uB79C\uC5D0 \uD569\uB958\uD588\uC2B5\uB2C8\uB2E4`);
+        sysChat(c, `${p.name}\uB2D8\uC774 \uC785\uC7A5\uD588\uC2B5\uB2C8\uB2E4`);
+      } else pushFeed(c, `${p.name}\uB2D8\uC758 \uAC00\uC785 \uC2E0\uCCAD\uC744 \uBC18\uB824\uD588\uC2B5\uB2C8\uB2E4`);
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "kick") {
+      const c = await loadClan(myClanId);
+      if (!c || !isStaff(c)) return json2({ ok: false, err: "noauth" });
+      const t = String(b.target || "");
+      if (t && t !== uid && c.members[t]) {
+        if (c.leader === t) return json2({ ok: false, err: "noauth" });
+        const nm = c.members[t].name;
+        delete c.members[t];
+        pushFeed(c, `\u{1F44B} ${nm}\uB2D8\uC774 \uD074\uB79C\uC5D0\uC11C \uC81C\uC678\uB410\uC2B5\uB2C8\uB2E4`);
+        const tu = db.accounts[t];
+        if (tu && tu.clanId === c.cid) {
+          delete tu.clanId;
+          db.accounts[t] = tu;
+          await st.acc.setJSON("db", db);
+        }
+      }
+      await saveClan(c);
+      return json2({ ok: true, clan: pub(c, uid) });
+    }
+    if (act === "leave") {
+      if (!myClanId) return json2({ ok: true });
+      const c = await loadClan(myClanId);
+      if (c) {
+        const nm = (c.members[uid] || {}).name || uname;
+        delete c.members[uid];
+        if (c.leader === uid) {
+          const sub = Object.entries(c.members).find(([, m]) => m.role === "sub");
+          const rest = sub ? sub[0] : Object.keys(c.members)[0];
+          if (rest) {
+            c.leader = rest;
+            c.members[rest].role = "";
+            pushFeed(c, `\u{1F451} ${c.members[rest].name}\uB2D8\uC774 \uC0C8 \uB9AC\uB354\uAC00 \uB410\uC2B5\uB2C8\uB2E4`);
+            await saveClan(c);
+          } else {
+            await st.clan.delete("clan:" + c.cid).catch(() => {
+            });
+            await st.clan.delete("code:" + c.code).catch(() => {
+            });
+            await dropIndex(st, c.cid);
+          }
+        } else {
+          pushFeed(c, `\u{1F44B} ${nm}\uB2D8\uC774 \uD074\uB79C\uC744 \uB5A0\uB0AC\uC2B5\uB2C8\uB2E4`);
+          await saveClan(c);
+        }
+      }
+      await saveUserClan(null);
+      return json2({ ok: true });
+    }
+    return json2({ ok: false, err: "action" });
+  } catch (e) {
+    return json2({ ok: false, err: "server", detail: String(e).slice(0, 80) });
+  }
+};
+function pushFeed(c, text) {
+  c.feed = Array.isArray(c.feed) ? c.feed : [];
+  c.feed.unshift({ t: text, ts: Date.now() });
+  if (c.feed.length > 30) c.feed = c.feed.slice(0, 30);
+}
+function sysChat(c, text) {
+  c.chat = Array.isArray(c.chat) ? c.chat : [];
+  c.chat.push({ mid: "s" + Date.now().toString(36), id: "system", name: "\uC2DC\uC2A4\uD15C", text, ts: Date.now(), sys: 1 });
+  if (c.chat.length > 120) c.chat = c.chat.slice(-120);
+}
+async function touchIndex(st, c) {
+  try {
+    const idx = await st.clan.get("index", { type: "json" }).catch(() => null) || {};
+    const ms = Object.values(c.members || {});
+    const rated = ms.filter((m) => m.rate != null);
+    idx[c.cid] = {
+      cid: c.cid,
+      name: c.name,
+      emblem: c.emblem || "\u{1F6E1}\uFE0F",
+      intro: c.intro || "",
+      open: c.open !== false,
+      n: ms.length,
+      avg: rated.length ? Math.round(rated.reduce((a, m) => a + m.rate, 0) / rated.length * 100) / 100 : null,
+      lv: levelOf(c),
+      at: Date.now()
+    };
+    const keys = Object.keys(idx);
+    if (keys.length > 300) {
+      keys.sort((a, z) => (idx[a].at || 0) - (idx[z].at || 0));
+      delete idx[keys[0]];
+    }
+    await st.clan.setJSON("index", idx);
+  } catch {
+  }
+}
+async function dropIndex(st, cid) {
+  try {
+    const idx = await st.clan.get("index", { type: "json" }).catch(() => null) || {};
+    delete idx[cid];
+    await st.clan.setJSON("index", idx);
+  } catch {
+  }
+}
+function rollSeason(c, ym) {
+  const cur = String(ym || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(cur)) return false;
+  if (!c.ym) {
+    c.ym = cur;
+    return true;
+  }
+  if (c.ym === cur) return false;
+  const ranked = Object.values(c.members).filter((m) => m.rate != null).sort((a, z) => z.rate - a.rate);
+  c.hof = Array.isArray(c.hof) ? c.hof : [];
+  if (ranked.length) {
+    c.hof.unshift({ ym: c.ym, name: ranked[0].name, rate: ranked[0].rate });
+    pushFeed(c, `\u{1F3C6} ${c.ym} \uC2DC\uC98C 1\uC704: ${ranked[0].name}`);
+  }
+  if (c.hof.length > 6) c.hof = c.hof.slice(0, 6);
+  Object.values(c.members).forEach((m) => {
+    m.rate = null;
+  });
+  c.ym = cur;
+  return true;
+}
+function expOf(c) {
+  const ms = Object.values(c.members || {});
+  const trades = ms.reduce((a, m) => a + (m.tr || 0), 0);
+  const days = Math.max(0, Math.floor((Date.now() - (c.createdAt || Date.now())) / 864e5));
+  return trades * 3 + (c.chat || []).length * 2 + ms.length * 20 + days * 5 + (c.hof || []).length * 100;
+}
+function levelOf(c) {
+  return Math.max(1, Math.min(50, Math.floor(Math.sqrt(expOf(c) / 60)) + 1));
+}
+function missionsOf(c, ms, avg2) {
+  const trades = ms.reduce((a, m) => a + (m.tr || 0), 0);
+  const rated = ms.filter((m) => m.rate != null).length;
+  return [
+    { k: "\uBA64\uBC84 \uBAA8\uC73C\uAE30", cur: ms.length, goal: 5, unit: "\uBA85" },
+    { k: "\uD074\uB79C \uB204\uC801 \uCCB4\uACB0", cur: trades, goal: 100, unit: "\uAC74" },
+    { k: "\uC218\uC775\uB960 \uB4F1\uB85D \uBA64\uBC84", cur: rated, goal: Math.max(3, Math.ceil(ms.length * 0.6)), unit: "\uBA85" },
+    { k: "\uD074\uB79C \uD3C9\uADE0 \uC218\uC775\uB960", cur: avg2 == null ? 0 : Math.max(0, Math.round(avg2 * 10) / 10), goal: c.goal || 5, unit: "%" }
+  ].map((x) => ({ ...x, done: x.cur >= x.goal }));
+}
+function pub(c, uid) {
+  const members = Object.entries(c.members).map(([id, m]) => ({
+    id,
+    name: m.name,
+    rate: m.rate,
+    msg: m.msg || "",
+    role: m.role || "",
+    tr: m.tr || 0,
+    hold: m.hold || 0,
+    joinedAt: m.joinedAt || 0,
+    updatedAt: m.updatedAt
+  })).sort((a, z) => (z.rate ?? -1e9) - (a.rate ?? -1e9));
+  const rated = members.filter((m) => m.rate != null);
+  const avg2 = rated.length ? Math.round(rated.reduce((a, m) => a + m.rate, 0) / rated.length * 100) / 100 : null;
+  const exp = expOf(c), lv = levelOf(c);
+  const need = Math.pow(lv - 1, 2) * 60, next = Math.pow(lv, 2) * 60;
+  return {
+    cid: c.cid,
+    code: c.code,
+    name: c.name,
+    emblem: c.emblem || "\u{1F6E1}\uFE0F",
+    intro: c.intro || "",
+    open: c.open !== false,
+    leader: c.leader,
+    me: uid,
+    createdAt: c.createdAt,
+    goal: c.goal ?? null,
+    notice: c.notice || "",
+    noticeAt: c.noticeAt || 0,
+    ym: c.ym || "",
+    hof: c.hof || [],
+    chat: (c.chat || []).slice(-60),
+    feed: (c.feed || []).slice(0, 20),
+    pending: Object.entries(c.pending || {}).map(([id, p]) => ({ id, name: p.name, ts: p.ts })),
+    level: { lv, exp, from: need, to: next, pct: Math.max(0, Math.min(100, Math.round((exp - need) / Math.max(1, next - need) * 100))) },
+    missions: missionsOf(c, members, avg2),
+    stat: {
+      n: members.length,
+      rated: rated.length,
+      avg: avg2,
+      best: rated.length ? rated[0].rate : null,
+      trades: members.reduce((a, m) => a + (m.tr || 0), 0)
+    },
+    members
+  };
+}
+
+// netlify/functions/_jobs.js
+init_store();
+var JOB_STORE = "jobs";
+async function jobState(name, env) {
+  try {
+    const st = await getStoreX({ name: JOB_STORE }, env);
+    return await st.get("job:" + name, { type: "json" }) || null;
+  } catch (e) {
+    return null;
+  }
+}
+async function jobSave(name, state, env) {
+  try {
+    const st = await getStoreX({ name: JOB_STORE }, env);
+    await st.setJSON("job:" + name, { ...state, at: Date.now() });
+  } catch (e) {
+  }
+}
+async function jobDone(name, result, env) {
+  await jobSave(name, { step: 0, running: false, lastDone: Date.now(), lastResult: result }, env);
+}
+async function runStep(name, total, stepFn, env, opts) {
+  const staleMs = opts && opts.staleMs || 10 * 6e4;
+  const now = Date.now();
+  let s = await jobState(name, env);
+  const cooldown = opts && opts.cooldownMs || 0;
+  if (s && !s.running && s.lastDone && cooldown && now - s.lastDone < cooldown) {
+    return { skipped: true, why: "cooldown", nextIn: cooldown - (now - s.lastDone) };
+  }
+  if (s && s.running && s.at && now - s.at > staleMs) s = null;
+  const step = s && s.running ? s.step || 0 : 0;
+  if (step >= total) {
+    await jobDone(name, { why: "\uC804 \uB2E8\uACC4 \uC18C\uC9C4" }, env);
+    return { done: true, exhausted: true };
+  }
+  await jobSave(name, { step, running: true }, env);
+  let r = null, err = null;
+  try {
+    r = await stepFn(step);
+  } catch (e) {
+    err = String(e && e.message || e).slice(0, 160);
+  }
+  if (r && r.done) {
+    await jobDone(name, r.result || { ok: true }, env);
+    return { done: true, step, result: r.result };
+  }
+  await jobSave(name, { step: step + 1, running: true, lastErr: err }, env);
+  return { done: false, step, next: step + 1, err };
+}
+
+// netlify/functions/cronstep.js
+init_store();
+init_nxt_core();
+async function stepNxt(env) {
+  const total = COLLECT_SOURCES().length;
+  return await runStep("nxt-collect", total, async (i) => {
+    const r = await collectOne(i, 8e3);
+    return r.done ? { done: true, result: r.result } : { done: false };
+  }, env, { cooldownMs: 30 * 6e4 });
+}
+async function stepPicks(env) {
+  return await runStep("picks-build", 1, async () => {
+    const { blobStore: blobStore2 } = await Promise.resolve().then(() => (init_nxt_core(), nxt_core_exports));
+    const { buildAndStore: buildAndStore2 } = await Promise.resolve().then(() => (init_picks(), picks_exports));
+    const store = await blobStore2();
+    const r = await buildAndStore2(store);
+    if (r && r.ok) {
+      try {
+        await store.setJSON("picks:fail", { at: 0 });
+      } catch {
+      }
+      try {
+        const { scoreAccuracy: scoreAccuracy2 } = await Promise.resolve().then(() => (init_picks_accuracy(), picks_accuracy_exports));
+        await scoreAccuracy2(store);
+      } catch {
+      }
+      try {
+        await store.setJSON("picks:lock", { at: 0, day: "" });
+      } catch {
+      }
+      return { done: true, result: { ok: true, n: (r.picks || []).length } };
+    }
+    try {
+      await store.setJSON("picks:fail", { at: Date.now(), why: r && r.why || "\uB370\uC774\uD130 \uC218\uC9D1 \uC2E4\uD328" });
+    } catch {
+    }
+    try {
+      await store.setJSON("picks:lock", { at: 0, day: "" });
+    } catch {
+    }
+    return { done: false };
+  }, env, { cooldownMs: 60 * 6e4 });
+}
+var cronstep_default = async (req2, context) => {
+  const env = context && context.env || null;
+  setEnv(env);
+  const url = new URL(req2.url);
+  const job = url.searchParams.get("job") || "nxt";
+  const key = url.searchParams.get("key") || "";
+  const admin = envGet("ADMIN_KEY", env);
+  const internal = req2.headers.get("x-cron") === "1";
+  if (!internal && admin && key !== admin) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "unauthorized" }),
+      { status: 401, headers: { "content-type": "application/json", "cache-control": "no-store" } }
+    );
+  }
+  let r;
+  try {
+    r = job === "picks" ? await stepPicks(env) : await stepNxt(env);
+  } catch (e) {
+    r = { error: String(e && e.message || e).slice(0, 200) };
+  }
+  const st = await jobState(job === "picks" ? "picks-build" : "nxt-collect", env);
+  return new Response(
+    JSON.stringify({ ok: !r.error, job, ...r, state: st }, null, 1),
+    { headers: { "content-type": "application/json", "cache-control": "no-store" } }
+  );
+};
+
+// functions/api/[[route]].js
+init_etf();
+
+// netlify/functions/etfaudit.js
+init_euckr();
+function _mkDec2(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA9 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart3(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec2(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+async function fetchText3(url, ms, headers, asJson) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: Object.assign({ "User-Agent": UA9 }, headers || {}), signal: c.signal });
+    const buf = await r.arrayBuffer();
+    const txt = decodeSmart3(buf, r.headers.get("content-type"));
+    if (!asJson) return txt;
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } finally {
+    clearTimeout(t);
+  }
+}
+var DATE_LIKE2 = /^(\d{1,2}[\/.\-]\d{1,2}|\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2})$/;
+var looksLikeName2 = (t) => {
+  t = String(t || "").trim();
+  return !!t && t.length <= 40 && !DATE_LIKE2.test(t) && !/^[\d.,%\-+\s]+$/.test(t) && /[가-힣A-Za-z]/.test(t);
+};
+var etfaudit_default = async (req2) => {
+  const url = new URL(req2.url);
+  const from = Math.max(0, parseInt(url.searchParams.get("from") || "0", 10) || 0);
+  const count = Math.min(18, Math.max(1, parseInt(url.searchParams.get("count") || "12", 10) || 12));
+  const results = [];
+  try {
+    const j = await fetchText3(
+      "https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc",
+      6e3,
+      { "Referer": "https://finance.naver.com/sise/etf.naver", "Accept": "application/json" },
+      true
+    );
+    const list = j && j.result && j.result.etfItemList || [];
+    const total = list.length;
+    const slice = list.slice(from, from + count);
+    const etf = await Promise.resolve().then(() => (init_etf(), etf_exports));
+    const CONC = 6;
+    const one = async (x) => {
+      const code = String(x.itemcode || "").toUpperCase(), name = x.itemname;
+      const r = { code, name, ok: false, n: 0, sum: null, src: null, issue: null };
+      try {
+        const res = await etf.default({ url: `https://audit/api/etf?code=${code}` });
+        const j2 = JSON.parse(await res.text());
+        const hs = j2.holdings || [];
+        r.src = j2.diag && j2.diag.src || "none";
+        r.sum = Number(hs.reduce((a, b) => a + (b.weight || 0), 0).toFixed(1));
+        const good = hs.filter((h) => looksLikeName2(h.name));
+        if (good.length) {
+          r.ok = true;
+          r.n = good.length;
+        } else if (j2.holdingsKind) {
+          r.ok = true;
+          r.src = "kind:" + j2.holdingsKind;
+        } else r.issue = "no-holdings";
+        if (j2.metrics && j2.metrics.marketSum == null) r.issue = (r.issue ? r.issue + "+" : "") + "no-metrics";
+      } catch (e) {
+        r.issue = "err:" + String(e.message || e).slice(0, 30);
+      }
+      return r;
+    };
+    let idx = 0;
+    const workers = Array.from({ length: Math.min(CONC, slice.length) }, async () => {
+      while (idx < slice.length) {
+        const i = idx++;
+        results[i] = await one(slice[i]);
+      }
+    });
+    await Promise.all(workers);
+    return new Response(
+      JSON.stringify({ ok: true, total, from, count: slice.length, results }),
+      { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } }
+    );
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ ok: false, total: 0, results: [], error: String(e).slice(0, 80) }),
+      { headers: { "content-type": "application/json" } }
+    );
+  }
+};
+
+// netlify/functions/etflist.js
+init_euckr();
+function _mkDec3(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA10 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart4(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec3(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\uD800-\uDFFF\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+var num4 = (v) => {
+  if (v === null || v === void 0 || v === "") return null;
+  const n = Number(String(v).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+};
+var TAB2 = { 1: "\uAD6D\uB0B4 \uC2DC\uC7A5\uC9C0\uC218", 2: "\uAD6D\uB0B4 \uC5C5\uC885\xB7\uD14C\uB9C8", 3: "\uAD6D\uB0B4 \uD30C\uC0DD", 4: "\uD574\uC678 \uC8FC\uC2DD", 5: "\uC6D0\uC790\uC7AC", 6: "\uCC44\uAD8C", 7: "\uAE30\uD0C0" };
+var BRAND2 = ["KODEX", "TIGER", "SOL", "ACE", "RISE", "PLUS", "KBSTAR", "KOSEF", "ARIRANG", "HANARO", "TIMEFOLIO", "KIWOOM", "WOORI", "BNK", "\uD788\uC5B4\uB85C\uC988", "\uB9C8\uC774\uB2E4\uC2A4", "\uD30C\uC6CC", "FOCUS", "UNICORN"];
+var brandOf = (name) => {
+  const up = String(name || "").trim().toUpperCase();
+  for (const b of BRAND2) if (up.startsWith(b.toUpperCase())) return b;
+  return "\uAE30\uD0C0";
+};
+function leverageOf2(name) {
+  const n = String(name || "");
+  if (/인버스\s*2X|곱버스/.test(n)) return -2;
+  if (/인버스/.test(n)) return -1;
+  if (/레버리지|2X/i.test(n)) return 2;
+  return 1;
+}
+var etflist_default = async (req2) => {
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 7e3);
+    let j = null;
+    try {
+      const r = await fetch(
+        "https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc",
+        { headers: { "User-Agent": UA10, "Referer": "https://finance.naver.com/sise/etf.naver", "Accept": "application/json" }, signal: c.signal }
+      );
+      const buf = await r.arrayBuffer();
+      j = JSON.parse(decodeSmart4(buf, r.headers.get("content-type")));
+    } finally {
+      clearTimeout(t);
+    }
+    const list = j && j.result && j.result.etfItemList || [];
+    const items = list.map((x) => {
+      const name = String(x.itemname || "");
+      const price = num4(x.nowVal), nav = num4(x.nav);
+      let disparity = price != null && nav ? (price - nav) / nav * 100 : null;
+      if (disparity != null && Math.abs(disparity) > 5) disparity = null;
+      return {
+        code: String(x.itemcode || "").toUpperCase(),
+        name,
+        price,
+        changeRate: num4(x.changeRate),
+        nav,
+        disparity,
+        m3: num4(x.threeMonthEarnRate),
+        volume: num4(x.quant),
+        value: num4(x.amonut),
+        // 거래대금(백만원)
+        marketSum: num4(x.marketSum),
+        // 순자산(억원)
+        tabCode: x.etfTabCode,
+        tab: TAB2[x.etfTabCode] || "\uAE30\uD0C0",
+        brand: brandOf(name),
+        lev: leverageOf2(name)
+      };
+    }).filter((x) => /^[0-9A-Z]{6}$/.test(x.code) && x.name);
+    return new Response(
+      JSON.stringify({ ok: items.length > 0, n: items.length, items }),
+      { headers: { "content-type": "application/json", "cache-control": "s-maxage=300" } }
+    );
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ ok: false, n: 0, items: [], error: String(e).slice(0, 80) }),
+      { headers: { "content-type": "application/json" } }
+    );
+  }
+};
+
+// netlify/functions/etfprobe.js
+init_euckr();
+function _mkDec4(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA11 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart5(buf, ct) {
+  const dec = (e2) => {
+    try {
+      return _mkDec4(e2).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    return (x.match(/[가-힣]/g) || []).length - (x.match(/\uFFFD/g) || []).length * 5;
+  };
+  let d = "";
+  const m = /charset=([\w-]+)/i.exec(String(ct || ""));
+  if (m) d = m[1].toLowerCase();
+  const norm2 = (c2) => c2 === "ms949" || c2 === "cp949" ? "euc-kr" : c2;
+  const c = [];
+  if (d) {
+    const t = dec(norm2(d));
+    if (t) c.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) c.push(u);
+  if (e) c.push(e);
+  return c.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+async function probe(name, url, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 3500);
+  const out = { name, url: url.slice(0, 90) };
+  try {
+    const r = await fetch(url, { headers: Object.assign({ "User-Agent": UA11 }, headers || {}), signal: c.signal });
+    out.status = r.status;
+    const buf = await r.arrayBuffer();
+    out.bytes = buf.byteLength;
+    const txt = decodeSmart5(buf, r.headers.get("content-type"));
+    out.hasKeyword = /구성종목|구성비중|CU당|holdings|componentList|itemPdf/i.test(txt) ? "Y" : "N";
+    try {
+      const j = JSON.parse(txt);
+      const arrs = [];
+      const walk = (n, d) => {
+        if (!n || d > 4) return;
+        if (Array.isArray(n)) {
+          if (n.length && typeof n[0] === "object") arrs.push(n.length);
+          return;
+        }
+        if (typeof n === "object") Object.values(n).forEach((v) => walk(v, d + 1));
+      };
+      walk(j, 0);
+      out.json = "Y";
+      out.arrays = arrs.slice(0, 5).join(",");
+      out.keys = Object.keys(j).slice(0, 6).join(",");
+    } catch {
+      out.json = "N";
+      const tables = (txt.match(/<table/gi) || []).length;
+      out.tables = tables;
+      const withW = txt.split(/<table[^>]*>/i).slice(1).filter((t2) => /구성비중|구성종목/.test(t2.slice(0, 400))).length;
+      out.pdfTables = withW;
+    }
+  } catch (e) {
+    out.err = String(e.message || e).slice(0, 40);
+  } finally {
+    clearTimeout(t);
+  }
+  return out;
+}
+var etfprobe_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "069500").toUpperCase().replace(/[^0-9A-Z]/g, "");
+  const nRef = { "Referer": `https://finance.naver.com/item/main.naver?code=${code}` };
+  const cands = [
+    ["naver-main", `https://finance.naver.com/item/main.naver?code=${code}`, { "Referer": "https://finance.naver.com/" }],
+    ["naver-coinfo", `https://finance.naver.com/item/coinfo.naver?code=${code}`, nRef],
+    ["pdfList.nhn", `https://finance.naver.com/api/sise/etfItemPdfList.nhn?etfCode=${code}`, nRef],
+    ["etf_pdf", `https://finance.naver.com/item/etf_pdf.naver?code=${code}`, nRef],
+    ["sise-etf-pdf", `https://finance.naver.com/sise/etf_pdf.naver?code=${code}`, nRef],
+    ["api-fin-pdf", `https://api.finance.naver.com/service/etfItemPdf.nhn?etfCode=${code}`, nRef],
+    ["m.stock-analysis", `https://m.stock.naver.com/api/stock/${code}/etfAnalysis`, { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total` }],
+    ["m.stock-integration", `https://m.stock.naver.com/api/stock/${code}/integration`, { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total` }],
+    ["yahoo-KS", `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${code}.KS?modules=topHoldings`, { "Referer": "https://finance.yahoo.com/" }]
+  ];
+  const results = await Promise.all(cands.map(([n, u, h]) => probe(n, u, h)));
+  return new Response(
+    JSON.stringify({ ok: true, code, results }, null, 1),
+    { headers: cacheHdr(600, 1800) }
+  );
+};
+
+// netlify/functions/exchange.js
+init_nxt_core();
+init_nxt_signal();
+var UA12 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+async function jget5(url, ms = 4500) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA12, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" }, signal: c.signal });
+    const txt = await r.text();
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+var num5 = (x) => {
+  const n = Number(String(x == null ? "" : x).replace(/[^0-9.-]/g, ""));
+  return isFinite(n) ? n : 0;
+};
+var K_PRICE = /^(closePrice|tradePrice|lastPrice|currentPrice|nowPrice|price|nv)(Raw)?$/i;
+var K_CHG = /^(compareToPreviousClosePrice|changePrice|change|cv)(Raw)?$/i;
+var K_RATE = /^(fluctuationsRatio|changeRate|rate|cr)(Raw)?$/i;
+var K_EXP_P = /^(expectedPrice|expectedClosePrice|antcPrice)(Raw)?$/i;
+var K_EXP_R = /^(expectedRatio|expectedFluctuationsRatio)(Raw)?$/i;
+var EXPECTED_PATH = /expect|antc|예상/i;
+var K_QTY = /^(accumulatedTradingVolume|expectedVolume|tradingVolume|volume|aq)(Raw)?$/i;
+var K_PREV = /^(previousClose|prevClose|basePrice|standardPrice|pcv)(Raw)?$/i;
+var MKT_NXT = /nxt|nextrade|넥스트|대체거래|ats/i;
+var MKT_UNI = /통합|integrat|unified|\btotal\b/i;
+var MKT_KRX = /krx|코스피|코스닥|유가증권|kospi|kosdaq|정규/i;
+function mktOf(node, path) {
+  let blob = path + " ";
+  for (const k of Object.keys(node)) {
+    const v = node[k];
+    if (v != null && typeof v !== "object") blob += k + "=" + String(v) + " ";
+  }
+  if (MKT_NXT.test(blob)) return "NXT";
+  if (MKT_UNI.test(blob)) return "UNIFIED";
+  if (MKT_KRX.test(blob)) return "KRX";
+  return "";
+}
+function collect2(obj, path = "", depth = 0, acc = [], pmkt = "") {
+  if (!obj || typeof obj !== "object" || depth > 6 || acc.length > 80) return acc;
+  const arr = Array.isArray(obj) ? obj : [obj];
+  for (const node of arr) {
+    if (!node || typeof node !== "object") continue;
+    let price = 0, chg = null, rate = null, qty = null, prev = null, exp = 0, expR = null;
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (v == null || typeof v === "object") continue;
+      if (!price && K_PRICE.test(k)) price = num5(v);
+      if (chg === null && K_CHG.test(k)) chg = num5(v);
+      if (rate === null && K_RATE.test(k)) rate = num5(v);
+      if (qty === null && K_QTY.test(k)) qty = num5(v);
+      if (prev === null && K_PREV.test(k)) prev = num5(v);
+      if (!exp && K_EXP_P.test(k)) exp = num5(v);
+      if (expR === null && K_EXP_R.test(k)) expR = num5(v);
+    }
+    const isExp = EXPECTED_PATH.test(path);
+    const mkt = mktOf(node, path) || pmkt;
+    if (exp > 0) acc.push({ path, mkt, price: exp, chg: null, rate: expR, qty, prev, expected: true });
+    if (price > 0 && (chg !== null || rate !== null))
+      acc.push({ path, mkt, price, chg, rate, qty, prev, expected: isExp });
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (v && typeof v === "object") {
+        const childMkt = MKT_NXT.test(k) ? "NXT" : MKT_UNI.test(k) ? "UNIFIED" : MKT_KRX.test(k) ? "KRX" : mkt;
+        collect2(v, path ? path + "." + k : k, depth + 1, acc, childMkt);
+      }
+    }
+  }
+  return acc;
+}
+var norm = (n, base3) => {
+  if (!n || !n.price) return null;
+  const prev = base3 || n.prev || (n.chg != null ? n.price - n.chg : 0);
+  let change = null, rate = null;
+  if (prev > 0) {
+    change = n.price - prev;
+    rate = change / prev * 100;
+  } else if (n.chg != null) {
+    change = n.chg;
+    rate = n.rate;
+  }
+  return {
+    price: n.price,
+    change: change == null ? 0 : Math.round(change),
+    rate: rate == null ? 0 : Number(Number(rate).toFixed(2)),
+    volume: n.qty == null ? null : n.qty,
+    prevClose: prev || null,
+    _path: n.path || ""
+  };
+};
+var exchange_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+  const session = String(url.searchParams.get("session") || "").toLowerCase();
+  const wantProbe = url.searchParams.get("probe") === "1";
+  if (!/^[0-9A-Z]{6}$/.test(code)) {
+    return new Response(JSON.stringify({ ok: false, error: "bad code" }), { headers: { "content-type": "application/json" } });
+  }
+  if (wantProbe) {
+    const cand = [
+      `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`,
+      `https://polling.finance.naver.com/api/realtime/domestic/stock/NXT:${code}`,
+      `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}?market=NXT`,
+      `https://m.stock.naver.com/api/stock/${code}/basic`,
+      `https://api.stock.naver.com/stock/${code}/basic`,
+      `https://api.stock.naver.com/stock/${code}/integration`,
+      `https://m.stock.naver.com/api/stock/${code}/price?type=nxt`
+    ];
+    const probes = await Promise.all(cand.map(async (u) => {
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 4e3);
+        const r = await fetch(u, { headers: { "User-Agent": UA12, Referer: "https://m.stock.naver.com/", Accept: "application/json" }, signal: c.signal });
+        const txt = await r.text();
+        clearTimeout(t);
+        return { url: u, status: r.status, len: txt.length, sample: txt.slice(0, 1400) };
+      } catch (e) {
+        return { url: u, error: String(e).slice(0, 80) };
+      }
+    }));
+    return new Response(JSON.stringify({ ok: true, code, probes }, null, 1), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+  }
+  try {
+    const [poll, integ] = await Promise.all([
+      jget5(`https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`),
+      jget5(`https://m.stock.naver.com/api/stock/${code}/integration`)
+    ]);
+    const dirSign2 = (info) => {
+      const c = info && info.compareToPreviousPrice && String(info.compareToPreviousPrice.code || "");
+      if (c === "4" || c === "5") return -1;
+      if (c === "3") return 0;
+      return 1;
+    };
+    const firstNum2 = (o, keys) => {
+      for (const k of keys) {
+        if (o[k] != null) {
+          const v = num5(o[k]);
+          if (v) return v;
+        }
+      }
+      return 0;
+    };
+    const marketFromInfo = (info, prevHint, tag) => {
+      if (!info || typeof info !== "object") return null;
+      const price = firstNum2(info, ["overPriceRaw", "overPrice", "closePriceRaw", "closePrice", "currentPriceRaw", "currentPrice", "tradePriceRaw", "tradePrice", "integratedPriceRaw", "integratedPrice", "priceRaw", "price", "nvRaw", "nv"]);
+      if (!price) return null;
+      const sign = dirSign2(info);
+      const magChg = Math.abs(firstNum2(info, ["compareToPreviousClosePriceRaw", "compareToPreviousClosePrice", "cv"]));
+      const magRate = Math.abs(firstNum2(info, ["fluctuationsRatioRaw", "fluctuationsRatio", "cr"]));
+      const change = sign * magChg;
+      const prev = prevHint || (magChg ? price - change : 0);
+      const rate = magRate ? sign * magRate : prev ? (price - prev) / prev * 100 : 0;
+      return {
+        price,
+        change: Math.round(change),
+        rate: Number(rate.toFixed(2)),
+        volume: firstNum2(info, ["accumulatedTradingVolumeRaw", "accumulatedTradingVolume", "aq"]) || null,
+        prevClose: prev || null,
+        _path: tag || "",
+        _at: String(info.localTradedAt || ""),
+        _status: String(info.overMarketStatus || info.marketStatus || "")
+      };
+    };
+    const arr = poll && (poll.datas || poll.result && poll.result.areas && poll.result.areas.flatMap((a) => a.datas || []));
+    const x = Array.isArray(arr) ? arr[0] : null;
+    let krx = x ? marketFromInfo(x, 0, "krx") : null;
+    let prevClose = krx ? krx.prevClose || 0 : 0;
+    let nxt = x ? marketFromInfo(x.overMarketPriceInfo, prevClose, "nxt") : null;
+    if (nxt && (!nxt.price || (nxt.volume === 0 || nxt.volume === null) && nxt.price === (krx && krx.price))) nxt = null;
+    let unified = x ? marketFromInfo(x.integratedPriceInfo, prevClose, "integrated") : null;
+    if (!unified) {
+      if (krx && nxt) unified = nxt._at > krx._at ? { ...nxt } : { ...krx };
+      else unified = krx ? { ...krx } : nxt ? { ...nxt } : null;
+    }
+    const nodes = integ ? collect2(integ) : [];
+    const expNodes = nodes.filter((n) => n.expected);
+    const expected = norm(expNodes.sort((a, b) => (b.qty || 0) - (a.qty || 0))[0], prevClose);
+    const list = await resolveFast();
+    const listReady = !!(list && list.ok && list.count > 0);
+    let nxtSupported = listReady ? Object.prototype.hasOwnProperty.call(list.codes, code) : null;
+    let nxtBasis = listReady ? "\uBA85\uB2E8 \uB300\uC870" : null;
+    let sigDiag = null;
+    if (nxtSupported === null) {
+      try {
+        const r = await classifyStock(code, await blobStore(), url.searchParams.get("diag") === "1");
+        if (r && r.member !== null) {
+          nxtSupported = r.member;
+          nxtBasis = "\uAC70\uB798\uC18C \uC18C\uC18D \uC2E0\uD638";
+        }
+        if (url.searchParams.get("diag") === "1")
+          sigDiag = {
+            signalOk: !!(r.signal && r.signal.ok),
+            why: r.reason || null,
+            matched: r.matched || null,
+            seen: r.exchangeFeatures || null,
+            features: r.signal && r.signal.features ? r.signal.features : null
+          };
+      } catch (e) {
+        sigDiag = { error: String(e).slice(0, 120) };
+      }
+    }
+    const liveExec = !!(x && x.overMarketPriceInfo && num5(x.overMarketPriceInfo.overPriceRaw ?? x.overMarketPriceInfo.overPrice) > 0);
+    if (nxtSupported === false && liveExec) {
+      nxtSupported = true;
+      nxtBasis = "NXT \uC2E4\uC81C \uCCB4\uACB0(\uBD84\uAE30 \uC911 \uD3B8\uC785)";
+    }
+    if (nxtSupported === false) {
+      nxt = null;
+      if (krx) unified = { ...krx, _path: "krx-only(list)" };
+    }
+    let \uAD00\uCE21 = false;
+    if (nxt && nxt.price > 0 && /nxt|nextrade/i.test(nxt._path || "")) {
+      \uAD00\uCE21 = true;
+      noteObserved(code).catch(() => {
+      });
+    }
+    const \uD655\uC815 = \uAD00\uCE21 ? true : nxtSupported;
+    if (\uAD00\uCE21) nxtBasis = "NXT \uC2E4\uC81C \uCCB4\uACB0 \uAD00\uCE21";
+    return new Response(JSON.stringify({
+      ok: !!(krx || unified || nxt),
+      code,
+      prevClose: prevClose || unified && unified.prevClose || null,
+      nxtSupported: \uD655\uC815,
+      nxtEvidence: nxtBasis,
+      nxtListAsOf: listReady ? list.asOf : null,
+      nxtListSource: listReady ? list.source : null,
+      _sigDiag: sigDiag,
+      unified,
+      krx,
+      nxt,
+      expected,
+      _paths: nodes.slice(0, 12).map((n) => n.path + "=" + n.price),
+      // 필드명이 바뀌었을 때 진단용
+      _nodes: url.searchParams.get("diag") === "1" ? nodes.slice(0, 40).map((n) => ({ path: n.path, mkt: n.mkt || "", price: n.price, rate: n.rate, qty: n.qty, exp: n.expected })) : void 0
+    }), { headers: cacheHdr(2, 300) });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, code, error: String(e).slice(0, 120) }), {
+      headers: { "content-type": "application/json" }
+    });
+  }
+};
+
+// netlify/functions/friends.js
+init_store();
+var ENV3 = null;
+var webcrypto3 = globalThis.crypto;
+var json4 = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+var toHex3 = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+async function sha2563(s) {
+  return toHex3(await webcrypto3.subtle.digest("SHA-256", new TextEncoder().encode(String(s))));
+}
+var derive3 = (salt, pass) => sha2563(salt + "|" + pass);
+var clip2 = (s, n) => String(s || "").replace(/[<>]/g, "").trim().slice(0, n);
+async function stores2() {
+  const mod = await Promise.resolve().then(() => (init_blobs_shim(), blobs_shim_exports));
+  return {
+    acc: await getStoreX({ name: "live-accounts" }, ENV3),
+    soc: await getStoreX({ name: "live-social" }, ENV3)
+  };
+}
+async function verifyUser2(db, id, pass, legacy) {
+  if (!id) return false;
+  const acc = db.accounts && db.accounts[id];
+  if (!acc) return false;
+  if (acc.salt && acc.hash) {
+    if (pass && await derive3(acc.salt, pass) === acc.hash) return acc;
+    if (legacy && await derive3(acc.salt, legacy) === acc.hash) return acc;
+    return false;
+  }
+  if (acc.pass && (acc.pass === pass || acc.pass === legacy)) return acc;
+  return false;
+}
+var blank = () => ({ friends: [], reqIn: [], reqOut: [], profile: {} });
+var friends_default = async (req2) => {
+  if (req2.method !== "POST") return json4({ ok: false, err: "method" });
+  let b;
+  try {
+    b = await req2.json();
+  } catch {
+    return json4({ ok: false, err: "body" });
+  }
+  let st;
+  try {
+    st = await stores2();
+  } catch {
+    return json4({ ok: false, err: "nostore" });
+  }
+  const db = await st.acc.get("db", { type: "json" }).catch(() => null) || { accounts: {} };
+  const user = await verifyUser2(db, b.id, b.pass, b.legacy);
+  if (!user) return json4({ ok: false, err: "auth" });
+  const uid = String(b.id);
+  const uname = clip2(b.name || user.name || uid, 12);
+  const load = async (id) => await st.soc.get("fr:" + id, { type: "json" }).catch(() => null) || blank();
+  const save = (id, v) => st.soc.setJSON("fr:" + id, v);
+  const me = await load(uid);
+  me.profile = { name: uname, rate: me.profile ? me.profile.rate : null, msg: me.profile ? me.profile.msg : "", ts: me.profile ? me.profile.ts : 0 };
+  const act = String(b.action || "");
+  try {
+    if (act === "sync" || act === "get") {
+      if (act === "sync") {
+        if (b.rate != null && isFinite(+b.rate)) me.profile.rate = Math.max(-99, Math.min(999, Math.round(+b.rate * 100) / 100));
+        if (b.msg !== void 0) me.profile.msg = clip2(b.msg, 30);
+        if (b.tr != null && isFinite(+b.tr)) me.profile.tr = Math.max(0, Math.round(+b.tr));
+        me.profile.ts = Date.now();
+        await save(uid, me);
+      }
+      return json4({ ok: true, ...await view(st, uid, me) });
+    }
+    if (act === "add") {
+      const t = clip2(b.target, 24);
+      if (!t || t === uid) return json4({ ok: false, err: "self" });
+      if (!(db.accounts && db.accounts[t])) return json4({ ok: false, err: "nouser" });
+      if (me.friends.includes(t)) return json4({ ok: false, err: "already" });
+      if (me.reqOut.includes(t)) return json4({ ok: false, err: "sent" });
+      const other = await load(t);
+      if (me.reqIn.includes(t)) {
+        me.reqIn = me.reqIn.filter((x) => x !== t);
+        other.reqOut = other.reqOut.filter((x) => x !== uid);
+        me.friends.push(t);
+        other.friends.push(uid);
+      } else {
+        if (other.reqIn.length >= 60) return json4({ ok: false, err: "full" });
+        me.reqOut.push(t);
+        other.reqIn.push(uid);
+      }
+      await save(uid, me);
+      await save(t, other);
+      return json4({ ok: true, ...await view(st, uid, me) });
+    }
+    if (act === "accept" || act === "reject") {
+      const t = clip2(b.target, 24);
+      if (!me.reqIn.includes(t)) return json4({ ok: false, err: "noreq" });
+      const other = await load(t);
+      me.reqIn = me.reqIn.filter((x) => x !== t);
+      other.reqOut = other.reqOut.filter((x) => x !== uid);
+      if (act === "accept") {
+        if (!me.friends.includes(t)) me.friends.push(t);
+        if (!other.friends.includes(uid)) other.friends.push(uid);
+      }
+      await save(uid, me);
+      await save(t, other);
+      return json4({ ok: true, ...await view(st, uid, me) });
+    }
+    if (act === "cancel") {
+      const t = clip2(b.target, 24);
+      const other = await load(t);
+      me.reqOut = me.reqOut.filter((x) => x !== t);
+      other.reqIn = other.reqIn.filter((x) => x !== uid);
+      await save(uid, me);
+      await save(t, other);
+      return json4({ ok: true, ...await view(st, uid, me) });
+    }
+    if (act === "remove") {
+      const t = clip2(b.target, 24);
+      const other = await load(t);
+      me.friends = me.friends.filter((x) => x !== t);
+      other.friends = other.friends.filter((x) => x !== uid);
+      await save(uid, me);
+      await save(t, other);
+      return json4({ ok: true, ...await view(st, uid, me) });
+    }
+    return json4({ ok: false, err: "action" });
+  } catch (e) {
+    return json4({ ok: false, err: "server", detail: String(e).slice(0, 80) });
+  }
+};
+async function view(st, uid, me) {
+  const get2 = async (id) => {
+    const v = await st.soc.get("fr:" + id, { type: "json" }).catch(() => null) || blank();
+    const p = v.profile || {};
+    return { id, name: p.name || id, rate: p.rate ?? null, msg: p.msg || "", tr: p.tr || 0, ts: p.ts || 0 };
+  };
+  const friends = [];
+  for (const id of me.friends.slice(0, 100)) friends.push(await get2(id));
+  friends.sort((a, z) => (z.rate ?? -1e9) - (a.rate ?? -1e9));
+  const reqIn = [];
+  for (const id of me.reqIn.slice(0, 30)) reqIn.push(await get2(id));
+  const reqOut = [];
+  for (const id of me.reqOut.slice(0, 30)) reqOut.push(await get2(id));
+  return { me: { id: uid, ...me.profile }, friends, reqIn, reqOut };
+}
+
+// netlify/functions/fundamentals.js
+init_store();
+init_euckr();
+var ENV4 = null;
+function _mkDec5(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA13 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var NV = { "User-Agent": UA13, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" };
+var settle = (p) => p.then((v) => ({ v })).catch((e) => ({ e: String(e && e.message || e) }));
+var numish2 = (v) => {
+  if (v == null || v === "") return null;
+  const n = Number(String(v).replace(/[,\s]/g, ""));
+  return isNaN(n) ? String(v) : n;
+};
+var pick2 = (o, keys) => {
+  if (!o) return null;
+  for (const k of keys) if (o[k] != null && o[k] !== "") return o[k];
+  return null;
+};
+async function jget6(url, ms, headers = NV) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers, signal: c.signal });
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+function classifyNaver(title) {
+  const t = title.replace(/\s/g, "");
+  if (/(률|율|ROE|ROA|EPS|BPS|PER|PBR|PCR|PSR|EV|배당|DPS|비율|유보|주당|EBITDA|CAPEX|FCF)/i.test(t)) return "metrics";
+  if (/(매출|영업이익|매출총이익|판매비|당기순이익|순이익|영업손익|세전|이익)/.test(t)) return "income";
+  return "metrics";
+}
+async function naverFinance(code) {
+  const d = await jget6(`https://m.stock.naver.com/api/stock/${code}/finance/annual`, 4500);
+  const fi = d && (d.financeInfo || d);
+  const titles = fi && (fi.trTitleList || fi.titleList);
+  const rowList = fi && (fi.rowList || fi.rows);
+  if (!Array.isArray(titles) || !Array.isArray(rowList)) throw new Error("naver-finance-shape");
+  const periods = titles.map((t) => ({ key: t.key || t.title, title: String(t.title || t.key || "").replace(/\.$/, ""), forecast: t.isConsensus === "Y" }));
+  const rows = rowList.map((r) => {
+    const cols = r.columns || {};
+    const values = {};
+    for (const k of Object.keys(cols)) {
+      const cell = cols[k];
+      values[k] = cell && (cell.value != null ? cell.value : cell);
+    }
+    return { title: String(r.title || "").trim(), values };
+  });
+  return {
+    income: { periods, rows: rows.filter((r) => classifyNaver(r.title) === "income") },
+    metrics: { periods, rows: rows.filter((r) => classifyNaver(r.title) === "metrics") }
+  };
+}
+var _yAuth = { at: 0, cookie: "", crumb: "" };
+async function fetchTO(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    return await fetch(url, { headers, signal: c.signal, redirect: "follow" });
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function yahooAuth3(force) {
+  if (!force && _yAuth.crumb && Date.now() - _yAuth.at < 6 * 36e5) return _yAuth;
+  let cookie = "";
+  for (const u of ["https://fc.yahoo.com/", "https://finance.yahoo.com/"]) {
+    try {
+      const r = await fetchTO(u, 3e3, { "User-Agent": UA13, "Accept": "text/html,*/*" });
+      const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [r.headers.get("set-cookie") || ""];
+      const ck = sc.map((s) => String(s).split(";")[0]).filter(Boolean).join("; ");
+      if (ck) {
+        cookie = ck;
+        break;
+      }
+    } catch {
+    }
+  }
+  let crumb = "";
+  for (const u of ["https://query2.finance.yahoo.com/v1/test/getcrumb", "https://query1.finance.yahoo.com/v1/test/getcrumb"]) {
+    try {
+      const r = await fetchTO(u, 3e3, { "User-Agent": UA13, "Cookie": cookie, "Accept": "text/plain" });
+      const tx = (await r.text()).trim();
+      if (tx && tx.length < 30 && !/[<{]/.test(tx)) {
+        crumb = tx;
+        break;
+      }
+    } catch {
+    }
+  }
+  _yAuth = { at: Date.now(), cookie, crumb };
+  return _yAuth;
+}
+var fmtEok = (raw) => {
+  const n = Math.round(Number(raw) / 1e8);
+  return n.toLocaleString("ko-KR");
+};
+async function yahooFinancials(code, auth) {
+  const { cookie, crumb } = auth || await yahooAuth3();
+  const types = ["annualTotalAssets", "annualTotalLiabilitiesNetMinorityInterest", "annualStockholdersEquity", "annualCommonStock", "annualOperatingCashFlow", "annualInvestingCashFlow", "annualFinancingCashFlow", "annualChangesInCash"];
+  const p2 = Math.floor(Date.now() / 1e3), p1 = p2 - Math.floor(5.5 * 365 * 24 * 3600);
+  let lastErr = "no-data";
+  for (const sfx of ["KS", "KQ"]) {
+    try {
+      const sym = `${code}.${sfx}`;
+      const url = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${sym}?symbol=${sym}&type=${types.join(",")}&period1=${p1}&period2=${p2}&merge=false${crumb ? "&crumb=" + encodeURIComponent(crumb) : ""}`;
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 5e3);
+      let txt;
+      try {
+        const r = await fetch(url, { headers: { "User-Agent": UA13, "Cookie": cookie, "Accept": "application/json" }, signal: c.signal });
+        txt = await r.text();
+      } finally {
+        clearTimeout(t);
+      }
+      let j;
+      try {
+        j = JSON.parse(txt);
+      } catch {
+        lastErr = "non-json:" + txt.slice(0, 30);
+        continue;
+      }
+      const result = j && j.timeseries && j.timeseries.result;
+      if (!result || !result.length) {
+        const e = j && j.timeseries && j.timeseries.error;
+        lastErr = e ? "err:" + (e.description || e.code) : "empty";
+        continue;
+      }
+      const byType = {};
+      for (const r of result) {
+        const ty = r.meta && r.meta.type && r.meta.type[0];
+        if (ty && r[ty]) byType[ty] = r[ty];
+      }
+      const dates = /* @__PURE__ */ new Set();
+      Object.values(byType).forEach((arr) => arr.forEach((x) => {
+        if (x && x.asOfDate) dates.add(x.asOfDate);
+      }));
+      const periods = [...dates].sort().map((d) => ({ key: d, title: d.slice(0, 7).replace("-", "/"), forecast: false }));
+      if (!periods.length) {
+        lastErr = "no-dates";
+        continue;
+      }
+      const valOf = (ty, date) => {
+        const arr = byType[ty] || [];
+        const hit = arr.find((x) => x && x.asOfDate === date);
+        return hit && hit.reportedValue && hit.reportedValue.raw != null ? hit.reportedValue.raw : null;
+      };
+      const mkRows = (defs) => defs.map(([name, ty]) => ({ title: name, values: Object.fromEntries(periods.map((p) => [p.key, valOf(ty, p.key) != null ? fmtEok(valOf(ty, p.key)) : ""])) })).filter((r) => Object.values(r.values).some((v) => v !== ""));
+      const balRows = mkRows([["\uC790\uC0B0\uCD1D\uACC4", "annualTotalAssets"], ["\uBD80\uCC44\uCD1D\uACC4", "annualTotalLiabilitiesNetMinorityInterest"], ["\uC790\uBCF8\uCD1D\uACC4", "annualStockholdersEquity"], ["\uC790\uBCF8\uAE08", "annualCommonStock"]]);
+      const cfRows = mkRows([["\uC601\uC5C5\uD65C\uB3D9\uD604\uAE08\uD750\uB984", "annualOperatingCashFlow"], ["\uD22C\uC790\uD65C\uB3D9\uD604\uAE08\uD750\uB984", "annualInvestingCashFlow"], ["\uC7AC\uBB34\uD65C\uB3D9\uD604\uAE08\uD750\uB984", "annualFinancingCashFlow"], ["\uD604\uAE08\uC758 \uC99D\uAC00", "annualChangesInCash"]]);
+      if (balRows.length || cfRows.length) return { balance: balRows.length ? { periods, rows: balRows } : null, cashflow: cfRows.length ? { periods, rows: cfRows } : null, err: null };
+      lastErr = "rows-empty";
+    } catch (e) {
+      lastErr = "ex:" + String(e && e.message || e).slice(0, 40);
+    }
+  }
+  return { balance: null, cashflow: null, err: lastErr };
+}
+async function yahooRecommend(code, auth) {
+  let { cookie, crumb } = auth || await yahooAuth3();
+  let lastErr = "no-data", retried = false;
+  const hosts = ["query2.finance.yahoo.com", "query1.finance.yahoo.com"];
+  for (let hi = 0; hi < hosts.length; hi++) {
+    for (const sfx of ["KS", "KQ"]) {
+      try {
+        const sym = `${code}.${sfx}`;
+        const url = `https://${hosts[hi]}/v10/finance/quoteSummary/${sym}?modules=financialData${crumb ? "&crumb=" + encodeURIComponent(crumb) : ""}`;
+        let txt;
+        try {
+          const r = await fetchTO(url, 4e3, { "User-Agent": UA13, "Cookie": cookie, "Accept": "application/json" });
+          txt = await r.text();
+        } catch {
+          lastErr = "timeout";
+          continue;
+        }
+        let j;
+        try {
+          j = JSON.parse(txt);
+        } catch {
+          lastErr = "non-json";
+          continue;
+        }
+        const err = j && (j.quoteSummary && j.quoteSummary.error || j.finance && j.finance.error);
+        if (err && /crumb|unauthoriz/i.test(String(err.description || err.code || "")) && !retried) {
+          retried = true;
+          ({ cookie, crumb } = await yahooAuth3(true));
+          hi = -1;
+          break;
+        }
+        const res = j && j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
+        if (!res || !res.financialData) {
+          lastErr = err ? "err:" + (err.description || err.code) : "no-fd";
+          continue;
+        }
+        const fd = res.financialData;
+        const g = (x) => x && x.raw != null ? x.raw : null;
+        const out = { recMean: g(fd.recommendationMean), recKey: fd.recommendationKey || null, targetMean: g(fd.targetMeanPrice), targetHigh: g(fd.targetHighPrice), targetLow: g(fd.targetLowPrice), numAnalysts: g(fd.numberOfAnalystOpinions), current: g(fd.currentPrice) };
+        if (out.recMean != null || out.targetMean != null) return { ...out, err: null };
+        lastErr = "empty-fd";
+      } catch (e) {
+        lastErr = "ex";
+      }
+    }
+  }
+  return { err: lastErr };
+}
+async function naverResearch(code) {
+  const urls = [
+    `https://m.stock.naver.com/api/research/stock/${code}?pageSize=30&page=1`,
+    `https://api.stock.naver.com/research/stock/${code}?pageSize=30&page=1`
+  ];
+  for (const u of urls) {
+    try {
+      const j = await jget6(u, 4e3);
+      if (!j) continue;
+      const found = [];
+      const walk = (o, d) => {
+        if (!o || d > 4) return;
+        if (Array.isArray(o)) {
+          if (o.length && typeof o[0] === "object" && o[0]) {
+            const ks = Object.keys(o[0]).join(",");
+            if (/tit|title|subject/i.test(ks) && /bnm|broker|office|securities|corp|writer/i.test(ks)) found.push(o);
+          }
+          o.forEach((v) => walk(v, d + 1));
+          return;
+        }
+        if (typeof o === "object") Object.values(o).forEach((v) => walk(v, d + 1));
+      };
+      walk(j, 0);
+      const arr = found.sort((a, b) => b.length - a.length)[0];
+      if (!arr) continue;
+      const rows = arr.map((r) => {
+        const title = pick2(r, ["tit", "title", "reportTitle", "subject"]) || "";
+        const target = numish2(pick2(r, ["targetPrice", "goalPrice", "objectStockPrice", "target"])) || targetFromTitle(title);
+        return {
+          broker: pick2(r, ["bnm", "officeName", "brokerName", "securitiesName", "corpName", "writer"]) || "",
+          target: typeof target === "number" ? target : null,
+          opinion: pick2(r, ["opinion", "investmentOpinion", "grade"]) || opinionFromTitle(title),
+          date: pick2(r, ["wdt", "date", "writeDate", "regDate", "researchDate"]) || "",
+          title
+        };
+      }).filter((r) => r.broker || r.title).slice(0, 30);
+      if (rows.length) return rows;
+    } catch {
+    }
+  }
+  return [];
+}
+function computeEstimate({ price, h52, l52, stats }) {
+  const sv = (labels) => {
+    for (const s of stats || []) {
+      const lb = String(s.label || "").replace(/\s/g, "");
+      if (labels.some((k) => lb.includes(k))) {
+        const n = Number(String(s.value).replace(/[^0-9.-]/g, ""));
+        if (isFinite(n) && n !== 0) return n;
+      }
+    }
+    return null;
+  };
+  const eps = sv(["EPS"]), bps = sv(["BPS"]), per = sv(["PER"]);
+  const cands = [];
+  if (eps != null && eps > 0) {
+    const mult = per != null && per > 0 ? Math.min(Math.max(per, 7), 20) : 11;
+    cands.push(eps * mult);
+  }
+  if (bps != null && bps > 0) cands.push(bps * 1.1);
+  if (h52 && l52 && h52 > l52) cands.push(l52 + (h52 - l52) * 0.6);
+  if (price > 0) cands.push(price * 1.08);
+  const ok2 = cands.filter((v) => price > 0 ? v >= price * 0.45 && v <= price * 2.4 : v > 0);
+  if (!ok2.length || !(price > 0)) return null;
+  ok2.sort((a, b) => a - b);
+  const mid = ok2.length % 2 ? ok2[(ok2.length - 1) / 2] : (ok2[ok2.length / 2 - 1] + ok2[ok2.length / 2]) / 2;
+  const round = (v) => {
+    const st = v >= 1e5 ? 500 : v >= 1e4 ? 100 : v >= 1e3 ? 10 : 1;
+    return Math.round(v / st) * st;
+  };
+  return {
+    target: round(mid),
+    high: round(mid * 1.12),
+    low: round(mid * 0.88),
+    basis: [eps > 0 ? "EPS" : null, bps > 0 ? "BPS" : null, h52 && l52 ? "52\uC8FC \uBC94\uC704" : null, "\uC8FC\uAC00 \uCD94\uC138"].filter(Boolean).join("\xB7")
+  };
+}
+async function naverIntegration(code) {
+  return await jget6(`https://m.stock.naver.com/api/stock/${code}/integration`, 4e3);
+}
+function normStats(integ) {
+  const src = integ && (integ.totalInfos || integ.stockItemTotalInfos || []);
+  const out = [];
+  if (Array.isArray(src)) src.forEach((it) => {
+    const label = it.key || it.name;
+    const value = it.value;
+    if (label && value != null && value !== "") out.push({ code: it.code || "", label, value });
+  });
+  return out;
+}
+function normConsensus(integ) {
+  const c = integ && (integ.consensusInfo || integ.consensus);
+  if (!c) return null;
+  return { targetPrice: pick2(c, ["priceTarget", "targetPrice", "consensusTargetPrice", "target"]), opinion: pick2(c, ["opinion", "investmentOpinion", "consensusOpinion"]), per: pick2(c, ["per", "cnsPer"]), eps: pick2(c, ["eps", "cnsEps"]) };
+}
+function targetFromTitle(t) {
+  if (!t) return null;
+  if (/목표|TP/i.test(t)) {
+    const arrow = t.match(/([0-9][0-9,]{3,})\s*(?:→|~|->)\s*([0-9][0-9,]{3,})/);
+    if (arrow) {
+      const n2 = Number(arrow[2].replace(/,/g, ""));
+      if (n2 >= 1e3 && n2 <= 3e6) return n2;
+    }
+  }
+  let m = t.match(/(?:목표\s*주?가|목표가|TP|목표)[^0-9]{0,8}([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,7})/i);
+  if (!m) return null;
+  const n = Number(String(m[1]).replace(/,/g, ""));
+  return n >= 1e3 && n <= 3e6 ? n : null;
+}
+function opinionFromTitle(t) {
+  if (!t) return "";
+  const m = t.match(/(강력매수|매수|매도|중립|보유|비중확대|비중축소|BUY|HOLD|SELL|Outperform|Overweight)/i);
+  return m ? m[1] : "";
+}
+function brokersDiag(integ) {
+  const arr = integ && (integ.researches || integ.researchInfos || integ.reportList || integ.researchList || integ.reports);
+  if (!Array.isArray(arr) || !arr.length) return integ ? "none:" + Object.keys(integ).slice(0, 15).join(",") : "no-integ";
+  return "n=" + arr.length + ";keys:" + Object.keys(arr[0]).slice(0, 12).join(",");
+}
+function normBrokers(integ) {
+  const arr = integ && (integ.researches || integ.researchInfos || integ.reportList || integ.researchList || integ.reports);
+  if (!Array.isArray(arr) || !arr.length) return [];
+  return arr.map((r) => {
+    const title = pick2(r, ["tit", "title", "reportTitle", "subject"]) || "";
+    const target = numish2(pick2(r, ["targetPrice", "goalPrice", "objectStockPrice", "target"])) || targetFromTitle(title);
+    return {
+      broker: pick2(r, ["bnm", "officeName", "brokerName", "securitiesName", "writer", "corpName"]) || "",
+      target: typeof target === "number" ? target : null,
+      opinion: pick2(r, ["opinion", "investmentOpinion", "grade"]) || opinionFromTitle(title),
+      date: pick2(r, ["wdt", "date", "writeDate", "regDate"]) || "",
+      title
+    };
+  }).filter((r) => r.broker).slice(0, 30);
+}
+function decodeSmart6(buf, contentType) {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  const head = _mkDec5("latin1").decode(bytes.slice(0, 1500));
+  let declared = ((String(contentType || "").match(/charset=["']?([\w-]+)/i) || head.match(/charset=["']?([\w-]+)/i) || [])[1] || "").toLowerCase();
+  const tryDec = (enc, fatal) => {
+    try {
+      return _mkDec5(enc, { fatal }).decode(bytes);
+    } catch {
+      return null;
+    }
+  };
+  return tryDec("utf-8", true) || (declared && declared !== "utf-8" && declared !== "utf8" ? tryDec(declared, true) : null) || tryDec("euc-kr", true) || tryDec("utf-8", false);
+}
+async function naverMainHtml(code) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 5500);
+  try {
+    const r = await fetch(
+      `https://finance.naver.com/item/main.naver?code=${code}`,
+      { headers: { "User-Agent": UA13, Accept: "text/html,*/*", "Accept-Language": "ko" }, signal: c.signal }
+    );
+    if (!r.ok) return null;
+    return decodeSmart6(await r.arrayBuffer(), r.headers.get("content-type"));
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+var stripHtml = (h) => String(h || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&#39;|&apos;/gi, "'").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
+function parseOverview(html) {
+  if (!html) return null;
+  const i = String(html).indexOf("summary_info");
+  if (i < 0) return null;
+  const win = String(html).slice(i, i + 6e3);
+  const ps = [...win.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)].map((x) => stripHtml(x[1])).filter((x) => x.length >= 10 && /[가-힣]/.test(x) && !/\uFFFD/.test(x));
+  return ps.length ? ps.slice(0, 6) : null;
+}
+function parse52w(html) {
+  if (!html) return null;
+  const i = String(html).indexOf("52\uC8FC\uCD5C\uACE0");
+  if (i < 0) return null;
+  const win = String(html).slice(i, i + 400);
+  const nums = [...win.matchAll(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,8})/g)].map((m) => Number(m[1].replace(/,/g, ""))).filter((v) => v >= 50 && v < 1e8);
+  if (nums.length < 2) return null;
+  const h = Math.max(nums[0], nums[1]), l = Math.min(nums[0], nums[1]);
+  return h > l ? { h52: h, l52: l } : null;
+}
+function parseGoal(html) {
+  if (!html) return null;
+  const seg = String(html).match(/투자의견[\s\S]{0,400}?목표주가[\s\S]{0,700}?<\/tr>/) || String(html).match(/목표주가[\s\S]{0,700}?<\/tr>/);
+  if (!seg) return null;
+  const ems = [...seg[0].matchAll(/<em[^>]*>([\s\S]*?)<\/em>/g)].map((x) => stripHtml(x[1]));
+  let opinion = null, target = null, score2 = null;
+  for (const e of ems) {
+    const op = e.match(/([0-9.]+)\s*(강력매수|매수|중립|보유|매도)/);
+    if (op && !opinion) {
+      opinion = `${op[2]} ${op[1]}`;
+      const n = Number(op[1]);
+      if (isFinite(n) && n >= 1 && n <= 5) score2 = n;
+    }
+    if (target == null) {
+      const digits = e.replace(/,/g, "");
+      if (/^[0-9]{3,7}$/.test(digits)) target = Number(digits);
+    }
+  }
+  if (target == null) {
+    const n2 = seg[0].match(/([0-9]{1,3}(?:,[0-9]{3})+)/);
+    if (n2) {
+      const n = Number(n2[1].replace(/,/g, ""));
+      if (n >= 500 && n <= 3e6) target = n;
+    }
+  }
+  return target != null || opinion ? { target: target != null ? target : null, opinion, score: score2 } : null;
+}
+async function ovStore() {
+  try {
+    return await getStoreX({ name: "company-overview" }, ENV4);
+  } catch {
+    return null;
+  }
+}
+async function fetchTxt(url, ms, extra) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms || 6e3);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA13, Accept: "text/html,application/json,*/*", "Accept-Language": "ko", ...extra || {} }, signal: c.signal });
+    if (!r.ok) return { err: String(r.status) };
+    return { txt: decodeSmart6(await r.arrayBuffer(), r.headers.get("content-type")) };
+  } catch (e) {
+    return { err: String(e).slice(0, 24) };
+  } finally {
+    clearTimeout(t);
+  }
+}
+function paraFrom(html, marker, win) {
+  const i = String(html || "").indexOf(marker);
+  if (i < 0) return null;
+  const w = String(html).slice(i, i + (win || 8e3));
+  let ps = [...w.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)].map((x) => stripHtml(x[1]));
+  if (!ps.length) ps = [...w.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((x) => stripHtml(x[1]));
+  ps = ps.filter((x) => x.length >= 12 && /[가-힣]/.test(x) && !/\uFFFD/.test(x));
+  return ps.length ? ps.slice(0, 6) : null;
+}
+function deepKoreanStrings(v, out, depth) {
+  if (!v || depth > 6 || out.length > 40) return out;
+  if (typeof v === "string") {
+    if (v.length >= 40 && /[가-힣]/.test(v) && /사업|영위|생산|제조|서비스|판매|설립/.test(v)) out.push(v);
+    return out;
+  }
+  if (Array.isArray(v)) {
+    v.forEach((x) => deepKoreanStrings(x, out, depth + 1));
+    return out;
+  }
+  if (typeof v === "object") {
+    Object.values(v).forEach((x) => deepKoreanStrings(x, out, depth + 1));
+    return out;
+  }
+  return out;
+}
+async function overviewAlt(code, diag) {
+  const a = await fetchTxt(`https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A${code}&cID=&MenuYn=Y&ReportGB=&NewMenuID=101&stkGb=701`, 6500, { Referer: "https://comp.fnguide.com/" });
+  if (a.txt) {
+    const ps = paraFrom(a.txt, "bizSummary", 9e3) || paraFrom(a.txt, "\uAE30\uC5C5\uAC1C\uC694", 6e3);
+    diag.push("fnguide:" + (ps ? "ok" + ps.length : "nomark"));
+    if (ps) return ps;
+  } else diag.push("fnguide:" + a.err);
+  const b = await fetchTxt(`https://navercomp.wisereport.co.kr/v1/company/c1010001.aspx?cmp_cd=${code}`, 6500, { Referer: "https://finance.naver.com/" });
+  if (b.txt) {
+    const ps = paraFrom(b.txt, "\uAE30\uC5C5\uAC1C\uC694", 9e3) || paraFrom(b.txt, "cmp_comment", 8e3);
+    diag.push("wise:" + (ps ? "ok" + ps.length : "nomark"));
+    if (ps) return ps;
+  } else diag.push("wise:" + b.err);
+  const c = await fetchTxt(`https://m.stock.naver.com/api/stock/${code}/integration`, 5e3, { Referer: "https://m.stock.naver.com/" });
+  if (c.txt) {
+    try {
+      const hits = deepKoreanStrings(JSON.parse(c.txt), [], 0);
+      if (hits.length) {
+        const best = hits.sort((x, y) => y.length - x.length)[0];
+        const ps = best.split(/(?<=\.)\s+/).map((x) => x.trim()).filter((x) => x.length >= 12).slice(0, 6);
+        diag.push("mstock:ok" + ps.length);
+        if (ps.length) return ps;
+      } else diag.push("mstock:nohit");
+    } catch (e) {
+      diag.push("mstock:parse");
+    }
+  } else diag.push("mstock:" + c.err);
+  return null;
+}
+async function getOverviewGoal(code, probe2) {
+  const store = await ovStore();
+  if (store && !probe2) {
+    try {
+      const c = await store.get("ov2:" + code, { type: "json" });
+      if (c && Date.now() - (c.at || 0) < 24 * 3600 * 1e3) return c;
+    } catch {
+    }
+  }
+  const html = await naverMainHtml(code);
+  let overview = parseOverview(html);
+  const ovDiag = [overview ? "naver:ok" + overview.length : "naver:none"];
+  if (!overview) {
+    const alt = await overviewAlt(code, ovDiag);
+    if (alt && alt.length) overview = alt;
+  }
+  const goal = parseGoal(html);
+  const w52 = parse52w(html);
+  const rec = { overview, goal, w52, at: Date.now() };
+  rec.ovDiag = ovDiag;
+  if (probe2) rec._probe = { htmlLen: html ? html.length : 0, hasSummaryDiv: !!(html && /class="summary_info"/.test(html)), hasGoalWord: !!(html && /목표주가/.test(html)), overviewN: overview ? overview.length : 0, goal };
+  if (store && (overview || goal)) {
+    try {
+      await store.setJSON("ov2:" + code, { overview, goal, w52, at: rec.at });
+    } catch {
+    }
+  }
+  return rec;
+}
+var fundamentals_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "005930").replace(/[^0-9A-Za-z]/g, "");
+  const probe2 = url.searchParams.get("probe") === "1";
+  const auth = await yahooAuth3();
+  const [nv, yh, yr, ig, og, rs] = await Promise.all([settle(naverFinance(code)), settle(yahooFinancials(code, auth)), settle(yahooRecommend(code, auth)), settle(naverIntegration(code)), settle(getOverviewGoal(code, probe2)), settle(naverResearch(code))]);
+  const nvFin = nv.v || {};
+  const yhFin = yh.v || {};
+  const rec = yr.v || {};
+  const finance = { income: nvFin.income || null, metrics: nvFin.metrics || null, balance: yhFin.balance || null, cashflow: yhFin.cashflow || null };
+  const integ = ig.v || null;
+  const nc = normConsensus(integ);
+  const ov = og.v || {};
+  const brokerSeen = /* @__PURE__ */ new Set();
+  const brokers = [...normBrokers(integ), ...rs.v && Array.isArray(rs.v) ? rs.v : []].filter((b) => {
+    const k = (b.broker || "") + "|" + String(b.date || "").slice(0, 10) + "|" + (b.target || "");
+    if (brokerSeen.has(k)) return false;
+    brokerSeen.add(k);
+    return true;
+  }).slice(0, 30);
+  const consensus = { recMean: rec.recMean != null ? rec.recMean : null, recKey: rec.recKey || null, targetMean: rec.targetMean != null ? rec.targetMean : nc && typeof nc.targetPrice === "number" ? nc.targetPrice : null, targetHigh: rec.targetHigh != null ? rec.targetHigh : null, targetLow: rec.targetLow != null ? rec.targetLow : null, numAnalysts: rec.numAnalysts != null ? rec.numAnalysts : null, naverOpinion: nc && nc.opinion || null, naverTarget: nc && nc.targetPrice || null, brokers };
+  if (consensus.targetMean != null) consensus.targetSource = rec.targetMean != null ? "\uC57C\uD6C4 \uD30C\uC774\uB0B8\uC2A4" : "\uB124\uC774\uBC84 \uD1B5\uD569";
+  if (consensus.targetMean == null && ov.goal && typeof ov.goal.target === "number") {
+    consensus.targetMean = ov.goal.target;
+    consensus.targetSource = "\uB124\uC774\uBC84 \uD22C\uC790\uC815\uBCF4";
+    if (!consensus.naverOpinion && ov.goal.opinion) consensus.naverOpinion = ov.goal.opinion;
+  }
+  if (consensus.targetMean == null) {
+    const withT = brokers.filter((b) => b.target);
+    if (withT.length) {
+      consensus.targetMean = Math.round(withT.reduce((s, b) => s + b.target, 0) / withT.length);
+      consensus.targetSource = "\uB124\uC774\uBC84 \uB9AC\uC11C\uCE58";
+    }
+  }
+  if (ov.goal && ov.goal.score != null) consensus.naverScore = ov.goal.score;
+  {
+    const statsArr = normStats(integ);
+    const statNum = (keys) => {
+      for (const s of statsArr) {
+        const lb = String(s.label || "").replace(/\s/g, "");
+        if (keys.some((k) => lb.includes(k))) {
+          const n = Number(String(s.value).replace(/[^0-9.-]/g, ""));
+          if (isFinite(n) && n > 0) return n;
+        }
+      }
+      return null;
+    };
+    const h52v = ov.w52 && ov.w52.h52 || null, l52v = ov.w52 && ov.w52.l52 || null;
+    const basePrice = (rec.current != null && rec.current > 0 ? rec.current : null) || statNum(["\uD604\uC7AC\uAC00", "\uC804\uC77C", "\uC885\uAC00"]) || (h52v && l52v ? (h52v + l52v) / 2 : null);
+    const est = basePrice ? computeEstimate({ price: basePrice, h52: h52v, l52: l52v, stats: statsArr }) : null;
+    if (est) consensus.estimate = est;
+  }
+  const body = {
+    ok: true,
+    code,
+    finance,
+    consensus,
+    overview: ov.overview || null,
+    ovDiag: ov.ovDiag || null,
+    h52: ov.w52 && ov.w52.h52 || null,
+    l52: ov.w52 && ov.w52.l52 || null,
+    goalNaver: ov.goal || null,
+    stats: normStats(integ),
+    _diag: { nvErr: nv.e || null, yhErr: yh.e || (yhFin.err || null), recErr: yr.e || (rec.err || null), igErr: ig.e || null, ovErr: og.e || null, ovProbe: probe2 ? ov._probe || null : void 0, brokers: brokersDiag(integ) }
+  };
+  return new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": probe2 ? "no-store" : "s-maxage=300" } });
+};
+
+// netlify/functions/fx.js
+var UA14 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var num6 = (v) => {
+  const n = Number(String(v == null ? "" : v).replace(/[^0-9.eE+-]/g, ""));
+  return isFinite(n) ? n : null;
+};
+async function jget7(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA14, Accept: "application/json", ...headers || {} }, signal: c.signal });
+    const txt = await r.text();
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+var META = [
+  ["USD", "\u{1F1FA}\u{1F1F8}", "\uBBF8\uAD6D \uB2EC\uB7EC"],
+  ["JPY", "\u{1F1EF}\u{1F1F5}", "\uC77C\uBCF8 \uC5D4"],
+  ["EUR", "\u{1F1EA}\u{1F1FA}", "\uC720\uB85C"],
+  ["CNY", "\u{1F1E8}\u{1F1F3}", "\uC911\uAD6D \uC704\uC548"],
+  ["GBP", "\u{1F1EC}\u{1F1E7}", "\uC601\uAD6D \uD30C\uC6B4\uB4DC"],
+  ["CHF", "\u{1F1E8}\u{1F1ED}", "\uC2A4\uC704\uC2A4 \uD504\uB791"],
+  ["CAD", "\u{1F1E8}\u{1F1E6}", "\uCE90\uB098\uB2E4 \uB2EC\uB7EC"],
+  ["AUD", "\u{1F1E6}\u{1F1FA}", "\uD638\uC8FC \uB2EC\uB7EC"],
+  ["NZD", "\u{1F1F3}\u{1F1FF}", "\uB274\uC9C8\uB79C\uB4DC \uB2EC\uB7EC"],
+  ["HKD", "\u{1F1ED}\u{1F1F0}", "\uD64D\uCF69 \uB2EC\uB7EC"],
+  ["TWD", "\u{1F1F9}\u{1F1FC}", "\uB300\uB9CC \uB2EC\uB7EC"],
+  ["SGD", "\u{1F1F8}\u{1F1EC}", "\uC2F1\uAC00\uD3EC\uB974 \uB2EC\uB7EC"],
+  ["THB", "\u{1F1F9}\u{1F1ED}", "\uD0DC\uAD6D \uBC14\uD2B8"],
+  ["VND", "\u{1F1FB}\u{1F1F3}", "\uBCA0\uD2B8\uB0A8 \uB3D9"],
+  ["IDR", "\u{1F1EE}\u{1F1E9}", "\uC778\uB3C4\uB124\uC2DC\uC544 \uB8E8\uD53C\uC544"],
+  ["INR", "\u{1F1EE}\u{1F1F3}", "\uC778\uB3C4 \uB8E8\uD53C"],
+  ["PHP", "\u{1F1F5}\u{1F1ED}", "\uD544\uB9AC\uD540 \uD398\uC18C"],
+  ["MYR", "\u{1F1F2}\u{1F1FE}", "\uB9D0\uB808\uC774\uC2DC\uC544 \uB9C1\uAE43"],
+  ["AED", "\u{1F1E6}\u{1F1EA}", "UAE \uB514\uB974\uD568"],
+  ["SAR", "\u{1F1F8}\u{1F1E6}", "\uC0AC\uC6B0\uB514 \uB9AC\uC584"],
+  ["KWD", "\u{1F1F0}\u{1F1FC}", "\uCFE0\uC6E8\uC774\uD2B8 \uB514\uB098\uB974"],
+  ["BHD", "\u{1F1E7}\u{1F1ED}", "\uBC14\uB808\uC778 \uB514\uB098\uB974"],
+  ["RUB", "\u{1F1F7}\u{1F1FA}", "\uB7EC\uC2DC\uC544 \uB8E8\uBE14"],
+  ["BRL", "\u{1F1E7}\u{1F1F7}", "\uBE0C\uB77C\uC9C8 \uD5E4\uC54C"],
+  ["MXN", "\u{1F1F2}\u{1F1FD}", "\uBA55\uC2DC\uCF54 \uD398\uC18C"],
+  ["TRY", "\u{1F1F9}\u{1F1F7}", "\uD280\uB974\uD0A4\uC608 \uB9AC\uB77C"],
+  ["ZAR", "\u{1F1FF}\u{1F1E6}", "\uB0A8\uC544\uACF5 \uB79C\uB4DC"],
+  ["EGP", "\u{1F1EA}\u{1F1EC}", "\uC774\uC9D1\uD2B8 \uD30C\uC6B4\uB4DC"],
+  ["SEK", "\u{1F1F8}\u{1F1EA}", "\uC2A4\uC6E8\uB374 \uD06C\uB85C\uB098"],
+  ["NOK", "\u{1F1F3}\u{1F1F4}", "\uB178\uB974\uC6E8\uC774 \uD06C\uB85C\uB124"],
+  ["DKK", "\u{1F1E9}\u{1F1F0}", "\uB374\uB9C8\uD06C \uD06C\uB85C\uB124"],
+  ["PLN", "\u{1F1F5}\u{1F1F1}", "\uD3F4\uB780\uB4DC \uC988\uC6CC\uD2F0"],
+  ["CZK", "\u{1F1E8}\u{1F1FF}", "\uCCB4\uCF54 \uCF54\uB8E8\uB098"],
+  ["HUF", "\u{1F1ED}\u{1F1FA}", "\uD5DD\uAC00\uB9AC \uD3EC\uB9B0\uD2B8"]
+];
+var ORDER = Object.fromEntries(META.map(([c], i) => [c, i]));
+var KNAME = Object.fromEntries(META.map(([c, , n]) => [c, n]));
+var NON_COUNTRY = { EUR: "\u{1F1EA}\u{1F1FA}", XAU: "\u{1FA99}", XAG: "\u{1FA99}", XPT: "\u{1FA99}", XPD: "\u{1FA99}", XDR: "\u{1F310}", ANG: "\u{1F1F3}\u{1F1F1}", XOF: "\u{1F30D}", XAF: "\u{1F30D}", XPF: "\u{1F30F}" };
+function flagOf(cur) {
+  const meta = META.find(([c]) => c === cur);
+  if (meta) return meta[1];
+  if (NON_COUNTRY[cur]) return NON_COUNTRY[cur];
+  const cc = String(cur).slice(0, 2);
+  if (!/^[A-Z]{2}$/.test(cc)) return "\u{1F310}";
+  return String.fromCodePoint(127462 + cc.charCodeAt(0) - 65, 127462 + cc.charCodeAt(1) - 65);
+}
+Object.assign(KNAME, {
+  JOD: "\uC694\uB974\uB2E8 \uB514\uB098\uB974",
+  KZT: "\uCE74\uC790\uD750\uC2A4\uD0C4 \uD161\uAC8C",
+  MNT: "\uBABD\uACE8 \uD22C\uADF8\uB9AC\uD06C",
+  PKR: "\uD30C\uD0A4\uC2A4\uD0C4 \uB8E8\uD53C",
+  QAR: "\uCE74\uD0C0\uB974 \uB9AC\uC584",
+  OMR: "\uC624\uB9CC \uB9AC\uC584",
+  ILS: "\uC774\uC2A4\uB77C\uC5D8 \uC170\uCF08",
+  BDT: "\uBC29\uAE00\uB77C\uB370\uC2DC \uD0C0\uCE74",
+  LKR: "\uC2A4\uB9AC\uB791\uCE74 \uB8E8\uD53C",
+  NPR: "\uB124\uD314 \uB8E8\uD53C",
+  MMK: "\uBBF8\uC580\uB9C8 \uC9EF",
+  KHR: "\uCE84\uBCF4\uB514\uC544 \uB9AC\uC5D8",
+  LAK: "\uB77C\uC624\uC2A4 \uD0B5",
+  BND: "\uBE0C\uB8E8\uB098\uC774 \uB2EC\uB7EC",
+  MOP: "\uB9C8\uCE74\uC624 \uD30C\uD0C0\uCE74",
+  FJD: "\uD53C\uC9C0 \uB2EC\uB7EC",
+  CLP: "\uCE60\uB808 \uD398\uC18C",
+  COP: "\uCF5C\uB86C\uBE44\uC544 \uD398\uC18C",
+  PEN: "\uD398\uB8E8 \uC194",
+  ARS: "\uC544\uB974\uD5E8\uD2F0\uB098 \uD398\uC18C",
+  RON: "\uB8E8\uB9C8\uB2C8\uC544 \uB808\uC6B0",
+  BGN: "\uBD88\uAC00\uB9AC\uC544 \uB808\uD504",
+  UAH: "\uC6B0\uD06C\uB77C\uC774\uB098 \uD750\uB9AC\uC6B0\uB0D0",
+  ISK: "\uC544\uC774\uC2AC\uB780\uB4DC \uD06C\uB85C\uB098",
+  ETB: "\uC5D0\uD2F0\uC624\uD53C\uC544 \uBE44\uB974",
+  KES: "\uCF00\uB0D0 \uC2E4\uB9C1",
+  NGN: "\uB098\uC774\uC9C0\uB9AC\uC544 \uB098\uC774\uB77C",
+  GHS: "\uAC00\uB098 \uC138\uB514",
+  TZS: "\uD0C4\uC790\uB2C8\uC544 \uC2E4\uB9C1",
+  DZD: "\uC54C\uC81C\uB9AC \uB514\uB098\uB974",
+  MAD: "\uBAA8\uB85C\uCF54 \uB514\uB974\uD568",
+  TND: "\uD280\uB2C8\uC9C0 \uB514\uB098\uB974",
+  LYD: "\uB9AC\uBE44\uC544 \uB514\uB098\uB974",
+  IQD: "\uC774\uB77C\uD06C \uB514\uB098\uB974",
+  UZS: "\uC6B0\uC988\uBCA0\uD0A4\uC2A4\uD0C4 \uC228",
+  GEL: "\uC870\uC9C0\uC544 \uB77C\uB9AC",
+  AZN: "\uC544\uC81C\uB974\uBC14\uC774\uC794 \uB9C8\uB098\uD2B8",
+  AMD: "\uC544\uB974\uBA54\uB2C8\uC544 \uB4DC\uB78C",
+  BYN: "\uBCA8\uB77C\uB8E8\uC2A4 \uB8E8\uBE14",
+  RSD: "\uC138\uB974\uBE44\uC544 \uB514\uB098\uB974",
+  MKD: "\uBD81\uB9C8\uCF00\uB3C4\uB2C8\uC544 \uB514\uB098\uB974",
+  ALL: "\uC54C\uBC14\uB2C8\uC544 \uB808\uD06C",
+  BOB: "\uBCFC\uB9AC\uBE44\uC544 \uBCFC\uB9AC\uBE44\uC544\uB178",
+  PYG: "\uD30C\uB77C\uACFC\uC774 \uACFC\uB77C\uB2C8",
+  UYU: "\uC6B0\uB8E8\uACFC\uC774 \uD398\uC18C",
+  GTQ: "\uACFC\uD14C\uB9D0\uB77C \uCF00\uCC30",
+  DOP: "\uB3C4\uBBF8\uB2C8\uCE74 \uD398\uC18C",
+  JMD: "\uC790\uBA54\uC774\uCE74 \uB2EC\uB7EC",
+  TTD: "\uD2B8\uB9AC\uB2C8\uB2E4\uB4DC \uB2EC\uB7EC",
+  PAB: "\uD30C\uB098\uB9C8 \uBC1C\uBCF4\uC544",
+  CRC: "\uCF54\uC2A4\uD0C0\uB9AC\uCE74 \uCF5C\uB860",
+  HNL: "\uC628\uB450\uB77C\uC2A4 \uB818\uD53C\uB77C",
+  NIO: "\uB2C8\uCE74\uB77C\uACFC \uCF54\uB974\uB3C4\uBC14",
+  XOF: "\uC11C\uC544\uD504\uB9AC\uCE74 \uD504\uB791",
+  XAF: "\uC911\uC559\uC544\uD504\uB9AC\uCE74 \uD504\uB791"
+});
+var ECB = /* @__PURE__ */ new Set(["USD", "JPY", "EUR", "CNY", "GBP", "CHF", "CAD", "AUD", "NZD", "HKD", "SGD", "THB", "IDR", "INR", "PHP", "MYR", "BRL", "MXN", "TRY", "ZAR", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF"]);
+async function daumSummaries() {
+  const j = await jget7(
+    "https://finance.daum.net/api/exchanges/summaries",
+    5e3,
+    { Referer: "https://finance.daum.net/exchanges", Origin: "https://finance.daum.net" }
+  );
+  const arr = j && (j.data || j.exchanges || (Array.isArray(j) ? j : null));
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const out = [];
+  for (const it of arr) {
+    const cur = String(it.currencyCode || (String(it.symbolCode || "").match(/KRW([A-Z]{3})/) || [])[1] || "").toUpperCase();
+    const price = num6(it.basePrice);
+    if (!cur || !price) continue;
+    const dir = String(it.change || "").toUpperCase() === "FALL" ? -1 : String(it.change || "").toUpperCase() === "EVEN" ? 0 : 1;
+    const mag = Math.abs(num6(it.changePrice) || 0);
+    let rate = num6(it.changeRate);
+    if (rate != null) rate = Math.abs(rate) * 100 * (dir || (rate < 0 ? -1 : 1));
+    out.push({
+      cur,
+      unit: num6(it.currencyUnit) || 1,
+      price,
+      change: dir * mag,
+      rate: rate != null ? rate : price ? dir * mag / (price - dir * mag) * 100 : 0,
+      high: num6(it.highPrice),
+      low: num6(it.lowPrice),
+      country: it.country || "",
+      at: it.date || ""
+    });
+  }
+  return out.length ? out : null;
+}
+var NAVER_CODES = ["USD", "JPY", "EUR", "CNY", "GBP", "CHF", "CAD", "AUD", "NZD", "HKD", "SGD", "THB"];
+async function naverFx() {
+  const codes = NAVER_CODES.map((c) => "FX_" + c + "KRW").join(",");
+  const j = await jget7(
+    `https://polling.finance.naver.com/api/realtime/marketindex/exchange/${codes}`,
+    4500,
+    { Referer: "https://m.stock.naver.com/" }
+  );
+  const datas = j && (j.datas || j.result && j.result.areas && j.result.areas.flatMap((a) => a.datas || []));
+  if (!Array.isArray(datas) || !datas.length) return null;
+  const out = [];
+  for (const d of datas) {
+    const code = String(d.reutersCode || d.cd || d.itemCode || "");
+    const cur = (code.match(/FX_([A-Z]{3})KRW/) || [])[1];
+    const price = num6(d.closePrice ?? d.nv);
+    if (!cur || !price) continue;
+    const sc = String(d.compareToPreviousPrice && d.compareToPreviousPrice.code || "");
+    const dir = sc === "4" || sc === "5" ? -1 : sc === "3" ? 0 : 1;
+    const mag = Math.abs(num6(d.compareToPreviousClosePrice ?? d.cv) || 0);
+    const rmag = Math.abs(num6(d.fluctuationsRatio ?? d.cr) || 0);
+    out.push({ cur, unit: cur === "JPY" ? 100 : 1, price, change: dir * mag, rate: dir * rmag, high: null, low: null, country: "", at: String(d.localTradedAt || "") });
+  }
+  return out.length ? out : null;
+}
+var histCache = { at: 0, map: null };
+async function fxHistory() {
+  if (histCache.map && Date.now() - histCache.at < 36e5) return histCache.map;
+  const end = /* @__PURE__ */ new Date(), start = /* @__PURE__ */ new Date();
+  start.setDate(start.getDate() - 45);
+  const ymd6 = (d) => d.toISOString().slice(0, 10);
+  const syms = [...ECB].join(",");
+  const urls = [
+    `https://api.frankfurter.dev/v1/${ymd6(start)}..${ymd6(end)}?base=KRW&symbols=${syms}`,
+    `https://api.frankfurter.app/${ymd6(start)}..${ymd6(end)}?from=KRW&to=${syms}`
+  ];
+  for (const u of urls) {
+    const j = await jget7(u, 5e3);
+    const rates = j && j.rates;
+    if (!rates) continue;
+    const days = Object.keys(rates).sort().slice(-31);
+    const map = {};
+    for (const d of days) for (const [cur, v] of Object.entries(rates[d] || {})) {
+      const r = Number(v);
+      if (!(r > 0)) continue;
+      (map[cur] = map[cur] || []).push(1 / r);
+    }
+    if (Object.keys(map).length) {
+      histCache = { at: Date.now(), map };
+      return map;
+    }
+  }
+  return histCache.map || {};
+}
+function fxOpen() {
+  const k = new Date(Date.now() + 9 * 36e5);
+  const w = k.getUTCDay();
+  if (w === 0 || w === 6) return false;
+  const hm = k.getUTCHours() * 60 + k.getUTCMinutes();
+  return hm >= 540 && hm <= 930;
+}
+var memo3 = { at: 0, body: null };
+var fx_default = async () => {
+  try {
+    if (memo3.body && Date.now() - memo3.at < 3e4) {
+      return new Response(memo3.body, { headers: { "content-type": "application/json", "cache-control": "s-maxage=30, stale-while-revalidate=90" } });
+    }
+    const [daum, hist] = await Promise.all([daumSummaries(), fxHistory()]);
+    let list = daum, src = "daum";
+    if (!list) {
+      list = await naverFx();
+      src = "naver";
+    }
+    if (!list) {
+      list = Object.entries(hist).map(([cur, h]) => {
+        const unit = cur === "JPY" || cur === "IDR" ? 100 : 1;
+        const p = h[h.length - 1] * unit, pv = (h[h.length - 2] || h[h.length - 1]) * unit;
+        return { cur, unit, price: p, change: p - pv, rate: pv ? (p - pv) / pv * 100 : 0, high: null, low: null, country: "", at: "" };
+      });
+      src = "ecb";
+    }
+    const open = fxOpen();
+    const fx = list.filter((x) => x.price > 0).sort((a, b) => (ORDER[a.cur] ?? 99) - (ORDER[b.cur] ?? 99) || a.cur.localeCompare(b.cur)).map((x) => {
+      const h = (hist[x.cur] || []).map((v) => v * (x.unit || 1));
+      const history = h.length >= 2 ? h.slice(-30) : [x.price - x.change, x.price];
+      if (h.length >= 2 && Math.abs(history[history.length - 1] - x.price) / x.price > 5e-4) history.push(x.price);
+      const dp = x.price < 1 ? 4 : x.price < 10 ? 3 : 2, mul = Math.pow(10, dp);
+      return {
+        key: x.cur,
+        flag: flagOf(x.cur),
+        name: KNAME[x.cur] || (x.country ? x.country + " " : "") + x.cur,
+        unit: x.unit > 1 ? `${x.cur} ${x.unit}` : x.cur,
+        dp,
+        price: Math.round(x.price * mul) / mul,
+        change: Math.round(x.change * mul) / mul,
+        rate: Math.round((x.rate || 0) * 100) / 100,
+        high: x.high,
+        low: x.low,
+        history,
+        open
+      };
+    });
+    const body = JSON.stringify({ ok: fx.length > 0, src, open, at: Date.now(), fx });
+    if (fx.length) memo3 = { at: Date.now(), body };
+    return new Response(body, { headers: { "content-type": "application/json", "cache-control": "s-maxage=30, stale-while-revalidate=90" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, error: String(e).slice(0, 120), fx: [] }), { headers: { "content-type": "application/json" } });
+  }
+};
+
+// netlify/functions/homepage.js
+init_store();
+init_euckr();
+var UA15 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var MAP = null;
+var MAP_AT = 0;
+var BUSY = null;
+function parseKind(buf) {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  const n = b.length, map = {};
+  const isTd = (i2) => b[i2] === 60 && b[i2 + 1] === 116 && b[i2 + 2] === 100;
+  const isTr = (i2) => b[i2] === 60 && b[i2 + 1] === 116 && b[i2 + 2] === 114;
+  const isEndTd = (i2) => b[i2] === 60 && b[i2 + 47 - 47] === 60 && b[i2 + 1] === 47 && b[i2 + 2] === 116 && b[i2 + 3] === 100;
+  const txt = (s2, e2) => {
+    let out = "", depth = 0;
+    for (let i2 = s2; i2 < e2; i2++) {
+      const c = b[i2];
+      if (c === 60) {
+        depth++;
+        continue;
+      }
+      if (c === 62) {
+        if (depth > 0) depth--;
+        continue;
+      }
+      if (depth > 0) continue;
+      if (c >= 33 && c < 127) out += String.fromCharCode(c);
+      else if (c === 32 || c === 9) {
+        if (out && out[out.length - 1] !== " ") out += " ";
+      }
+    }
+    return out.trim();
+  };
+  let i = 0, col = -1, code = "", home = "", cellStart = -1;
+  while (i < n - 4) {
+    if (isTr(i)) {
+      if (col >= 7 && code.length === 6 && home && home !== "-") map[code] = home;
+      col = -1;
+      code = "";
+      home = "";
+      cellStart = -1;
+      i += 3;
+      continue;
+    }
+    if (isTd(i)) {
+      let g = i + 3;
+      while (g < n && b[g] !== 62) g++;
+      col++;
+      cellStart = g + 1;
+      i = g + 1;
+      continue;
+    }
+    if (cellStart >= 0 && b[i] === 60 && b[i + 1] === 47 && b[i + 2] === 116 && b[i + 3] === 100) {
+      if (col === 1) {
+        code = txt(cellStart, i).toUpperCase();
+        if (!/^[0-9A-Z]{6}$/.test(code)) code = "";
+      } else if (col === 7) home = txt(cellStart, i);
+      cellStart = -1;
+      i += 4;
+      continue;
+    }
+    i++;
+  }
+  if (col >= 7 && code.length === 6 && home && home !== "-") map[code] = home;
+  return map;
+}
+async function ensureMap(env) {
+  const now = Date.now();
+  if (MAP && now - MAP_AT < 7 * 864e5) return MAP;
+  try {
+    const st = await getStoreX({ name: "kind-map" }, env);
+    const cached = await st.get("map", { type: "json" });
+    if (cached && cached.at && now - cached.at < 864e5 && cached.m && Object.keys(cached.m).length > 500) {
+      MAP = cached.m;
+      MAP_AT = cached.at;
+      return MAP;
+    }
+  } catch (e) {
+  }
+  if (!BUSY) BUSY = (async () => {
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 8500);
+      const r = await fetch(
+        "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13",
+        { signal: ac.signal, headers: { "User-Agent": UA15, Referer: "https://kind.krx.co.kr/corpgeneral/corpList.do", "Accept-Language": "ko" } }
+      );
+      clearTimeout(t);
+      if (r.ok) {
+        const m = parseKind(await r.arrayBuffer());
+        if (Object.keys(m).length > 500) {
+          MAP = m;
+          MAP_AT = now;
+          try {
+            const st = await getStoreX({ name: "kind-map" }, env);
+            await st.setJSON("map", { at: now, m });
+          } catch (e) {
+          }
+        }
+      }
+    } catch (e) {
+    } finally {
+      BUSY = null;
+    }
+  })();
+  await BUSY;
+  return MAP;
+}
+var homepage_default = async (req2, context) => {
+  const u = new URL(req2.url);
+  const code = String(u.searchParams.get("code") || "").toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 6);
+  if (!/^[0-9A-Z]{6}$/.test(code)) {
+    return new Response(
+      JSON.stringify({ ok: false, err: "bad code" }),
+      { status: 400, headers: { "content-type": "application/json", "cache-control": "public, s-maxage=86400" } }
+    );
+  }
+  const map = await ensureMap(context && context.env);
+  const homepage = map && map[code] || null;
+  const loaded = map ? Object.keys(map).length : 0;
+  return new Response(JSON.stringify({ ok: !!homepage, code, homepage, listed: loaded }), {
+    headers: {
+      "content-type": "application/json",
+      // 찾았으면 7일, 명부 자체를 못 받았으면 30분 뒤 재시도
+      "cache-control": homepage ? "public, s-maxage=604800" : loaded ? "public, s-maxage=86400" : "public, s-maxage=1800",
+      "netlify-cdn-cache-control": homepage ? "public, s-maxage=604800, durable" : "public, s-maxage=1800",
+      "access-control-allow-origin": "*"
+    }
+  });
+};
+
+// netlify/functions/investors.js
+init_euckr();
+function _mkDec6(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA16 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart7(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec6(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\uD800-\uDFFF\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+var numish3 = (v) => {
+  if (v == null || v === "") return null;
+  const n = Number(String(v).replace(/[,\s]/g, ""));
+  return isNaN(n) ? null : n;
+};
+var ymd4 = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+var stripTags = (s) => s.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+async function krxPost(url, form, ms, cookie) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "User-Agent": UA16, "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd", "X-Requested-With": "XMLHttpRequest", ...cookie ? { "Cookie": cookie } : {} }, body: new URLSearchParams(form).toString(), signal: c.signal });
+    const txt = await r.text();
+    try {
+      return { j: JSON.parse(txt) };
+    } catch {
+      return { bad: txt.slice(0, 30) };
+    }
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function krxInvestors(code) {
+  const U = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+  const f = await krxPost(U, { bld: "dbms/comm/finder/finder_stkisu", mktsel: "ALL", searchText: code }, 4e3, "");
+  if (f.bad) return { error: "finder:" + f.bad };
+  const list = f.j && (f.j.block1 || f.j.output) || [];
+  const item = list.find((x) => String(x.short_code || "").replace(/^A/, "") === code) || list[0];
+  const isuCd = item && (item.full_code || item.isu_cd);
+  if (!isuCd) return { error: "isuCd-not-found" };
+  const end = /* @__PURE__ */ new Date();
+  const start = /* @__PURE__ */ new Date();
+  start.setMonth(start.getMonth() - 3);
+  const t = await krxPost(U, { bld: "dbms/MDC/STAT/standard/MDCSTAT02403", locale: "ko_KR", isuCd, strtDd: ymd4(start), endDd: ymd4(end), askBid: "3", trdVolVal: "1", detailView: "1" }, 6e3, "");
+  if (t.bad) return { error: "trend:" + t.bad };
+  const out = t.j && (t.j.output || t.j.OutBlock_1) || [];
+  if (!Array.isArray(out) || !out.length) return { error: "no-output" };
+  const map = [["\uAC1C\uC778", "TRDVAL10"], ["\uC678\uAD6D\uC778", "TRDVAL11"], ["\uAE30\uAD00\uACC4", "TRDVAL8"], ["\uAE08\uC735\uD22C\uC790", "TRDVAL1"], ["\uBCF4\uD5D8", "TRDVAL2"], ["\uD22C\uC2E0", "TRDVAL3"], ["\uC740\uD589", "TRDVAL5"], ["\uAE30\uD0C0\uAE08\uC735", "TRDVAL6"], ["\uC5F0\uAE30\uAE08", "TRDVAL7"], ["\uC0AC\uBAA8\uD380\uB4DC", "TRDVAL4"], ["\uAE30\uD0C0\uBC95\uC778", "TRDVAL9"], ["\uAE30\uD0C0\uC678\uAD6D\uC778", "TRDVAL12"]];
+  const columns = map.map((m) => m[0]);
+  const rows = out.map((r) => ({ date: String(r.TRD_DD || "").replace(/\//g, "."), values: Object.fromEntries(map.map(([n, fld]) => [n, numish3(r[fld])])) }));
+  const total = {};
+  columns.forEach((n) => {
+    total[n] = rows.reduce((s, x) => s + (Number(x.values[n]) || 0), 0);
+  });
+  return { columns, total, rows, source: "KRX" };
+}
+function parseFrgnHtml(html) {
+  const trs = String(html || "").split(/<tr/i).slice(1);
+  const rows = [];
+  for (const tr of trs) {
+    if (!/\d{4}\.\d{2}\.\d{2}/.test(tr)) continue;
+    const cells = (tr.match(/<td[\s\S]*?<\/td>/gi) || []).map(stripTags);
+    if (cells.length < 7) continue;
+    const date = (cells[0].match(/\d{4}\.\d{2}\.\d{2}/) || [])[0];
+    if (!date) continue;
+    const inst = numish3(cells[5]);
+    const forn = numish3(cells[6]);
+    if (inst == null && forn == null) continue;
+    rows.push({ date, values: { "\uC678\uAD6D\uC778": forn, "\uAE30\uAD00\uACC4": inst } });
+  }
+  return rows;
+}
+async function frgnPage(code, page) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 4500);
+  try {
+    const r = await fetch(`https://finance.naver.com/item/frgn.naver?code=${code}&page=${page}`, { headers: { "User-Agent": UA16, "Referer": `https://finance.naver.com/item/frgn.naver?code=${code}` }, signal: c.signal });
+    const buf = await r.arrayBuffer();
+    return parseFrgnHtml(decodeSmart7(buf, r.headers.get("content-type")));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function naverFrgn(code) {
+  const pages = await Promise.all([frgnPage(code, 1), frgnPage(code, 2), frgnPage(code, 3)]);
+  const seen = /* @__PURE__ */ new Set();
+  const rows = [];
+  for (const pg of pages) for (const r of pg) {
+    if (seen.has(r.date)) continue;
+    seen.add(r.date);
+    rows.push(r);
+  }
+  if (!rows.length) return { error: "frgn-parse" };
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+  rows.forEach((r) => {
+    const f = Number(r.values["\uC678\uAD6D\uC778"]) || 0, i = Number(r.values["\uAE30\uAD00\uACC4"]) || 0;
+    r.values["\uAC1C\uC778"] = -(f + i);
+  });
+  const columns = ["\uAC1C\uC778", "\uC678\uAD6D\uC778", "\uAE30\uAD00\uACC4"];
+  const total = {};
+  columns.forEach((n) => {
+    total[n] = rows.reduce((s, x) => s + (Number(x.values[n]) || 0), 0);
+  });
+  return { columns, total, rows: rows.slice(0, 60), partial: true, source: "\uB124\uC774\uBC84", indivEst: true };
+}
+var investors_default = async (req2) => {
+  const url = new URL(req2.url);
+  if (url.searchParams.get("market") === "1") {
+    const diag = [];
+    let out = null;
+    for (const u of ["https://finance.naver.com/sise/sise_trans_style.naver", "https://finance.naver.com/sise/investorDealTrendDay.naver"]) {
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 5e3);
+        const r = await fetch(u, { headers: { "User-Agent": UA16, "Referer": "https://finance.naver.com/sise/" }, signal: c.signal });
+        clearTimeout(t);
+        if (!r.ok) {
+          diag.push(u.split("/").pop().split(".")[0] + ":" + r.status);
+          continue;
+        }
+        const html = decodeSmart7(await r.arrayBuffer(), r.headers.get("content-type"));
+        const trs = html.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+        for (const tr of trs) {
+          if (!/\d{2}\.\d{2}\.\d{2}|\d{4}\.\d{2}\.\d{2}/.test(tr)) continue;
+          const cells = (tr.match(/<td[\s\S]*?<\/td>/gi) || []).map(stripTags);
+          if (cells.length < 4) continue;
+          const date = (cells[0].match(/\d{2,4}\.\d{2}\.\d{2}/) || [])[0];
+          if (!date) continue;
+          const personal = numish3(cells[1]), foreign = numish3(cells[2]), inst = numish3(cells[3]);
+          if (personal == null && foreign == null && inst == null) continue;
+          out = { date, personal: Math.round((personal || 0) / 100), foreign: Math.round((foreign || 0) / 100), inst: Math.round((inst || 0) / 100) };
+          diag.push("ok:" + u.split("/").pop().split(".")[0] + " " + date);
+          break;
+        }
+        if (out) break;
+        diag.push(u.split("/").pop().split(".")[0] + ":norow");
+      } catch (e) {
+        diag.push(String(e).slice(0, 24));
+      }
+    }
+    return new Response(
+      JSON.stringify({ ok: !!out, ...out || {}, diag }),
+      { headers: { "content-type": "application/json", "cache-control": "s-maxage=600, stale-while-revalidate=1200" } }
+    );
+  }
+  const code = String(url.searchParams.get("code") || "005930").replace(/[^0-9A-Za-z]/g, "");
+  let inv;
+  try {
+    inv = await krxInvestors(code);
+  } catch (e) {
+    inv = { error: "krx-ex" };
+  }
+  if (!inv || inv.error || !inv.columns) {
+    const krxErr = inv && inv.error;
+    try {
+      inv = await naverFrgn(code);
+    } catch (e) {
+      inv = { error: "frgn-ex" };
+    }
+    if (inv && !inv.error) inv.krxErr = krxErr;
+  }
+  return new Response(JSON.stringify({ ok: true, code, investors: inv }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=180" } });
+};
+
+// netlify/functions/ipo.js
+init_euckr();
+function _mkDec7(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA17 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart8(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec7(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\uD800-\uDFFF\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+var stripTags2 = (s) => s.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+function parseRange(txt) {
+  const m = txt.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})\s*[~\-]\s*(?:(\d{4})\.)?(\d{1,2})\.(\d{1,2})/);
+  if (!m) {
+    const s = txt.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+    if (!s) return null;
+    const d = `${s[1]}-${s[2].padStart(2, "0")}-${s[3].padStart(2, "0")}`;
+    return { start: d, end: d };
+  }
+  const y1 = m[1], mo1 = m[2].padStart(2, "0"), d1 = m[3].padStart(2, "0");
+  const y2 = m[4] || y1, mo2 = m[5].padStart(2, "0"), d2 = m[6].padStart(2, "0");
+  return { start: `${y1}-${mo1}-${d1}`, end: `${y2}-${mo2}-${d2}` };
+}
+function addBusinessDays(iso, n) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  let a = 0;
+  while (a < n) {
+    dt.setDate(dt.getDate() + 1);
+    const w = dt.getDay();
+    if (w !== 0 && w !== 6) a++;
+  }
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+async function fetchDecoded(url, ms = 6e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA17, "Referer": "http://www.38.co.kr/" }, signal: c.signal });
+    const buf = await r.arrayBuffer();
+    return decodeSmart8(buf, r.headers.get("content-type"));
+  } finally {
+    clearTimeout(t);
+  }
+}
+function parseSchedule(html) {
+  const items = [];
+  const rows = html.split(/<tr[\s>]/i).slice(1);
+  for (const row of rows) {
+    const cells = [];
+    const re = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    let m;
+    while ((m = re.exec(row)) !== null) cells.push(stripTags2(m[1]));
+    if (cells.length < 5) continue;
+    const name = cells[0];
+    if (!name || name.length > 30 || /종목명|공모가|청약|경쟁률|주간사/.test(name)) continue;
+    const range = parseRange(cells[1] || "");
+    if (!range) continue;
+    const fixed = (cells[2] || "").replace(/[^0-9,]/g, "");
+    const band = (cells[3] || "").replace(/[^0-9,~\-]/g, "");
+    const brokers = (cells[5] || cells[4] || "").split(/[,/·]|외/).map((s) => s.trim()).filter((s) => s && /증권|투자|뱅크|은행/.test(s)).slice(0, 4);
+    items.push({ name, subStart: range.start, subEnd: range.end, refund: addBusinessDays(range.end, 2), listing: "", priceBand: fixed || band || "", brokers, sector: "", product: "", demand: 0 });
+  }
+  return items;
+}
+var ipo_default = async () => {
+  try {
+    const html = await fetchDecoded("http://www.38.co.kr/html/fund/?o=k");
+    let items = parseSchedule(html);
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    items = items.filter((it) => {
+      const [y, m, d] = it.subEnd.split("-").map(Number);
+      return new Date(y, m - 1, d) >= new Date(today.getTime() - 3 * 864e5);
+    }).sort((a, b) => a.subStart.localeCompare(b.subStart)).slice(0, 12);
+    return new Response(JSON.stringify({ ok: items.length > 0, items }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, error: String(e), items: [] }), { headers: { "content-type": "application/json" } });
+  }
+};
+
+// netlify/functions/logo.js
+init_euckr();
+var UA18 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var SRC = [
+  (c) => ["https://static.toss.im/png-icons/securities/icn-A" + c + ".png", "https://toss.im/"],
+  (c) => ["https://ssl.pstatic.net/imgstock/fn/real/logo/stock/A" + c + ".png", "https://finance.naver.com/"],
+  (c) => ["https://file.alphasquare.co.kr/media/images/stock_logo/kr/" + c + ".png", "https://alphasquare.co.kr/"],
+  (c) => ["https://thumb.tossinvest.com/image/resized/96x0/https%3A%2F%2Fstatic.toss.im%2Fpng-icons%2Fsecurities%2Ficn-A" + c + ".png", "https://tossinvest.com/"],
+  (c) => ["https://m.stock.naver.com/front-api/v1/stock/logo?reutersCode=" + c, "https://m.stock.naver.com/"]
+];
+var MIN_BYTES = 260;
+async function grab(url, referer, ms, minBytes) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  try {
+    const r = await fetch(url, {
+      signal: ac.signal,
+      headers: { "User-Agent": UA18, "Accept": "image/avif,image/webp,image/png,image/*,*/*;q=0.8", "Referer": referer }
+    });
+    if (!r.ok) return null;
+    const ct = String(r.headers.get("content-type") || "");
+    if (!/^image\//i.test(ct)) return null;
+    const buf = await r.arrayBuffer();
+    if (!buf || buf.byteLength < (minBytes || MIN_BYTES)) return null;
+    return { buf, ct };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+var PAGES = [
+  (c) => "https://m.stock.naver.com/api/stock/" + c + "/basic",
+  (c) => "https://m.stock.naver.com/api/stock/" + c + "/integration",
+  (c) => "https://finance.naver.com/item/main.naver?code=" + c
+];
+async function discover(code) {
+  const rs = await Promise.allSettled(PAGES.map(async (f) => {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 2200);
+    try {
+      const r = await fetch(f(code), { signal: ac.signal, headers: { "User-Agent": UA18, "Referer": "https://m.stock.naver.com/" } });
+      if (!r.ok) return null;
+      return decode2(await r.arrayBuffer()).replace(/\\\//g, "/");
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(t);
+    }
+  }));
+  let home = null;
+  for (const x of rs) {
+    const txt = x.status === "fulfilled" ? x.value : null;
+    if (!txt) continue;
+    const m = txt.match(/https?:\/\/[^"'\s<>)]+?(?:logo|symbol|ci)[^"'\s<>)]*?\.(?:png|jpg|jpeg|svg|webp)/i);
+    if (m) return { logo: m[0], home };
+    if (!home) {
+      const h = txt.match(/class="link_site"[^>]*href="(https?:\/\/[^"]+)"/i) || txt.match(/href="(https?:\/\/[^"]+)"[^>]*class="link_site"/i) || txt.match(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>\s*(?:홈페이지|기업\s*홈페이지)/i) || txt.match(/"(?:homePage|homepage|homepageUrl|siteUrl|url)"\s*:\s*"(https?:\/\/[^"]+)"/i);
+      if (h) home = h[1];
+    }
+  }
+  return { logo: null, home };
+}
+function imgResp(got, tag) {
+  return new Response(got.buf, {
+    headers: {
+      "content-type": got.ct,
+      "cache-control": "public, max-age=604800, s-maxage=2592000, immutable",
+      "netlify-cdn-cache-control": "public, s-maxage=2592000, durable",
+      "x-logo-src": tag,
+      "access-control-allow-origin": "*"
+    }
+  });
+}
+function decode2(buf) {
+  let t = "";
+  try {
+    t = new TextDecoder("utf-8").decode(buf);
+  } catch {
+    t = "";
+  }
+  if ((t.match(/\uFFFD/g) || []).length > 20) {
+    try {
+      return decodeEucKr(buf);
+    } catch {
+    }
+  }
+  return t;
+}
+async function favicon(homepage, left) {
+  let raw = String(homepage || "").trim();
+  if (!raw) return null;
+  if (!/^https?:/i.test(raw)) raw = "http://" + raw;
+  let h;
+  try {
+    h = new URL(raw).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+  if (!h || h.indexOf(".") < 0) return null;
+  const cands = [
+    "https://icons.duckduckgo.com/ip3/" + h + ".ico",
+    "https://" + h + "/favicon.ico",
+    "https://www." + h + "/favicon.ico",
+    "http://" + h + "/favicon.ico"
+  ];
+  for (const u of cands) {
+    if (left() < 1900) return null;
+    const got = await grab(u, "https://" + h + "/", Math.min(1600, left() - 300), 120);
+    if (got) return got;
+  }
+  return null;
+}
+var logo_default = async (req2) => {
+  const T0 = Date.now();
+  const left = () => 8600 - (Date.now() - T0);
+  const u = new URL(req2.url);
+  const code = String(u.searchParams.get("code") || "").toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 6);
+  const dbg = u.searchParams.get("debug") === "1";
+  const trace = [];
+  const tr = (m) => {
+    trace.push(Date.now() - T0 + "ms " + m);
+  };
+  const say = (status) => new Response(JSON.stringify({ ok: status === 200, code, trace }), {
+    status: 200,
+    headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" }
+  });
+  if (!/^[0-9A-Z]{6}$/.test(code)) {
+    return new Response("bad code", { status: 400, headers: { "cache-control": "public, s-maxage=86400" } });
+  }
+  const only = parseInt(u.searchParams.get("src") || "-1", 10);
+  const list = only >= 0 && only < SRC.length ? [SRC[only]] : SRC;
+  const race = async () => {
+    const rs = await Promise.allSettled(list.map((f) => {
+      const [url, ref] = f(code);
+      return grab(url, ref, 2200);
+    }));
+    for (let i2 = 0; i2 < rs.length; i2++) {
+      const v = rs[i2].status === "fulfilled" ? rs[i2].value : null;
+      if (v) return { ...v, i: SRC.indexOf(list[i2]) };
+    }
+    return null;
+  };
+  {
+    const got = await race();
+    tr("\uC9C1\uC811 \uC18C\uC2A4 6\uACF3: " + (got ? "\uC131\uACF5 src=" + got.i : "\uC5C6\uC74C"));
+    if (got) return dbg ? say(200) : imgResp(got, String(got.i));
+  }
+  let scraped = null;
+  if (left() > 3200) {
+    scraped = await discover(code);
+    tr("\uC885\uBAA9 \uD398\uC774\uC9C0 \uD0D0\uC0C9: " + (scraped && scraped.logo ? "\uB85C\uACE0 \uC8FC\uC18C \uBC1C\uACAC" : scraped && scraped.home ? "\uD648\uD398\uC774\uC9C0\uB9CC \uBC1C\uACAC " + scraped.home : "\uC5C6\uC74C"));
+  } else tr("\uD398\uC774\uC9C0 \uD0D0\uC0C9 \uC0DD\uB7B5(\uC608\uC0B0 \uBD80\uC871)");
+  if (scraped && scraped.logo && left() > 1200) {
+    const got = await grab(scraped.logo, "https://m.stock.naver.com/", Math.min(2600, left() - 300));
+    tr("\uC2A4\uD06C\uB7A9 \uB85C\uACE0 \uB0B4\uB824\uBC1B\uAE30: " + (got ? "\uC131\uACF5" : "\uC2E4\uD328"));
+    if (got) return dbg ? say(200) : imgResp(got, "scrape");
+  }
+  if (scraped && scraped.home) {
+    const got = await favicon(scraped.home, left);
+    tr("\uB124\uC774\uBC84 \uD648\uD398\uC774\uC9C0 \uD30C\uBE44\uCF58: " + (got ? "\uC131\uACF5" : "\uC2E4\uD328"));
+    if (got) return dbg ? say(200) : imgResp(got, "favicon");
+  }
+  if (left() > 2600) {
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), Math.min(2400, left() - 400));
+      const r = await fetch(new URL("/api/homepage?code=" + code, req2.url), { signal: ac.signal });
+      clearTimeout(t);
+      const j = r.ok ? await r.json() : null;
+      tr("\uAC70\uB798\uC18C \uBA85\uBD80 \uC870\uD68C: " + (j && j.homepage ? j.homepage : j ? "\uBA85\uBD80\uC5D0 \uD648\uD398\uC774\uC9C0 \uC5C6\uC74C" : "HTTP " + r.status));
+      if (j && j.homepage) {
+        const got = await favicon(j.homepage, left);
+        tr("\uBA85\uBD80 \uD648\uD398\uC774\uC9C0 \uD30C\uBE44\uCF58: " + (got ? "\uC131\uACF5" : "\uC2E4\uD328"));
+        if (got) return dbg ? say(200) : imgResp(got, "kind");
+      }
+    } catch (e) {
+      tr("\uAC70\uB798\uC18C \uBA85\uBD80 \uC870\uD68C \uC2E4\uD328: " + String(e).slice(0, 40));
+    }
+  } else tr("\uAC70\uB798\uC18C \uBA85\uBD80 \uC0DD\uB7B5(\uC608\uC0B0 \uBD80\uC871)");
+  tr("\uCD5C\uC885: \uC774\uBBF8\uC9C0 \uC5C6\uC74C");
+  if (dbg) return say(404);
+  return new Response("not found", {
+    status: 404,
+    headers: { "cache-control": "public, s-maxage=21600", "access-control-allow-origin": "*" }
+  });
+};
+
+// netlify/functions/logoscan.js
+var UA19 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var SRC2 = [
+  (c) => ["https://static.toss.im/png-icons/securities/icn-A" + c + ".png", "https://toss.im/"],
+  (c) => ["https://ssl.pstatic.net/imgstock/fn/real/logo/stock/A" + c + ".png", "https://finance.naver.com/"],
+  (c) => ["https://thumb.tossinvest.com/image/resized/96x0/https%3A%2F%2Fstatic.toss.im%2Fpng-icons%2Fsecurities%2Ficn-A" + c + ".png", "https://tossinvest.com/"],
+  (c) => ["https://file.alphasquare.co.kr/media/images/stock_logo/kr/" + c + ".png", "https://alphasquare.co.kr/"],
+  (c) => ["https://static.toss.im/png-icons/securities/icn-A" + c + "-carrot.png", "https://toss.im/"],
+  (c) => ["https://ssl.pstatic.net/imgstock/fn/real/logo/stock/A" + c + "_h.png", "https://finance.naver.com/"]
+];
+var NAMES = ["\uD1A0\uC2A4", "\uB124\uC774\uBC84", "\uD1A0\uC2A4\uC378\uB124\uC77C", "\uC54C\uD30C\uC2A4\uD018\uC5B4", "\uD1A0\uC2A4(\uBCC0\uD615)", "\uB124\uC774\uBC84(\uACE0\uD574\uC0C1)", "\uC790\uCCB4 \uC11C\uBC84 \uC911\uACC4"];
+var MIN_BYTES2 = 260;
+async function ok(url, referer, ms) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  try {
+    const r = await fetch(url, {
+      signal: ac.signal,
+      headers: { "User-Agent": UA19, "Accept": "image/avif,image/webp,image/png,image/*,*/*;q=0.8", "Referer": referer }
+    });
+    if (!r.ok) return false;
+    if (!/^image\//i.test(String(r.headers.get("content-type") || ""))) return false;
+    const buf = await r.arrayBuffer();
+    return !!buf && buf.byteLength >= MIN_BYTES2;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function judge(code) {
+  const rs = await Promise.allSettled(SRC2.map((f) => {
+    const [u, ref] = f(code);
+    return ok(u, ref, 2200);
+  }));
+  for (let i = 0; i < rs.length; i++) if (rs[i].status === "fulfilled" && rs[i].value) return i;
+  return -1;
+}
+var logoscan_default = async (req2) => {
+  const u = new URL(req2.url);
+  const codes = String(u.searchParams.get("codes") || "").toUpperCase().split(",").map((c) => c.replace(/[^0-9A-Z]/g, "")).filter((c) => /^[0-9A-Z]{6}$/.test(c)).slice(0, 8);
+  const found = {}, miss = [];
+  let i = 0;
+  const lane = async () => {
+    while (i < codes.length) {
+      const c = codes[i++];
+      const r = await judge(c);
+      if (r >= 0) found[c] = r;
+      else miss.push(c);
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, lane));
+  return new Response(JSON.stringify({ ok: found, no: miss, srcNames: NAMES }), {
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "public, s-maxage=86400",
+      // 같은 묶음은 하루 한 번만 실제 판정
+      "access-control-allow-origin": "*"
+    }
+  });
+};
+
+// netlify/functions/market.js
+init_euckr();
+function _mkDec8(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA20 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var H = { "User-Agent": UA20, "Referer": "https://finance.naver.com/", "Accept": "application/json" };
+var num7 = (v) => Number(String(v ?? "").replace(/,/g, "")) || 0;
+var ymd5 = (d) => d.toISOString().slice(0, 10);
+async function jget8(url, ms = 4e3, headers = H) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers, signal: c.signal });
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function tget(url, ms = 4e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA20 }, signal: c.signal });
+    return await r.text();
+  } finally {
+    clearTimeout(t);
+  }
+}
+var settle2 = (p) => p.then((v) => v).catch(() => null);
+async function pollingIndex(codes) {
+  const j = await jget8(`https://polling.finance.naver.com/api/realtime/domestic/index/${codes}`, 4e3);
+  const datas = j?.datas || (j?.result?.areas || []).flatMap((a) => a.datas || []) || [];
+  const map = {}, arr = [];
+  datas.forEach((d, i) => {
+    const price = num7(d.closePrice ?? d.nv);
+    const ratio = num7(d.fluctuationsRatio ?? d.cr);
+    let change = Math.abs(num7(d.compareToPreviousClosePrice ?? d.cv));
+    if (ratio < 0) change = -change;
+    const cur = { price, change, rate: ratio };
+    const key = String(d.cd ?? d.itemCode ?? "").toUpperCase();
+    if (key) map[key] = cur;
+    arr[i] = cur;
+  });
+  return { map, arr };
+}
+async function naverIndexHist(code) {
+  try {
+    const d = await jget8(`https://m.stock.naver.com/api/index/${code}/price?pageSize=30&page=1`, 3500);
+    const a = Array.isArray(d) ? d : d.result || d.datas || [];
+    return a.map((x) => num7(x.closePrice)).filter((n) => n > 0).reverse();
+  } catch {
+    return [];
+  }
+}
+async function yahooIndex2(sym) {
+  const d = await jget8(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1mo&interval=1d`, 4500, { "User-Agent": UA20, "Accept": "application/json" });
+  const r = d && d.chart && d.chart.result && d.chart.result[0];
+  if (!r) return null;
+  const closes = (r.indicators && r.indicators.quote && r.indicators.quote[0] && r.indicators.quote[0].close || []).filter((v) => v != null && v > 0);
+  const meta = r.meta || {};
+  const price = Number(meta.regularMarketPrice) || (closes.length ? closes[closes.length - 1] : 0);
+  if (!price) return null;
+  const fromArr = closes.length > 1 ? closes[closes.length - 2] : 0;
+  let prev = Number(meta.regularMarketPreviousClose) || Number(meta.previousClose) || fromArr || Number(meta.chartPreviousClose) || price;
+  if (prev > 0 && Math.abs(price - prev) / prev > 0.12 && fromArr > 0) prev = fromArr;
+  const history = closes.slice(-30);
+  if (history.length && history[history.length - 1] !== price) history.push(price);
+  return { price, change: price - prev, rate: prev ? (price - prev) / prev * 100 : 0, history };
+}
+async function worldIndex(yahooSym, stooqSym, naverCode) {
+  try {
+    const y = await yahooIndex2(yahooSym);
+    if (y && y.price) return y;
+  } catch {
+  }
+  try {
+    const t = await tget(`https://stooq.com/q/d/l/?s=${encodeURIComponent(stooqSym)}&i=d`, 3500);
+    const h = t.trim().split("\n").slice(1).map((l) => Number(l.split(",")[4])).filter((n) => !isNaN(n) && n > 0).slice(-30);
+    if (h.length >= 2) return { price: h[h.length - 1], change: h[h.length - 1] - h[h.length - 2], rate: (h[h.length - 1] - h[h.length - 2]) / h[h.length - 2] * 100, history: h };
+  } catch {
+  }
+  try {
+    const h = await naverIndexHist(naverCode);
+    if (h.length >= 2) return { price: h[h.length - 1], change: h[h.length - 1] - h[h.length - 2], rate: (h[h.length - 1] - h[h.length - 2]) / h[h.length - 2] * 100, history: h };
+  } catch {
+  }
+  return null;
+}
+async function fxSeries(from, mult = 1) {
+  try {
+    const end = /* @__PURE__ */ new Date();
+    const start = /* @__PURE__ */ new Date();
+    start.setDate(start.getDate() - 45);
+    const d = await jget8(`https://api.frankfurter.app/${ymd5(start)}..${ymd5(end)}?from=${from}&to=KRW`, 4e3, { "User-Agent": UA20 });
+    const rates = d?.rates || {};
+    return Object.keys(rates).sort().map((k) => Number(rates[k]?.KRW) * mult).filter((n) => n > 0).slice(-30);
+  } catch {
+    return [];
+  }
+}
+async function yahooOnly(sym) {
+  try {
+    return await yahooIndex2(sym);
+  } catch {
+    return null;
+  }
+}
+function decodeSmart9(buf, contentType) {
+  const bytes = new Uint8Array(buf);
+  const head = _mkDec8("latin1").decode(bytes.slice(0, 1500));
+  let declared = ((String(contentType || "").match(/charset=["']?([\w-]+)/i) || head.match(/charset=["']?([\w-]+)/i) || [])[1] || "").toLowerCase();
+  const tryDec = (enc, fatal) => {
+    try {
+      return _mkDec8(enc, { fatal }).decode(bytes);
+    } catch {
+      return null;
+    }
+  };
+  return tryDec("utf-8", true) || (declared && declared !== "utf-8" && declared !== "utf8" ? tryDec(declared, true) : null) || tryDec("euc-kr", true) || tryDec("utf-8", false);
+}
+async function hankyungK200() {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 6e3);
+  try {
+    let h = null;
+    for (const hu of ["https://markets.hankyung.com/indices/kospi-future", "https://markets.hankyung.com/futures", "https://markets.hankyung.com/koreaindex"]) {
+      try {
+        const r = await fetch(hu, { headers: { "User-Agent": UA20, Accept: "text/html,*/*", "Accept-Language": "ko", Referer: "https://markets.hankyung.com/" }, signal: c.signal });
+        if (!r.ok) continue;
+        const txt = await r.text();
+        if (txt.includes("\uCF54\uC2A4\uD53C200")) {
+          h = txt;
+          break;
+        }
+      } catch {
+      }
+    }
+    if (!h) return null;
+    const i = h.indexOf("\uCF54\uC2A4\uD53C200 \uC120\uBB3C");
+    if (i < 0) return null;
+    const win = h.slice(i, i + 1500);
+    const nums = [...win.matchAll(/([0-9]{1,4}(?:,[0-9]{3})*\.[0-9]{2})/g)].map((m) => Number(m[1].replace(/,/g, "")));
+    const price = nums.find((v) => v > 50 && v < 5e3);
+    if (!price) return null;
+    const pm = win.match(/([+-]?[0-9]+(?:\.[0-9]+)?)\s*%/);
+    const rate = pm ? Number(pm[1]) : 0;
+    let mag = nums.find((v) => v !== price && v > 0 && v < price * 0.2);
+    if (mag == null) mag = Math.abs(price - price / (1 + rate / 100));
+    const change = Math.abs(mag) * (rate < 0 ? -1 : rate > 0 ? 1 : 0);
+    const dm = win.match(/(20\d{2}\.\d{2}\.\d{2})/);
+    return { price, change, rate, asOf: dm ? dm[1].replace(/\./g, "-") : null };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function navIdxSeries(code) {
+  const d = await jget8(`https://m.stock.naver.com/api/index/${code}/price?pageSize=30&page=1`, 3500);
+  const a = Array.isArray(d) ? d : d && (d.result || d.datas) || [];
+  return a.map((x) => num7(x.closePrice)).filter((n) => n > 30 && n < 2e4).reverse();
+}
+async function krFutures() {
+  const out = { day: null, night: null, diag: [] };
+  let k200 = 0;
+  try {
+    const kh = await navIdxSeries("KPI200");
+    if (kh.length) k200 = kh[kh.length - 1];
+    out.diag.push("KPI200:" + (k200 || "fail"));
+  } catch (e) {
+    out.diag.push("KPI200:" + String(e).slice(0, 24));
+  }
+  const plaus = (px) => !k200 ? px > 200 && px < 900 : Math.abs(px - k200) / k200 < 0.08;
+  const fromSeries = (h) => {
+    if (h.length < 2) return null;
+    const price = h[h.length - 1], prev = h[h.length - 2];
+    if (!plaus(price)) return { bad: price };
+    return { price, change: price - prev, rate: prev ? (price - prev) / prev * 100 : 0, history: h };
+  };
+  try {
+    const r = fromSeries(await navIdxSeries("FUT"));
+    if (r && !r.bad) {
+      out.day = r;
+      out.src = "m.stock/FUT";
+      out.diag.push("m.index/FUT:ok " + r.price);
+    } else out.diag.push("m.index/FUT:" + (r ? "implausible " + r.bad + " vs K200 " + k200 : "nodata"));
+  } catch (e) {
+    out.diag.push("m.index/FUT:" + String(e).slice(0, 30));
+  }
+  if (!out.day) {
+    try {
+      const c2 = new AbortController();
+      const t2 = setTimeout(() => c2.abort(), 4500);
+      const r = await fetch(
+        "https://finance.naver.com/sise/sise_index_day.naver?code=FUT&page=1",
+        { headers: { "User-Agent": UA20, Accept: "text/html,*/*", "Accept-Language": "ko", Referer: "https://finance.naver.com/sise/sise_index.naver?code=FUT" }, signal: c2.signal }
+      );
+      clearTimeout(t2);
+      if (r.ok) {
+        const html = decodeSmart9(await r.arrayBuffer(), r.headers.get("content-type"));
+        const vals = [...html.matchAll(/class="number_1"[^>]*>\s*([0-9,]+\.[0-9]{2})/g)].map((m) => Number(m[1].replace(/,/g, "")));
+        const ser = vals.filter((v) => v > 100 && v < 5e3).slice(0, 12).reverse();
+        const g = fromSeries(ser);
+        if (g && !g.bad) {
+          out.day = g;
+          out.src = "index_day/FUT";
+          out.diag.push("index_day:ok " + g.price);
+        } else out.diag.push("index_day:" + (g ? "implausible " + g.bad : "rows" + ser.length));
+      } else out.diag.push("index_day:" + r.status);
+    } catch (e) {
+      out.diag.push("index_day:" + String(e).slice(0, 30));
+    }
+  }
+  const dayClose = out.day && out.day.price ? out.day.price : 0;
+  const takeNight = (px, src) => {
+    if (!(px > 0) || !plaus(px)) {
+      out.diag.push("night/" + src + ":implausible " + px);
+      return false;
+    }
+    if (dayClose && Math.abs(px - dayClose) < 5e-3) {
+      out.diag.push("night/" + src + ":same-as-day " + px);
+      return false;
+    }
+    const base3 = dayClose || px;
+    out.night = { price: px, change: px - base3, rate: base3 ? (px - base3) / base3 * 100 : 0, basis: dayClose ? "dayClose" : "self" };
+    out.diag.push("night/" + src + ":ok " + px);
+    return true;
+  };
+  for (const nc of ["NFUT", "FUTN", "FUT_NIGHT", "NKF", "K200NF", "CME_FUT", "NIGHTFUT"]) {
+    if (out.night) break;
+    try {
+      const h = await navIdxSeries(nc);
+      if (h.length) takeNight(h[h.length - 1], "m.index/" + nc);
+      else out.diag.push("night/m.index/" + nc + ":nodata");
+    } catch (e) {
+      out.diag.push("night/m.index/" + nc + ":" + String(e).slice(0, 20));
+    }
+  }
+  if (!out.night) {
+    for (const nu of [
+      "https://finance.naver.com/sise/",
+      "https://finance.naver.com/sise/sise_index.naver?code=FUT",
+      "https://finance.naver.com/sise/sise_futures.naver",
+      "https://m.stock.naver.com/domestic/index/FUT/total"
+    ]) {
+      if (out.night) break;
+      try {
+        const c3 = new AbortController();
+        const t3 = setTimeout(() => c3.abort(), 4500);
+        const r = await fetch(nu, { headers: { "User-Agent": UA20, Accept: "text/html,*/*", "Accept-Language": "ko", Referer: "https://finance.naver.com/" }, signal: c3.signal });
+        clearTimeout(t3);
+        if (!r.ok) {
+          out.diag.push("night/page:" + r.status);
+          continue;
+        }
+        const html = decodeSmart9(await r.arrayBuffer(), r.headers.get("content-type"));
+        const i2 = html.search(/야간|야간선물|CME/);
+        if (i2 < 0) {
+          out.diag.push("night/page:no-label");
+          continue;
+        }
+        const win2 = html.slice(i2, i2 + 1200);
+        const cand = [...win2.matchAll(/([0-9]{2,4}(?:,[0-9]{3})*\.[0-9]{2})/g)].map((m) => Number(m[1].replace(/,/g, "")));
+        const px = cand.find((v) => plaus(v) && (!dayClose || Math.abs(v - dayClose) >= 5e-3));
+        if (px) takeNight(px, "page");
+        else out.diag.push("night/page:no-usable-number");
+      } catch (e) {
+        out.diag.push("night/page:" + String(e).slice(0, 20));
+      }
+    }
+  }
+  if (!out.night) out.diag.push("night:unavailable");
+  if (out.day) return out;
+  out.day = await hankyungK200();
+  out.diag.push("hankyung:" + (out.day ? "ok " + out.day.price : "fail"));
+  if (out.day) {
+    out.src = "hankyung";
+    return out;
+  }
+  const urls = [
+    "https://finance.naver.com/sise/sise_futures.naver",
+    "https://finance.naver.com/sise/sise_index.naver?code=FUT"
+  ];
+  const sane2 = (px) => px > 50 && px < 5e3;
+  const grab2 = (html, labelRe) => {
+    const m = html.match(labelRe);
+    if (!m) return null;
+    const start = m.index + m[0].length;
+    const win = html.slice(start, start + 400);
+    const px = win.match(/([0-9]{2,4}\.[0-9]{1,2})/);
+    if (!px) return null;
+    const price = Number(px[1]);
+    if (!sane2(price)) return null;
+    const ch = win.slice(px.index + px[1].length).match(/([+-]?[0-9]+(?:\.[0-9]{1,2})?)/);
+    const change = ch ? Number(ch[1]) : 0;
+    const base3 = price - change;
+    return { price, change, rate: base3 ? change / base3 * 100 : 0 };
+  };
+  for (const u of urls) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 4500);
+    try {
+      const r = await fetch(u, { headers: { "User-Agent": UA20, Accept: "text/html,*/*", "Accept-Language": "ko", Referer: "https://finance.naver.com/sise/" }, signal: c.signal });
+      if (!r.ok) {
+        out.diag.push(u.split("/").pop() + ":" + r.status);
+        continue;
+      }
+      const html = decodeSmart9(await r.arrayBuffer(), r.headers.get("content-type"));
+      if (!out.night) out.night = grab2(html, /야간(?:\s*선물)?/);
+      if (!out.day) out.day = grab2(html, /(?:KOSPI\s*200|코스피\s*200|K200)(?:\s*선물)?/);
+      if (!out.day) {
+        const head = html.slice(0, 6e4);
+        const tri = head.match(/([0-9]{3,4}\.[0-9]{2})[^0-9+\-]{0,80}([+-][0-9]+(?:\.[0-9]{1,2})?)[^0-9+\-%]{0,80}([+-]?[0-9]+(?:\.[0-9]{1,2})?)\s*%/);
+        if (tri) {
+          const price = Number(tri[1]), change = Number(tri[2]);
+          if (sane2(price) && Math.abs(change) < price * 0.15) {
+            const base3 = price - change;
+            out.day = { price, change, rate: base3 ? change / base3 * 100 : 0 };
+            out.diag.push("tri-fallback:" + price);
+          }
+        }
+      }
+      if (out.day || out.night) out.src = u;
+      if (out.day && out.night) break;
+      out.diag.push(u.split("/").pop() + ":day=" + !!out.day + ",night=" + !!out.night);
+    } catch (e) {
+      out.diag.push(u.split("/").pop() + ":" + String(e).slice(0, 40));
+    } finally {
+      clearTimeout(t);
+    }
+  }
+  return out;
+}
+function pack(name, key, cur, hist, tag) {
+  let history = hist || [], price, change, rate;
+  if (cur && cur.price) {
+    price = cur.price;
+    change = cur.change;
+    rate = cur.rate;
+    if (history.length < 2) history = [price - change, price];
+  } else if (history.length) {
+    price = history[history.length - 1];
+    const prev = history.length > 1 ? history[history.length - 2] : price;
+    change = price - prev;
+    rate = prev ? change / prev * 100 : 0;
+  } else {
+    price = null;
+    change = 0;
+    rate = 0;
+    history = [];
+  }
+  return { key, name, price, change, rate, history, tag: tag || "" };
+}
+var market_default = async (req2) => {
+  try {
+    const idx = await settle2(pollingIndex("KOSPI,KOSDAQ")) || { map: {}, arr: [] };
+    const [
+      kospiH,
+      kosdaqH,
+      ndq,
+      spx,
+      dow,
+      usdH,
+      jpyH,
+      eurH,
+      btc,
+      eth,
+      nqf,
+      esf,
+      ymf,
+      vix,
+      n225,
+      hsi,
+      wti,
+      gold,
+      krf
+    ] = await Promise.all([
+      settle2(naverIndexHist("KOSPI")),
+      settle2(naverIndexHist("KOSDAQ")),
+      settle2(worldIndex("^IXIC", "^ndq", ".IXIC")),
+      settle2(worldIndex("^GSPC", "^spx", ".INX")),
+      settle2(worldIndex("^DJI", "^dji", ".DJI")),
+      settle2(fxSeries("USD")),
+      settle2(fxSeries("JPY", 100)),
+      settle2(fxSeries("EUR")),
+      settle2(yahooIndex2("BTC-USD")),
+      settle2(yahooIndex2("ETH-USD")),
+      // 선물·변동성·아시아 지수 — 국내 장 시작 전 방향을 가늠하는 데 가장 많이 보는 지표들
+      settle2(yahooOnly("NQ=F")),
+      settle2(yahooOnly("ES=F")),
+      settle2(yahooOnly("YM=F")),
+      settle2(yahooOnly("^VIX")),
+      settle2(yahooOnly("^N225")),
+      settle2(yahooOnly("^HSI")),
+      settle2(yahooOnly("CL=F")),
+      settle2(yahooOnly("GC=F")),
+      settle2(krFutures())
+    ]);
+    const kospi = idx.map.KOSPI || idx.arr[0], kosdaq = idx.map.KOSDAQ || idx.arr[1];
+    const usdRate = usdH && usdH.length ? usdH[usdH.length - 1] : 1350;
+    const toKrw = (c) => c ? { price: c.price * usdRate, change: c.change * usdRate, rate: c.rate, history: (c.history || []).map((v) => v * usdRate) } : null;
+    const btcK = toKrw(btc), ethK = toKrw(eth);
+    const P = (nm, k, cur, tag) => pack(nm, k, cur, cur && cur.history, tag);
+    const body = {
+      ok: true,
+      indices: [
+        pack("\uCF54\uC2A4\uD53C", "KOSPI", kospi, kospiH || [], "\uAD6D\uB0B4"),
+        pack("\uCF54\uC2A4\uB2E5", "KOSDAQ", kosdaq, kosdaqH || [], "\uAD6D\uB0B4"),
+        P("\uB098\uC2A4\uB2E5 \uC885\uD569", "NASDAQ", ndq, "\uD574\uC678"),
+        P("S&P 500", "SP500", spx, "\uD574\uC678"),
+        P("\uB2E4\uC6B0 \uC0B0\uC5C5", "DOW", dow, "\uD574\uC678"),
+        P("\uB098\uC2A4\uB2E5100 \uC120\uBB3C", "NQF", nqf, "\uC120\uBB3C"),
+        P("S&P500 \uC120\uBB3C", "ESF", esf, "\uC120\uBB3C"),
+        P("\uB2E4\uC6B0 \uC120\uBB3C", "YMF", ymf, "\uC120\uBB3C"),
+        /* [v1.99] 코스피200 선물 주간·야간을 별도 카드 2장으로 분리 —
+           주간: 스크레이프 day 값(없으면 night 값으로 대체 · 최근월물 동일 상품)
+           야간(18:00~익일 06:00 KST): night 값이 있으면 실시간, 없으면 주간 종가를 '(주간 종가)'로 정직 표기 */
+        P("\uCF54\uC2A4\uD53C200 \uC120\uBB3C", "K200F", krf && (krf.day || krf.night), "\uC120\uBB3C"),
+        // [v2.2.1] P는 4인자 래퍼 — cur.history가 자동 전달됨(5인자 호출이 태그 폭주 원인이었음)
+        (() => {
+          if (krf && krf.night) return P("\uCF54\uC2A4\uD53C200 \uC57C\uAC04\uC120\uBB3C", "K200NF", krf.night, "\uC120\uBB3C");
+          return null;
+        })(),
+        P("VIX \uBCC0\uB3D9\uC131", "VIX", vix, "\uC9C0\uD45C"),
+        P("\uB2C8\uCF00\uC774 225", "N225", n225, "\uD574\uC678"),
+        P("\uD56D\uC14D", "HSI", hsi, "\uD574\uC678"),
+        P("WTI \uC720\uAC00", "WTI", wti, "\uC6D0\uC790\uC7AC"),
+        P("\uAE08", "GOLD", gold, "\uC6D0\uC790\uC7AC")
+      ].filter((x) => x && (x.price != null || x.history && x.history.length)),
+      crypto: [
+        pack("\uBE44\uD2B8\uCF54\uC778", "BTC", btcK, btcK && btcK.history, "\uAC00\uC0C1\uC790\uC0B0"),
+        pack("\uC774\uB354\uB9AC\uC6C0", "ETH", ethK, ethK && ethK.history, "\uAC00\uC0C1\uC790\uC0B0")
+      ],
+      fx: [
+        pack("\uC6D0/\uB2EC\uB7EC", "USDKRW", null, usdH || [], "\uD658\uC728"),
+        pack("\uC6D0/\uC5D4(100)", "JPYKRW", null, jpyH || [], "\uD658\uC728"),
+        pack("\uC6D0/\uC720\uB85C", "EURKRW", null, eurH || [], "\uD658\uC728")
+      ]
+    };
+    try {
+      const probe2 = req2 && new URL(req2.url).searchParams.get("probe") === "1";
+      if (probe2 || !(krf && (krf.day || krf.night))) body._futDiag = krf && krf.diag || ["nofetch"];
+      const want = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "NQF", "ESF", "YMF", "K200F", "K200NF", "VIX", "N225", "HSI", "WTI", "GOLD"];
+      const have = {};
+      body.indices.forEach((x) => {
+        have[x.key] = x;
+      });
+      body._health = {
+        missing: want.filter((k) => !have[k]),
+        suspect: body.indices.filter((x) => x.price != null && Math.abs(x.rate || 0) > 25).map((x) => x.key + ":" + (x.rate || 0).toFixed(1) + "%"),
+        nightBasis: krf && krf.night && krf.night.basis || "none",
+        at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    } catch {
+    }
+    return new Response(JSON.stringify(body), { headers: cacheHdr(5, 120) });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, error: String(e), indices: [], fx: [] }), { headers: { "content-type": "application/json" } });
+  }
+};
+
+// netlify/functions/meta.js
+var UA21 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+async function fetchJson2(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: Object.assign({ "User-Agent": UA21, "Accept": "application/json" }, headers || {}), signal: c.signal });
+    const txt = await r.text();
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+function exchangeOf(j, depth) {
+  if (!j || typeof j !== "object" || (depth || 0) > 4) return "";
+  for (const [k, v] of Object.entries(j)) {
+    if (/stockExchangeType|exchange|marketType|market$/i.test(k)) {
+      if (typeof v === "string" && v) return v;
+      if (v && typeof v === "object") {
+        const s = v.code || v.name || v.type || v.zoneId || "";
+        if (s) return String(s);
+      }
+    }
+  }
+  for (const v of Object.values(j)) {
+    if (v && typeof v === "object") {
+      const r = exchangeOf(v, (depth || 0) + 1);
+      if (r) return r;
+    }
+  }
+  return "";
+}
+function sosokOf(j, depth) {
+  if (!j || typeof j !== "object" || (depth || 0) > 3) return null;
+  for (const [k, v] of Object.entries(j)) {
+    if (/^sosok$|marketCode|mkt_?cd/i.test(k)) {
+      const n = String(v).trim();
+      if (n === "0") return "\uCF54\uC2A4\uD53C";
+      if (n === "1") return "\uCF54\uC2A4\uB2E5";
+      if (/KOSDAQ/i.test(n)) return "\uCF54\uC2A4\uB2E5";
+      if (/KOSPI/i.test(n)) return "\uCF54\uC2A4\uD53C";
+    }
+  }
+  for (const v of Object.values(j)) if (v && typeof v === "object") {
+    const r = sosokOf(v, (depth || 0) + 1);
+    if (r) return r;
+  }
+  return null;
+}
+function toKo(v) {
+  const s = String(v || "").toUpperCase();
+  if (/KOSDAQ|코스닥/.test(s)) return "\uCF54\uC2A4\uB2E5";
+  if (/KONEX|코넥스/.test(s)) return "\uCF54\uB125\uC2A4";
+  if (/KOSPI|유가|코스피/.test(s)) return "\uCF54\uC2A4\uD53C";
+  return "";
+}
+var meta_default = async (req2) => {
+  const url = new URL(req2.url);
+  const codes = String(url.searchParams.get("codes") || "").toUpperCase().replace(/[^0-9A-Z,]/g, "").split(",").filter(Boolean).slice(0, 20);
+  if (!codes.length) return new Response(JSON.stringify({ ok: false, markets: {} }), { headers: { "content-type": "application/json" } });
+  const results = {};
+  const settled = await Promise.allSettled(codes.map(
+    (c) => fetchJson2(`https://m.stock.naver.com/api/stock/${c}/basic`, 4e3, { "Referer": `https://m.stock.naver.com/domestic/stock/${c}/total` })
+  ));
+  const missing = [];
+  codes.forEach((c, i) => {
+    const j = settled[i].status === "fulfilled" ? settled[i].value : null;
+    if (!j) {
+      missing.push(c);
+      return;
+    }
+    const mk = toKo(exchangeOf(j, 0)) || sosokOf(j, 0) || "";
+    const nm = j.stockName || j.itemName || "";
+    if (mk) results[c] = { market: mk, name: nm || "" };
+    else {
+      missing.push(c);
+      if (nm) results[c] = { market: "", name: nm };
+    }
+  });
+  if (missing.length) {
+    const s2 = await Promise.allSettled(missing.slice(0, 20).map(
+      (c) => fetchJson2(`https://m.stock.naver.com/api/stock/${c}/integration`, 3500, { "Referer": `https://m.stock.naver.com/domestic/stock/${c}/total` })
+    ));
+    missing.slice(0, 20).forEach((c, i) => {
+      const j = s2[i].status === "fulfilled" ? s2[i].value : null;
+      if (!j) return;
+      const mk = toKo(exchangeOf(j, 0)) || sosokOf(j, 0) || "";
+      if (mk) results[c] = { market: mk, name: results[c] && results[c].name || j.stockName || "" };
+    });
+  }
+  return new Response(
+    JSON.stringify({ ok: true, markets: results }),
+    { headers: { "content-type": "application/json", "cache-control": "s-maxage=86400" } }
+  );
+};
+
+// netlify/functions/news.js
+init_euckr();
+function _mkDec9(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA22 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart10(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec9(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\uD800-\uDFFF\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+async function fetchEuc(url, ms) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA22, "Referer": "https://finance.naver.com/" }, signal: c.signal });
+    const buf = await r.arrayBuffer();
+    return decodeSmart10(buf, r.headers.get("content-type"));
+  } finally {
+    clearTimeout(t);
+  }
+}
+function strip(s) {
+  return String(s || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+}
+function parseList(html, type) {
+  const out = [];
+  const re = /<td[^>]*class="title"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<td[^>]*class="info"[^>]*>([\s\S]*?)<\/td>[\s\S]*?<td[^>]*class="date"[^>]*>([\s\S]*?)<\/td>/g;
+  let m;
+  while (m = re.exec(html)) {
+    const url = "https://finance.naver.com" + m[1].replace(/&amp;/g, "&");
+    const title = strip(m[2]);
+    const source = strip(m[3]);
+    const date = strip(m[4]);
+    if (title) out.push({ title, source, date, type, url });
+    if (out.length >= 25) break;
+  }
+  return out;
+}
+var news_default = async (req2) => {
+  const url = new URL(req2.url);
+  if (url.searchParams.get("market") === "1") {
+    const srcs = [
+      "https://finance.naver.com/news/mainnews.naver",
+      "https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=401"
+    ];
+    let items2 = [];
+    let titles = [];
+    let src = "";
+    const dec = (u) => String(u || "").replace(/&amp;/g, "&");
+    const key = (t) => t.replace(/[“”"']/g, "").replace(/[.·…\s]+$/, "").slice(0, 16);
+    const scan = (html, requirePress) => {
+      const out = [];
+      const seen = /* @__PURE__ */ new Set();
+      const re = /<a[^>]+href="([^"]*(?:article_id|news_read|read\.naver)[^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+      const ms = [...html.matchAll(re)];
+      for (let i = 0; i < ms.length; i++) {
+        const m = ms[i];
+        const t = strip(m[2]);
+        if (!t || t.length < 8 || t.length > 90 || /^\[?포토|^\[?사진|동영상/.test(t)) continue;
+        const k = key(t);
+        if (seen.has(k)) continue;
+        const from = m.index + m[0].length;
+        const stop = i + 1 < ms.length ? ms[i + 1].index : html.length;
+        const near = html.slice(from, Math.min(stop, from + 800));
+        const press = strip((near.match(/class="press"[^>]*>([\s\S]*?)</) || [])[1] || "");
+        const time = strip((near.match(/class="wdate"[^>]*>([\s\S]*?)</) || [])[1] || "");
+        if (requirePress && !press) continue;
+        seen.add(k);
+        let href = dec(m[1]);
+        if (href.startsWith("/")) href = "https://finance.naver.com" + href;
+        out.push({ t, press, time, url: href });
+        if (out.length >= 40) break;
+      }
+      return out;
+    };
+    for (const u of srcs) {
+      try {
+        const html = await fetchEuc(u, 6500);
+        let list = scan(html, true);
+        if (list.length < 5) list = scan(html, false);
+        if (list.length >= 8) {
+          items2 = list.slice(0, 24);
+          titles = list.map((x) => x.t);
+          src = u;
+          break;
+        }
+        if (list.length > titles.length) {
+          items2 = list.slice(0, 24);
+          titles = list.map((x) => x.t);
+          src = u;
+        }
+      } catch {
+      }
+    }
+    return new Response(
+      JSON.stringify({ ok: titles.length > 0, titles, items: items2, n: titles.length, src }),
+      { headers: { "content-type": "application/json", "cache-control": "s-maxage=180" } }
+    );
+  }
+  const code = String(url.searchParams.get("code") || "005930").replace(/[^0-9A-Za-z]/g, "");
+  const type = String(url.searchParams.get("type") || "all");
+  const diag = {};
+  let items = [];
+  async function grab2(kind) {
+    const u = kind === "disc" ? `https://finance.naver.com/item/news_notice.naver?code=${code}&page=1` : `https://finance.naver.com/item/news_news.naver?code=${code}&page=1`;
+    try {
+      const html = await fetchEuc(u, 7e3);
+      const list = parseList(html, kind);
+      diag[kind] = list.length;
+      return list;
+    } catch (e) {
+      diag[kind] = "err:" + String(e).slice(0, 30);
+      return [];
+    }
+  }
+  try {
+    if (type === "news" || type === "all") items = items.concat(await grab2("news"));
+    if (type === "disc" || type === "all") items = items.concat(await grab2("disc"));
+  } catch (e) {
+    diag.err = String(e).slice(0, 40);
+  }
+  items.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return new Response(
+    JSON.stringify({ ok: items.length > 0, code, items: items.slice(0, 30), diag }),
+    { headers: { "content-type": "application/json", "cache-control": "s-maxage=120" } }
+  );
+};
+
+// netlify/functions/nxt.js
+init_nxt_core();
+var clean = (s) => String(s || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+var nxt_default = async (req2) => {
+  const url = new URL(req2.url);
+  const list = await resolveFast();
+  const ready = !!(list && list.ok && list.count > 0);
+  const has = (c) => ready ? Object.prototype.hasOwnProperty.call(list.codes, c) : null;
+  const meta = {
+    source: list ? list.source : "none",
+    asOf: list ? list.asOf : null,
+    listCount: list ? list.count : 0
+  };
+  const codesParam = String(url.searchParams.get("codes") || "");
+  if (codesParam) {
+    const codes = [...new Set(codesParam.split(",").map(clean).filter((c) => /^[0-9A-Z]{6}$/.test(c)))].slice(0, 200);
+    const results = {};
+    const markets = {};
+    for (const c of codes) {
+      results[c] = has(c);
+      if (ready && list.markets && list.markets[c]) markets[c] = list.markets[c];
+    }
+    return json5({ ok: ready, ...meta, results, markets });
+  }
+  const code = clean(url.searchParams.get("code"));
+  if (!/^[0-9A-Z]{6}$/.test(code)) return json5({ ok: false, nxt: null, error: "bad code", ...meta });
+  return json5({
+    ok: ready,
+    code,
+    nxt: has(code),
+    halted: ready ? (list.halted || []).includes(code) : null,
+    market: ready && list.markets && list.markets[code] || null,
+    ...meta,
+    // 명단에서 최근 빠진 종목이면 이유를 같이 알려 준다
+    removedNote: ready && (list.removed || []).includes(code) ? "\uB125\uC2A4\uD2B8\uB808\uC774\uB4DC \uB9E4\uB9E4\uC81C\uC678 \uC885\uBAA9 (\uAC70\uB798\uB7C9 \uC694\uAC74 \uBBF8\uB2EC)" : null
+  });
+};
+function json5(body) {
+  return new Response(JSON.stringify(body), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      // 명단은 하루 단위로만 바뀐다 — 길게 캐시해도 안전하다
+      "cache-control": "public, s-maxage=3600, stale-while-revalidate=86400"
+    }
+  });
+}
+
+// netlify/functions/nxtadmin.js
+init_store();
+init_nxt_core();
+var json6 = (b, status = 200) => new Response(JSON.stringify(b, null, 2), {
+  status,
+  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
+});
+function authed(req2) {
+  const token = envGet("NXT_ADMIN_TOKEN");
+  if (!token) return { ok: false, why: "NXT_ADMIN_TOKEN \uD658\uACBD\uBCC0\uC218\uAC00 \uC124\uC815\uB3FC \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4" };
+  const h = req2.headers.get("authorization") || "";
+  const got = h.replace(/^Bearer\s+/i, "").trim();
+  if (!got || got !== token) return { ok: false, why: "\uD1A0\uD070\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4" };
+  return { ok: true };
+}
+var nxtadmin_default = async (req2) => {
+  const method = req2.method.toUpperCase();
+  if (method === "GET") {
+    const [pinned, cur] = await Promise.all([readPinned(), resolveFast()]);
+    return json6({
+      \uC218\uB3D9\uBA85\uB2E8: pinned && pinned.rows && Object.keys(pinned.rows).length ? { \uC885\uBAA9\uC218: Object.keys(pinned.rows).length, \uAE30\uC900\uC77C: pinned.asOf, \uBA54\uBAA8: pinned.note } : null,
+      \uD604\uC7AC\uC801\uC6A9: { \uC2E0\uB8B0\uAC00\uB2A5: !!cur.trusted, \uC18C\uC2A4: cur.source, \uC885\uBAA9\uC218: cur.count, \uAE30\uC900\uC77C: cur.asOf },
+      \uD1A0\uD070\uC124\uC815\uB428: !!envGet("NXT_ADMIN_TOKEN"),
+      \uC0AC\uC6A9\uBC95: "POST \uB85C \uBA85\uB2E8 \uBCF8\uBB38\uC744 \uBCF4\uB0B4\uBA74 \uC989\uC2DC \uBC18\uC601\uB429\uB2C8\uB2E4. Authorization: Bearer <NXT_ADMIN_TOKEN>"
+    });
+  }
+  const a = authed(req2);
+  if (!a.ok) return json6({ ok: false, error: a.why }, 401);
+  if (method === "DELETE") {
+    await clearPinned();
+    const r2 = await resolve(true);
+    return json6({ ok: true, \uBA54\uC2DC\uC9C0: "\uC218\uB3D9 \uBA85\uB2E8\uC744 \uD574\uC81C\uD558\uACE0 \uC790\uB3D9 \uC218\uC9D1\uC73C\uB85C \uBCF5\uADC0\uD588\uC2B5\uB2C8\uB2E4.", \uD604\uC7AC: { \uC18C\uC2A4: r2.source, \uC885\uBAA9\uC218: r2.count, \uC2E0\uB8B0\uAC00\uB2A5: !!r2.trusted } });
+  }
+  if (method !== "POST") return json6({ ok: false, error: "GET / POST / DELETE \uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4" }, 405);
+  const body = await req2.text();
+  if (!body || body.length < 20) return json6({ ok: false, error: "\uBCF8\uBB38\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4" }, 400);
+  const rows = extractRows(body);
+  if (!rows) return json6({ ok: false, error: "\uBCF8\uBB38\uC5D0\uC11C \uC885\uBAA9\uCF54\uB4DC\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. CSV\xB7TSV\xB7JSON\xB7\uD45C \uBD99\uC5EC\uB123\uAE30 \uD615\uC2DD\uC744 \uC9C0\uC6D0\uD569\uB2C8\uB2E4." }, 400);
+  const copy = {};
+  for (const [k, v] of Object.entries(rows)) copy[k] = { ...v };
+  const { rows: kept, removed } = applyExclusions(copy);
+  const audit = auditList(kept);
+  if (!audit.ok) {
+    return json6({
+      ok: false,
+      error: "\uAC10\uC0AC\uC5D0 \uC2E4\uD328\uD574 \uBC18\uC601\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC798\uBABB\uB41C \uBA85\uB2E8\uC73C\uB85C \uB36E\uC5B4\uC4F0\uBA74 \uC804 \uC885\uBAA9\uC774 \uC624\uD310\uB429\uB2C8\uB2E4.",
+      \uAC10\uC0AC: audit,
+      \uD30C\uC2F1\uB41C\uC885\uBAA9\uC218: Object.keys(rows).length,
+      \uC81C\uC678\uACC4\uCE35\uC801\uC6A9: removed.length
+    }, 422);
+  }
+  const url = new URL(req2.url);
+  await writePinned(kept, { asOf: url.searchParams.get("asOf") || void 0, note: url.searchParams.get("note") || "manual" });
+  const r = await resolve(true);
+  return json6({
+    ok: true,
+    \uBA54\uC2DC\uC9C0: "\uBA85\uB2E8\uC774 \uC989\uC2DC \uBC18\uC601\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC7AC\uBC30\uD3EC\uAC00 \uD544\uC694 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    \uBC18\uC601\uACB0\uACFC: { \uC885\uBAA9\uC218: r.count, \uCF54\uC2A4\uD53C: r.kospi, \uCF54\uC2A4\uB2E5: r.kosdaq, \uAE30\uC900\uC77C: r.asOf, \uC18C\uC2A4: r.source },
+    \uC81C\uC678\uACC4\uCE35\uC73C\uB85C_\uC81C\uAC70\uB428: removed.length,
+    \uBCC0\uACBD: r.change ? { \uCD94\uAC00: r.change.added.length, \uC81C\uC678: r.change.dropped.length } : "\uBCC0\uACBD \uC5C6\uC74C"
+  });
+};
+
+// netlify/functions/nxtcheck.js
+init_nxt_core();
+init_nxt_signal();
+var nxtcheck_default = async (req2) => {
+  const url = new URL(req2.url);
+  const codes = (url.searchParams.get("codes") || "").split(",").map((c) => c.trim().toUpperCase()).filter((c) => /^[0-9A-Z]{6}$/.test(c)).slice(0, 40);
+  if (!codes.length) return json7({ ok: false, error: "no codes", result: {} });
+  const store = await blobStore();
+  const list = await resolveFast();
+  if (list && list.ok && list.count > 0) {
+    const result2 = {};
+    for (const c of codes) result2[c] = Object.prototype.hasOwnProperty.call(list.codes, c);
+    return json7({ ok: true, basis: "\uBA85\uB2E8", asOf: list.asOf, source: list.source, result: result2 });
+  }
+  const signal = await ensureSignal(store);
+  if (!signal.ok) {
+    const result2 = {};
+    for (const c of codes) result2[c] = null;
+    return json7({ ok: false, basis: "\uC2E0\uD638 \uBBF8\uD655\uBCF4", why: signal.why, result: result2 });
+  }
+  const result = {};
+  await Promise.all(codes.map(async (c) => {
+    try {
+      const m = await fetchStockMeta(c);
+      result[c] = m ? isMember(m.feats, signal) : null;
+    } catch {
+      result[c] = null;
+    }
+  }));
+  return json7({ ok: true, basis: "\uAC70\uB798\uC18C \uC18C\uC18D \uC2E0\uD638", features: signal.features.length, result });
+};
+var json7 = (o) => new Response(JSON.stringify(o), {
+  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, s-maxage=300" }
+});
+
+// netlify/functions/nxthistory.js
+init_nxt_core();
+var json8 = (o) => new Response(JSON.stringify(o), {
+  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, s-maxage=1800" }
+});
+var nxthistory_default = async () => {
+  const store = await blobStore();
+  const cur = await resolveFast();
+  if (!cur || !cur.ok) return json8({ ok: false, error: "\uD604\uC7AC \uBA85\uB2E8\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4" });
+  const curCodes = Object.keys(cur.codes);
+  const curSet = new Set(curCodes);
+  const curKey = "history:" + (cur.asOf || "unknown");
+  let index = [];
+  if (store) {
+    try {
+      index = await store.get("history:index", { type: "json" }) || [];
+    } catch {
+      index = [];
+    }
+    if (!index.some((x) => x.key === curKey)) {
+      index.push({ key: curKey, asOf: cur.asOf, quarter: cur.quarter || null, count: curCodes.length, at: Date.now() });
+      index.sort((a, b) => String(a.asOf).localeCompare(String(b.asOf)));
+      try {
+        await store.setJSON(curKey, { asOf: cur.asOf, quarter: cur.quarter || null, codes: curCodes, names: cur.names || {} });
+        await store.setJSON("history:index", index);
+      } catch {
+      }
+    }
+  }
+  let prev = null;
+  const older = index.filter((x) => x.key !== curKey);
+  if (store && older.length) {
+    try {
+      prev = await store.get(older[older.length - 1].key, { type: "json" });
+    } catch {
+      prev = null;
+    }
+  }
+  let added = [], removed = [];
+  if (prev && Array.isArray(prev.codes)) {
+    const prevSet = new Set(prev.codes);
+    added = curCodes.filter((c) => !prevSet.has(c)).map((c) => ({ code: c, name: (cur.names || {})[c] || "", market: cur.codes[c] || "" }));
+    removed = prev.codes.filter((c) => !curSet.has(c)).map((c) => ({ code: c, name: (prev.names || {})[c] || "" }));
+  }
+  const officialRemoved = (cur.removed || []).map((r) => typeof r === "string" ? { code: r, name: "" } : r);
+  return json8({
+    ok: true,
+    current: { asOf: cur.asOf, quarter: cur.quarter || NXT_UNIVERSE && NXT_UNIVERSE.quarter || null, count: curCodes.length, kospi: cur.kospi, kosdaq: cur.kosdaq, source: cur.source },
+    previous: prev ? { asOf: prev.asOf, quarter: prev.quarter, count: prev.codes.length } : null,
+    added,
+    removed,
+    officialRemoved,
+    timeline: index.map((x) => ({ asOf: x.asOf, quarter: x.quarter, count: x.count }))
+  });
+};
+
+// netlify/functions/nxtlist.js
+init_store();
+init_nxt_core();
+var base = () => envGet("URL") || envGet("DEPLOY_PRIME_URL") || envGet("DEPLOY_URL") || "";
+async function maybeRefresh(source) {
+  if (NXT_UNIVERSE && NXT_UNIVERSE.official) return;
+  if (!/snapshot|스냅샷/.test(String(source || ""))) return;
+  try {
+    const store = await blobStore();
+    if (store) {
+      const last = await store.get("lastKick", { type: "json" }).catch(() => null);
+      if (last && last.at && Date.now() - last.at < 6 * 60 * 60 * 1e3) return;
+      await store.setJSON("lastKick", { at: Date.now() });
+    }
+    fetch(base() + "/api/cronstep?job=nxt", { method: "POST" }).catch(() => {
+    });
+  } catch {
+  }
+}
+function json9(body, maxAge) {
+  return new Response(JSON.stringify(body), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, s-maxage=${maxAge}, stale-while-revalidate=86400`
+    }
+  });
+}
+var nxtlist_default = async (req2) => {
+  const url = new URL(req2.url);
+  const force = url.searchParams.get("refresh") === "1";
+  const probe2 = url.searchParams.get("probe") === "1";
+  const r = force ? await collect(2e4) : await resolveFast();
+  if (!force) maybeRefresh(r.source);
+  if (probe2) {
+    const q = String(url.searchParams.get("code") || "").replace(/[^0-9]/g, "");
+    return json9({
+      ok: r.ok,
+      source: r.source,
+      count: r.count,
+      asOf: r.asOf,
+      envUrlSet: !!envGet("NXT_LIST_URL"),
+      attempts: r.attempts || [],
+      snapshotCount: Object.keys(NXT_UNIVERSE && NXT_UNIVERSE.codes || {}).length,
+      probe: q ? { code: q, inList: !!r.codes[q], market: r.codes[q] || null } : null,
+      sample: Object.keys(r.codes).slice(0, 10)
+    }, 60);
+  }
+  return json9({
+    ok: r.ok,
+    trusted: !!r.trusted,
+    audit: r.audit,
+    attempts: r.attempts || [],
+    kospi: r.kospi,
+    kosdaq: r.kosdaq,
+    halted: r.halted || [],
+    status: r.status || "ok",
+    asOf: r.asOf,
+    quarter: r.quarter || NXT_UNIVERSE && NXT_UNIVERSE.quarter || null,
+    official: !!(r.official || NXT_UNIVERSE && NXT_UNIVERSE.official),
+    source: r.source,
+    count: r.count,
+    codes: Object.keys(r.codes),
+    // 프런트는 배열만 받으면 된다(가볍게)
+    markets: r.codes,
+    removed: r.removed || []
+  }, r.ok ? 3600 : 60);
+};
+
+// netlify/functions/nxtquote.js
+init_nxt_core();
+var UA23 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+async function jget9(url, ms = 4e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA23, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" }, signal: c.signal });
+    const txt = await r.text();
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+var num8 = (x) => {
+  const n = Number(String(x == null ? "" : x).replace(/[^0-9.-]/g, ""));
+  return isFinite(n) ? n : 0;
+};
+var firstNum = (o, keys) => {
+  for (const k of keys) {
+    if (o && o[k] != null) {
+      const v = num8(o[k]);
+      if (v) return v;
+    }
+  }
+  return 0;
+};
+var dirSign = (info) => {
+  const c = info && info.compareToPreviousPrice && String(info.compareToPreviousPrice.code || "");
+  if (c === "4" || c === "5") return -1;
+  if (c === "3") return 0;
+  return 1;
+};
+async function oneNxt(code) {
+  const j = await jget9(`https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`);
+  const arr = j && (j.datas || j.result && j.result.areas && j.result.areas.flatMap((a) => a.datas || []));
+  const x = Array.isArray(arr) ? arr[0] : null;
+  if (!x) return null;
+  const om = x.overMarketPriceInfo;
+  const price = om ? firstNum(om, ["overPriceRaw", "overPrice", "closePriceRaw", "closePrice"]) : 0;
+  if (!price) return null;
+  const kSign = dirSign(x), kChg = kSign * Math.abs(firstNum(x, ["compareToPreviousClosePriceRaw", "compareToPreviousClosePrice"]));
+  const kPrice = firstNum(x, ["closePriceRaw", "closePrice"]);
+  const prevClose = kPrice ? kPrice - kChg : 0;
+  const sign = dirSign(om);
+  const magChg = Math.abs(firstNum(om, ["compareToPreviousClosePriceRaw", "compareToPreviousClosePrice"]));
+  const magRate = Math.abs(firstNum(om, ["fluctuationsRatioRaw", "fluctuationsRatio"]));
+  const change = sign * magChg;
+  const base3 = prevClose || (magChg ? price - change : 0);
+  const rate = magRate ? sign * magRate : base3 ? (price - base3) / base3 * 100 : 0;
+  return {
+    code,
+    price,
+    change: Math.round(change),
+    rate: Number(rate.toFixed(2)),
+    prevClose: base3 || null,
+    volume: firstNum(om, ["accumulatedTradingVolumeRaw", "accumulatedTradingVolume"]) || null,
+    status: String(om.overMarketStatus || ""),
+    source: "NXT"
+  };
+}
+var nxtquote_default = async (req2) => {
+  const url = new URL(req2.url);
+  const raw = String(url.searchParams.get("codes") || "").toUpperCase().replace(/[^0-9A-Z,]/g, "");
+  const codes = [...new Set(raw.split(",").filter((c) => /^[0-9A-Z]{6}$/.test(c)))].slice(0, 32);
+  if (!codes.length) {
+    return new Response(JSON.stringify({ ok: false, quotes: [] }), { headers: { "content-type": "application/json" } });
+  }
+  try {
+    const list = await resolveFast();
+    const listReady = !!(list && list.ok && list.count > 0);
+    const isKrxOnly = (c) => listReady && !Object.prototype.hasOwnProperty.call(list.codes, c);
+    const res = await Promise.all(codes.map((c) => isKrxOnly(c) ? Promise.resolve(null) : oneNxt(c).catch(() => null)));
+    const quotes = res.filter(Boolean);
+    return new Response(JSON.stringify({ ok: quotes.length > 0, n: quotes.length, asked: codes.length, listReady, quotes }), {
+      headers: cacheHdr(2, 300)
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, quotes: [], error: String(e).slice(0, 120) }), {
+      headers: { "content-type": "application/json" }
+    });
+  }
+};
+
+// netlify/functions/nxtrefresh.js
+init_store();
+init_nxt_core();
+var base2 = () => envGet("URL") || envGet("DEPLOY_PRIME_URL") || envGet("DEPLOY_URL") || "";
+var nxtrefresh_default = async (req2) => {
+  const run = new URL(req2.url).searchParams.get("run") === "1";
+  let \uAE30\uB3D9 = null;
+  if (run) {
+    const tok = envGet("NXT_ADMIN_TOKEN");
+    const auth = req2.headers.get("authorization") || "";
+    if (!tok || auth !== "Bearer " + tok)
+      return new Response(
+        JSON.stringify({ ok: false, err: "\uC778\uC99D \uD544\uC694 \u2014 Authorization: Bearer <NXT_ADMIN_TOKEN>" }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      );
+    try {
+      const r = await fetch(base2() + "/api/cronstep?job=nxt", { method: "POST" });
+      \uAE30\uB3D9 = `\uC218\uC9D1\uAE30 \uAE30\uB3D9\uB428 (${r.status}) \u2014 \uC218\uC2ED \uCD08 \uB4A4 /api/nxtlist \uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4`;
+    } catch (e) {
+      \uAE30\uB3D9 = "\uC218\uC9D1\uAE30 \uAE30\uB3D9 \uC2E4\uD328: " + String(e).slice(0, 120);
+    }
+  }
+  const cur = await resolveFast();
+  return new Response(JSON.stringify({
+    \uAE30\uB3D9,
+    \uD604\uC7AC\uC0C1\uD0DC: {
+      \uC2E0\uB8B0\uAC00\uB2A5: !!cur.trusted,
+      \uC885\uBAA9\uC218: cur.count,
+      \uCF54\uC2A4\uD53C: cur.kospi,
+      \uCF54\uC2A4\uB2E5: cur.kosdaq,
+      \uAE30\uC900\uC77C: cur.asOf,
+      \uC18C\uC2A4: cur.source,
+      \uC9C4\uB2E8: cur.attempts || [],
+      \uAC10\uC0AC: cur.audit
+    },
+    \uCD5C\uADFC\uC774\uB825: (await readHistory() || []).slice(0, 5)
+  }, null, 2), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+};
+
+// functions/api/[[route]].js
+init_picks();
+
+// netlify/functions/popular.js
+init_euckr();
+function _mkDec10(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA24 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart11(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec10(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\uD800-\uDFFF\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+function stripTags3(s) {
+  return String(s || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+}
+async function fetchDecoded2(url, ms = 6e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA24, "Referer": "https://finance.naver.com/sise/" }, signal: c.signal });
+    const buf = await r.arrayBuffer();
+    return decodeSmart11(buf, r.headers.get("content-type"));
+  } finally {
+    clearTimeout(t);
+  }
+}
+function parseRank(html) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const re = /item\/main\.(?:naver|nhn)\?code=([0-9][0-9A-Za-z]{5})[^>]*>([\s\S]{1,120}?)<\/a>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const code = m[1];
+    const name = stripTags3(m[2]);
+    if (!name || /^\d+$/.test(name) || seen.has(code)) continue;
+    seen.add(code);
+    out.push({ code, name });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+var numOf = (v) => {
+  const n = Number(String(v == null ? "" : v).replace(/[^0-9.-]/g, ""));
+  return isFinite(n) ? n : 0;
+};
+async function jsonUniverse(pagesPerMarket = 6) {
+  const jobs = [];
+  for (const market of ["KOSPI", "KOSDAQ"]) {
+    for (let page = 1; page <= pagesPerMarket; page++) {
+      jobs.push((async () => {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 4500);
+        try {
+          const r = await fetch(
+            `https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=100`,
+            { headers: { "User-Agent": UA24, Accept: "application/json", Referer: "https://m.stock.naver.com/" }, signal: c.signal }
+          );
+          if (!r.ok) return [];
+          const j = await r.json();
+          return j && (j.stocks || j.datas || j.result && j.result.stocks) || [];
+        } catch {
+          return [];
+        } finally {
+          clearTimeout(t);
+        }
+      })());
+    }
+  }
+  const rows = (await Promise.all(jobs)).flat();
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const r of rows) {
+    const code = String(r.itemCode || r.code || r.cd || "").toUpperCase();
+    if (!/^[0-9][0-9A-Z]{5}$/.test(code) || seen.has(code)) continue;
+    const price = numOf(r.closePrice ?? r.nv);
+    const rate = numOf(r.fluctuationsRatio ?? r.cr);
+    const vol = numOf(r.accumulatedTradingVolume ?? r.aq);
+    if (!price) continue;
+    seen.add(code);
+    out.push({ code, name: String(r.stockName || r.nm || "").trim() || code, price, rate, volume: vol });
+  }
+  return out;
+}
+async function rankFromJson(type) {
+  const uni = await jsonUniverse();
+  if (uni.length < 50) return [];
+  const live = uni.filter((x) => x.volume > 0);
+  const base3 = live.length >= 50 ? live : uni;
+  if (type === "rise") return base3.filter((x) => x.rate > 0).sort((a, b) => b.rate - a.rate).slice(0, 40);
+  if (type === "fall") return base3.filter((x) => x.rate < 0).sort((a, b) => a.rate - b.rate).slice(0, 40);
+  return base3.slice().sort((a, b) => b.volume * b.price - a.volume * a.price).slice(0, 40);
+}
+var URLS = {
+  search: "https://finance.naver.com/sise/lastsearch2.naver",
+  rise: "https://finance.naver.com/sise/sise_rise.naver",
+  fall: "https://finance.naver.com/sise/sise_fall.naver"
+};
+var variants = (type) => {
+  const base3 = URLS[type] || URLS.search;
+  if (type === "rise" || type === "fall") return [`${base3}?sosok=0`, `${base3}?sosok=1`, base3];
+  return [base3];
+};
+async function tryFetch(u) {
+  for (let i = 0; i < 2; i++) {
+    try {
+      const html = await fetchDecoded2(u);
+      const items = parseRank(html);
+      if (items.length) return { u, items };
+    } catch (e) {
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return { u, items: [] };
+}
+var popular_default = async (req2) => {
+  const url = new URL(req2.url);
+  const type = String(url.searchParams.get("type") || "search");
+  const diag = [];
+  try {
+    const res = await Promise.all(variants(type).map(tryFetch));
+    const seen = /* @__PURE__ */ new Set();
+    let items = [];
+    let src = "html";
+    for (const r of res) {
+      diag.push(r.u.replace("https://finance.naver.com/sise/", "") + ":" + r.items.length);
+      for (const it of r.items) {
+        if (seen.has(it.code)) continue;
+        seen.add(it.code);
+        items.push(it);
+      }
+    }
+    if (items.length < 5) {
+      try {
+        const j = await rankFromJson(type);
+        diag.push("json:" + j.length);
+        if (j.length >= 5) {
+          items = j;
+          src = "json";
+        }
+      } catch (e) {
+        diag.push("json:err " + String(e).slice(0, 40));
+      }
+    }
+    return new Response(
+      JSON.stringify({ ok: items.length > 0, type, n: items.length, src, items: items.slice(0, 40), diag }),
+      { headers: { "content-type": "application/json", "cache-control": items.length ? "s-maxage=60" : "public, max-age=5" } }
+    );
+  } catch (e) {
+    try {
+      const j = await rankFromJson(type);
+      if (j.length >= 5) return new Response(
+        JSON.stringify({ ok: true, type, n: j.length, src: "json-rescue", items: j, diag }),
+        { headers: { "content-type": "application/json", "cache-control": "s-maxage=60" } }
+      );
+    } catch {
+    }
+    return new Response(
+      JSON.stringify({ ok: false, type, items: [], error: String(e).slice(0, 120), diag }),
+      { headers: cacheHdr(30, 600) }
+    );
+  }
+};
+
+// netlify/functions/quote.js
+var UA25 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+var HDRS = { "User-Agent": UA25, "Referer": "https://finance.naver.com/", "Accept": "application/json" };
+var num9 = (v) => Number(String(v ?? "").replace(/[^0-9.-]/g, "")) || 0;
+async function jget10(url, ms = 5e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: HDRS, signal: c.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+function normalize(d) {
+  const price = num9(d.closePriceRaw ?? d.closePrice ?? d.nv);
+  const ratio = num9(d.fluctuationsRatioRaw ?? d.fluctuationsRatio ?? d.cr);
+  let change = Math.abs(num9(d.compareToPreviousClosePriceRaw ?? d.compareToPreviousClosePrice ?? d.cv));
+  if (ratio < 0) change = -change;
+  const ms = d.marketStatus ?? d.ms ?? "CLOSE";
+  const om = d.overMarketPriceInfo || null;
+  const omPrice = om ? num9(om.overPriceRaw ?? om.overPrice) : 0;
+  const omStatus = om ? String(om.overMarketStatus ?? om.tradingSessionType ?? "") : "";
+  const nxtMember = !!d.integratedPriceInfo;
+  const ip = d.integratedPriceInfo || null;
+  const ipPrice = ip ? num9(ip.integratedPriceRaw ?? ip.integratedPrice ?? ip.currentPriceRaw ?? ip.currentPrice ?? ip.closePriceRaw ?? ip.closePrice ?? ip.overPriceRaw ?? ip.overPrice) : 0;
+  const prev = price - change;
+  return {
+    code: String(d.itemCode ?? d.cd ?? "").toUpperCase(),
+    name: d.stockName ?? d.nm ?? "",
+    price,
+    change,
+    rate: ratio,
+    prevClose: prev,
+    open: num9(d.openPriceRaw ?? d.openPrice ?? d.ov),
+    high: num9(d.highPriceRaw ?? d.highPrice ?? d.hv),
+    low: num9(d.lowPriceRaw ?? d.lowPrice ?? d.lv),
+    volume: num9(d.accumulatedTradingVolumeRaw ?? d.accumulatedTradingVolume ?? d.aq),
+    value: num9(d.accumulatedTradingValueRaw ?? d.accumulatedTradingValue ?? d.aa),
+    marketStatus: String(ms).toUpperCase().includes("OPEN") ? "OPEN" : "CLOSE",
+    time: d.localTradedAt ?? "",
+    // NXT 신호: nxtMember=자격(통합시세 존재), nxtHas=활동 구조, nxtLive=실제 NXT 체결가
+    nxtMember,
+    nxtHas: !!om,
+    nxtLive: omPrice > 0,
+    nxtPrice: omPrice || null,
+    nxtRate: om ? num9(om.fluctuationsRatioRaw ?? om.fluctuationsRatio) : null,
+    nxtStatus: omStatus,
+    uniPrice: ipPrice || null
+  };
+}
+async function pollingBatch(kind, codes) {
+  const j = await jget10(`https://polling.finance.naver.com/api/realtime/domestic/${kind}/${codes.join(",")}`);
+  const datas = j?.datas || (j?.result?.areas || []).flatMap((a) => a.datas || []) || [];
+  return datas.map(normalize).filter((q) => q.code && q.price);
+}
+async function mobileOne(code) {
+  const d = await jget10(`https://m.stock.naver.com/api/stock/${code}/basic`, 4e3);
+  if (!d) return null;
+  const q = normalize({
+    itemCode: d.stockEndCode || d.itemCode || code,
+    stockName: d.stockName,
+    closePrice: d.closePrice,
+    compareToPreviousClosePrice: d.compareToPreviousClosePrice,
+    fluctuationsRatio: d.fluctuationsRatio,
+    openPrice: d.openPrice,
+    highPrice: d.highPrice,
+    lowPrice: d.lowPrice,
+    accumulatedTradingVolume: d.accumulatedTradingVolume,
+    accumulatedTradingValue: d.accumulatedTradingValue,
+    marketStatus: d.marketStatus
+  });
+  if (!q.code) q.code = String(code).toUpperCase();
+  q.nxtHas = void 0;
+  q.nxtLive = false;
+  q.nxtMember = void 0;
+  return q.price ? q : null;
+}
+var quote_default = async (req2) => {
+  const url = new URL(req2.url);
+  const raw = String(url.searchParams.get("codes") || "005930").toUpperCase().replace(/[^0-9A-Z,]/g, "");
+  const codes = [...new Set(raw.split(",").filter((c) => /^[0-9A-Z]{6}$/.test(c)))].slice(0, 200);
+  const diag = [];
+  if (!codes.length) {
+    return new Response(
+      JSON.stringify({ ok: false, quotes: [], diag: ["no valid codes"] }),
+      { headers: cacheHdr(2, 300) }
+    );
+  }
+  try {
+    const CH = 40;
+    const chunks = [];
+    for (let i = 0; i < codes.length; i += CH) chunks.push(codes.slice(i, i + CH));
+    const per = await Promise.all(chunks.map(async (cs) => {
+      let out = [];
+      try {
+        out = await pollingBatch("stock", cs);
+      } catch (e) {
+        diag.push("stock:" + String(e).slice(0, 40));
+      }
+      const missing = cs.filter((c) => !out.some((q) => q.code === c));
+      if (missing.length) {
+        try {
+          const etf = await pollingBatch("etf", missing);
+          out = out.concat(etf);
+        } catch (e) {
+          diag.push("etf:" + String(e).slice(0, 40));
+        }
+      }
+      return out;
+    }));
+    let quotes = per.flat();
+    const still = codes.filter((c) => !quotes.some((q) => q.code === c)).slice(0, 12);
+    if (still.length) {
+      const solo = await Promise.all(still.map((c) => mobileOne(c).catch(() => null)));
+      quotes = quotes.concat(solo.filter(Boolean));
+      diag.push("solo:" + still.length + "/" + solo.filter(Boolean).length);
+    }
+    const map = new Map(quotes.map((q) => [q.code, q]));
+    const ordered = codes.map((c) => map.get(c)).filter(Boolean);
+    return new Response(JSON.stringify({ ok: ordered.length > 0, n: ordered.length, asked: codes.length, quotes: ordered, diag }), {
+      headers: cacheHdr(2, 300)
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, error: String(e), quotes: [], diag }), {
+      headers: cacheHdr(2, 300)
+    });
+  }
+};
+
+// netlify/functions/search.js
+init_euckr();
+function _mkDec11(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA26 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart12(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec11(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\uD800-\uDFFF\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+async function fetchText4(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers, signal: c.signal });
+    return await r.text();
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function fetchEuc2(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers, signal: c.signal });
+    const buf = await r.arrayBuffer();
+    return decodeSmart12(buf, r.headers.get("content-type"));
+  } finally {
+    clearTimeout(t);
+  }
+}
+var stripTags4 = (s) => String(s || "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").trim();
+var CODE_RE2 = /^[0-9A-Z]{6}$/;
+var isCode2 = (v) => CODE_RE2.test(String(v || "").toUpperCase());
+var mkMarket = (v) => {
+  v = String(v || "");
+  if (/KOSDAQ|코스닥/i.test(v)) return "\uCF54\uC2A4\uB2E5";
+  if (/KONEX|코넥스/i.test(v)) return "\uCF54\uB125\uC2A4";
+  if (/KOSPI|유가|코스피/i.test(v)) return "\uCF54\uC2A4\uD53C";
+  return "";
+};
+function kindOf(name, raw) {
+  const s = (String(raw || "") + " " + String(name || "")).toUpperCase();
+  if (/ETN/.test(s)) return "ETN";
+  if (/ETF/.test(s)) return "ETF";
+  const n = String(name || "");
+  if (/^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|히어로즈|마이다스|파워)/i.test(n)) return "ETF";
+  if (/리츠$/.test(n)) return "\uB9AC\uCE20";
+  if (/스팩|기업인수목적/.test(n)) return "\uC2A4\uD329";
+  return "";
+}
+async function viaFrontApi(q, target) {
+  const url = `https://m.stock.naver.com/front-api/search/autoComplete?query=${encodeURIComponent(q)}&target=${encodeURIComponent(target)}`;
+  const j = JSON.parse(await fetchText4(url, 4e3, { "User-Agent": UA26, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" }));
+  const items = j && j.result && (j.result.items || j.result.stocks) || j && j.items || [];
+  return items.map((it) => ({
+    code: String(it.code || it.cd || it.itemCode || it.reutersCode || "").toUpperCase(),
+    name: stripTags4(it.name || it.nm || it.stockName),
+    market: mkMarket(it.stockExchangeType && (it.stockExchangeType.name || it.stockExchangeType.code) || it.marketName || it.market || it.nationName),
+    kind: kindOf(stripTags4(it.name || it.nm || it.stockName), it.typeCode || it.stockType || it.category)
+  })).filter((x) => isCode2(x.code) && x.name);
+}
+async function viaAc(q) {
+  const url = `https://ac.stock.naver.com/ac?q=${encodeURIComponent(q)}&target=stock,index,etf,etn,fund`;
+  const j = JSON.parse(await fetchText4(url, 4e3, { "User-Agent": UA26, "Referer": "https://finance.naver.com/", "Accept": "application/json" }));
+  const items = j && j.items || [];
+  const out = [];
+  for (const it of items) {
+    const fields = (Array.isArray(it) ? it : []).map((f) => Array.isArray(f) ? String(f[0] || "") : String(f || ""));
+    const code = (fields.find((f) => isCode2(f)) || "").toUpperCase();
+    const market = mkMarket(fields.find((f) => /KOSPI|KOSDAQ|KONEX|코스피|코스닥|코넥스/i.test(f)));
+    const name = stripTags4(fields.find((f) => /[가-힣A-Za-z]/.test(f) && !isCode2(f) && !/^\d+$/.test(f) && !/KOSPI|KOSDAQ|KONEX|stock|index|etf|etn/i.test(f)));
+    if (code && name) out.push({ code, name, market, kind: kindOf(name, fields.join(" ")) });
+  }
+  return out;
+}
+async function viaFinanceHtml(q) {
+  const url = `https://finance.naver.com/search/searchList.naver?query=${encodeURIComponent(q)}`;
+  const html = await fetchEuc2(url, 5e3, { "User-Agent": UA26, "Referer": "https://finance.naver.com/" });
+  const out = [];
+  const re = /\/item\/main\.naver\?code=([0-9A-Za-z]{6})"[^>]*>([^<]{1,60})</g;
+  let m;
+  while (m = re.exec(html)) {
+    const code = m[1].toUpperCase();
+    const name = stripTags4(m[2]);
+    if (isCode2(code) && name) out.push({ code, name, market: "", kind: kindOf(name, "") });
+  }
+  return out;
+}
+var search_default = async (req2) => {
+  const url = new URL(req2.url);
+  const raw = String(url.searchParams.get("q") || "").trim();
+  if (!raw) return new Response(JSON.stringify({ ok: true, items: [] }), { headers: { "content-type": "application/json" } });
+  const noSpace = raw.replace(/\s+/g, "");
+  const variants2 = [.../* @__PURE__ */ new Set([raw, noSpace])];
+  const tasks = [];
+  for (const v of variants2) {
+    tasks.push(viaFrontApi(v, "stock,etf,etn"));
+    tasks.push(viaFrontApi(v, "stock"));
+    tasks.push(viaAc(v));
+  }
+  tasks.push(viaFinanceHtml(raw));
+  const settled = await Promise.allSettled(tasks);
+  let items = [];
+  settled.forEach((s) => {
+    if (s.status === "fulfilled" && Array.isArray(s.value)) items.push(...s.value);
+  });
+  if (isCode2(raw.toUpperCase()) && !items.some((x) => x.code === raw.toUpperCase())) {
+    items.unshift({ code: raw.toUpperCase(), name: raw.toUpperCase(), market: "", kind: "" });
+  }
+  const map = /* @__PURE__ */ new Map();
+  for (const it of items) {
+    const prev = map.get(it.code);
+    if (!prev) {
+      map.set(it.code, it);
+      continue;
+    }
+    map.set(it.code, {
+      code: it.code,
+      name: prev.name && prev.name.length >= (it.name || "").length ? prev.name : it.name,
+      market: prev.market || it.market,
+      kind: prev.kind || it.kind
+    });
+  }
+  const qn = noSpace.toLowerCase();
+  const score2 = (n) => {
+    const s = String(n || "").replace(/\s+/g, "").toLowerCase();
+    if (s === qn) return 0;
+    if (s.startsWith(qn)) return 1;
+    if (s.includes(qn)) return 2;
+    return 3;
+  };
+  const list = [...map.values()].sort((a, b) => score2(a.name) - score2(b.name) || a.name.localeCompare(b.name)).slice(0, 120);
+  return new Response(
+    JSON.stringify({ ok: true, items: list, diag: { n: list.length } }),
+    { headers: { "content-type": "application/json", "cache-control": "s-maxage=300" } }
+  );
+};
+
+// netlify/functions/stockaudit.js
+init_nxt_core();
+var UA27 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
+var num10 = (v) => {
+  const n = Number(String(v == null ? "" : v).replace(/[^0-9.-]/g, ""));
+  return isFinite(n) ? n : 0;
+};
+async function jget11(url, ms = 4e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA27, Referer: "https://finance.naver.com/", Accept: "application/json" }, signal: c.signal });
+    return await r.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+var UNI = null;
+var UNI_AT = 0;
+async function universe2() {
+  if (UNI && Date.now() - UNI_AT < 10 * 60 * 1e3) return UNI;
+  const out = [];
+  for (const market of ["KOSPI", "KOSDAQ"]) {
+    for (let page = 1; page <= 40; page++) {
+      const j = await jget11(`https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=100`, 4500);
+      const rows = j && (j.stocks || j.datas || j.result && j.result.stocks) || [];
+      if (!rows.length) break;
+      for (const r of rows) {
+        const code = String(r.itemCode || r.code || r.cd || "").toUpperCase().replace(/\.(KS|KQ)$/, "");
+        if (/^[0-9A-Z]{6}$/.test(code)) out.push({ code, name: String(r.stockName || r.nm || "").trim(), market });
+      }
+      if (rows.length < 100) break;
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  UNI = out.filter((s) => seen.has(s.code) ? false : (seen.add(s.code), true));
+  UNI_AT = Date.now();
+  return UNI;
+}
+async function pollOne(code) {
+  const j = await jget11(`https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`, 4e3);
+  const arr = j && (j.datas || j.result && j.result.areas && j.result.areas.flatMap((a) => a.datas || []));
+  const d = Array.isArray(arr) ? arr[0] : null;
+  if (!d) return null;
+  const om = d.overMarketPriceInfo || null;
+  const nxtPrice = om ? num10(om.overPriceRaw ?? om.overPrice ?? om.closePriceRaw ?? om.closePrice) : 0;
+  const kPrice = num10(d.closePriceRaw ?? d.closePrice);
+  const cc = d.compareToPreviousPrice && String(d.compareToPreviousPrice.code || "");
+  const cSign = cc === "4" || cc === "5" ? -1 : cc === "3" ? 0 : 1;
+  const kChg = cSign * Math.abs(num10(d.compareToPreviousClosePriceRaw ?? d.compareToPreviousClosePrice));
+  const prevClose = kPrice ? kPrice - kChg : 0;
+  const ip = d.integratedPriceInfo || null;
+  const uniPrice = ip ? num10(ip.integratedPriceRaw ?? ip.integratedPrice ?? ip.currentPriceRaw ?? ip.currentPrice ?? ip.closePriceRaw ?? ip.closePrice ?? ip.overPriceRaw ?? ip.overPrice) : 0;
+  return {
+    member: !!d.integratedPriceInfo,
+    active: !!om,
+    priced: kPrice > 0,
+    nxtPrice: nxtPrice || null,
+    prevClose: prevClose || null,
+    uniPrice: uniPrice || null
+  };
+}
+async function pollBatch(codes) {
+  const map = /* @__PURE__ */ new Map();
+  const res = await Promise.all(codes.map((c) => pollOne(c).catch(() => null)));
+  codes.forEach((c, i) => {
+    if (res[i]) map.set(c, res[i]);
+  });
+  return map;
+}
+var stockaudit_default = async (req2) => {
+  const url = new URL(req2.url);
+  const from = Math.max(0, parseInt(url.searchParams.get("from") || "0", 10) || 0);
+  const count = Math.min(40, Math.max(1, parseInt(url.searchParams.get("count") || "40", 10) || 40));
+  const uni = await universe2();
+  if (!uni.length) return json10({ ok: false, total: 0, error: "\uC804 \uC885\uBAA9 \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4" });
+  const list = await resolveFast();
+  const listReady = !!(list && list.ok && list.count > 0);
+  const snapMember = (code) => listReady ? Object.prototype.hasOwnProperty.call(list.codes, code) : null;
+  let uniAll = uni;
+  if (listReady) {
+    const have = new Set(uni.map((s) => s.code));
+    const extra = Object.keys(list.codes).filter((c) => !have.has(c)).map((c) => ({ code: c, name: list.names && list.names[c] || c, market: list.codes[c] || "" }));
+    if (extra.length) uniAll = uni.concat(extra);
+  }
+  const slice = uniAll.slice(from, from + count);
+  const codes = slice.map((s) => s.code);
+  let pm = /* @__PURE__ */ new Map();
+  try {
+    pm = await pollBatch(codes);
+  } catch {
+  }
+  const results = slice.map((s) => {
+    const official = snapMember(s.code);
+    const p = pm.get(s.code);
+    const mk = s.market || "";
+    if (!p || !p.priced) {
+      if (official === true) return { code: s.code, name: s.name, market: mk, ok: true, nxt: true, halted: true };
+      return { code: s.code, name: s.name, market: mk, ok: false, issue: "no-data", nxt: official === true };
+    }
+    if (official === false && p.active) return { code: s.code, name: s.name, market: mk, ok: false, issue: "add", nxt: true, nxtPrice: p.nxtPrice, prevClose: p.prevClose, uniPrice: p.uniPrice };
+    return { code: s.code, name: s.name, market: mk, ok: true, nxt: official === true, active: p.active, nxtPrice: p.nxtPrice, prevClose: p.prevClose, uniPrice: p.uniPrice };
+  });
+  return json10({ ok: true, total: uniAll.length, from, count: slice.length, listReady, listAsOf: listReady ? list.asOf : null, results });
+};
+var json10 = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=5" } });
+
+// netlify/functions/stocklist.js
+init_euckr();
+function _mkDec12(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA28 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart13(buf, ct) {
+  const dec = (e2) => {
+    try {
+      return _mkDec12(e2).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    return (x.match(/[가-힣]/g) || []).length - (x.match(/\uFFFD/g) || []).length * 5;
+  };
+  let d = "";
+  const m = /charset=([\w-]+)/i.exec(String(ct || ""));
+  if (m) d = m[1].toLowerCase();
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (d) {
+    const t = dec(norm2(d));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+async function get(url, ms, headers) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: Object.assign({ "User-Agent": UA28 }, headers || {}), signal: c.signal });
+    const buf = await r.arrayBuffer();
+    return { status: r.status, text: decodeSmart13(buf, r.headers.get("content-type")) };
+  } finally {
+    clearTimeout(t);
+  }
+}
+var clean2 = (s) => String(s || "").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+async function viaMobile(market, page) {
+  const url = `https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=100`;
+  const r = await get(url, 4e3, { "Referer": "https://m.stock.naver.com/", "Accept": "application/json" });
+  let j = null;
+  try {
+    j = JSON.parse(r.text);
+  } catch {
+    return null;
+  }
+  const arr = j && (j.stocks || j.result || j.items) || null;
+  if (!Array.isArray(arr) || !arr.length) return null;
+  return arr.map((x) => ({
+    code: String(x.itemCode || x.code || x.reutersCode || "").toUpperCase().replace(/\.(KS|KQ)$/, ""),
+    name: clean2(x.stockName || x.itemName || x.name),
+    market: market === "KOSDAQ" ? "\uCF54\uC2A4\uB2E5" : market === "KONEX" ? "\uCF54\uB125\uC2A4" : "\uCF54\uC2A4\uD53C"
+  })).filter((x) => /^[0-9A-Z]{6}$/.test(x.code) && x.name);
+}
+async function viaHtml(market, page) {
+  if (market === "KONEX") return [];
+  const sosok = market === "KOSDAQ" ? 1 : 0;
+  const url = `https://finance.naver.com/sise/sise_market_sum.naver?sosok=${sosok}&page=${page}`;
+  const r = await get(url, 4500, { "Referer": "https://finance.naver.com/sise/" });
+  const html = r.text || "";
+  const out = [];
+  const re = /\/item\/main\.naver\?code=([0-9A-Za-z]{6})"[^>]*>([^<]{1,40})</g;
+  let m;
+  while (m = re.exec(html)) {
+    const code = m[1].toUpperCase(), name = clean2(m[2]);
+    if (name) out.push({ code, name, market: sosok ? "\uCF54\uC2A4\uB2E5" : "\uCF54\uC2A4\uD53C" });
+  }
+  const seen = /* @__PURE__ */ new Set();
+  return out.filter((x) => {
+    if (seen.has(x.code)) return false;
+    seen.add(x.code);
+    return true;
+  });
+}
+var stocklist_default = async (req2) => {
+  const url = new URL(req2.url);
+  const mq = (url.searchParams.get("market") || "KOSPI").toUpperCase();
+  const market = mq === "KOSDAQ" ? "KOSDAQ" : mq === "KONEX" ? "KONEX" : "KOSPI";
+  const page = Math.max(1, Math.min(60, parseInt(url.searchParams.get("page") || "1", 10) || 1));
+  const diag = {};
+  let items = null;
+  try {
+    items = await viaMobile(market, page);
+    diag.mobile = items ? items.length : "x";
+  } catch {
+    diag.mobile = "err";
+  }
+  if (!items || !items.length) {
+    try {
+      const a = await viaHtml(market, page * 2 - 1);
+      const b = a && a.length === 50 ? await viaHtml(market, page * 2) : [];
+      const seen = /* @__PURE__ */ new Set();
+      items = (a || []).concat(b || []).filter((x) => seen.has(x.code) ? false : (seen.add(x.code), true));
+      diag.html = items.length;
+    } catch {
+      diag.html = "err";
+    }
+  }
+  items = items || [];
+  return new Response(
+    JSON.stringify({ ok: items.length > 0, market, page, n: items.length, items, diag }),
+    /* [v2.9.7] 24시간 캐시 때문에 신규 상장이 하루 이틀 늦게 보였다.
+       1시간으로 줄이고, 만료 뒤에도 옛 응답을 즉시 주면서 뒤에서 갱신한다(체감 지연 0). */
+    { headers: { "content-type": "application/json", "cache-control": "s-maxage=3600, stale-while-revalidate=86400" } }
+  );
+};
+
+// netlify/functions/themes.js
+init_euckr();
+function _mkDec13(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA29 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart14(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec13(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+async function getHtml(url, ms = 6e3) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA29, "Referer": "https://finance.naver.com/sise/" }, signal: c.signal });
+    const buf = await r.arrayBuffer();
+    return decodeSmart14(buf, r.headers.get("content-type"));
+  } finally {
+    clearTimeout(t);
+  }
+}
+var strip2 = (s) => String(s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+function parseRow(row, type) {
+  const link = new RegExp(`sise_group_detail\\.naver\\?type=${type}&no=(\\d+)"[^>]*>([^<]+)<`).exec(row);
+  if (!link) return null;
+  const no = link[1], name = strip2(link[2]);
+  if (!name) return null;
+  const text = strip2(row);
+  const pcts = (text.match(/[+-]?\d+(?:\.\d+)?%/g) || []).map((x) => Number(x.replace("%", "")));
+  const rate = pcts.length ? pcts[0] : null;
+  const rate3 = pcts.length > 1 ? pcts[1] : null;
+  const leaders = [];
+  const re = /\/item\/main\.naver\?code=([0-9A-Z]{6})"[^>]*>([^<]{1,40})</g;
+  let m;
+  while ((m = re.exec(row)) !== null) leaders.push({ code: m[1].toUpperCase(), name: strip2(m[2]) });
+  const cells = (row.match(/<td[^>]*>[\s\S]*?<\/td>/g) || []).map(strip2);
+  const ints = cells.filter((c) => /^\d{1,4}$/.test(c)).map(Number);
+  let count = null, up = null, flat = null, down = null;
+  if (ints.length >= 4) {
+    count = ints[0];
+    up = ints[1];
+    flat = ints[2];
+    down = ints[3];
+  } else if (ints.length === 3) {
+    up = ints[0];
+    flat = ints[1];
+    down = ints[2];
+  } else if (ints.length === 2) {
+    up = ints[0];
+    down = ints[1];
+  }
+  return { no, name, rate, rate3, count, up, flat, down, leaders: leaders.slice(0, 3) };
+}
+function parseList2(html, type) {
+  const rows = html.split(/<tr[^>]*>/i).slice(1);
+  const out = [], seen = /* @__PURE__ */ new Set();
+  for (const r of rows) {
+    const g = parseRow(r, type);
+    if (!g || seen.has(g.no)) continue;
+    seen.add(g.no);
+    out.push(g);
+  }
+  return out;
+}
+var themes_default = async (req2) => {
+  const url = new URL(req2.url);
+  const type = url.searchParams.get("type") === "upjong" ? "upjong" : "theme";
+  const diag = [];
+  try {
+    let items = [];
+    if (type === "theme") {
+      const pages = [1, 2, 3, 4, 5, 6, 7, 8];
+      const htmls = await Promise.all(pages.map((p) => getHtml(`https://finance.naver.com/sise/theme.naver?page=${p}`).catch((e) => {
+        diag.push("p" + p + ":" + String(e).slice(0, 30));
+        return "";
+      })));
+      const seen = /* @__PURE__ */ new Set();
+      htmls.forEach((h) => parseList2(h, "theme").forEach((g) => {
+        if (!seen.has(g.no)) {
+          seen.add(g.no);
+          items.push(g);
+        }
+      }));
+    } else {
+      const h = await getHtml("https://finance.naver.com/sise/sise_group.naver?type=upjong");
+      items = parseList2(h, "upjong");
+    }
+    return new Response(JSON.stringify({ ok: items.length > 0, type, n: items.length, items, diag }), {
+      headers: { "content-type": "application/json", "cache-control": "s-maxage=120" }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, type, n: 0, items: [], error: String(e).slice(0, 120), diag }), {
+      headers: { "content-type": "application/json" }
+    });
+  }
+};
+
+// netlify/functions/themestocks.js
+init_euckr();
+function _mkDec14(enc) {
+  const e = String(enc || "utf-8").toLowerCase();
+  if (/euc-kr|ks_c_5601|ksc5601|cp949|ms949|windows-949/.test(e)) return { decode: (b) => decodeEucKr(b) };
+  try {
+    return new TextDecoder(e);
+  } catch (x) {
+    return { decode: (b) => decodeEucKr(b) };
+  }
+}
+var UA30 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+function decodeSmart15(buf, headerCT) {
+  const dec = (enc) => {
+    try {
+      return _mkDec14(enc).decode(buf);
+    } catch {
+      return null;
+    }
+  };
+  const score2 = (x) => {
+    if (!x) return -1e9;
+    const bad = (x.match(/\uFFFD/g) || []).length;
+    const han = (x.match(/[가-힣]/g) || []).length;
+    const broken = (x.match(/[\u3130-\u318F]/g) || []).length;
+    return han - bad * 5 - broken * 3;
+  };
+  let declared = "";
+  const mH = /charset=([\w-]+)/i.exec(String(headerCT || ""));
+  if (mH) declared = mH[1].toLowerCase();
+  if (!declared) {
+    const head = dec("latin1") || "";
+    const mM = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head.slice(0, 2e3));
+    if (mM) declared = mM[1].toLowerCase();
+  }
+  const norm2 = (c) => c === "ms949" || c === "cp949" || c === "ksc5601" ? "euc-kr" : c;
+  const cands = [];
+  if (declared) {
+    const t = dec(norm2(declared));
+    if (t) cands.push(t);
+  }
+  const u = dec("utf-8"), e = dec("euc-kr");
+  if (u) cands.push(u);
+  if (e) cands.push(e);
+  return cands.sort((a, b) => score2(b) - score2(a))[0] || "";
+}
+var strip3 = (s) => String(s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+var themestocks_default = async (req2) => {
+  const url = new URL(req2.url);
+  const type = url.searchParams.get("type") === "upjong" ? "upjong" : "theme";
+  const no = String(url.searchParams.get("no") || "").replace(/[^0-9]/g, "");
+  if (!no) return new Response(
+    JSON.stringify({ ok: false, items: [], error: "no required" }),
+    { headers: { "content-type": "application/json" } }
+  );
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 7e3);
+    let html = "";
+    try {
+      const r = await fetch(
+        `https://finance.naver.com/sise/sise_group_detail.naver?type=${type}&no=${no}`,
+        { headers: { "User-Agent": UA30, "Referer": "https://finance.naver.com/sise/theme.naver" }, signal: c.signal }
+      );
+      html = decodeSmart15(await r.arrayBuffer(), r.headers.get("content-type"));
+    } finally {
+      clearTimeout(t);
+    }
+    let title = "";
+    const mt = /<title>([^<]+)<\/title>/i.exec(html);
+    if (mt) title = strip3(mt[1]).replace(/\s*:.*$/, "").replace(/\s*네이버.*$/, "");
+    const mh = /class="type_1[^"]*"[\s\S]{0,400}?<h[34][^>]*>([^<]+)</i.exec(html);
+    if (mh) title = strip3(mh[1]) || title;
+    const items = [], seen = /* @__PURE__ */ new Set();
+    const re = /\/item\/main\.naver\?code=([0-9A-Z]{6})"[^>]*>([^<]{1,40})</g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const code = m[1].toUpperCase(), name = strip3(m[2]);
+      if (!name || seen.has(code)) continue;
+      seen.add(code);
+      items.push({ code, name });
+      if (items.length >= 200) break;
+    }
+    return new Response(JSON.stringify({ ok: items.length > 0, type, no, title, n: items.length, items }), {
+      headers: { "content-type": "application/json", "cache-control": "s-maxage=300" }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, type, no, items: [], error: String(e).slice(0, 120) }), {
+      headers: { "content-type": "application/json" }
+    });
+  }
+};
+
+// netlify/functions/version.js
+init_store();
+
+// data/version-info.js
+var BUNDLED_VERSION = {
+  version: "4.6.0",
+  releasedAt: "2026-08-04 20:10",
+  notes: [
+    "\uD130\uBBF8\uB110 \uC5C6\uC774 \uBC30\uD3EC \uAC00\uB2A5 \u2014 \uD30C\uC77C\uC744 \uB04C\uC5B4\uB2E4 \uB193\uB294 \uAC83\uB9CC\uC73C\uB85C \uC62C\uB9B4 \uC218 \uC788\uB294 \uBB36\uC74C\uC744 \uB9CC\uB4E4\uC5C8\uC2B5\uB2C8\uB2E4",
+    "Node \uC804\uC6A9 \uBAA8\uB4C8 \uC81C\uAC70 \u2014 \uC554\uD638\uD654\uC640 \uC555\uCD95 \uD574\uC81C\uB97C \uD45C\uC900 \uC6F9 \uAE30\uC220\uB85C \uBC14\uAFD4 \uC5B4\uB290 \uD658\uACBD\uC5D0\uC11C\uB098 \uB3D9\uC791\uD569\uB2C8\uB2E4",
+    "\uC5D1\uC140 \uD310\uB3C5\uAE30 \uAC1C\uC120 \u2014 \uC555\uCD95 \uD574\uC81C\uB97C \uBE0C\uB77C\uC6B0\uC800 \uD45C\uC900 \uBC29\uC2DD\uC73C\uB85C \uAD50\uCCB4\uD588\uC2B5\uB2C8\uB2E4",
+    "\uC804\uCCB4 \uCF54\uB4DC\uB97C \uD558\uB098\uB85C \uBB36\uC5B4 \uBC30\uD3EC \u2014 40\uC5EC \uAC1C \uD30C\uC77C\uC774 \uB2E8\uC77C \uD30C\uC77C\uB85C \uD569\uCCD0\uC838 \uC5C5\uB85C\uB4DC\uAC00 \uAC04\uB2E8\uD569\uB2C8\uB2E4"
+  ]
+};
+
+// netlify/functions/version.js
+var ENV5 = null;
+async function vStore() {
+  try {
+    return await getStoreX({ name: "app-meta" }, ENV5);
+  } catch {
+    return null;
+  }
+}
+var json11 = (o, status = 200, cc = "no-store") => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": cc } });
+function cmpVer(a, b) {
+  const pa = String(a || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || "0").split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
+}
+var version_default = async (req2) => {
+  const store = await vStore();
+  if (req2.method === "POST") {
+    const tok = envGet("NXT_ADMIN_TOKEN");
+    const auth = req2.headers.get("authorization") || "";
+    if (!tok) return json11({ ok: false, err: "NXT_ADMIN_TOKEN \uD658\uACBD\uBCC0\uC218\uAC00 \uC11C\uBC84\uC5D0 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. Netlify > Site settings > Environment variables \uC5D0\uC11C \uCD94\uAC00\uD558\uC138\uC694." }, 500);
+    if (auth !== "Bearer " + tok) return json11({ ok: false, err: "\uAD00\uB9AC\uC790 \uD1A0\uD070\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." }, 401);
+    let body;
+    try {
+      body = await req2.json();
+    } catch {
+      return json11({ ok: false, err: "badbody" }, 400);
+    }
+    const version = String(body.version || "").trim();
+    if (!/^\d+\.\d+\.\d+$/.test(version)) return json11({ ok: false, err: "\uBC84\uC804\uC740 1.91.0 \uD615\uC2DD(semver)\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4." }, 400);
+    const notes = Array.isArray(body.notes) ? body.notes.map((s) => String(s).trim()).filter(Boolean).slice(0, 20) : [];
+    if (!notes.length) return json11({ ok: false, err: "\uC5C5\uB370\uC774\uD2B8 \uB0B4\uC6A9\uC744 1\uC904 \uC774\uC0C1 \uC785\uB825\uD558\uC138\uC694." }, 400);
+    const rec2 = { version, notes, releasedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), savedAt: Date.now() };
+    if (!store) return json11({ ok: false, err: "Blobs \uC800\uC7A5\uC18C\uB97C \uC5F4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." }, 500);
+    await store.setJSON("app:version", rec2);
+    return json11({ ok: true, saved: rec2 });
+  }
+  let rec = null;
+  if (store) {
+    try {
+      rec = await store.get("app:version", { type: "json" });
+    } catch {
+      rec = null;
+    }
+  }
+  if (!rec || cmpVer(BUNDLED_VERSION.version, rec.version) > 0) rec = { ...BUNDLED_VERSION, src: "bundled" };
+  else rec = { ...rec, src: "blob" };
+  return json11({ ok: true, ...rec });
+};
+
+// functions/api/[[route]].js
+var ROUTES = {
+  "accounts": accounts_default,
+  "calendar": calendar_default,
+  "chart": chart_default,
+  "clan": clan_default,
+  "cronstep": cronstep_default,
+  "etf": etf_default,
+  "etfaudit": etfaudit_default,
+  "etflist": etflist_default,
+  "etfprobe": etfprobe_default,
+  "exchange": exchange_default,
+  "friends": friends_default,
+  "fundamentals": fundamentals_default,
+  "fx": fx_default,
+  "homepage": homepage_default,
+  "investors": investors_default,
+  "ipo": ipo_default,
+  "logo": logo_default,
+  "logoscan": logoscan_default,
+  "market": market_default,
+  "meta": meta_default,
+  "news": news_default,
+  "nxt": nxt_default,
+  "nxtadmin": nxtadmin_default,
+  "nxtcheck": nxtcheck_default,
+  "nxthistory": nxthistory_default,
+  "nxtlist": nxtlist_default,
+  "nxtquote": nxtquote_default,
+  "nxtrefresh": nxtrefresh_default,
+  "picks": picks_default,
+  "popular": popular_default,
+  "quote": quote_default,
+  "search": search_default,
+  "stockaudit": stockaudit_default,
+  "stocklist": stocklist_default,
+  "themes": themes_default,
+  "themestocks": themestocks_default,
+  "version": version_default
+};
+async function onRequest(ctx) {
+  const { request, env, waitUntil } = ctx;
+  setEnv(env);
+  const url = new URL(request.url);
+  const name = url.pathname.replace(/^\/api\//, "").replace(/\/+$/, "");
+  const h = ROUTES[name];
+  if (!h) {
+    return new Response(JSON.stringify({ ok: false, error: "unknown endpoint", name }), {
+      status: 404,
+      headers: { "content-type": "application/json", "cache-control": "no-store" }
+    });
+  }
+  try {
+    const res = await h(request, { env, waitUntil: waitUntil ? waitUntil.bind(ctx) : () => {
+    }, cf: request.cf });
+    return res instanceof Response ? res : new Response(JSON.stringify(res ?? { ok: false }), {
+      headers: { "content-type": "application/json" }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200), at: name }), {
+      status: 500,
+      headers: { "content-type": "application/json", "cache-control": "no-store" }
+    });
+  }
+}
+
+// _worker.js
+var worker_default = {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/")) {
+      return onRequest({ request, env, waitUntil: ctx.waitUntil.bind(ctx), next: () => env.ASSETS.fetch(request) });
+    }
+    return env.ASSETS.fetch(request);
+  }
+};
+export {
+  worker_default as default
+};

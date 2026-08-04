@@ -1,0 +1,17 @@
+# LIVE증권 — Cloudflare Workers
+# 모든 파일이 한 폴더에 평평하게 있습니다(태블릿 업로드용).
+name = "live-stock"
+main = "_worker.js"
+compatibility_date = "2026-08-04"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./"
+binding = "ASSETS"
+
+[[kv_namespaces]]
+binding = "APP_KV"
+id = "579b8a56d1df48bfa9c1b699563cc19a"
+
+[vars]
+SITE_URL = "https://live-stock.jinnytcrew.workers.dev"
