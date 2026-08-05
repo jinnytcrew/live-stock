@@ -2769,3 +2769,59 @@ body.locked{overflow:hidden}
 body.locked .app-shell,body.locked main,body.locked .main-nav{filter:blur(3px);pointer-events:none;user-select:none}
 #authGate.auth-force{background:rgba(10,14,22,.72);backdrop-filter:blur(4px)}
 .hr-sp{background:color-mix(in srgb,var(--amber) 16%,transparent);border-radius:10px;padding:9px 12px;margin:10px 0 0;font-size:12.5px;font-weight:700}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [v4.5] 거래 불가 안내 강화
+   예전 .ot-lock 은 11.5px 회색 글씨를 회색 배경에 얹어 목록에 묻혔다.
+   아이콘·제목·설명·다음 행동을 갖춘 카드로 승격하고, 색으로 등급을 구분한다.
+   ══════════════════════════════════════════════════════════════════════════ */
+.ot-alert{display:flex;gap:12px;align-items:flex-start;margin:12px 16px 6px;padding:14px 15px;
+  border-radius:14px;border:1.5px solid;line-height:1.5;animation:otAlertIn .22s ease-out}
+@keyframes otAlertIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.ot-alert-ic{font-size:20px;line-height:1.1;flex:none}
+.ot-alert-tx{flex:1;min-width:0}
+.ot-alert-t{font-size:15px;font-weight:900;letter-spacing:-.2px;margin-bottom:3px}
+.ot-alert-d{font-size:12.8px;font-weight:600;opacity:.92}
+.ot-alert-d b{font-weight:900}
+.ot-alert-a{font-size:12.8px;font-weight:800;margin-top:7px;padding-top:7px;border-top:1px dashed currentColor;opacity:.95}
+.ot-alert.block{background:#fff1f1;border-color:#ffc9c9;color:#b42318}
+.ot-alert.warn{background:#fff8ec;border-color:#ffdfa8;color:#a35b06}
+.ot-alert.info{background:#eff4ff;border-color:#c9daff;color:#1d4ed8}
+.ot-tabs button.off{opacity:.4;cursor:not-allowed;text-decoration:line-through;position:relative}
+.ot-tabs button.off::after{content:'🔒';position:absolute;top:1px;right:5px;font-size:9px;text-decoration:none}
+html[data-theme="dark"] .ot-alert.block{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.42);color:#fca5a5}
+html[data-theme="dark"] .ot-alert.warn{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.4);color:#fcd34d}
+html[data-theme="dark"] .ot-alert.info{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.4);color:#93c5fd}
+
+/* ── [v4.5] 거래·주문 세션 배너 ─────────────────────────────────────────── */
+.tg-wrap{padding:0 16px}
+.tg{display:flex;gap:9px;align-items:center;font-size:12.6px;font-weight:700;
+  padding:9px 12px;border-radius:11px;margin-top:10px;border:1px solid}
+.tg i{font-style:normal;flex:none}
+.tg-open{background:#eafaf0;border-color:#b8ebcb;color:#0b7a3e}
+.tg-open i{color:#12b76a;font-size:10px;animation:tgPulse 1.8s ease-in-out infinite}
+@keyframes tgPulse{0%,100%{opacity:1}50%{opacity:.35}}
+.tg-free{background:var(--border-soft);border-color:transparent;color:var(--sub)}
+.tg-shut{display:flex;gap:12px;align-items:flex-start;background:#fff1f1;border:1.5px solid #ffc9c9;
+  color:#b42318;border-radius:14px;padding:14px 15px;margin-top:10px;
+  box-shadow:0 2px 10px rgba(180,35,24,.10)}
+.tg-ic{font-size:21px;line-height:1.1;flex:none}
+.tg-tx{flex:1;min-width:0}
+.tg-t{font-size:14.6px;font-weight:900;letter-spacing:-.2px;margin-bottom:4px}
+.tg-d{font-size:12.6px;font-weight:600;line-height:1.5;opacity:.94}
+.tg-next{font-size:12.6px;font-weight:800;margin-top:6px}
+.tg-next b{font-size:13.6px}
+.tg-act{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.tg-act button{font-size:12px;font-weight:800;padding:7px 11px;border-radius:9px;
+  background:#b42318;color:#fff;border:0}
+.tg-act button:last-child{background:transparent;color:#b42318;border:1.5px solid #ffc9c9}
+.tg-act button:active{transform:scale(.97)}
+.submit.locked{opacity:.45;filter:grayscale(.35)}
+html[data-theme="dark"] .tg-open{background:rgba(18,183,106,.13);border-color:rgba(18,183,106,.36);color:#6ee7b7}
+html[data-theme="dark"] .tg-shut{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.42);color:#fca5a5;box-shadow:none}
+html[data-theme="dark"] .tg-act button{background:#dc2626;color:#fff}
+html[data-theme="dark"] .tg-act button:last-child{background:transparent;color:#fca5a5;border-color:rgba(239,68,68,.45)}
+
+/* ── [v4.5] 로고 검사 단계 표시 ─────────────────────────────────────────── */
+.la-stage{display:inline-block;background:var(--border-soft);color:var(--sub);
+  font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;margin-right:8px}

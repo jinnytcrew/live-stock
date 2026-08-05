@@ -183,16 +183,16 @@ function saveSurgeLog(l){try{localStorage.setItem('surgeLog',JSON.stringify(l.sl
 function surgeAcc(sid){
   const done=surgeLog().filter(x=>x.hit!==null&&(!sid||x.s===sid));
   if(!done.length)return null;
-  return {n:done.length,hit:done.filter(x=>x.hit).length,rate:Math.round(done.filter(x=>x.hit).length/done.length*100)};
+  return {n:done.length,hit:done.filter(x=>x.hit).length,rate:done.length?Math.round(done.filter(x=>x.hit).length/done.length*100):0};
 }
 function recordSurge(sid,code,name,price){
-  const l=surgeLog(),d=new Date().toISOString().slice(0,10);
+  const l=surgeLog(),d=kstDay();
   if(l.some(x=>x.d===d&&x.s===sid&&x.c===code))return;
   l.unshift({d,s:sid,c:code,n:name,p:price,hit:null});saveSurgeLog(l);
 }
 function verifySurge(){ // 3거래일 경과 후 +5% 이상이면 적중
   const l=surgeLog();let ch=false;
-  const today=new Date().toISOString().slice(0,10);
+  const today=kstDay();
   l.forEach(x=>{
     if(x.hit!==null)return;
     const days=Math.floor((new Date(today)-new Date(x.d))/86400000);
@@ -865,9 +865,32 @@ let equityHist=[]; try{equityHist=JSON.parse(localStorage.getItem('equityHist')|
    ══════════════════════════════════════════════════════════════════════════ */
 const EQ_BUCKET=3*60e3;
 function eqTotalNow(){
-  return holdings.reduce((a,h)=>{const st=byCode[h.code]||{};return a+((st.price??h.avg)*h.qty);},0)+cash;
+  /* [v4.5] 자산 추이에 NaN 이 한 번이라도 들어가면 그래프가 통째로 깨진다.
+     보유 한 줄이 손상돼도 전체가 오염되지 않도록 정수로 정규화해 합산한다. */
+  const ev=(Array.isArray(holdings)?holdings:[]).reduce((a,h)=>{
+    if(!h)return a;const st=byCode[h.code]||{};
+    const q=Math.trunc(Number(h.qty))||0, av=Math.trunc(Number(h.avg))||0;
+    if(q<=0)return a;
+    const px=Math.trunc(Number(st.price!=null?st.price:av))||av;
+    return a+px*q;},0);
+  const c=Math.trunc(Number(cash))||0;
+  return Math.max(0,ev)+Math.max(0,c);
 }
-function eqDay(t){ return new Date(t).toISOString().slice(0,10); }
+/* ══ [v4.5 · 치명] 날짜를 한국시간(KST)으로 통일한다 ═══════════════════════
+   [무엇이 잘못됐나]
+   거래 기록·자산추이·급등로그는 new Date().toISOString() 즉 UTC 날짜를 썼는데,
+   매매일지 조회 필터(jrFiltered)는 isoLocal() 즉 기기 로컬 날짜를 썼다.
+   한국은 UTC+9 라서 00:00~09:00(KST) 사이의 매매는 UTC 로는 '어제'다.
+   → 새벽 1시에 산 종목이 date:'2026-08-04' 로 저장되고, '오늘(2026-08-05)'
+     필터에 걸리지 않아 당일매매가 비고 금일정산금액이 0으로 떴다.
+     자산 추이도 하루 밀려 '2026-08-04 · 1일차'로 표시됐다.
+   [해결] 이 앱의 모든 '하루'는 한국 증시 기준이므로 KST 로 못 박는다.
+   ═════════════════════════════════════════════════════════════════════════ */
+function kstDay(t){ return new Date((t==null?Date.now():+t)+9*3600e3).toISOString().slice(0,10); }
+function kstMonth(t){ return kstDay(t).slice(0,7); }
+/* n일 전 KST 날짜 (매매일지 '1일전/2일전' 조회용) */
+function kstDayAgo(n){ return kstDay(Date.now()-(+n||0)*86400e3); }
+function eqDay(t){ return kstDay(t); }
 function compactEquity(){
   const today=eqDay(Date.now()), keepOld={}, todayPts=[];
   equityHist.forEach(pt=>{
@@ -1031,7 +1054,7 @@ function exportTradesCsv(){
   const csv=[head,...rows].map(r=>r.map(esc).join(',')).join('\r\n');
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});   // BOM: 엑셀 한글 깨짐 방지
   const url=URL.createObjectURL(blob), a=document.createElement('a');
-  a.href=url; a.download='LIVE증권_거래내역_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.href=url; a.download='LIVE증권_거래내역_'+kstDay()+'.csv';
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   toast('ok','CSV 내보내기 완료',tradeLog.length.toLocaleString()+'건을 저장했습니다');
 }
@@ -1380,21 +1403,28 @@ async function runLogoAudit(){
   if(!total){ $('laStat').textContent='검사할 종목 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
     laRun=false;$('laStart').hidden=false;$('laStop').hidden=true; return; }
   const t0=Date.now();
-  let done=0; const bySrc={}, own=[],base=[],group=[],fund=[],spac=[],none=[];
+  let done=0, laStage='1단계 · 서버 일괄 판정 ';   // [v4.5] 어느 단계인지 보이게 한다
+  const bySrc={}, own=[],base=[],group=[],fund=[],spac=[],none=[];
   const paint=()=>{
-    const pct=Math.min(100,Math.round(done/total*100));
+    const dn=Math.max(0,Math.min(done,total));
+    const pct=total?Math.min(100,Math.round(dn/total*100)):0;
     $('laBar').style.width=pct+'%';
-    const el=Math.round((Date.now()-t0)/1000), sp=done/Math.max(1,el), eta=sp>0?Math.round((total-done)/sp):0;
+    const el=Math.round((Date.now()-t0)/1000), sp=dn/Math.max(1,el), eta=sp>0?Math.round((total-dn)/sp):0;
     const okN=own.length+base.length+group.length+fund.length+spac.length;
-    $('laStat').innerHTML=`진행 <b>${Math.min(done,total).toLocaleString()} / ${total.toLocaleString()}</b> (${pct}%)`
-      +` · 로고 확보 <b class="up">${okN.toLocaleString()}</b> (${total?Math.round(okN/Math.max(1,Math.min(done,total))*100):0}%)`
+    /* [v4.5] 확보율 분모를 '검사 진행분'으로 두되, 아직 0건이면 계산하지 않는다.
+       예전엔 Math.max(1,done) 이라 done=0 인 동안 okN/1 = 163400% 같은 값이 나왔다.
+       분자가 분모를 넘는 일도 없도록 100%로 잘라 둔다. */
+    const okPct=dn>0?Math.min(100,Math.round(okN/dn*100)):0;
+    $('laStat').innerHTML=`<span class="la-stage">${laStage}</span>`
+      +`진행 <b>${dn.toLocaleString()} / ${total.toLocaleString()}</b> (${pct}%)`
+      +` · 로고 확보 <b class="up">${okN.toLocaleString()}</b> (${okPct}%)`
       +` · 자체 <b>${own.length.toLocaleString()}</b> · 본주대체 <b>${base.length.toLocaleString()}</b>`
       +` · 그룹대체 <b>${group.length.toLocaleString()}</b> · 운용사대체 <b>${fund.length.toLocaleString()}</b>`
       +` · 스팩대체 <b>${spac.length.toLocaleString()}</b>`
       +` · 없음 <b class="${none.length?'down':'up'}">${none.length.toLocaleString()}</b>`
-      +` · 경과 ${Math.floor(el/60)}분 ${el%60}초${done<total?` · 남은 시간 약 ${Math.floor(eta/60)}분 ${eta%60}초`:''}`;
+      +` · 경과 ${Math.floor(el/60)}분 ${el%60}초${dn<total?` · 남은 시간 약 ${Math.floor(eta/60)}분 ${eta%60}초`:''}`;
     let html='';
-    if(done>=total){
+    if(dn>=total){
       const rows=Object.keys(bySrc).sort((a,b)=>bySrc[b]-bySrc[a])
         .map(k=>`<tr><td>${(window.__scanNames||LOGO_SRC_NAMES)[k]||('소스'+k)}</td><td class="num">${bySrc[k].toLocaleString()}</td><td class="num">${Math.round(bySrc[k]/Math.max(1,okN)*100)}%</td></tr>`).join('');
       html+=`<div class="ea-sum">
@@ -1433,7 +1463,15 @@ async function runLogoAudit(){
      예전엔 종목마다 브라우저가 이미지를 직접 받아 봤다. 직접 소스가 막힌 환경에선
      전 종목이 /api/logo 함수 한 곳에 몰렸고, 동시 실행 한도에 걸려 멀쩡한 로고까지
      시간 초과로 '없음'이 됐다. 이제 24종씩 서버가 원본을 병렬 확인하고 결과만 준다. */
-  const CH=8, chunks=[];   // [v4.4] Cloudflare 서브요청 50회 상한에 맞춤 (8종목 × 소스 6곳 = 48) for(let i=0;i<list.length;i+=CH)chunks.push(list.slice(i,i+CH));
+  /* [v4.4] Cloudflare 서브요청 50회 상한에 맞춤 (8종목 × 소스 6곳 = 48)
+     [v4.5 · 치명] 이 아래 묶음 생성 for 문이 위 한 줄 주석(//) 뒤에 붙어 있어
+     통째로 주석 처리돼 있었다. chunks 가 영원히 빈 배열이라
+       · 1차 서버 일괄 판정이 한 번도 실행되지 않고(진행 0/2,875 · 0%)
+       · done 이 0 이라 '로고 확보 %' 분모가 1이 되어 163400% 가 찍히고
+       · 전 종목이 2·3차 대체 경로로 흘러 '자체' 로고가 그룹/운용사 대체로 오분류됐다.
+     주석과 코드를 분리해 원래 설계대로 되돌린다. */
+  const CH=8, chunks=[];
+  for(let i=0;i<list.length;i+=CH)chunks.push(list.slice(i,i+CH));
   const scanned={}; let scanOK=true;
   /* [v3.4.1 · 치명] 예전엔 묶음 하나만 실패해도 scanOK=false 로 전체를 버리고
      구형 개별 방식으로 4,290종을 처음부터 다시 돌았다. 그래서 진행이 6,210/4,290 으로
@@ -1467,6 +1505,7 @@ async function runLogoAudit(){
 
   if(!scanOK){
     /* 구버전 서버 배포 등으로 일괄 판정이 없으면 예전 방식으로(중계는 10초 대기) */
+    laStage='대체 경로 · 개별 확인 ';
     done=0;                              // [v3.4.1] 스캔 단계 집계와 겹쳐 6,210/4,290 이 되던 것 방지
     let cur=0;
     const lane=async()=>{ while(laRun&&cur<total){ const it=list[cur++];
@@ -1483,6 +1522,7 @@ async function runLogoAudit(){
       if(v!=null&&v>=0){ logoMark(it.code,'own',it.name); bySrc[v]=(bySrc[v]||0)+1; own.push({code:it.code,name:it.name}); }
       else misses.push(it); }
     paint();
+    laStage='2단계 · 본주·그룹·운용사 대체 확인 ';
     /* 2차: 본주 → 그룹 → 운용사 대체. 프록시 코드는 대부분 이미 판정돼 있고, 없으면 추가 판정 */
     const extra=new Set();
     misses.forEach(it=>{ const px=logoProxies(it.code,it.name);
@@ -1498,6 +1538,7 @@ async function runLogoAudit(){
         (tier==='base'?base:tier==='group'?group:tier==='fund'?fund:spac).push({code:it.code,name:it.name,proxy}); }
       else still.push(it); }
     paint();
+    laStage='3단계 · 남은 종목 개별 정밀 확인 ';
     /* 3차: 남은 소수만 개별 정밀 확인 — 페이지 탐색·홈페이지 파비콘까지 도는 중계 경로.
        [v3.7] 2회전: 진짜 없는 종목은 서버가 명부·파비콘을 뒤지느라 첫 요청이 시간 안에
        못 끝날 수 있다. 1회전이 서버 캐시를 데워 두므로, 실패분만 잠시 뒤 한 번 더 확인한다. */
@@ -1516,6 +1557,7 @@ async function runLogoAudit(){
       if(pass===0&&pool.length)await new Promise(rs=>setTimeout(rs,1500));
     }
     pool.forEach(it=>{ logoMiss(it.code); none.push({code:it.code,name:it.name}); });
+    laStage='검사 완료 · ';
   }
   paint();
   laRun=false; $('laStart').hidden=false; $('laStop').hidden=true;
@@ -1601,8 +1643,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=292';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=292';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=293';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=293';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -1990,6 +2032,10 @@ function applyUser(u){
   cash=(d.cash!=null)?d.cash:10000000;
   ipoPlans=d.ipoPlans||[];
   tradeLog=d.tradeLog||[]; tradeArchive=d.tradeArchive||{};
+  /* [v4.5] 저장소·클라우드에서 온 계좌를 그대로 믿지 않는다.
+     문자열·소수·NaN·음수 예수금, 수량 0 이하 보유, 중복된 종목 줄을 여기서 바로잡는다.
+     (로그인 직후 조용히 수행 — 이후 총자산이 NaN·음수로 표시될 통로를 막는다) */
+  try{sanitizeAccount(true);}catch(e){}
   watchFolders=Array.isArray(d.watchFolders)?d.watchFolders
     .filter(f=>f&&f.id&&f.name)
     .map(f=>({id:String(f.id),name:String(f.name).slice(0,12),codes:(f.codes||[]).filter(c=>watchlist.includes(c)),color:f.color||'',icon:f.icon||''})):[];
@@ -2025,7 +2071,7 @@ function reloadPerUser(){
   try{priceTargets=pget('priceTargets',{})||{};}catch(e){priceTargets={};}
 }
 function seedTradeLog(){
-  const day=(n)=>{const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10);};
+  const day=(n)=>kstDayAgo(n);
   const mk=(date,code,name,side,qty,price,avg)=>{const amount=price*qty,fee=Math.round(amount*0.00015),tax=side==='sell'?Math.round(amount*0.0018):0;
     const pnl=side==='sell'?Math.round((price-avg)*qty-fee-tax):0,base=side==='sell'?avg*qty:amount;
     return{ts:Date.parse(date)||Date.now(),date,code,name,side,qty,price,amount,fee,tax,avg:avg||price,pnl,roi:base?pnl/base*100:0};};
@@ -2597,14 +2643,16 @@ async function refreshNxtStatusRow(force){
 
 /* ===== [S11·S12] 알림 엔진 ===== */
 let _sessAlerted={},_swingAlerted={};
-function _todayKey(){const k=KST();return k.toISOString().slice(0,10);}
+/* [v4.5] KST() 는 이 파일에 정의된 적이 없어 호출 즉시 ReferenceError 였다.
+   try/catch 에 삼켜져 장 시작·마감 알림과 보유종목 급변동 알림이 통째로 죽어 있었다. */
+function _todayKey(){return kstDay();}
 function notifyUser(title,body){
   try{toast('buy',title,body||'');}catch(e){}
   try{if(notifyOk&&'Notification' in window)new Notification(title,{body:body||''});}catch(e){}
 }
 setInterval(()=>{try{
   if(!(userPrefs.alerts&&userPrefs.alerts.session))return;
-  const k=KST(),hm=k.getUTCHours()*100+k.getUTCMinutes(),day=_todayKey();
+  const k=kstNow(),hm=k.getUTCHours()*100+k.getUTCMinutes(),day=_todayKey();
   if(hm===859&&_sessAlerted[day]!=='o'){_sessAlerted[day]='o';notifyUser('곧 장 시작','1분 뒤 KRX 정규장이 열립니다 (09:00)');}
   if(hm===1529&&_sessAlerted[day+'c']!=='c'){_sessAlerted[day+'c']='c';notifyUser('곧 장 마감','1분 뒤 정규장이 마감됩니다 (15:30)');}
 }catch(e){}},30000);
@@ -2671,7 +2719,7 @@ $('setTheme').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;sett
 /* [v2.5] 테마 '자동' — 18:30~06:30 다크(일몰 근사), 30분마다 재판정 */
 setInterval(()=>{try{if(settings.theme==='auto')applyTheme();}catch(e){}},30*60e3);
 $('setColor').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;settings.color=b.dataset.v;saveSettings();applyColor();refreshColors();renderSettingsUI();};
-$('setReal').onclick=()=>{settings.realHours=!settings.realHours;saveSettings();renderSettingsUI();};
+$('setReal').onclick=()=>{settings.realHours=!settings.realHours;saveSettings();renderSettingsUI();try{renderTradeGate();}catch(e){}};
 $('setOrderPass').onclick=()=>{settings.orderPass=!settings.orderPass;saveSettings();renderSettingsUI();};
 document.querySelectorAll('#pmTabs button').forEach(b=>b.onclick=()=>setPmTab(b.dataset.pm));
 $('pmLogout').onclick=()=>{store.del('session');requireAuth();location.reload();};   // [v4.1] 로그아웃 → 잠금
@@ -2734,7 +2782,7 @@ if($('backupCopy'))$('backupCopy').onclick=async()=>{
 if($('backupDownload'))$('backupDownload').onclick=()=>{
   const data=exportAccountData();const code=encodeBackup(data);$('backupCode').value=code;
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='live증권-백업-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='live증권-백업-'+kstDay()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
   toast('buy','백업 파일 저장됨','파일 또는 코드로 새 주소에서 복원하세요');
 };
 
@@ -2901,6 +2949,7 @@ function openTrade(code){
   safeRun('openTrade:candles',()=>loadCandles());
   safeRun('openTrade:fund',()=>loadFundamentals(code));
   safeRun('openTrade:etftab',()=>syncEtfTab(code));
+  safeRun('openTrade:gate',()=>renderTradeGate());   // [v4.5] 세션 배너
 }
 // ETF일 때만 'ETF정보' 탭을 노출하고, ETF 상세를 미리 불러온다
 function syncEtfTab(code){
@@ -3024,7 +3073,7 @@ function applyQuote(q,isSnap){
 function fnCapM(){return speedCfg().capM;}
 function fnCapD(){return speedCfg().capD;}
 function _fbGet(){let b={};try{b=JSON.parse(localStorage.getItem('fnbudget')||'{}')}catch(e){}
-  const now=new Date(),mon=now.toISOString().slice(0,7),day=now.toISOString().slice(0,10);
+  const mon=kstMonth(),day=kstDay();
   if(b.mon!==mon)b={mon,mc:0,day,dc:0};if(b.day!==day){b.day=day;b.dc=0;}return b;}
 function fnBump(n=1){const b=_fbGet();b.mc+=n;b.dc+=n;try{localStorage.setItem('fnbudget',JSON.stringify(b))}catch(e){}
   if(fnSafe()&&!window._safeToldToday){window._safeToldToday=true;try{toast('warn','절약 모드 전환','무료 크레딧 보호를 위해 갱신 주기를 늦춥니다. 내일 자동 복구됩니다.');}catch(e){}}}
@@ -4039,14 +4088,14 @@ function predictSectors(){
 function predLog(){try{return JSON.parse(localStorage.getItem('predLog')||'[]')}catch(e){return []}}
 function savePredLog(l){try{localStorage.setItem('predLog',JSON.stringify(l.slice(0,60)))}catch(e){}}
 function recordPrediction(top){
-  const l=predLog(),today=new Date().toISOString().slice(0,10);
+  const l=predLog(),today=kstDay();
   if(l.some(x=>x.d===today))return;
   l.unshift({d:today,s:top.name,sc:top.score,hit:null});savePredLog(l);
 }
 function verifyPredictions(){
   const l=predLog();if(!l.length)return;
   const top3=sectorStats().slice(0,3).map(x=>x.name);
-  const today=new Date().toISOString().slice(0,10);
+  const today=kstDay();
   let changed=false;
   l.forEach(x=>{
     if(x.hit!==null)return;
@@ -5328,7 +5377,7 @@ function renderInsightCards(){
 }
 /* 월간 리포트 */
 function openMonthReport(){
-  const ym=new Date().toISOString().slice(0,7);
+  const ym=kstMonth();
   const rows=tradeLog.filter(r=>String(r.date||'').startsWith(ym));
   const buys=rows.filter(r=>r.side==='buy'),sells=rows.filter(r=>r.side==='sell');
   const buyAmt=buys.reduce((a,r)=>a+r.amount,0),sellAmt=sells.reduce((a,r)=>a+r.amount,0);
@@ -5396,9 +5445,14 @@ function autoOrderTick(){
     const hit=o.side==='buy'?q.price<=o.price:q.price>=o.price;
     if(!hit)continue;
     const st=byCode[o.code];if(!st)continue;
-    bookOrders=bookOrders.filter(x=>x.id!==o.id);
-    executeOrderCore(st,{side:o.side,price:o.price,qty:o.qty},'예약 체결');
-    changed=true;
+    /* [v4.5] 예전엔 체결을 시도하기 '전에' 예약을 지웠다. 예수금이 모자라 체결이
+       실패하면 예약이 아무 안내 없이 사라졌다. 성공했을 때만 목록에서 뺀다. */
+    const okd=executeOrderCore(st,{side:o.side,price:o.price,qty:o.qty},'예약 체결');
+    if(okd){bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;}
+    else if(o.side==='buy'&&orderCost('buy',o.price,o.qty).cost>cash){
+      bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;
+      toast('warn','예약 주문 취소 · 예수금 부족',`${o.name} ${KRW(o.qty)}주 · ${KRW(o.price)}원 조건에 도달했지만 예수금이 모자라 체결하지 못했습니다.`);
+    }
   }
   /* 손절·익절(보유 전량) */
   for(const h of holdings.slice()){
@@ -5431,12 +5485,9 @@ function notifyPrice(nm,code,kind,target,cur){
 setInterval(()=>{try{autoOrderTick();}catch(e){}},12e3);
 setTimeout(subscribeAutoCodes,3000);
 /* ── [v2.5] 월간 수익률(클랜 리그 기준) — 월초 총자산 대비 ── */
-function totalAssetsNow(){
-  const ev=holdings.reduce((a,h)=>{const st=byCode[h.code];return a+((st&&st.price!=null?st.price:h.avg)*h.qty);},0);
-  return cash+ev;
-}
+function totalAssetsNow(){ return eqTotalNow(); }   // [v4.5] 계산식 이원화 제거 — 자산 추이와 클랜 리그가 같은 값을 쓴다
 function monthPerf(){
-  const ym=new Date().toISOString().slice(0,7);
+  const ym=kstMonth();
   const cur=totalAssetsNow();
   let mb=userPrefs.monthBase;
   if(!mb||mb.ym!==ym||!(mb.base>0)){mb={ym,base:cur};userPrefs.monthBase=mb;savePrefs();return {ym,rate:0,base:cur};}
@@ -5456,7 +5507,7 @@ function choMatch(name,q){
 function earnCheckDaily(){
   try{
     if(!watchlist.length||typeof calEventsFor!=='function')return;
-    const ymd=new Date().toISOString().slice(0,10);
+    const ymd=kstDay();
     if(localStorage.getItem('earnNotiYmd')===ymd)return;
     const tm=new Date(Date.now()+86400000);
     const evs=calEventsFor(tm)||[];
@@ -5854,10 +5905,13 @@ if($('calToday'))$('calToday').onclick=()=>{const t=new Date();t.setHours(0,0,0,
 let jTab='today',jDays=0,jMonths=1,jCost=true;
 const jSegOpts={today:[[0,'오늘'],[1,'1일전'],[2,'2일전']],date:[[1,'1개월'],[2,'2개월'],[3,'3개월']],stock:[[1,'1개월'],[2,'2개월'],[3,'3개월']]};
 function jrFiltered(){
-  if(jTab==='today'){const d=new Date();d.setDate(d.getDate()-jDays);const iso=isoLocal(d);
+  /* [v4.5] 조회 기준을 KST 로 맞춘다. 예전엔 기록은 UTC, 조회는 기기 로컬이라
+     한국시간 새벽(00:00~09:00) 매매가 '오늘'에서 통째로 빠졌다. */
+  if(jTab==='today'){const iso=kstDayAgo(jDays);
     return{rows:tradeLog.filter(t=>t.date===iso),iso};}
-  const from=new Date();from.setMonth(from.getMonth()-jMonths);from.setHours(0,0,0,0);
-  return{rows:tradeLog.filter(t=>new Date(t.date+'T00:00:00')>=from),iso:null};
+  const f=new Date(Date.now()+9*3600e3); f.setUTCMonth(f.getUTCMonth()-jMonths);
+  const fromIso=f.toISOString().slice(0,10);
+  return{rows:tradeLog.filter(t=>t&&t.date&&t.date>=fromIso),iso:null};
 }
 function jrAgg(list,keyFn){
   const m={};
@@ -8296,15 +8350,25 @@ function renderHoldings(){
   if(currentView==='account')safeRun('acctx',renderAcctExtras);   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
 }
 function renderPortfolioNumbers(){
-  let te=0,tc=0;holdings.forEach(h=>{const s=byCode[h.code]||{};const price=s.price??h.avg;te+=price*h.qty;tc+=h.avg*h.qty;});
+  /* [v4.5] 어떤 값이 깨져도 총자산이 NaN 으로 새지 않게 정수로 정규화한 뒤 계산한다. */
+  let te=0,tc=0;(Array.isArray(holdings)?holdings:[]).forEach(h=>{
+    if(!h)return;const s=byCode[h.code]||{};const q=intOf(h.qty,0),av=intOf(h.avg,0);
+    if(q<=0)return;const price=intOf(s.price!=null?s.price:av,av);
+    te+=price*q;tc+=av*q;});
+  cash=intOf(cash,0);if(cash<0)cash=0;
   const pnl=te-tc,assets=te+cash,rate=tc?pnl/tc*100:0,dir=dirOf(pnl);
   const set=(id,txt,cls)=>{const e=$(id);if(!e)return;e.textContent=txt;if(cls!==undefined)e.className='num '+cls;};
   set('homeAssets',KRW(assets)+'원');set('homePnl',signed(pnl),dir);set('homeRate',pctS(rate),dir);set('homeCash',KRW(cash));
   set('acctAssets',KRW(assets)+'원');set('acctPnl',signed(pnl),dir);set('acctRate',pctS(rate),dir);set('acctCash',KRW(cash)+'원');
 }
 /* 예수금 설정 */
-$('cashSet').onclick=()=>{const v=parseInt(($('cashInput').value||'0').replace(/[^0-9]/g,''))||0;cash=v;saveState();renderPortfolioNumbers();syncMaxQty();toast('buy','예수금 설정',KRW(cash)+'원');};
-$('cashAdd').onclick=()=>{cash+=1000000;$('cashInput').value=KRW(cash);saveState();renderPortfolioNumbers();syncMaxQty();};
+/* [v4.5] 예수금 직접 설정도 정수·비음수·상한으로 묶는다(깨진 값이 총자산을 오염시키던 통로) */
+const CASH_MAX=1e15;
+function setCash(v){cash=Math.min(CASH_MAX,Math.max(0,intOf(v,0)));saveState();
+  if($('cashInput'))$('cashInput').value=KRW(cash);
+  renderPortfolioNumbers();renderHoldings();syncMaxQty();}
+$('cashSet').onclick=()=>{const v=parseInt(($('cashInput').value||'0').replace(/[^0-9]/g,''))||0;setCash(v);toast('buy','예수금 설정',KRW(cash)+'원');};
+$('cashAdd').onclick=()=>{setCash(cash+1000000);};
 $('cashInput').addEventListener('input',e=>{e.target.value=e.target.value.replace(/[^0-9,]/g,'');});
 
 /* 공모주 플래너 */
@@ -8870,6 +8934,69 @@ $('zoomIn').onclick=()=>{view.count=Math.round(clamp(view.count*0.8,8,curCandles
 $('zoomOut').onclick=()=>{view.count=Math.round(clamp(view.count*1.25,8,curCandles.length||8));drawChart();};
 $('zoomReset').onclick=()=>{if(!curCandles.length&&!isMinute(chartTf)){delete candleCache[selected+':'+chartTf];loadCandles();}else{resetView();drawChart();}};
 
+/* ══ [v4.5] 주문 정산 모델 — 단일 진실원(single source of truth) ═══════════
+   [무엇이 잘못됐나]
+   ① 주문 버튼은 amount>cash (수수료 제외) 로 통과시키고,
+      실제 체결 함수는 amount+fee>cash 로 거절했다. 두 판정이 어긋나
+      "가능하다고 해놓고 눌렀더니 예수금 부족"이 났고, 반대로 경계값에서는
+      수수료만큼 예수금이 음수로 내려갈 여지가 남아 총자산이 어긋났다.
+   ② '최대' 버튼과 '가능 N주'도 수수료를 빼먹어, 최대치를 고르면 반드시 실패했다.
+   ③ 저장된 계좌가 문자열·소수·NaN·음수여도 아무도 검사하지 않아
+      한 번 깨지면 총자산이 계속 이상한 값으로 표시됐다.
+   [해결] 비용 계산을 이 한 곳으로 모으고, 모든 화면·검증이 같은 함수를 쓴다.
+   ═════════════════════════════════════════════════════════════════════════ */
+const FEE_RATE=0.00015, TAX_RATE=0.0018;
+const intOf=(v,d)=>{const n=Math.trunc(Number(v));return Number.isFinite(n)?n:(d||0);};
+/* 한 주문의 금액·수수료·세금·예수금 증감 */
+function orderCost(side,price,qty){
+  const p=intOf(price),q=intOf(qty);
+  const amount=p*q;
+  const fee=Math.round(amount*FEE_RATE);
+  const tax=side==='sell'?Math.round(amount*TAX_RATE):0;
+  return {amount,fee,tax,
+    cost:side==='buy'?amount+fee:0,             // 매수 시 실제로 빠져나가는 예수금
+    proceeds:side==='sell'?amount-fee-tax:0};   // 매도 시 실제로 들어오는 예수금
+}
+/* 지금 예수금으로 살 수 있는 최대 수량 — 수수료까지 감당 가능한 수량만 돌려준다 */
+function maxBuyQty(price){
+  const p=intOf(price); if(p<=0)return 0;
+  let q=Math.floor(cash/(p*(1+FEE_RATE)));
+  if(q<0)q=0;
+  while(q>0&&orderCost('buy',p,q).cost>cash)q--;        // 반올림 오차 보정(최대 1~2회)
+  while(orderCost('buy',p,q+1).cost<=cash)q++;
+  return q;
+}
+/* ── 계좌 무결성 복구 ──
+   불러온 계좌가 깨져 있으면(문자열·소수점·NaN·음수·잘못된 보유) 조용히 바로잡는다.
+   여기서 걸러 두면 총자산이 NaN 이나 음수로 표시되는 일이 원천적으로 사라진다. */
+function sanitizeAccount(silent){
+  const fixes=[];
+  const c0=cash;
+  cash=intOf(cash,0);
+  if(!Number.isFinite(cash)||cash<0){cash=0;}
+  if(cash!==c0&&!(c0===cash))fixes.push('예수금');
+  if(!Array.isArray(holdings))(holdings=[],fixes.push('보유종목'));
+  const clean=[],merged={};
+  holdings.forEach(h=>{
+    if(!h||!h.code)return;
+    const code=String(h.code), qty=intOf(h.qty,0), avg=intOf(h.avg,0);
+    if(qty<=0||avg<=0){fixes.push('보유종목');return;}
+    if(merged[code]){                                   // 같은 종목이 두 줄로 갈라졌으면 합친다
+      const m=merged[code];
+      m.avg=Math.round((m.avg*m.qty+avg*qty)/(m.qty+qty)); m.qty+=qty; fixes.push('보유종목');
+    }else{ const rec={...h,code,qty,avg}; merged[code]=rec; clean.push(rec); }
+  });
+  if(clean.length!==holdings.length)fixes.push('보유종목');
+  holdings=clean;
+  if(!Array.isArray(tradeLog))tradeLog=[];
+  if(!Array.isArray(bookOrders))bookOrders=[];
+  if(fixes.length&&!silent){
+    try{toast('warn','계좌 데이터를 자동 복구했습니다',[...new Set(fixes)].join(' · ')+' 항목에서 잘못된 값을 바로잡았습니다.');}catch(e){}
+    try{saveState();}catch(e){}
+  }
+  return fixes.length>0;
+}
+
 /* ===== 주문 폼 ===== */
 function currentPrice(){return byCode[selected].price??0;}
 function getOrderPrice(){if(ordType==='market')return currentPrice();const v=userPrice!==null?userPrice:currentPrice();return Math.max(tickSize(v||1),roundTick(v));}
@@ -8878,7 +9005,9 @@ function updateOrderTotal(){$('ordTotal').textContent=KRW(getOrderPrice()*getQty
 function syncPriceField(force){const inp=$('pxInput');if(force||userPrice===null){userPrice=null;inp.value=KRW(currentPrice());}
   $('priceHint').textContent='현재가 '+KRW(currentPrice());syncMaxQty();updateOrderTotal();}
 function syncMaxQty(){const h=holdings.find(x=>x.code===selected);
-  $('maxQty').textContent=ordSide==='buy'?'가능 '+KRW(Math.floor(cash/Math.max(1,getOrderPrice())))+'주':'보유 '+KRW(h?h.qty:0)+'주';}
+  /* [v4.5] 수수료까지 감당 가능한 수량만 '가능'으로 표시한다. 예전엔 수수료를 빼먹어
+     표시된 최대치를 그대로 주문하면 반드시 '예수금 부족'으로 거절됐다. */
+  if($('maxQty'))$('maxQty').textContent=ordSide==='buy'?'가능 '+KRW(maxBuyQty(getOrderPrice()))+'주':'보유 '+KRW(h?intOf(h.qty,0):0)+'주';}
 document.querySelectorAll('.ord-tabs button').forEach(b=>b.onclick=()=>{
   ordSide=b.dataset.side;document.querySelectorAll('.ord-tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
   const sub=$('submitBtn');sub.className='submit '+ordSide;sub.textContent=ordSide==='buy'?'매수 주문':'매도 주문';syncPriceField(false);});
@@ -8921,10 +9050,58 @@ function configOrderExchanges(){
   if(!ORDER_TYPES[ordExchange].includes(ordTypeName))ordTypeName='보통지정가';
   applyOrderType();
 }
+/* ══ [v4.5] 거래·주문 화면 상시 세션 배너 ═══════════════════════════════════
+   [무엇이 잘못됐나]
+   '실제 시장 시간으로 매수/매도'가 켜져 있으면 장 시간 밖 주문은 거절되는데,
+   그 사실을 알 방법이 주문 버튼을 눌러 본 뒤 뜨는 토스트뿐이었다.
+   수량까지 다 채우고 눌러야 "안 됩니다"를 듣는 구조였다.
+   [해결] 주문 폼 맨 위에 지금 상태를 항상 띄운다.
+     · 거래 가능  → 초록 한 줄(어느 세션인지)
+     · 거래 불가  → 빨강 카드(이유 · 재개 시각 · 설정 끄기 버튼) + 주문 버튼 잠금
+   ═════════════════════════════════════════════════════════════════════════ */
+function renderTradeGate(){
+  const box=$('tradeGate'); if(!box)return;
+  const btn=$('submitBtn');
+  const code=selected, st=byCode[code];
+  if(!code||!st){box.innerHTML='';if(btn)btn.classList.remove('locked');return;}
+  const ses=marketSession(), ok=canTradeNow(code);
+  if(!settings.realHours){
+    box.innerHTML=`<div class="tg tg-free"><i>🕒</i><span><b>${ses.label}</b> · 실제 장 시간 제한이 꺼져 있어 언제든 모의 주문이 가능합니다</span></div>`;
+    if(btn)btn.classList.remove('locked');
+    return;
+  }
+  if(ok){
+    const lab=tradeSessionLabel(code)||ses.label;
+    box.innerHTML=`<div class="tg tg-open"><i>●</i><span>주문 가능 · <b>${lab}</b></span></div>`;
+    if(btn)btn.classList.remove('locked');
+    return;
+  }
+  const nx=nextTradeOpenText(code);
+  const why=st.nxt
+    ? 'KRX·NXT 모두 주문을 받지 않는 시간입니다. (NXT 휴지 08:50~09:00:30 · 15:20~15:30)'
+    : '이 종목은 NXT 미지원이라 KRX 주문 시간(08:30~18:00)에만 거래할 수 있습니다.';
+  box.innerHTML=`<div class="tg tg-shut">
+    <div class="tg-ic">🔒</div>
+    <div class="tg-tx">
+      <div class="tg-t">지금은 거래시간이 아닙니다 · ${ses.label}</div>
+      <div class="tg-d">${why}</div>
+      ${nx?`<div class="tg-next">다음 주문 가능 시각 <b>${nx}</b></div>`:''}
+      <div class="tg-act"><button type="button" id="tgOff">언제든 주문하려면 설정 끄기</button>
+        <button type="button" id="tgHours">거래시간표 보기</button></div>
+    </div></div>`;
+  if(btn)btn.classList.add('locked');
+  const off=$('tgOff'); if(off)off.onclick=()=>{settings.realHours=false;saveSettings();
+    try{renderSettingsUI();}catch(e){}
+    renderTradeGate();toast('buy','실제 장 시간 제한 해제','이제 시간과 무관하게 모의 매수/매도를 할 수 있습니다. 설정에서 다시 켤 수 있어요.');};
+  const hrs=$('tgHours'); if(hrs)hrs.onclick=()=>{const h=$('hrOv');if(h)h.hidden=false;else toast('on',ses.label,ses.sub||'');};
+}
+setInterval(()=>{try{if(currentView==='trade')renderTradeGate();}catch(e){}},20000);
+
 function applyOrderType(){
   ordType=isMarketType(ordTypeName)?'market':'limit';
   const av=availableExchanges();
   $('otSelText').textContent=(av.length>1?ordExchange+' · ':'KRX · ')+ordTypeName;
+  try{renderTradeGate();}catch(e){}
   const inp=$('pxInput');inp.disabled=ordType==='market';inp.style.opacity=ordType==='market'?.55:1;syncPriceField(ordType==='market');
 }
 function renderOtList(){
@@ -8936,7 +9113,10 @@ function renderOtList(){
   $('otTabs').innerHTML=av.map(ex=>{const off=lock&&ex==='KRX';
     return `<button data-ex="${ex}"${ex===otTabEx?' class="on"':off?' class="off"':''}${off?' aria-disabled="true"':''}>${ex}</button>`;}).join('');
   $('otTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
-    if(lock&&b.dataset.ex==='KRX'){toast('sell','지금은 KRX 정규장이 아니에요','KRX는 평일 09:00~15:30에만 선택할 수 있어요. NXT 또는 SOR로 주문해 주세요.');return;}
+    if(lock&&b.dataset.ex==='KRX'){
+      const nx=nextTradeOpenText(selected);
+      toast('warn','🔒 KRX 주문 불가 · '+marketSession().label,
+        'KRX는 평일 08:30~18:00(장전 시간외~시간외 단일가)에만 주문을 받습니다.'+(nx?` KRX 재개 ${nx}.`:'')+' 지금은 NXT 또는 SOR로 주문해 주세요.');return;}
     otTabEx=b.dataset.ex;renderOtList();});
   const cur=otTabEx===ordExchange;
   /* [v4.0] NXT 프리·애프터마켓은 지정가 주문만 받는다 */
@@ -8946,15 +9126,36 @@ function renderOtList(){
     :ORDER_TYPES[otTabEx];
   $('otList').innerHTML=types.map(t=>`<button class="ot-item${cur&&t===ordTypeName?' on':''}" data-t="${t}">${t}${cur&&t===ordTypeName?'<span class="ot-ck">✓</span>':''}</button>`).join('');
   $('otList').querySelectorAll('.ot-item').forEach(b=>b.onclick=()=>{ordExchange=otTabEx;ordTypeName=b.dataset.t;applyOrderType();$('otGate').hidden=true;});
-  const note=av.length===1?'<div class="ot-note">이 종목은 NXT 미지원이라 KRX만 주문할 수 있어요.</div>'
-    :(lock?'<div class="ot-lock">🔒 지금은 KRX 거래시간이 아니에요 — NXT·SOR로 주문해 주세요 (KRX는 08:30 장전 시간외부터)</div>'
-      :(otTabEx==='NXT'&&_k.nxt.limitOnly
-        ?`<div class="ot-lock">ℹ️ NXT <b>${_k.nxt.phase}</b> — 이 시간에는 지정가 주문만 받습니다</div>`
-        :(otTabEx==='KRX'&&types.length===0
-          ?'<div class="ot-lock">🔒 이 종목은 NXT 거래 종목이라 KRX 시간외 단일가를 이용할 수 없어요 — NXT 애프터마켓으로 주문해 주세요</div>'
-          :(otTabEx==='KRX'&&_k.krx.phase&&_k.krx.phase!==KRS.REG
-            ?`<div class="ot-lock">ℹ️ 현재 KRX <b>${_k.krx.phase}</b> — 이 세션에서 낼 수 있는 주문만 표시됩니다</div>`:''))));
-  if(!$('otList').querySelector('.ot-note'))$('otList').insertAdjacentHTML('afterbegin',note);
+  /* ══ [v4.5] 거래 불가 안내를 '눈에 들어오는 경고 카드'로 승격 ═════════════
+     예전엔 11.5px 회색 글씨를 회색 배경에 얹은 한 줄이라, 정작 가장 중요한
+     'KRX로는 주문이 안 된다'는 사실이 목록에 묻혀 보이지 않았다.
+     아이콘 · 제목 · 설명 · 다음 행동을 갖춘 카드로 바꾸고 색으로 등급을 구분한다.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const alertCard=(tone,icon,title,desc,act)=>
+    `<div class="ot-alert ${tone}"><div class="ot-alert-ic">${icon}</div>
+      <div class="ot-alert-tx"><div class="ot-alert-t">${title}</div>
+      <div class="ot-alert-d">${desc}</div>${act?`<div class="ot-alert-a">${act}</div>`:''}</div></div>`;
+  const reopen=nextTradeOpenText(selected);
+  let note='';
+  if(av.length===1){
+    note=alertCard('info','ℹ️','이 종목은 KRX 전용입니다',
+      '넥스트레이드(NXT) 미지원 종목이라 거래소 선택 없이 <b>KRX</b>로만 주문할 수 있어요.');
+  }else if(lock){
+    note=alertCard('block','🔒','지금은 KRX로 주문할 수 없습니다',
+      `현재 <b>${marketSession().label}</b> — KRX는 <b>08:30 장전 시간외</b>부터 <b>18:00 시간외 단일가</b>까지만 주문을 받습니다.`,
+      `아래 <b>NXT</b> 또는 <b>SOR</b> 탭에서 주문해 주세요.${reopen?` · KRX 재개 ${reopen}`:''}`);
+  }else if(otTabEx==='KRX'&&types.length===0){
+    note=alertCard('block','🔒','이 종목은 KRX 시간외 단일가를 쓸 수 없습니다',
+      'NXT에서 거래되는 종목은 KRX 시간외 단일가(16:00~18:00)가 제한됩니다.',
+      '같은 시간대에 열려 있는 <b>NXT 애프터마켓</b>으로 주문해 주세요.');
+  }else if(otTabEx==='NXT'&&_k.nxt.limitOnly){
+    note=alertCard('warn','⚠️',`NXT ${_k.nxt.phase} — 지정가 주문만 가능`,
+      '프리마켓·애프터마켓에서는 시장가 계열 주문을 받지 않습니다. 가격제한폭은 전일 종가 ±30%로 정규장과 같습니다.');
+  }else if(otTabEx==='KRX'&&_k.krx.phase&&_k.krx.phase!==KRS.REG){
+    note=alertCard('warn','⚠️',`현재 KRX ${_k.krx.phase}`,
+      '이 세션에서 실제로 접수 가능한 주문유형만 아래에 표시됩니다.');
+  }
+  if(note)$('otList').insertAdjacentHTML('afterbegin',note);
 }
 $('otSelect').onclick=()=>{otTabEx=ordExchange;$('otGate').hidden=false;renderOtList();};
 $('otClose').onclick=()=>{$('otGate').hidden=true;};
@@ -8967,7 +9168,7 @@ function setQty(q){$('qtyInput').value=KRW(Math.max(0,q));updateOrderTotal();}
 $('qtyUp').onclick=()=>setQty(getQty()+1);$('qtyDown').onclick=()=>setQty(Math.max(0,getQty()-1));
 $('qtyInput').addEventListener('input',e=>{e.target.value=e.target.value.replace(/[^0-9,]/g,'');updateOrderTotal();});
 $('qtyQuick').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const r=+b.dataset.q/100;
-  if(ordSide==='buy')setQty(Math.floor(Math.floor(cash/Math.max(1,getOrderPrice()))*r));else{const h=holdings.find(x=>x.code===selected);setQty(Math.floor((h?h.qty:0)*r));}});
+  if(ordSide==='buy')setQty(Math.floor(maxBuyQty(getOrderPrice())*r));else{const h=holdings.find(x=>x.code===selected);setQty(Math.floor(intOf(h&&h.qty,0)*r));}});
 
 /* 주문 → 계좌 비밀번호 → 체결 */
 let pendingOrder=null,pwBuf='';
@@ -8981,6 +9182,37 @@ function canTradeNow(code){                       // 실제 시장 시간 판단
   if(st&&st.nxt&&nxtActive())return true;        // 그 밖 시간: NXT 종목만
   return false;
 }
+/* ══ [v4.5] 다음에 주문이 열리는 시각 ═══════════════════════════════════════
+   '지금 안 된다'만 알려 주고 끝내면 사용자는 언제 다시 오라는 건지 알 수 없다.
+   종목이 NXT 취급인지에 따라 창구가 달라지므로 창(window)을 종목별로 고른다.
+   ═════════════════════════════════════════════════════════════════════════ */
+const KRX_WINDOWS=[[510,930],[940,1080]];      // 08:30~15:30 · 15:40~18:00 (KST 분)
+const NXT_WINDOWS=[[480,530],[540,920],[930,1200]]; // 08:00~08:50 · 09:00~15:20 · 15:30~20:00
+function krTradingDayAt(kstDate){
+  const wd=kstDate.getUTCDay(); if(wd===0||wd===6)return false;
+  try{ return !KR_HOLIDAYS[kstDate.toISOString().slice(0,10)]; }catch(e){ return true; }
+}
+function nextTradeOpenText(code){
+  try{
+    const st=byCode[code]||{};
+    const wins=(st.nxt===true)
+      ? KRX_WINDOWS.concat(NXT_WINDOWS).sort((a,b)=>a[0]-b[0])
+      : KRX_WINDOWS;
+    const k=kstNow();
+    const nowMin=k.getUTCHours()*60+k.getUTCMinutes();
+    for(let d=0;d<8;d++){
+      const day=new Date(k.getTime()+d*86400e3);
+      if(!krTradingDayAt(day))continue;
+      for(const [s] of wins){
+        if(d===0&&s<=nowMin)continue;
+        const hh=String(Math.floor(s/60)).padStart(2,'0'), mm=String(s%60).padStart(2,'0');
+        const when=d===0?'오늘':d===1?'내일':`${day.getUTCMonth()+1}월 ${day.getUTCDate()}일`;
+        return `${when} ${hh}:${mm}`;
+      }
+    }
+  }catch(e){}
+  return '';
+}
 /* 지금 이 주문이 어느 세션에서 체결되는지 — 안내문에 쓴다 */
 function tradeSessionLabel(code){
   const k=krSession(),st=byCode[code];
@@ -8992,12 +9224,21 @@ $('submitBtn').onclick=()=>{
   const s=byCode[selected];if(s.price==null){toast('warn','시세 수신 대기','가격을 받은 뒤 주문하세요');return;}
   if(settings.realHours&&!canTradeNow(s.code)){
     const _st=byCode[s.code];
+    const _nx=nextTradeOpenText(s.code);
     const _why=(_st&&_st.nxt)?'KRX·NXT 모두 거래시간이 아니에요 (NXT 휴지 08:50~09:00:30 · 15:20~15:30)'
       :'지금은 KRX 거래시간이 아니에요 (08:30~18:00). 이 종목은 NXT 미지원이라 KRX 시간에만 주문할 수 있어요';
-    toast('warn','주문 불가 · '+marketSession().label,_why+' · 설정에서 "실제 시장 시간으로 매수/매도"를 끄면 언제든 주문할 수 있습니다.');return;}
+    toast('warn','🔒 주문 불가 · '+marketSession().label,
+      _why+(_nx?` · 다음 주문 가능 ${_nx}`:'')+' · 주문 폼 위 배너에서 제한을 바로 끌 수 있습니다.');
+    try{renderTradeGate();}catch(e){}
+    return;}
   const price=getOrderPrice(),qty=getQty();if(qty<=0){toast('warn','수량을 확인하세요','1주 이상');return;}
-  const amount=price*qty;
-  if(ordSide==='buy'&&amount>cash){toast('warn','주문가능금액 초과','예수금 부족');return;}
+  if(!(price>0)){toast('warn','주문가격을 확인하세요','1원 이상');return;}
+  /* [v4.5] 체결 함수와 똑같은 orderCost 로 검증한다 — 화면 표시와 실제 판정이 어긋나지 않게. */
+  const _c=orderCost(ordSide,price,qty);
+  if(ordSide==='buy'&&_c.cost>cash){
+    toast('warn','주문 불가 · 예수금 부족',
+      `필요 ${KRW(_c.cost)}원(주문 ${KRW(_c.amount)} + 수수료 ${KRW(_c.fee)}) · 예수금 ${KRW(cash)}원 · ${KRW(_c.cost-cash)}원 모자랍니다 · 최대 ${KRW(maxBuyQty(price))}주까지 가능`);
+    return;}
   const h=holdings.find(x=>x.code===s.code);
   if(ordSide==='sell'&&(!h||h.qty<qty)){toast('warn','보유수량 부족',`보유 ${KRW(h?h.qty:0)}주`);return;}
   /* [v2.5] 예약 주문 — 체크 시 조건 미충족 가격이면 대기열에 등록하고 도달 시 자동 체결 */
@@ -9027,27 +9268,45 @@ $('keypad').addEventListener('click',e=>{const b=e.target.closest('button');if(!
 $('pwCancel').onclick=closePw;
 function executeOrder(o){return executeOrderCore(byCode[selected],o,'');}
 /* [v2.5] 코어 분리 — 예약·손절·익절 자동 체결이 '보고 있지 않은 종목'에도 안전하게 작동 */
+let _settling=false;                 // [v4.5] 재진입 방지 — 연타·자동체결 겹침으로 잔고가 두 번 빠지는 것을 막는다
 function executeOrderCore(s,o,tag){
   /* [B3] 호출부 검증과 별개로 여기서 한 번 더 확인한다.
-     비밀번호 입력 중 시세·보유가 바뀌었거나 호출 경로가 늘어나도 잔고가 깨지지 않게 한다. */
-  if(!s||!o||!(o.qty>0)||!(o.price>0)){toast('warn','주문 실패','주문 정보를 확인하세요');return;}
-  const amount0=o.price*o.qty;
-  const fee0=Math.round(amount0*0.00015);
-  if(o.side==='buy'&&amount0+fee0>cash){toast('warn','주문 실패','예수금이 부족합니다');return;}
-  if(o.side==='sell'){
+     비밀번호 입력 중 시세·보유가 바뀌었거나 호출 경로가 늘어나도 잔고가 깨지지 않게 한다.
+     [v4.5] 성공 여부를 boolean 으로 돌려준다 — 예약주문이 실패를 알아채야 하기 때문. */
+  if(_settling)return false;
+  const price=intOf(o&&o.price,0), qty=intOf(o&&o.qty,0);
+  if(!s||!s.code||!o||qty<=0||price<=0){toast('warn','주문 실패','주문 정보를 확인하세요');return false;}
+  const c=orderCost(o.side,price,qty);
+  if(o.side==='buy'){
+    /* 예수금 검증은 '주문금액 + 수수료' 기준. 주문 버튼·최대수량 계산도 같은 orderCost 를 쓰므로
+       화면에서 가능하다고 표시된 주문은 여기서 절대 거절되지 않는다(반대도 마찬가지). */
+    if(c.cost>cash){
+      toast('warn','주문 불가 · 예수금 부족',
+        `필요 ${KRW(c.cost)}원(주문 ${KRW(c.amount)} + 수수료 ${KRW(c.fee)}) · 보유 예수금 ${KRW(cash)}원 · ${KRW(c.cost-cash)}원 모자랍니다`);
+      return false;
+    }
+  }else{
     const hh=holdings.find(x=>x.code===s.code);
-    if(!hh||hh.qty<o.qty){toast('warn','주문 실패',`보유수량 부족 (보유 ${KRW(hh?hh.qty:0)}주)`);return;}
+    if(!hh||intOf(hh.qty,0)<qty){toast('warn','주문 불가 · 보유수량 부족',`보유 ${KRW(hh?intOf(hh.qty,0):0)}주 · 주문 ${KRW(qty)}주`);return false;}
   }
-  const amount=amount0;
-  const fee=Math.round(amount*0.00015),tax=o.side==='sell'?Math.round(amount*0.0018):0;
-  const rec={ts:Date.now(),date:new Date().toISOString().slice(0,10),code:s.code,name:s.name,side:o.side,qty:o.qty,price:o.price,amount,fee,tax,avg:o.price,pnl:0,roi:0};
-  if(o.side==='buy'){cash-=amount+fee;const h=holdings.find(x=>x.code===s.code);
-    if(h){h.avg=Math.round((h.avg*h.qty+amount)/(h.qty+o.qty));h.qty+=o.qty;}else holdings.push({code:s.code,qty:o.qty,avg:o.price});
-    toast('buy',s.name+' 매수 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(o.qty)}주 · ${KRW(o.price)}원`);
-  }else{const h=holdings.find(x=>x.code===s.code);const avg=h?h.avg:o.price;
-    rec.avg=avg;rec.pnl=Math.round((o.price-avg)*o.qty-fee-tax);rec.roi=avg*o.qty?rec.pnl/(avg*o.qty)*100:0;
-    h.qty-=o.qty;cash+=amount-fee-tax;if(h.qty===0)holdings.splice(holdings.indexOf(h),1);
-    toast('sell',s.name+' 매도 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(o.qty)}주 · ${KRW(o.price)}원`);}
+  _settling=true;
+  try{
+  const {amount,fee,tax}=c;
+  const rec={ts:Date.now(),date:kstDay(),code:s.code,name:s.name,side:o.side,qty,price,amount,fee,tax,avg:price,pnl:0,roi:0};
+  if(o.side==='buy'){
+    cash=intOf(cash-c.cost,0);
+    const h=holdings.find(x=>x.code===s.code);
+    if(h){h.avg=Math.round((intOf(h.avg,price)*intOf(h.qty,0)+amount)/(intOf(h.qty,0)+qty));h.qty=intOf(h.qty,0)+qty;}
+    else holdings.push({code:s.code,qty,avg:price});
+    toast('buy',s.name+' 매수 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(qty)}주 · ${KRW(price)}원 · 결제 ${KRW(c.cost)}원 · 잔고 ${KRW(cash)}원`);
+  }else{
+    const h=holdings.find(x=>x.code===s.code);const avg=intOf(h&&h.avg,price);
+    rec.avg=avg;rec.pnl=Math.round((price-avg)*qty-fee-tax);rec.roi=avg*qty?rec.pnl/(avg*qty)*100:0;
+    h.qty=intOf(h.qty,0)-qty;
+    cash=intOf(cash+c.proceeds,0);
+    if(h.qty<=0)holdings.splice(holdings.indexOf(h),1);
+    toast('sell',s.name+' 매도 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(qty)}주 · ${KRW(price)}원 · 정산 ${KRW(c.proceeds)}원 · 잔고 ${KRW(cash)}원`);}
+  if(cash<0)cash=0;                     // 어떤 경로로도 예수금이 음수가 되지 않게 하는 최종 방어선
   tradeLog.push(rec);
   /* [B4] 거래내역 무한 증가 방지 — 최근 1,000건만 보관하고 그 이전은 연도별 요약으로 접는다.
      (localStorage 5MB 한계에 도달해 저장이 통째로 실패하는 것을 막는다) */
@@ -9058,8 +9317,11 @@ function executeOrderCore(s,o,tag){
       const a=tradeArchive[y]=tradeArchive[y]||{count:0,buy:0,sell:0,pnl:0,fee:0,tax:0};
       a.count++; a[t.side==='sell'?'sell':'buy']+=t.amount||0; a.pnl+=t.pnl||0; a.fee+=t.fee||0; a.tax+=t.tax||0;});
   }
-  setQty(0);saveState();syncFeedCodes();renderPortfolioNumbers();renderHoldings();syncMaxQty();$('cashInput').value=KRW(cash);
+  setQty(0);saveState();syncFeedCodes();renderPortfolioNumbers();renderHoldings();syncMaxQty();
+  if($('cashInput'))$('cashInput').value=KRW(cash);
   if(currentView==='account')renderJournal();
+  return true;
+  }finally{ _settling=false; }
 }
 function toast(type,title,sub){
   const w=$('toastWrap'),t=document.createElement('div');
