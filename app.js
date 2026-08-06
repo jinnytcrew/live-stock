@@ -1181,8 +1181,9 @@ let proTab='picks';
 function setProTab(t){
   proTab=t;
   document.querySelectorAll('#proTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pt===t));
-  ['picks','nxthist','surge','screener','thermo','port','compare','bt','risk'].forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
+  ['picks','nxthist','surge','accum','screener','thermo','port','compare','bt','risk'].forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
   if(t==='picks')renderPicks();
+  if(t==='accum')acInit();
   if(t==='nxthist')renderNxtHist();
   if(t==='thermo')renderThermo();
   if(t==='port')renderPortDiag();
@@ -1643,8 +1644,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=293';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=293';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=295';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=295';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -1668,6 +1669,7 @@ function showErrBanner(msg){
    '현재 버전'이 영원히 1.91.0으로 보였고 → 업데이트 버튼이 "안 되는 것처럼" 보였다.
    이제 클라이언트도 번들에 동봉된 version-info(릴리스마다 자동 동기화)를 그대로 읽는다. */
 const APP_VERSION=(__BUNDLED_VER&&__BUNDLED_VER.version)||'0.0.0';
+try{window.__boot&&(__boot.step(2),__boot.ver(APP_VERSION));}catch(e){}   // [v4.9] 입장화면: 버전·환경 확인
 const APP_BUILD=(()=>{try{const m=String(import.meta.url).match(/[?&]v=([\w.]+)/);return m?m[1]:'';}catch(e){return '';}})();
 
 /* ===== [주요#2] 계정별 저장키 =====
@@ -2382,14 +2384,19 @@ function renderVerCard(){
     :'<span class="set-d">「업데이트 확인」을 눌러 최신 버전을 확인하세요</span>';
   const nb=$('verNotes');
   if(nb){
-    /* [v2.9] 여기도 문자열 조립 대신 노드 생성 — 노트 본문에 태그 문자가 있어도 안전 */
+    /* [v2.9] 여기도 문자열 조립 대신 노드 생성 — 노트 본문에 태그 문자가 있어도 안전
+       [v4.8 · 버그] 서버(/api/version)가 옛 버전 정보를 들고 있으면 '현재 버전 v4.7.0'
+       옆에 'v4.6.0 업데이트 내용'이 나란히 표시됐다. 서버가 더 새 버전을 알릴 때만
+       서버 노트를 쓰고, 그 외에는 번들에 동봉된 현재 버전의 노트를 보여 준다. */
+    const bundled={version:APP_VERSION,notes:(__BUNDLED_VER&&__BUNDLED_VER.notes)||[],releasedAt:(__BUNDLED_VER&&__BUNDLED_VER.releasedAt)||''};
+    const show=(verLatest&&cmpVerC(verLatest.version,APP_VERSION)>0)?verLatest:bundled;
     nb.textContent='';
-    if(verLatest&&verLatest.notes&&verLatest.notes.length){
+    if(show&&show.notes&&show.notes.length){
       const h=document.createElement('div'); h.className='ver-nt-h';
-      h.textContent=`v${verLatest.version} 업데이트 내용`;
-      const i2=document.createElement('i'); i2.textContent=fmtRelease(verLatest.releasedAt);
+      h.textContent=`v${show.version} 업데이트 내용`;
+      const i2=document.createElement('i'); i2.textContent=fmtRelease(show.releasedAt);
       h.appendChild(i2); nb.appendChild(h);
-      verLatest.notes.forEach(t=>{const d=document.createElement('div');d.className='ver-nt';d.textContent='· '+String(t);nb.appendChild(d);});
+      show.notes.forEach(t=>{const d=document.createElement('div');d.className='ver-nt';d.textContent='· '+String(t);nb.appendChild(d);});
     }else{
       const d=document.createElement('div'); d.className='ver-nt';
       d.textContent='최신 버전을 사용 중입니다.'; nb.appendChild(d);
@@ -2807,6 +2814,7 @@ function initApp(){
   feed.on('snapshot',(q)=>applyQuote(q,true));
   feed.on('quote',(q)=>applyQuote(q,false));
   safeRun('feed.start',()=>feed.start());
+  try{if(window.__boot&&!window.__b5){window.__b5=1;__boot.step(5);}}catch(e){}   // [v4.9] 입장화면: 시세 연결
   safeRun('feedCodes',syncFeedCodes);   // 보유종목까지 byCode 등록 + 실시간 구독
   safeRun('connPill',renderConnPill);
   safeRun('pollMarket',pollMarket);
@@ -2950,6 +2958,7 @@ function openTrade(code){
   safeRun('openTrade:fund',()=>loadFundamentals(code));
   safeRun('openTrade:etftab',()=>syncEtfTab(code));
   safeRun('openTrade:gate',()=>renderTradeGate());   // [v4.5] 세션 배너
+  safeRun('openTrade:flags',()=>{renderAdvFlags();loadStockFlags(code);});   // [v4.9] 심화 정보
 }
 // ETF일 때만 'ETF정보' 탭을 노출하고, ETF 상세를 미리 불러온다
 function syncEtfTab(code){
@@ -3594,13 +3603,29 @@ function mktBadge(key){
     :(open?'장중':'장마감');
   return `<span class="mkt-badge ${open?'open':''}">${lab}</span>`;}
 /* [v3.7] 어떤 화면(홈 그리드·지수 페이지·탭 필터)에서든 야간 자리표시를 일관 적용 */
+/* ══ [v4.8 · 완성] 야간선물 카드에 실제 숫자를 채운다 ═══════════════════════
+   [무엇이 잘못됐나] 야간 시간대에 K200NF 실시간 시세가 안 오면
+   price:null 자리표시({_wait})만 만들어 '수신 대기 중 —' 빈 카드가 계속 떴다.
+   dayBasis 안내줄을 그리는 코드는 있었지만 dayBasis 를 채우는 코드가 없었다.
+   [해결] 야간선물의 기준가는 어차피 주간 선물 정산가에서 출발하므로,
+   실시간 수신 전에는 K200F 주간 마감값(가격·등락·스파크)으로 카드를 채우고
+   '주간 마감 기준' 안내줄을 붙인다. 실시간 K200NF 가 들어오는 즉시
+   (idx 배열에 실물이 생기므로) 이 합성 카드는 만들어지지 않고 자동 교체된다. */
+function nightFutFromDay(list){
+  const k=(list||[]).find(x=>x&&x.key==='K200F');
+  if(k&&k.price!=null){
+    return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',
+      price:k.price,change:k.change,rate:k.rate,history:k.history,dayBasis:true};
+  }
+  return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true};
+}
 function withNightWait(arr){
   try{
     const a=(arr||[]).slice();
     const kh9=new Date(Date.now()+9*3600e3).getUTCHours();
     if((kh9>=18||kh9<6)&&a.some(x=>x&&x.key==='K200F')&&!a.some(x=>x&&x.key==='K200NF')){
       const at=a.findIndex(x=>x&&x.key==='K200F');
-      a.splice(at+1,0,{key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true});
+      a.splice(at+1,0,nightFutFromDay(a));
     }
     return a;
   }catch(e){return arr;}
@@ -3616,6 +3641,7 @@ function idxCardHtml(x){
   return `<div class="idx-card"><div class="idx-tagline">${tag}<span class="idx-ch num ${dir}">${arrow(dir)} ${pctS(x.rate)}</span></div>
     <div class="idx-top"><span class="idx-nm"><span class="idx-nm-t">${x.name}</span></span></div>
     <div class="idx-lv num ${dir} ${fl}">${DEC(x.price)}</div><div class="idx-df num ${dir}">${signedDec(x.change)}${mktBadge(x.key)}</div>
+    ${x.dayBasis?'<div class="icw-sub">주간 마감 기준 · 야간 실시간 시세 수신 시 자동 교체</div>':''}
     <canvas class="spark" id="spark-idx-${x.key}"></canvas></div>`;}
 // [개편] 주요 지수와 가상자산을 한 코너로 합치고, 분류 칩으로 걸러 볼 수 있게 한다.
 function allIndexCards(){
@@ -3625,7 +3651,7 @@ function allIndexCards(){
   try{const kh9=new Date(Date.now()+9*3600e3).getUTCHours();
     if((kh9>=18||kh9<6)&&idx.some(x=>x.key==='K200F')&&!idx.some(x=>x.key==='K200NF')){
       const at=idx.findIndex(x=>x.key==='K200F');
-      idx.splice(at+1,0,{key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true});
+      idx.splice(at+1,0,nightFutFromDay(idx));
     }}catch(e){}
   const cry=(market.crypto||[]).map(x=>({...x,tag:x.tag||'가상자산'}));
   return [...idx,...cry].filter(x=>x&&(x.price!=null));
@@ -3997,6 +4023,7 @@ function aiSchedule(){clearTimeout(aiTimer);
 
 /* ===== 실시간 주도 섹터 ===== */
 const ALLCODES=STOCKS.map(s=>s[1]);
+try{window.__boot&&__boot.step(3);}catch(e){}   // [v4.9] 입장화면: 종목 데이터 준비 완료
 const SECTORS=(()=>{const m={};STOCKS.forEach(([n,c,t])=>{(m[t]||(m[t]=[])).push(c);});return m;})();
 let sectorOpen=null;
 function scheduleSectors(){clearTimeout(window._secT);window._secT=setTimeout(pollSectors,sectorIv());}
@@ -8393,17 +8420,34 @@ function ddayLabel(it){
   return{txt:'D-'+ds,cls:''};
 }
 async function pollIpo(){
-  $('ipoStatus').textContent='공모 일정을 불러오는 중…';
-  let items=[];
-  // [수정] 타임아웃이 없어 상류가 응답하지 않으면 '불러오는 중…'에서 영원히 멈췄다.
-  try{const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),8000);
-    try{const r=await fetch('/api/ipo',{cache:'no-store',signal:ac.signal});const j=await r.json();
-      if(j.ok&&Array.isArray(j.items))items=j.items;}finally{clearTimeout(tm);}
-  }catch{}
-  // [수정] 상태 표시가 '불러오는 중…'에서 멈추지 않도록 항상 갱신하고, 렌더도 격리한다.
+  {const s0=$('ipoStatus');if(s0)s0.textContent='공모 일정을 불러오는 중…';}
+  /* [v4.8 · 완성] 서버(/api/ipo)는 38커뮤니케이션 주소 3곳을 각 6초씩 순회하므로
+     최악 18초가 걸릴 수 있는데, 클라이언트가 8초 만에 끊어 버려서
+     서버가 성공해도 화면은 예시 일정으로 떨어졌다(타임아웃 역전).
+     → 대기 20초로 확대 + 실패 시 1회 즉시 재시도(서버 KV 보관본이 이때 잡힌다)
+     + 보관본(stale)이면 확보 시각을 밝혀 준다 + 예시로 떨어져도 30초 뒤 1회 자동 재시도. */
+  let items=[],stale=false,gotAt=0;
+  for(let tryN=0;tryN<2&&!items.length;tryN++){
+    try{const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),20000);
+      try{const r=await fetch('/api/ipo',{cache:'no-store',signal:ac.signal});const j=await r.json();
+        if(j&&j.ok&&Array.isArray(j.items)&&j.items.length){items=j.items;stale=!!j.stale;gotAt=+j.at||0;}
+      }finally{clearTimeout(tm);}
+    }catch(e){}
+    if(!items.length&&tryN===0)await new Promise(r=>setTimeout(r,1200));
+  }
   const st=$('ipoStatus');
-  if(items.length){ipoList=items;if(st)st.innerHTML='출처: 38커뮤니케이션 공모청약 일정 · 청약 전 DART에서 최종 확인하세요';}
-  else{ipoList=IPO_SAMPLE;if(st)st.innerHTML='실시간 일정을 못 불러와 <b>예시 일정</b>을 표시합니다 (새로고침으로 재시도).';}
+  if(items.length){
+    ipoList=items;
+    const when=gotAt?new Date(gotAt+9*3600e3).toISOString().slice(5,16).replace('T',' ').replace('-','.'):'';
+    if(st)st.innerHTML=stale
+      ?`상류 응답 지연 — <b>마지막 확보 일정</b>${when?` (${when} 기준)`:''}을 표시합니다 · 출처: 38커뮤니케이션`
+      :'출처: 38커뮤니케이션 공모청약 일정 · 청약 전 DART에서 최종 확인하세요';
+  }else{
+    ipoList=IPO_SAMPLE;
+    if(st)st.innerHTML='실시간 일정을 못 불러와 <b>예시 일정</b>을 표시합니다 (새로고침으로 재시도).';
+    pollIpo._auto=(pollIpo._auto||0)+1;
+    if(pollIpo._auto<=2)setTimeout(()=>{try{if(ipoList===IPO_SAMPLE)pollIpo();}catch(e){}},30000);
+  }
   safeRun('ipoRender',renderIpo);
 }
 let ipoTab='upcoming';
@@ -9019,7 +9063,118 @@ const ORDER_TYPES={
 };
 let ordExchange='KRX',ordTypeName='보통지정가',otTabEx='KRX';
 const isMarketType=(t)=>/시장가|중간가|최유리|최우선|종가매매|시간외/.test(t)&&!/지정가/.test(t)||/^시장가/.test(t);
-function availableExchanges(){return (byCode[selected]&&byCode[selected].nxt===true)?['SOR','KRX','NXT']:['KRX'];}
+/* ══ [v4.8] KRX 시장경보 → NXT 일시제외 오버레이 ═══════════════════════════
+   넥스트레이드 규정: ① 투자경고·투자위험 지정 ② KRX 거래정지 ③ 관리종목 지정
+   종목은 지정 즉시 NXT 매매체결대상에서 정지/제외되고, 사유 해소 시 복귀한다.
+   기존에는 분기 정기변경 명단만 봐서 삼현처럼 장중 경고 지정된 종목이
+   계속 NXT 가능으로 보였다. /api/krxalerts(10분 캐시)로 코드→사유 지도를 받아
+   주문 창구·세션 배너·재개시각 계산 전부에 같은 판정을 적용한다. */
+let krxAlerts={map:{},at:0,fail:0};
+const NXT_SUS_LABEL={warn:'투자경고 지정',risk:'투자위험 지정',halt:'매매거래 정지',mgmt:'관리종목 지정'};
+function nxtSuspendInfo(code){
+  const t=krxAlerts.map&&krxAlerts.map[String(code||'')];
+  return t?{t,label:NXT_SUS_LABEL[t]||t}:null;
+}
+async function loadKrxAlerts(){
+  try{
+    fnBump();
+    const r=await fetch('/api/krxalerts',{cache:'no-store'});
+    const j=await r.json();
+    if(j&&j.ok&&j.map){
+      const changed=JSON.stringify(Object.keys(j.map).sort())!==JSON.stringify(Object.keys(krxAlerts.map||{}).sort());
+      krxAlerts={map:j.map,at:j.at||Date.now(),fail:0};
+      if(changed){                       // 지정/해제가 실제로 바뀐 경우에만 화면 갱신
+        try{renderTradeGate();}catch(e){}
+        try{renderAdvFlags();}catch(e){}
+        try{if(currentView==='trade')configOrderExchanges();}catch(e){}
+      }
+    }else{krxAlerts.fail=(krxAlerts.fail||0)+1;}
+  }catch(e){krxAlerts.fail=(krxAlerts.fail||0)+1;}
+}
+
+/* ══ [v4.9] 종목 심화 정보 — 증거금·신용·시장경보 상세·시장 이벤트 ═════════
+   · 시장경보(경고/위험/정지/관리/주의)는 /api/krxalerts 명단(10분 갱신)에서,
+   · 지정예고·단기과열·정리매매 같은 페이지 전용 배지와 증거금률은
+     /api/stockflags(종목별 6시간 캐시)에서 받아 합쳐 보여 준다.
+   · 신용 가능/불가는 위탁증거금 100% 여부로 판정한다(증100% = 신용·미수 불가,
+     실제 한도는 증권사별 상이 — 칩에 명시).
+   · 사이드카·서킷브레이커는 코스피200 선물·코스피/코스닥 등락률로
+     '조건 감지'를 표시한다(공식 발동·해제는 거래소 공시 기준). */
+let stockFlags={};                       // code -> {at, margin, badges[]}
+async function loadStockFlags(code){
+  const c=String(code||''); if(!/^\d{6}$/.test(c))return;
+  const hit=stockFlags[c];
+  if(hit&&Date.now()-hit.at<10*60*1000){renderAdvFlags();return;}
+  try{
+    fnBump();
+    const r=await fetch('/api/stockflags?code='+c,{cache:'no-store'});
+    const j=await r.json();
+    stockFlags[c]={at:Date.now(),margin:(j&&j.margin!=null)?+j.margin:null,badges:(j&&j.badges)||[]};
+  }catch(e){stockFlags[c]=stockFlags[c]||{at:Date.now()-9*60*1000,margin:null,badges:[]};}
+  if(selected===c)renderAdvFlags();
+}
+function marketEventChips(){
+  const out=[];
+  try{
+    const by={}; (market.indices||[]).forEach(x=>{if(x&&x.key)by[x.key]=x;});
+    const f=by.K200F, kp=by.KOSPI, kd=by.KOSDAQ;
+    if(f&&f.rate!=null&&Math.abs(f.rate)>=5)
+      out.push({cls:'mktbad',t:(f.rate<0?'매도':'매수')+' 사이드카 조건 감지',i:'⚡',
+        tip:`코스피200 선물 ${f.rate>0?'+':''}${(+f.rate).toFixed(2)}% — 5% 이상 1분 지속 시 프로그램호가 5분 정지`});
+    const cb=(nm,r)=>{if(r==null)return;const a=Math.abs(r);
+      if(r<=-20)out.push({cls:'mktbad',t:`${nm} 서킷브레이커 3단계 조건 · 당일 매매 종료`,i:'⛔',tip:`${nm} ${r.toFixed(2)}%`});
+      else if(r<=-15)out.push({cls:'mktbad',t:`${nm} 서킷브레이커 2단계 조건 감지`,i:'⛔',tip:`${nm} ${r.toFixed(2)}% — 20분 중단 조건`});
+      else if(r<=-8)out.push({cls:'mktbad',t:`${nm} 서킷브레이커 1단계 조건 감지`,i:'⛔',tip:`${nm} ${r.toFixed(2)}% — 20분 중단 조건`});};
+    cb('코스피',kp&&kp.rate); cb('코스닥',kd&&kd.rate);
+  }catch(e){}
+  return out;
+}
+const AF_BADGE_STYLE={'투자위험':'risk','투자위험예고':'pre','투자경고':'warn','투자경고지정예고':'pre',
+  '투자주의':'caution','거래정지':'halt','관리종목':'mgmt','정리매매':'halt','단기과열':'warn',
+  '단기과열지정예고':'pre','투자주의환기종목':'caution','불성실공시법인':'mgmt'};
+function renderAdvFlags(){
+  const box=$('advFlags'); if(!box)return;
+  const code=selected, st=byCode[code];
+  if(!code||!st){box.hidden=true;return;}
+  const chips=[];
+  const sf=stockFlags[code]||{};
+  /* 1) 시장경보 — 명단(확정) 우선, 페이지 배지로 예고류 보강 */
+  const seen=new Set();
+  const alert=krxAlerts.map&&krxAlerts.map[code];
+  if(alert){const lb=NXT_SUS_LABEL[alert]||alert;
+    chips.push({cls:{warn:'warn',risk:'risk',halt:'halt',mgmt:'mgmt'}[alert]||'warn',t:lb,i:'🚨',
+      tip:'KRX 시장경보 명단 기준 · 10분마다 자동 갱신'});
+    seen.add({warn:'투자경고',risk:'투자위험',halt:'거래정지',mgmt:'관리종목'}[alert]);}
+  try{if((krxAlerts.caution||[]).includes(code)&&!seen.has('투자주의')){
+    chips.push({cls:'caution',t:'투자주의 지정',i:'⚠️',tip:'시장경보 1단계 — NXT 거래는 유지됩니다'});seen.add('투자주의');}}catch(e){}
+  (sf.badges||[]).forEach(b=>{if(seen.has(b))return;seen.add(b);
+    chips.push({cls:AF_BADGE_STYLE[b]||'warn',t:b.includes('예고')?b.replace('지정예고',' 지정예고'):b,
+      i:b.includes('예고')?'🔔':'🚨',tip:'네이버 금융 종목 페이지 표기 기준'});});
+  const sus=nxtSuspendInfo(code);
+  if(sus&&st.nxt)chips.push({cls:'sus',t:'NXT 매매 일시 제외',i:'⛔',tip:sus.label+' — 해소 시 자동 복귀'});
+  /* 2) 증거금·신용 */
+  if(sf.margin!=null){
+    chips.push({cls:'neu',t:'증거금 '+sf.margin+'%',i:'💰',tip:'위탁증거금률 · 증권사·계좌에 따라 다를 수 있음'});
+    chips.push(sf.margin>=100
+      ?{cls:'no',t:'신용·미수 불가',i:'🚫',tip:'증거금 100% 종목은 신용거래·미수가 제한됩니다'}
+      :{cls:'ok',t:'신용 가능',i:'✔',tip:'증거금 '+sf.margin+'% — 신용·미수 주문 가능(한도는 증권사별 상이)'});
+  }else if(sf.at){
+    chips.push({cls:'neu',t:'증거금 정보 없음',i:'💰',tip:'제공처에서 증거금률을 찾지 못했습니다'});
+  }
+  /* 3) 시장 이벤트 */
+  const ev=marketEventChips();
+  if(ev.length)ev.forEach(c=>chips.push(c));
+  else chips.push({cls:'mkt',t:'시장 정상 가동',i:'🟢',tip:'사이드카·서킷브레이커 발동 조건 미감지 (지수 등락률 기반 자동 감지)'});
+  box.innerHTML=chips.map(c=>`<span class="af ${c.cls}" title="${(c.tip||'').replace(/"/g,'&quot;')}"><i>${c.i||''}</i>${c.t}</span>`).join('');
+  box.hidden=false;
+}
+function availableExchanges(){
+  const st=byCode[selected];
+  if(!(st&&st.nxt===true))return ['KRX'];
+  /* 시장경보·거래정지·관리종목 → NXT 창구 즉시 잠금 (SOR 도 NXT 라우팅이 막히므로 함께 제외) */
+  if(nxtSuspendInfo(selected))return ['KRX'];
+  return ['SOR','KRX','NXT'];
+}
 /* [v3.8] 예전엔 정규장(15:30) 이후 KRX 를 통째로 잠갔다. 그런데 15:40~18:00 은
    시간외 종가·시간외 단일가로 KRX 주문이 실제로 가능한 시간이다.
    → '어떤 KRX 세션도 없는 시간'에만 잠근다. */
@@ -9072,14 +9227,19 @@ function renderTradeGate(){
   }
   if(ok){
     const lab=tradeSessionLabel(code)||ses.label;
-    box.innerHTML=`<div class="tg tg-open"><i>●</i><span>주문 가능 · <b>${lab}</b></span></div>`;
+    const _s2=nxtSuspendInfo(code);
+    box.innerHTML=`<div class="tg tg-open"><i>●</i><span>주문 가능 · <b>${lab}</b></span></div>`
+      +(_s2&&st.nxt?`<div class="tg tg-sus"><i>⛔</i><span><b>NXT 일시제외 · ${_s2.label}</b> — 해제 전까지 KRX로만 체결됩니다</span></div>`:'');
     if(btn)btn.classList.remove('locked');
     return;
   }
   const nx=nextTradeOpenText(code);
-  const why=st.nxt
-    ? 'KRX·NXT 모두 주문을 받지 않는 시간입니다. (NXT 휴지 08:50~09:00:30 · 15:20~15:30)'
-    : '이 종목은 NXT 미지원이라 KRX 주문 시간(08:30~18:00)에만 거래할 수 있습니다.';
+  const _sus=nxtSuspendInfo(code);
+  const why=_sus
+    ? `이 종목은 <b>${_sus.label}</b>으로 NXT 매매가 일시 제외되어(넥스트레이드 규정 · 해제 시 자동 복귀) KRX 주문 시간에만 거래할 수 있습니다.`
+    : st.nxt
+      ? 'KRX·NXT 모두 주문을 받지 않는 시간입니다. (NXT 휴지 08:50~09:00:30 · 15:20~15:30)'
+      : '이 종목은 NXT 미지원이라 KRX 주문 시간(08:30~18:00)에만 거래할 수 있습니다.';
   box.innerHTML=`<div class="tg tg-shut">
     <div class="tg-ic">🔒</div>
     <div class="tg-tx">
@@ -9095,7 +9255,7 @@ function renderTradeGate(){
     renderTradeGate();toast('buy','실제 장 시간 제한 해제','이제 시간과 무관하게 모의 매수/매도를 할 수 있습니다. 설정에서 다시 켤 수 있어요.');};
   const hrs=$('tgHours'); if(hrs)hrs.onclick=()=>{const h=$('hrOv');if(h)h.hidden=false;else toast('on',ses.label,ses.sub||'');};
 }
-setInterval(()=>{try{if(currentView==='trade')renderTradeGate();}catch(e){}},20000);
+setInterval(()=>{try{if(currentView==='trade'){renderTradeGate();renderAdvFlags();}}catch(e){}},20000);
 
 function applyOrderType(){
   ordType=isMarketType(ordTypeName)?'market':'limit';
@@ -9137,9 +9297,14 @@ function renderOtList(){
       <div class="ot-alert-d">${desc}</div>${act?`<div class="ot-alert-a">${act}</div>`:''}</div></div>`;
   const reopen=nextTradeOpenText(selected);
   let note='';
+  const _susM=nxtSuspendInfo(selected);
   if(av.length===1){
-    note=alertCard('info','ℹ️','이 종목은 KRX 전용입니다',
-      '넥스트레이드(NXT) 미지원 종목이라 거래소 선택 없이 <b>KRX</b>로만 주문할 수 있어요.');
+    note=_susM
+      ? alertCard('block','⛔','NXT 매매 일시 제외 · '+_susM.label,
+          '넥스트레이드 규정상 <b>투자경고·투자위험 지정</b>, <b>KRX 거래정지</b>, <b>관리종목 지정</b> 종목은 지정 즉시 NXT 체결 대상에서 제외됩니다. 사유가 해소되면 자동으로 복귀합니다.',
+          '해제 전까지 <b>KRX</b>로만 주문할 수 있어요.'+(reopen?` · KRX 재개 ${reopen}`:''))
+      : alertCard('info','ℹ️','이 종목은 KRX 전용입니다',
+          '넥스트레이드(NXT) 미지원 종목이라 거래소 선택 없이 <b>KRX</b>로만 주문할 수 있어요.');
   }else if(lock){
     note=alertCard('block','🔒','지금은 KRX로 주문할 수 없습니다',
       `현재 <b>${marketSession().label}</b> — KRX는 <b>08:30 장전 시간외</b>부터 <b>18:00 시간외 단일가</b>까지만 주문을 받습니다.`,
@@ -9179,7 +9344,7 @@ function canTradeNow(code){                       // 실제 시장 시간 판단
      '장 마감 · 주문 불가'로 거절되는 앞뒤가 안 맞는 상태였다.
      → KRX 주문이 가능한 모든 세션(장전 시간외~시간외 단일가)을 인정한다. */
   if(krxTradable())return true;                  // 08:30~09:00 동시호가 · 09:00~15:30 · 15:40~18:00 시간외
-  if(st&&st.nxt&&nxtActive())return true;        // 그 밖 시간: NXT 종목만
+  if(st&&st.nxt&&!nxtSuspendInfo(code)&&nxtActive())return true; // 그 밖 시간: NXT 종목만([v4.8] 시장경보 일시제외는 KRX 시간만 인정)
   return false;
 }
 /* ══ [v4.5] 다음에 주문이 열리는 시각 ═══════════════════════════════════════
@@ -9195,9 +9360,9 @@ function krTradingDayAt(kstDate){
 function nextTradeOpenText(code){
   try{
     const st=byCode[code]||{};
-    const wins=(st.nxt===true)
+    const wins=(st.nxt===true&&!nxtSuspendInfo(code))
       ? KRX_WINDOWS.concat(NXT_WINDOWS).sort((a,b)=>a[0]-b[0])
-      : KRX_WINDOWS;
+      : KRX_WINDOWS;                       // [v4.8] NXT 일시제외 종목은 KRX 창구만으로 재개 시각 계산
     const k=kstNow();
     const nowMin=k.getUTCHours()*60+k.getUTCMinutes();
     for(let d=0;d<8;d++){
@@ -9217,7 +9382,7 @@ function nextTradeOpenText(code){
 function tradeSessionLabel(code){
   const k=krSession(),st=byCode[code];
   if(k.krx.phase)return 'KRX '+k.krx.phase;
-  if(st&&st.nxt&&k.nxt.tradable)return 'NXT '+k.nxt.phase;
+  if(st&&st.nxt&&!nxtSuspendInfo(code)&&k.nxt.tradable)return 'NXT '+k.nxt.phase;
   return '';
 }
 $('submitBtn').onclick=()=>{
@@ -9341,8 +9506,306 @@ window.addEventListener('resize',()=>{drawChart();if(currentView==='home')render
 })();
 
 (function boot(){
+  try{window.__boot&&__boot.step(4);}catch(e){}   // [v4.9] 입장화면: 계정·설정 동기화
   const sess=store.get('session');
   /* [v4.1] 세션이 없거나 계정이 사라졌으면 앱을 시작하지 않고 로그인만 띄운다 */
   if(sess&&accounts()[sess]){applyUser(sess);unlockApp();initApp();}
   else{requireAuth();}
+  /* [v4.9] 화면 구성 단계 → 두 프레임 뒤(첫 페인트 확정 후) 입장화면을 걷는다.
+     로그인 화면으로 빠지는 경우에도 즉시 걷어야 입력이 가려지지 않는다. */
+  try{window.__boot&&__boot.step(6);}catch(e){}
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__boot&&__boot.done();}catch(e){}}));
 })();
+
+
+/* ══ [v4.9] 매집 포착기 ═══════════════════════════════════════════════════
+   [설계 근거 — 공개 문헌 조사 요약]
+   ① "주가는 횡보하는데 OBV 가 우상향하면 매집의 결정적 증거" — 국내 거래량 분석 정설.
+      노력(거래량) 대 결과(가격)의 다이버전스라는 와이코프 제3법칙과 같은 얘기다.
+   ② 매집이 무르익을수록 하락 구간 거래량이 말라간다(드라이업) — 매물이 소진됐다는 뜻.
+   ③ 대량 거래일에 종가가 캔들 상단(윗쪽 60% 이상)에서 마감하고 이후 며칠 가격이
+      무너지지 않으면 '흡수'다. 바닥권 대량거래 = 매집, 고점 대량거래 = 분산(설거지).
+   ④ 와이코프 스프링: 박스 하단을 평균의 30~50% 저거래로 잠깐 이탈했다가 즉시 복귀
+      = 남은 매물을 털어내는 마지막 테스트. 이후 대량 돌파(SOS)가 확인 신호.
+   ⑤ 기관·외국인 순매수 누적은 한국 시장에서 매집 주체를 직접 보는 창.
+   여섯 성분을 0~100 점으로 재고 가중 합산한다. 전 성분이 순수 함수라 검증 가능하다.
+   ═════════════════════════════════════════════════════════════════════════ */
+/*AC-CORE-BEGIN*/
+function acN(b,k,alt){const v=b[k];return (v==null&&alt!=null)?b[alt]:v;}
+function acBars(cs){ // 서버 candles → 정규화 {o,h,l,c,v} 배열(과거→최근)
+  return (cs||[]).map(b=>{const c=+acN(b,'c','close')||0;
+    return {o:+acN(b,'o','open')||c,h:+acN(b,'h','high')||c,l:+acN(b,'l','low')||c,c,v:+acN(b,'v','vol')||0};
+  }).filter(b=>b.c>0);
+}
+function acSlope(vals){ // 정규화 선형회귀 기울기(전 구간 대비 비율/일)
+  const n=vals.length; if(n<2)return 0;
+  const base=Math.abs(vals[0])>1e-9?Math.abs(vals[0]):(Math.abs(vals[n-1])||1);
+  let sx=0,sy=0,sxy=0,sxx=0;
+  for(let i=0;i<n;i++){sx+=i;sy+=vals[i];sxy+=i*vals[i];sxx+=i*i;}
+  const sl=(n*sxy-sx*sy)/(n*sxx-sx*sx||1);
+  return sl/base;
+}
+function acOBV(bars){const o=[0];for(let i=1;i<bars.length;i++){const d=bars[i].c-bars[i-1].c;
+  o.push(o[i-1]+(d>0?bars[i].v:d<0?-bars[i].v:0));}return o;}
+function acAvg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0;}
+const acClamp=(v)=>Math.max(0,Math.min(100,Math.round(v)));
+function acScore(rawBars,invRows){
+  const bars=acBars(rawBars);
+  if(bars.length<45)return {ok:false,why:'일봉 데이터가 부족합니다 (45일 이상 필요)'};
+  const n=bars.length, look=Math.min(60,n), seg=bars.slice(n-look);
+  const close=seg.map(b=>b.c), vol=seg.map(b=>b.v);
+  /* ① OBV 다이버전스 — 가격 기울기 대비 OBV 기울기 */
+  const obvAll=acOBV(bars), obv=obvAll.slice(n-look);
+  const obvSpan=Math.max(...obv)-Math.min(...obv)||1;
+  const pSl=acSlope(close), oSl=acSlope(obv.map(v=>(v-obv[0])/obvSpan*close[0]+close[0]));
+  const obvScore=acClamp(50+(oSl-pSl)*9000);
+  /* ② 드라이업 — 최근20 vs 이전 거래량 수축 + 하락일/상승일 거래량 비 */
+  const v20=acAvg(vol.slice(-20)), vPrev=acAvg(vol.slice(0,Math.max(1,look-20)))||1;
+  const shrink=v20/vPrev;
+  let dnV=0,upV=0;seg.slice(-30).forEach((b,i,arr)=>{if(i===0)return;
+    const d=b.c-arr[i-1].c; if(d<0)dnV+=b.v; else if(d>0)upV+=b.v;});
+  const duRatio=upV>0?dnV/upV:1.5;
+  const dryScore=acClamp(60-(shrink-0.75)*90-(duRatio-0.85)*45);
+  /* ③ 박스 응집 — 40일 박스폭 + 저점 상승 */
+  const b40=seg.slice(-40), hi=Math.max(...b40.map(b=>b.h)), lo=Math.min(...b40.map(b=>b.l));
+  const mid=(hi+lo)/2||1, width=(hi-lo)/mid;
+  const lowSl=acSlope(b40.map(b=>b.l));
+  const baseScore=acClamp(70-(width-0.14)*260+lowSl*5200);
+  /* ④ 흡수 캔들 — 대량 + 상단 마감 + 이후 3일 -4% 미만 */
+  const vAvg=acAvg(vol)||1, stars=[];
+  for(let i=Math.max(1,look-60);i<look;i++){
+    const b=seg[i], rng=b.h-b.l;
+    if(b.v>2.2*vAvg && rng>0 && (b.c-b.l)/rng>=0.6){
+      let okAfter=true;
+      for(let k=1;k<=3&&i+k<look;k++){if(seg[i+k].c<b.c*0.96){okAfter=false;break;}}
+      if(okAfter)stars.push(n-look+i);
+    }
+  }
+  const absScore=acClamp(stars.length*24);
+  /* ⑤ 수급 — 외인+기관 20일 누적 순매매량 / 20일 거래량 */
+  let supScore=null,supNet=0;
+  if(Array.isArray(invRows)&&invRows.length){
+    const r20=invRows.slice(0,20); // 최신이 앞
+    /* [v4.9 · 버그] 워커의 종목별 수급 행은 {date, values:{'외국인','기관계','개인'}} 형태다.
+       r.foreign / r.inst 로 읽으면 항상 0이 되어 수급 성분이 무력화됐다 — 두 형태 모두 지원. */
+    const netOf=(r)=>{ if(!r)return 0;
+      if(r.values)return (Number(r.values['외국인'])||0)+(Number(r.values['기관계'])||Number(r.values['기관'])||0);
+      return (+(r.foreign!=null?r.foreign:r.frgn)||0)+(+(r.inst!=null?r.inst:r.org)||0); };
+    r20.forEach(r=>{supNet+=netOf(r);});
+    const volSum=vol.slice(-20).reduce((a,b)=>a+b,0)||1;
+    supScore=acClamp(50+supNet/volSum*900);
+  }
+  /* ⑥ 돌파 준비 — 60일 고점 대비 + 스프링 감지 */
+  const last=seg[look-1], hi60=Math.max(...close);
+  const gap=(hi60-last.c)/hi60;
+  let brkScore=acClamp(gap<=0?92:78-gap*420);
+  let spring=null;
+  for(let i=look-15;i<look-1;i++){
+    if(i<2)continue; const b=seg[i];
+    if(b.l<lo*1.002 && b.v<vAvg*0.6){
+      for(let k=1;k<=3&&i+k<look;k++){ if(seg[i+k].c>lo*1.01){spring={idx:n-look+i};brkScore=acClamp(brkScore+14);break;} }
+      if(spring)break;
+    }
+  }
+  /* 가중 합산 — 수급이 없으면(ETF 등) 나머지에 재분배 */
+  const w={obv:.22,dry:.16,base:.14,abs:.20,sup:.16,brk:.12};
+  let total,comps={obv:obvScore,dry:dryScore,base:baseScore,abs:absScore,sup:supScore,brk:brkScore};
+  if(supScore==null){const f=1/(1-w.sup);
+    total=(obvScore*w.obv+dryScore*w.dry+baseScore*w.base+absScore*w.abs+brkScore*w.brk)*f;}
+  else total=obvScore*w.obv+dryScore*w.dry+baseScore*w.base+absScore*w.abs+supScore*w.sup+brkScore*w.brk;
+  total=acClamp(total);
+  /* 단계 판정 */
+  let stage,cls;
+  const brokeOut=last.c>hi*1.005&&last.v>vAvg*1.6;
+  if(brokeOut&&total>=55){stage='마크업 진입 — 박스 상단을 거래량과 함께 돌파';cls='s4';}
+  else if(total>=72){stage=spring?'돌파 임박 — 스프링 확인 후 상단 근접':'매집 진행 — 수급·흡수 동반';cls='s4';}
+  else if(total>=58){stage='매집 후보 — 횡보 속 흡수 흔적';cls='s3';}
+  else if(total>=42){stage='관찰 — 일부 신호만 존재';cls='s2';}
+  else if(obvScore<35&&pSl>0){stage='분산 우세 — 상승에도 OBV 이탈(고점 대량거래 주의)';cls='s0';}
+  else {stage='매집 근거 약함';cls='s1';}
+  return {ok:true,total,comps,stars,spring,stage,cls,box:{hi,lo,from:n-40},
+    meta:{shrink:+shrink.toFixed(2),duRatio:+duRatio.toFixed(2),width:+(width*100).toFixed(1),
+      gap:+(gap*100).toFixed(1),supNet,pSl:+(pSl*1e4).toFixed(2),oSl:+(oSl*1e4).toFixed(2)}};
+}
+/*AC-CORE-END*/
+/* ── UI ── */
+let acCode=null, acCustom=(()=>{try{return JSON.parse(localStorage.getItem('acList')||'[]');}catch(e){return[];}})();
+let acScanBusy=false, acChartCache={};
+async function acFetchDaily(code){
+  if(acChartCache[code]&&Date.now()-acChartCache[code].at<8*60*1000)return acChartCache[code].bars;
+  fnBump();
+  const r=await fetch(`/api/chart?code=${code}&tf=D`,{cache:'default'});const j=await r.json();
+  const bars=(j&&j.candles)||[];
+  acChartCache[code]={at:Date.now(),bars};
+  return bars;
+}
+async function acFetchInvestors(code){
+  try{fnBump();const r=await fetch(`/api/investors?code=${code}`,{cache:'default'});const j=await r.json();
+    const inv=(j&&j.investors)||j||{};
+    return inv.rows||inv.days||inv.list||null;}catch(e){return null;}
+}
+function acSuggest(q){
+  q=(q||'').trim(); const box=$('acSug'); if(!box)return;
+  if(!q){box.hidden=true;box.innerHTML='';return;}
+  const ql=q.toLowerCase(); const out=[];
+  for(const c of ALLCODES){const st=byCode[c];if(!st)continue;
+    if(c.startsWith(q)||String(st.name||'').toLowerCase().includes(ql)){out.push({c,n:st.name});if(out.length>=8)break;}}
+  if(!out.length){box.hidden=true;return;}
+  box.innerHTML=out.map(x=>`<button data-c="${x.c}">${stockLogo(x.c,x.n,24)}<span>${x.n}</span><span class="code num">${x.c}</span></button>`).join('');
+  box.hidden=false;
+  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    acCode=b.dataset.c; $('acSearch').value=(byCode[acCode]&&byCode[acCode].name)||acCode;
+    box.hidden=true; $('acRun').disabled=false; acAnalyze(acCode);});
+}
+function acStageChipHtml(r){return `<span class="ac-verdict ${r.cls}">${r.total>=58?'🟠':'⚪'} ${r.stage}</span>`;}
+async function acAnalyze(code){
+  const body=$('acBody'); if(!body)return;
+  const st=byCode[code]||{};
+  body.innerHTML=`<div class="empty">${st.name||code} — 일봉·수급 데이터를 불러와 분석하는 중…</div>`;
+  let bars,inv;
+  try{[bars,inv]=await Promise.all([acFetchDaily(code),acFetchInvestors(code)]);}catch(e){bars=[];}
+  const r=acScore(bars,inv);
+  if(!r.ok){body.innerHTML=`<div class="empty">${st.name||code}: ${r.why}</div>`;return;}
+  const compDef=[
+    ['obv','OBV 다이버전스','가격 대비 누적 거래량 흐름'],
+    ['dry','거래량 드라이업','매물 소진 · 하락일 거래 위축'],
+    ['base','박스 응집','횡보 폭 축소 · 저점 상승'],
+    ['abs','흡수 캔들','대량 + 상단 마감 + 유지'],
+    ['sup','기관·외국인 수급','20일 누적 순매수'],
+    ['brk','돌파 준비','고점 근접 · 스프링'],
+  ];
+  const compsHtml=compDef.map(([k,t,d])=>{const v=r.comps[k];
+    if(v==null)return `<div class="ac-comp"><div class="k">${t}<small>${d}</small></div><div class="bar"><div style="width:0"></div></div><div class="v" style="color:var(--sub-2)">—</div></div>`;
+    return `<div class="ac-comp ${v>=65?'hot':''}"><div class="k">${t}<small>${d}</small></div><div class="bar"><div style="width:${v}%"></div></div><div class="v num">${v}</div></div>`;}).join('');
+  const badges=[];
+  if(r.spring)badges.push('<span class="ac-bdg spring">🌀 와이코프 스프링 감지</span>');
+  if(r.stars.length)badges.push(`<span class="ac-bdg">★ 흡수 캔들 ${r.stars.length}회</span>`);
+  if(r.meta.shrink<0.7)badges.push(`<span class="ac-bdg">거래량 ${Math.round((1-r.meta.shrink)*100)}% 수축</span>`);
+  const interp=[];
+  interp.push(r.comps.obv>=62?`가격 흐름 대비 <b>OBV가 뚜렷이 위</b>에 있습니다 — 조용히 사 모으는 쪽이 우세하다는 뜻입니다.`
+    :r.comps.obv<=38?`가격에 비해 <b>OBV가 처집니다</b> — 오르는 날보다 내리는 날 거래가 무겁습니다(분산 의심).`
+    :`OBV와 가격이 비슷하게 움직여 수급 우위가 뚜렷하지 않습니다.`);
+  interp.push(r.comps.dry>=62?`최근 20일 거래량이 이전 대비 <b>${Math.round((1-r.meta.shrink)*100)}% 줄어</b> 매물이 말라가는 전형적 드라이업 구간입니다.`
+    :`거래량 수축은 뚜렷하지 않습니다(최근/이전 비 ${r.meta.shrink}).`);
+  if(r.stars.length)interp.push(`대량 거래일에 종가를 <b>캔들 상단에서 지켜낸 흡수 흔적이 ${r.stars.length}회</b> 있었고, 이후 가격이 무너지지 않았습니다.`);
+  if(r.spring)interp.push(`박스 하단을 <b>저거래로 잠깐 이탈했다 복귀한 스프링</b>이 보입니다 — 남은 매물을 터는 마지막 테스트일 수 있으며, 이후 대량 돌파가 나오면 와이코프 SOS 확인입니다.`);
+  if(r.comps.sup!=null)interp.push(r.comps.sup>=60?`기관·외국인이 20일간 <b>순매수 누적</b> 중입니다.`
+    :r.comps.sup<=40?`기관·외국인은 20일간 <b>순매도 우위</b>입니다 — 개인 매집만으로는 신뢰도가 낮습니다.`
+    :`기관·외국인 수급은 중립입니다.`);
+  interp.push(`현재가는 60일 고점 대비 <b>-${r.meta.gap}%</b>, 40일 박스폭은 <b>${r.meta.width}%</b>입니다.`);
+  body.innerHTML=`<div class="ac-report">
+    <div class="ac-hd">${stockLogo(code,st.name,44)}<div><div class="nm">${st.name||code}</div><div class="cd num">${code}${st.nxt?' · NXT':''}</div></div>
+      <div style="margin-left:auto;text-align:right"><div class="ac-gauge-num num">${r.total}<small>/100</small></div>${acStageChipHtml(r)}</div></div>
+    ${badges.length?`<div class="ac-badges">${badges.join('')}</div>`:''}
+    <div class="ac-canvas-wrap"><canvas id="acCanvas"></canvas>
+      <div class="ac-cv-cap"><i>─ 종가</i><i style="color:#e9900a">─ OBV</i><i>▨ 40일 박스</i><i style="color:#12b76a">★ 흡수 캔들</i>${r.spring?'<i style="color:#12b76a">🌀 스프링</i>':''}</div></div>
+    <div class="ac-comps">${compsHtml}</div>
+    <div class="ac-interp">${interp.map(t=>'· '+t).join('<br>')}</div>
+  </div>`;
+  requestAnimationFrame(()=>acDrawChart(acBars(bars),r));
+}
+function acDrawChart(bars,r){
+  const cv=$('acCanvas'); if(!cv||!bars.length)return;
+  const dpr=window.devicePixelRatio||1, W=cv.clientWidth||600, H=210;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const x2=cv.getContext('2d'); x2.scale(dpr,dpr);
+  const n=bars.length, view=bars.slice(-120), vn=view.length, off=n-vn;
+  const px=(i)=>14+(i)/(vn-1)*(W-28);
+  const cs=view.map(b=>b.c), lo=Math.min(...view.map(b=>b.l)), hi=Math.max(...view.map(b=>b.h));
+  const py=(v)=>14+(1-(v-lo)/((hi-lo)||1))*(H-42);
+  const dark=document.documentElement.getAttribute('data-theme')==='dark';
+  /* 박스 음영 */
+  const bFrom=Math.max(0,r.box.from-off);
+  x2.fillStyle=dark?'rgba(138,180,248,.10)':'rgba(29,78,216,.07)';
+  x2.fillRect(px(bFrom),py(r.box.hi),px(vn-1)-px(bFrom),py(r.box.lo)-py(r.box.hi));
+  x2.strokeStyle=dark?'rgba(138,180,248,.35)':'rgba(29,78,216,.28)';x2.setLineDash([4,4]);
+  x2.strokeRect(px(bFrom),py(r.box.hi),px(vn-1)-px(bFrom),py(r.box.lo)-py(r.box.hi));x2.setLineDash([]);
+  /* OBV (정규화) */
+  const obv=acOBV(bars).slice(-vn), oLo=Math.min(...obv), oHi=Math.max(...obv);
+  x2.strokeStyle='#e9900a';x2.lineWidth=1.6;x2.beginPath();
+  obv.forEach((v,i)=>{const y=18+(1-(v-oLo)/((oHi-oLo)||1))*(H-50);i?x2.lineTo(px(i),y):x2.moveTo(px(i),y);});
+  x2.stroke();
+  /* 종가 */
+  x2.strokeStyle=dark?'#dbe4f0':'#1c2534';x2.lineWidth=2;x2.beginPath();
+  cs.forEach((v,i)=>{i?x2.lineTo(px(i),py(v)):x2.moveTo(px(i),py(v));});x2.stroke();
+  /* ★ 흡수 · 🌀 스프링 */
+  x2.font='900 12px Pretendard,sans-serif';x2.fillStyle='#12b76a';x2.textAlign='center';
+  r.stars.forEach(gi=>{const i=gi-off;if(i<0||i>=vn)return;x2.fillText('★',px(i),py(view[i].l)+16);});
+  if(r.spring){const i=r.spring.idx-off;if(i>=0&&i<vn)x2.fillText('🌀',px(i),py(view[i].l)+18);}
+}
+/* ── 스캔 ── */
+function acRenderList(){
+  const box=$('acList'); if(!box)return;
+  if($('acScanSel').value!=='custom'||!acCustom.length){box.hidden=true;return;}
+  box.hidden=false;
+  box.innerHTML=acCustom.map(c=>{const st=byCode[c]||{};
+    return `<span class="tagx"><b>${st.name||c}</b><button data-x="${c}">✕</button></span>`;}).join('');
+  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    acCustom=acCustom.filter(x=>x!==b.dataset.x);
+    try{localStorage.setItem('acList',JSON.stringify(acCustom));}catch(e){}
+    acRenderList();});
+}
+async function acScan(){
+  if(acScanBusy)return; 
+  const sel=$('acScanSel').value;
+  let codes=sel==='watch'?watchlist.slice():sel==='hold'?holdings.map(h=>h.code):acCustom.slice();
+  codes=[...new Set(codes)].filter(c=>byCode[c]);
+  const body=$('acBody');
+  if(!codes.length){body.innerHTML=`<div class="empty">${sel==='watch'?'관심종목이 비어 있습니다. ⭐로 담아 주세요.':sel==='hold'?'보유종목이 없습니다.':'목록이 비어 있습니다 — 검색으로 종목을 고른 뒤 ＋ 목록에 담기를 눌러 주세요.'}</div>`;return;}
+  if(codes.length>40){toast('warn','스캔 대상 40종목 제한','호출량 보호를 위해 앞 40종목만 스캔합니다.');codes=codes.slice(0,40);}
+  acScanBusy=true; const btn=$('acScanRun'); btn.disabled=true; btn.textContent='스캔 중…';
+  body.innerHTML=`<div class="ac-prog"><div id="acProgF" style="width:2%"></div></div><div class="empty" id="acProgT">0 / ${codes.length}</div>`;
+  const out=[]; let done=0;
+  const CHUNK=3;
+  for(let i=0;i<codes.length;i+=CHUNK){
+    await Promise.all(codes.slice(i,i+CHUNK).map(async c=>{
+      try{const bars=await acFetchDaily(c);const r=acScore(bars,null);
+        if(r.ok)out.push({c,r});}catch(e){}
+      done++;
+      const f=$('acProgF'),t=$('acProgT');
+      if(f)f.style.width=Math.round(done/codes.length*100)+'%';
+      if(t)t.textContent=`${done} / ${codes.length} — 일봉 수집·점수 계산 중`;
+    }));
+  }
+  out.sort((a,b)=>b.r.total-a.r.total);
+  body.innerHTML=out.length?`<table class="ac-tbl"><thead><tr><th>종목</th><th>매집 점수</th><th>단계</th><th>신호</th></tr></thead><tbody>
+    ${out.map(({c,r})=>{const st=byCode[c]||{};
+      const sig=[r.spring?'🌀':'',r.stars.length?`★${r.stars.length}`:'',r.meta.shrink<0.7?'📉거래량↓':''].filter(Boolean).join(' ');
+      return `<tr data-c="${c}"><td>${st.name||c} <span class="num" style="color:var(--sub-2);font-size:11px">${c}</span></td>
+        <td><span class="sc num">${r.total}</span><span class="ac-minibar"><i style="width:${r.total}%"></i></span></td>
+        <td class="st-cell">${r.stage}</td><td>${sig||'—'}</td></tr>`;}).join('')}
+    </tbody></table><div class="empty" style="margin-top:8px">행을 누르면 수급까지 포함한 정밀 분석으로 이어집니다 (스캔은 속도를 위해 수급 제외 점수).</div>`
+    :`<div class="empty">점수를 계산할 수 있는 종목이 없었습니다 (상장 45일 미만 등).</div>`;
+  body.querySelectorAll('tr[data-c]').forEach(tr=>tr.onclick=()=>{
+    acCode=tr.dataset.c;$('acSearch').value=(byCode[acCode]&&byCode[acCode].name)||acCode;$('acRun').disabled=false;
+    acAnalyze(acCode);});
+  acScanBusy=false; btn.disabled=false; btn.textContent='스캔 시작';
+}
+let _acInit=false;
+function acInit(){
+  if(_acInit)return; _acInit=true;
+  const inp=$('acSearch'); let t=null;
+  if(inp){inp.addEventListener('input',()=>{clearTimeout(t);acCode=null;$('acRun').disabled=true;
+    t=setTimeout(()=>acSuggest(inp.value),160);});
+    inp.addEventListener('focus',()=>{if(inp.value)acSuggest(inp.value);});}
+  document.addEventListener('click',(e)=>{const b=$('acSug');if(b&&!b.hidden&&!e.target.closest('.ac-search-wrap'))b.hidden=true;});
+  const run=$('acRun'); if(run)run.onclick=()=>{if(acCode)acAnalyze(acCode);};
+  const add=$('acAdd'); if(add)add.onclick=()=>{
+    if(!acCode){toast('warn','먼저 종목을 검색해 선택하세요','목록에 담을 종목이 없습니다');return;}
+    if(!acCustom.includes(acCode)){acCustom.push(acCode);
+      try{localStorage.setItem('acList',JSON.stringify(acCustom));}catch(e){}}
+    $('acScanSel').value='custom';acRenderList();
+    toast('buy','목록에 담았습니다',(byCode[acCode]&&byCode[acCode].name)||acCode);};
+  const ss=$('acScanSel'); if(ss)ss.onchange=acRenderList;
+  const sr=$('acScanRun'); if(sr)sr.onclick=()=>acScan();
+  acRenderList();
+}
+
+/* [v4.8] 시장경보 오버레이 — 부팅 직후 1회 + 화면이 보일 때 10분마다 갱신 */
+try{
+  loadKrxAlerts();
+  setInterval(()=>{try{if(document.visibilityState==='visible')loadKrxAlerts();}catch(e){}},10*60*1000);
+  document.addEventListener('visibilitychange',()=>{try{
+    if(document.visibilityState==='visible'&&Date.now()-(krxAlerts.at||0)>10*60*1000)loadKrxAlerts();
+  }catch(e){}});
+}catch(e){}

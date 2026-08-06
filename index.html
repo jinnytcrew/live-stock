@@ -14,9 +14,96 @@
 <meta name="format-detection" content="telephone=no">
 <title>LIVE증권 · 실시간 주식</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
-<link rel="stylesheet" href="/app.css?v=293">
+<link rel="stylesheet" href="/app.css?v=295">
 </head>
 <body>
+
+<!-- ══ [v4.9] 입장 로딩 화면 ═══════════════════════════════════════════════
+     증권사 앱처럼 접속마다 부팅 절차를 보여 준다. app.css 보다 먼저 칠해져야
+     하므로 필수 스타일과 제어 스크립트를 인라인으로 둔다.
+     실제 진행 단계는 app.js 가 window.__boot.step(n) 으로 밀어 준다. ══════ -->
+<style id="bootCss">
+#bootGate{position:fixed;inset:0;z-index:2000000;display:flex;flex-direction:column;align-items:center;
+  justify-content:space-between;background:#f6f8fb;color:#1c2534;
+  font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  transition:opacity .45s ease;padding:max(24px,env(safe-area-inset-top)) 24px max(22px,env(safe-area-inset-bottom))}
+#bootGate.out{opacity:0;pointer-events:none}
+@media (prefers-color-scheme:dark){#bootGate{background:#0f1420;color:#e6ecf5}}
+.bg-mid{display:flex;flex-direction:column;align-items:center;gap:0;margin:auto 0;width:min(420px,92vw)}
+.bg-logo{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.bg-mark{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#f5b30f,#e9900a);
+  display:grid;place-items:center;font-weight:900;font-size:27px;color:#fff;
+  box-shadow:0 8px 24px rgba(233,144,10,.35);animation:bgPulse 2.1s ease-in-out infinite}
+@keyframes bgPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+.bg-wm{font-size:27px;font-weight:900;letter-spacing:-.6px}
+.bg-wm b{color:#e9900a}
+.bg-tag{font-size:12.5px;font-weight:600;opacity:.55;margin-bottom:30px}
+.bg-bar{width:100%;height:5px;border-radius:99px;background:rgba(128,140,160,.18);overflow:hidden}
+.bg-fill{height:100%;width:4%;border-radius:99px;background:linear-gradient(90deg,#f5b30f,#e9900a);
+  transition:width .45s cubic-bezier(.3,.8,.3,1)}
+.bg-steps{width:100%;margin-top:18px;display:flex;flex-direction:column;gap:9px}
+.bg-st{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:600;opacity:.34;transition:opacity .3s}
+.bg-st i{font-style:normal;width:19px;height:19px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-size:11px;font-weight:900;background:rgba(128,140,160,.22);color:transparent}
+.bg-st.run{opacity:1}
+.bg-st.run i{background:rgba(233,144,10,.16);position:relative}
+.bg-st.run i::after{content:'';position:absolute;inset:3px;border-radius:50%;border:2px solid #e9900a;
+  border-top-color:transparent;animation:bgSpin .7s linear infinite}
+@keyframes bgSpin{to{transform:rotate(360deg)}}
+.bg-st.done{opacity:.85}
+.bg-st.done i{background:#12b76a;color:#fff}
+.bg-st.done i::after{content:'✓';position:static;border:0;animation:none}
+.bg-tip{margin-top:26px;font-size:12.5px;font-weight:600;opacity:.6;min-height:18px;text-align:center;
+  transition:opacity .3s}
+.bg-foot{width:min(560px,92vw);text-align:center;font-size:11.5px;line-height:1.55;opacity:.5;font-weight:500;
+  border-top:1px solid rgba(128,140,160,.22);padding-top:13px}
+.bg-foot b{font-weight:800}
+@media (prefers-reduced-motion:reduce){.bg-mark,.bg-st.run i::after{animation:none}}
+</style>
+<div id="bootGate" role="status" aria-label="앱을 시작하는 중">
+  <div></div>
+  <div class="bg-mid">
+    <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
+    <div class="bg-tag">실시간 시세로 연습하는 한국 주식 모의투자</div>
+    <div class="bg-bar"><div class="bg-fill" id="bgFill"></div></div>
+    <div class="bg-steps" id="bgSteps">
+      <div class="bg-st" data-i="1"><i></i><span>앱 모듈 불러오기</span></div>
+      <div class="bg-st" data-i="2"><i></i><span>버전·환경 확인</span></div>
+      <div class="bg-st" data-i="3"><i></i><span>종목 데이터 준비 <small>· 2,800+ 종목</small></span></div>
+      <div class="bg-st" data-i="4"><i></i><span>계정·설정 동기화</span></div>
+      <div class="bg-st" data-i="5"><i></i><span>실시간 시세 연결</span></div>
+      <div class="bg-st" data-i="6"><i></i><span>화면 구성</span></div>
+    </div>
+    <div class="bg-tip" id="bgTip">잠시만요, 시작할 준비를 하고 있어요…</div>
+  </div>
+  <div class="bg-foot">© 2026 LIVE증권 — 학습용 모의투자 서비스 · 실제 매매가 아니며 모든 손익은 가상입니다<br>
+  종목정보 변경 직후 접속하신 경우 신규 상장 종목 반영에 잠시 시간이 걸릴 수 있습니다 · <b id="bgVer"></b></div>
+</div>
+<script>
+/* [v4.9] 부팅 제어 — app.js 가 단계를 밀어 주고, 10초가 지나면 무조건 연다(안전장치) */
+(function(){
+  var g=document.getElementById('bootGate'),fill=document.getElementById('bgFill'),
+      steps=document.getElementById('bgSteps'),tip=document.getElementById('bgTip'),cur=0,doneFlag=false;
+  var tips=['오늘도 좋은 연습 되세요 📈','⭐를 누르면 관심종목 폴더에 담을 수 있어요',
+    '고급 서비스의 매집 포착기로 세력 흔적을 분석해 보세요','실제 장 시간 제한은 설정에서 끄고 켤 수 있어요',
+    'NXT 프리마켓은 오전 8시에 열립니다','투자경고 지정 종목은 NXT 주문이 자동으로 잠겨요'];
+  var ti=0,tt=setInterval(function(){ti=(ti+1)%tips.length;tip.style.opacity=0;
+    setTimeout(function(){tip.textContent=tips[ti];tip.style.opacity=.6;},280);},2400);
+  function paint(){var n=steps.children.length;
+    for(var k=0;k<n;k++){var el=steps.children[k],i=+el.dataset.i;
+      el.className='bg-st'+(i<cur?' done':i===cur?' run':'');}
+    fill.style.width=Math.min(100,Math.round((cur-0.5)/n*100))+'%';}
+  window.__boot={
+    step:function(i){if(doneFlag)return;if(i>cur){cur=i;paint();}},
+    ver:function(v){try{document.getElementById('bgVer').textContent='v'+v;}catch(e){}},
+    done:function(){if(doneFlag)return;doneFlag=true;clearInterval(tt);cur=steps.children.length+1;paint();
+      fill.style.width='100%';
+      setTimeout(function(){g.classList.add('out');setTimeout(function(){try{g.remove();}catch(e){}},520);},260);}
+  };
+  cur=1;paint();
+  setTimeout(function(){ if(!doneFlag){ tip.textContent='네트워크가 느려요 — 나머지 데이터는 화면에서 이어서 불러옵니다'; window.__boot.done(); } },10000);
+})();
+</script>
 
 <!-- AUTH GATE -->
 <div class="overlay" id="authGate">
@@ -601,12 +688,42 @@
       <button data-pt="picks" class="on">내일 장 추천주<i class="lv">LIVE</i></button>
       <button data-pt="nxthist">NXT 명단 이력</button>
       <button data-pt="surge">급등주 예측<i class="lv">LIVE</i></button>
+      <button data-pt="accum">매집 포착기<i class="lv">NEW</i></button>
       <button data-pt="screener">조건 검색기<i class="lv">LIVE</i></button>
       <button data-pt="thermo">시장 온도계<i class="lv">LIVE</i></button>
       <button data-pt="port">포트폴리오 진단</button>
       <button data-pt="compare">종목 비교</button>
       <button data-pt="bt">전략 백테스트</button>
       <button data-pt="risk">리스크 계산기</button>
+    </div>
+
+
+    <div id="pro-accum" hidden>
+      <div class="panel pro-panel">
+        <div class="pro-head">
+          <div><b>매집 포착기</b><span>OBV 다이버전스·거래량 드라이업·흡수 캔들·와이코프 스프링·기관/외국인 수급을 합산해 세력 매집 징후를 점수화합니다</span></div>
+        </div>
+        <div class="ac-search-row">
+          <div class="ac-search-wrap">
+            <input id="acSearch" placeholder="종목명 또는 코드 검색 — 예: 삼성전자, 005930" autocomplete="off">
+            <div class="ac-sug" id="acSug" hidden></div>
+          </div>
+          <button class="scr-run" id="acRun" disabled>정밀 분석</button>
+        </div>
+        <div class="ac-scan-row">
+          <span class="ac-scan-lab">여러 종목 스캔</span>
+          <select id="acScanSel">
+            <option value="watch">관심종목 전체</option>
+            <option value="hold">보유종목 전체</option>
+            <option value="custom">직접 담은 목록</option>
+          </select>
+          <button class="mini-btn" id="acAdd" title="검색으로 선택한 종목을 직접 목록에 추가">＋ 목록에 담기</button>
+          <button class="scr-run alt" id="acScanRun">스캔 시작</button>
+        </div>
+        <div class="ac-list" id="acList" hidden></div>
+        <div id="acBody"><div class="empty">종목을 검색해 <b>정밀 분석</b>하거나, 관심·보유종목을 한 번에 <b>스캔</b>해 매집 점수 순으로 줄 세워 보세요.</div></div>
+        <div class="picks-disc">공개 시세·수급 데이터를 알고리즘으로 해석한 <b>참고용 추정</b>입니다. 매집처럼 보이는 패턴이 항상 상승으로 이어지지는 않으며, 투자 판단과 책임은 본인에게 있습니다.</div>
+      </div>
     </div>
 
     <div id="pro-picks">
@@ -741,6 +858,7 @@
               <div class="d-name"><span id="dName">—</span><span class="star" id="starBtn" title="관심종목">☆</span><span class="d-lab" id="starLab">관심</span></div>
               <div class="d-code num" id="dCode">—</div>
               <div class="d-tags" id="dTags"></div>
+              <div class="adv-flags" id="advFlags" hidden></div>
             </div>
             <div class="d-price-wrap"><div class="d-price-line"><span class="d-src" id="dSrc" hidden>통합</span><div class="d-price num" id="dPrice">—</div></div><div class="d-change num" id="dChange"></div>
               <div class="d-live" id="dLive"></div></div>
@@ -886,6 +1004,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=293"></script>
+<script type="module" src="/app.js?v=295"></script>
 </body>
 </html>

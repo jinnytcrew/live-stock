@@ -7615,18 +7615,43 @@ function parseSchedule(html) {
   }
   return items;
 }
-var ipo_default = async () => {
+var ipo_default = async (req2, context) => {
+  /* [v4.8] 실패 원인: http 고정 단일 주소. Cloudflare\ud658경\uc5d0\uc11c 38\ucee4\ubba4\ub2c8\ucf00\uc774\uc158 http \uc811\uc18d\uc774 \ub9c9\ud788\uba74
+     \uadf8\ub300\ub85c \uc608\uc2dc \uc77c\uc815\uc73c\ub85c \ub5a8\uc5b4\uc84c\ub2e4. https \uc6b0\uc120 + \ub2e4\uc911 \uc8fc\uc18c\ub85c \ubc14\uafb8\uace0,
+     \ud55c \ubc88\uc774\ub77c\ub3c4 \uc131\uacf5\ud558\uba74 KV\uc5d0 \ubcf4\uad00\ud574 \uc77c\uc2dc \uc7a5\uc560 \ub54c\ub3c4 \uc9c1\uc804 \uc2e4\uc81c \uc77c\uc815\uc744 \ubcf4\uc5ec \uc900\ub2e4. */
+  const KV = context && context.env && context.env.APP_KV;
   try {
-    const html = await fetchDecoded("http://www.38.co.kr/html/fund/?o=k");
-    let items = parseSchedule(html);
+    let html = "";
+    for (const u of [
+      "https://www.38.co.kr/html/fund/?o=k",
+      "https://www.38.co.kr/html/fund/index.htm?o=k",
+      "http://www.38.co.kr/html/fund/?o=k"
+    ]) {
+      try { html = await fetchDecoded(u); } catch { html = ""; }
+      if (html && html.length > 3000) break;
+    }
+    let items = parseSchedule(html || "");
     const today = /* @__PURE__ */ new Date();
     today.setHours(0, 0, 0, 0);
     items = items.filter((it) => {
       const [y, m, d] = it.subEnd.split("-").map(Number);
       return new Date(y, m - 1, d) >= new Date(today.getTime() - 3 * 864e5);
     }).sort((a, b) => a.subStart.localeCompare(b.subStart)).slice(0, 12);
-    return new Response(JSON.stringify({ ok: items.length > 0, items }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } });
+    if (items.length > 0) {
+      try { if (KV) await KV.put("ipo:last", JSON.stringify({ at: Date.now(), items })); } catch {}
+      return new Response(JSON.stringify({ ok: true, items }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } });
+    }
+    /* \uc218\uc9d1 \uc2e4\ud328 \u2014 \ub9c8\uc9c0\ub9c9 \uc131\uacf5\ubcf8(3\uc77c \uc774\ub0b4)\uc774 \uc788\uc73c\uba74 \uc608\uc2dc \ub300\uc2e0 \uadf8\uac78 \uc900\ub2e4 */
+    try { if (KV) { const c = await KV.get("ipo:last", "json");
+      if (c && c.items && c.items.length && Date.now() - (c.at || 0) < 3 * 864e5)
+        return new Response(JSON.stringify({ ok: true, stale: true, at: c.at || 0, items: c.items }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+    } } catch {}
+    return new Response(JSON.stringify({ ok: false, items: [] }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   } catch (e) {
+    try { if (KV) { const c = await KV.get("ipo:last", "json");
+      if (c && c.items && c.items.length && Date.now() - (c.at || 0) < 3 * 864e5)
+        return new Response(JSON.stringify({ ok: true, stale: true, at: c.at || 0, items: c.items }), { headers: { "content-type": "application/json" } });
+    } } catch {}
     return new Response(JSON.stringify({ ok: false, error: String(e), items: [] }), { headers: { "content-type": "application/json" } });
   }
 };
@@ -8309,6 +8334,10 @@ var market_default = async (req2) => {
         // [v2.2.1] P는 4인자 래퍼 — cur.history가 자동 전달됨(5인자 호출이 태그 폭주 원인이었음)
         (() => {
           if (krf && krf.night) return P("\uCF54\uC2A4\uD53C200 \uC57C\uAC04\uC120\uBB3C", "K200NF", krf.night, "\uC120\uBB3C");
+          /* [v4.8] \uc608\uc804 \uc8fc\uc11d\uc758 '\uc8fc\uac04 \uc885\uac00 \uc815\uc9c1 \ud45c\uae30'\uac00 \uad6c\ud604\ub41c \uc801\uc774 \uc5c6\uc5b4
+             \uc57c\uac04 \uc18c\uc2a4\uac00 \uc804\ubd80 \ub9c9\ud614 \ub54c \uce74\ub4dc\uac00 \ube48 \uaecd\ub370\uae30\ub85c \ub0a8\uc558\ub2e4.
+             \uc8fc\uac04 \uac12\uc73c\ub85c \ubc1c\ud589\ud558\uace0 dayBasis \ud45c\uc2dc\ub97c \ubd99\uc5ec \ud074\ub77c\uc774\uc5b8\ud2b8\uac00 '\uc8fc\uac04 \ub9c8\uac10 \uae30\uc900'\uc784\uc744 \uc54c\ub9b0\ub2e4. */
+          if (krf && krf.day) { const c = P("\uCF54\uC2A4\uD53C200 \uC57C\uAC04\uC120\uBB3C", "K200NF", krf.day, "\uC120\uBB3C"); if (c) c.dayBasis = 1; return c; }
           return null;
         })(),
         P("VIX \uBCC0\uB3D9\uC131", "VIX", vix, "\uC9C0\uD45C"),
@@ -9979,13 +10008,15 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.6.0",
-  releasedAt: "2026-08-04 20:10",
+  version: "4.9.0",
+  releasedAt: "2026-08-06 21:40",
   notes: [
-    "\uD130\uBBF8\uB110 \uC5C6\uC774 \uBC30\uD3EC \uAC00\uB2A5 \u2014 \uD30C\uC77C\uC744 \uB04C\uC5B4\uB2E4 \uB193\uB294 \uAC83\uB9CC\uC73C\uB85C \uC62C\uB9B4 \uC218 \uC788\uB294 \uBB36\uC74C\uC744 \uB9CC\uB4E4\uC5C8\uC2B5\uB2C8\uB2E4",
-    "Node \uC804\uC6A9 \uBAA8\uB4C8 \uC81C\uAC70 \u2014 \uC554\uD638\uD654\uC640 \uC555\uCD95 \uD574\uC81C\uB97C \uD45C\uC900 \uC6F9 \uAE30\uC220\uB85C \uBC14\uAFD4 \uC5B4\uB290 \uD658\uACBD\uC5D0\uC11C\uB098 \uB3D9\uC791\uD569\uB2C8\uB2E4",
-    "\uC5D1\uC140 \uD310\uB3C5\uAE30 \uAC1C\uC120 \u2014 \uC555\uCD95 \uD574\uC81C\uB97C \uBE0C\uB77C\uC6B0\uC800 \uD45C\uC900 \uBC29\uC2DD\uC73C\uB85C \uAD50\uCCB4\uD588\uC2B5\uB2C8\uB2E4",
-    "\uC804\uCCB4 \uCF54\uB4DC\uB97C \uD558\uB098\uB85C \uBB36\uC5B4 \uBC30\uD3EC \u2014 40\uC5EC \uAC1C \uD30C\uC77C\uC774 \uB2E8\uC77C \uD30C\uC77C\uB85C \uD569\uCCD0\uC838 \uC5C5\uB85C\uB4DC\uAC00 \uAC04\uB2E8\uD569\uB2C8\uB2E4"
+    "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
+    "\uc885\ubaa9 \ub85c\uace0 \uc5c6\uc74c 0\uac74 \ub2ec\uc131 \u2014 HS\ud6a8\uc131 \uacc4\uc5f4 \ub9e4\ud551\uc744 \ucd94\uac00\ud588\uc2b5\ub2c8\ub2e4",
+    "\uacf5\ubaa8\uc8fc \uc77c\uc815 \uc218\uc9d1 \ubcf5\uad6c \u2014 https \uc804\ud658\u00b7\ub2e4\uc911 \uc8fc\uc18c\u00b7\ub9c8\uc9c0\ub9c9 \uc131\uacf5\ubcf8 \ubcf4\uad00\uc73c\ub85c \uc608\uc2dc \uc77c\uc815 \ub300\uccb4\ub97c \uc5c6\uc574\uc2b5\ub2c8\ub2e4",
+    "\ucf54\uc2a4\ud53c200 \uc57c\uac04\uc120\ubb3c \uce74\ub4dc \uc815\uc0c1\ud654 \u2014 \uc57c\uac04 \uc2dc\uc138\uac00 \uc5c6\uc73c\uba74 \uc8fc\uac04 \ub9c8\uac10 \uae30\uc900\uc73c\ub85c \uc815\uc9c1\ud558\uac8c \ud45c\uc2dc\ud569\ub2c8\ub2e4",
+    "\ud1a0\uc2a4\ud2b8\uac00 \uc8fc\ubb38\ucc3d \uc704\ub85c \u2014 \uac70\ub798\uc720\ud615 \ucc3d\uc774 \uc5f4\ub824 \uc788\uc5b4\ub3c4 \uc54c\ub9bc\uc774 \uac00\ub824\uc9c0\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4",
+    "ETF\u00b7\uc885\ubaa9 \ub85c\uace0 \ud1b5\uc77c \u2014 \ubaa8\ub450 \ub465\uadfc \uc0ac\uac01\ud615\uc73c\ub85c \ubaa8\uc591\uc744 \ub9de\ucd94\uace0 \ud06c\uae30\ub97c \ud0a4\uc6cc \uae00\uc790\uac00 \uc798 \ubcf4\uc785\ub2c8\ub2e4"
   ]
 };
 
@@ -10083,6 +10114,112 @@ var ROUTES = {
   "themestocks": themestocks_default,
   "version": version_default
 };
+
+/* ══ [v4.8] KRX 시장경보 → NXT 일시제외 오버레이 ═══════════════════════════
+   [무엇이 문제였나]
+   NXT 취급 여부는 넥스트레이드 공식 명단(분기 정기변경)만 봤다. 그런데 규정상
+   ① 투자경고·투자위험 지정 ② KRX 거래정지 ③ 관리종목 지정 종목은
+   명단과 무관하게 '즉시' NXT 체결 대상에서 정지/제외된다(사유 해소 시 복귀).
+   삼현처럼 장중에 경고 지정된 종목이 앱에서는 계속 NXT 가능으로 보였다.
+   [해결] 네이버 금융의 시장경보·거래정지·관리종목 목록을 10분 캐시로 수집해
+   코드→사유 지도를 내려 준다. 클라이언트는 이 지도로 NXT 창구를 잠근다.
+   (주의 caution 은 NXT 제외 사유가 아니므로 참고용으로만 별도 반환) */
+async function krxalerts_default(req2, context) {
+  const KV = context && context.env && context.env.APP_KV;
+  const now = Date.now();
+  const force = /[?&]refresh=1/.test(req2.url || "");
+  try { if (KV && !force) { const c = await KV.get("krx:alerts", "json");
+    if (c && c.at && now - c.at < 10 * 60 * 1000)
+      return new Response(JSON.stringify({ ok: true, cached: true, ...c }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=120" } });
+  } } catch {}
+  init_euckr();
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+  const dec = (buf, ct) => { try { if (/utf-8/i.test(String(ct || ""))) { const t = new TextDecoder("utf-8").decode(buf); if ((t.match(/[가-힣]/g) || []).length > 3) return t; } } catch {} return decodeEucKr(buf); };
+  const pull = async (url) => { const c = new AbortController(); const t = setTimeout(() => c.abort(), 6000);
+    try { const r = await fetch(url, { headers: { "User-Agent": UA, "Referer": "https://finance.naver.com/", "Accept-Language": "ko" }, signal: c.signal });
+      if (!r.ok) return ""; return dec(await r.arrayBuffer(), r.headers.get("content-type"));
+    } catch { return ""; } finally { clearTimeout(t); } };
+  const codesOf = (html) => { const set2 = new Set(); const re = /code=(\d{6})/g; let m; while ((m = re.exec(html || ""))) set2.add(m[1]); return [...set2]; };
+  const many = async (base3, pages) => { const out = []; for (let i = 1; i <= pages; i++) { const h = await pull(base3 + (base3.includes("?") ? "&" : "?") + "page=" + i); if (!h) break; const cs = codesOf(h); out.push(h); if (cs.length < 5 && i > 1) break; } return out.join("\n"); };
+  const [wH, rH, hH, mH, cH] = await Promise.all([
+    many("https://finance.naver.com/sise/investment_alert.naver?type=warning", 2),
+    pull("https://finance.naver.com/sise/investment_alert.naver?type=risk"),
+    many("https://finance.naver.com/sise/trading_halt.naver", 2),
+    many("https://finance.naver.com/sise/management.naver", 3),
+    pull("https://finance.naver.com/sise/investment_alert.naver?type=caution")
+  ]);
+  const map = {};
+  for (const c of codesOf(mH)) map[c] = "mgmt";
+  for (const c of codesOf(wH)) map[c] = "warn";
+  for (const c of codesOf(rH)) map[c] = "risk";
+  for (const c of codesOf(hH)) map[c] = "halt";
+  const body = { at: now, n: Object.keys(map).length, map, caution: codesOf(cH) };
+  const gotAny = !!(wH || rH || hH || mH);
+  if (gotAny) {
+    try { if (KV) await KV.put("krx:alerts", JSON.stringify(body)); } catch {}
+    return new Response(JSON.stringify({ ok: true, ...body }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=120" } });
+  }
+  try { if (KV) { const c = await KV.get("krx:alerts", "json");
+    if (c) return new Response(JSON.stringify({ ok: true, stale: true, ...c }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  } } catch {}
+  return new Response(JSON.stringify({ ok: false, ...body }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+ROUTES["krxalerts"] = krxalerts_default;
+
+// [v4.9] 종목 심화 플래그 — 증거금률·페이지 표기 배지(지정예고·단기과열·정리매매 등)
+async function stockflags_default(req2, context) {
+  const KV = context && context.env && context.env.APP_KV;
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "").trim();
+  if (!/^\d{6}$/.test(code)) return new Response(JSON.stringify({ ok: false, err: "code" }), { headers: { "content-type": "application/json" } });
+  const kvKey = "sflag:" + code, now = Date.now();
+  try { if (KV) { const c = await KV.get(kvKey, "json");
+    if (c && c.at && now - c.at < 6 * 3600 * 1000)
+      return new Response(JSON.stringify({ ok: true, cached: true, ...c }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
+  } } catch {}
+  init_euckr();
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+  let margin = null; const badges = [];
+  /* 1차: 네이버 종목 페이지(EUC-KR) — 제목 옆 경보 아이콘 alt 와 증거금률 표기 */
+  try {
+    const c2 = new AbortController(); const t = setTimeout(() => c2.abort(), 6000);
+    const r = await fetch("https://finance.naver.com/item/main.naver?code=" + code,
+      { headers: { "User-Agent": UA, "Referer": "https://finance.naver.com/" }, signal: c2.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      const html = (() => { const buf = null; return null; })() || decodeEucKr(await r.arrayBuffer());
+      const mm = html.match(/\uC99D\uAC70\uAE08\uB960[\s\S]{0,200}?(\d{2,3})\s*%/);
+      if (mm) margin = +mm[1];
+      /* 배지는 종목명 블록 근처(wrap_company)만 본다 — 하단 도움말 범례의 전체 나열을 오탐하지 않기 위해 */
+      const wi = html.indexOf("wrap_company");
+      const slice = wi >= 0 ? html.slice(wi, wi + 6000) : "";
+      const re = /(?:alt="|>)(\uD22C\uC790\uACBD\uACE0\uC9C0\uC815\uC608\uACE0|\uD22C\uC790\uC704\uD5D8\uC608\uACE0|\uB2E8\uAE30\uACFC\uC5F4\uC9C0\uC815\uC608\uACE0|\uD22C\uC790\uC8FC\uC758\uD658\uAE30\uC885\uBAA9|\uBD88\uC131\uC2E4\uACF5\uC2DC\uBC95\uC778|\uC815\uB9AC\uB9E4\uB9E4|\uB2E8\uAE30\uACFC\uC5F4|\uD22C\uC790\uACBD\uACE0|\uD22C\uC790\uC704\uD5D8|\uD22C\uC790\uC8FC\uC758|\uAD00\uB9AC\uC885\uBAA9|\uAC70\uB798\uC815\uC9C0)(?:"|<)/g;
+      let m; const seen = new Set();
+      while ((m = re.exec(slice))) { if (!seen.has(m[1])) { seen.add(m[1]); badges.push(m[1]); } }
+    }
+  } catch {}
+  /* 2차(증거금 폴백): 다음 금융 JSON — 키 이름에 margin 이 들어간 수치 탐색 */
+  if (margin == null) {
+    try {
+      const c3 = new AbortController(); const t3 = setTimeout(() => c3.abort(), 5000);
+      const r3 = await fetch("https://finance.daum.net/api/quotes/A" + code,
+        { headers: { "User-Agent": UA, "Referer": "https://finance.daum.net/quotes/A" + code, "Accept": "application/json" }, signal: c3.signal });
+      clearTimeout(t3);
+      if (r3.ok) { const j3 = await r3.json();
+        for (const k of Object.keys(j3 || {})) if (/margin/i.test(k) && typeof j3[k] === "number" && j3[k] >= 20 && j3[k] <= 100) { margin = j3[k]; break; }
+      }
+    } catch {}
+  }
+  const body = { at: now, margin, badges };
+  const got = margin != null || badges.length > 0;
+  try { if (KV && got) await KV.put(kvKey, JSON.stringify(body), { expirationTtl: 86400 }); } catch {}
+  if (!got) { try { if (KV) { const c = await KV.get(kvKey, "json");
+    if (c) return new Response(JSON.stringify({ ok: true, stale: true, ...c }), { headers: { "content-type": "application/json" } });
+  } } catch {} }
+  return new Response(JSON.stringify({ ok: true, ...body }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
+}
+ROUTES["stockflags"] = stockflags_default;
+
 async function onRequest(ctx) {
   const { request, env, waitUntil } = ctx;
   setEnv(env);
