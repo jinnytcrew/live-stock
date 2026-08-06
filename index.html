@@ -14,7 +14,7 @@
 <meta name="format-detection" content="telephone=no">
 <title>LIVE증권 · 실시간 주식</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
-<link rel="stylesheet" href="/app.css?v=295">
+<link rel="stylesheet" href="/app.css?v=297">
 </head>
 <body>
 
@@ -80,28 +80,43 @@
   종목정보 변경 직후 접속하신 경우 신규 상장 종목 반영에 잠시 시간이 걸릴 수 있습니다 · <b id="bgVer"></b></div>
 </div>
 <script>
-/* [v4.9] 부팅 제어 — app.js 가 단계를 밀어 주고, 10초가 지나면 무조건 연다(안전장치) */
+/* [v4.10] 부팅 제어 — 실제 초기화는 1~2초에 끝나 절차가 스쳐 지나갔다.
+   단계가 눈에 읽히도록 시각 진행을 페이싱한다:
+   · 각 단계는 최소 1,050ms 머문 뒤 다음으로 넘어간다 (실제 완료는 target으로만 기록)
+   · 전체 화면은 최소 6.8초 유지 → 통상 6~8초 사이에 열린다
+   · 네트워크가 정말 느리면 12초 안전장치가 무조건 연다 */
 (function(){
   var g=document.getElementById('bootGate'),fill=document.getElementById('bgFill'),
-      steps=document.getElementById('bgSteps'),tip=document.getElementById('bgTip'),cur=0,doneFlag=false;
+      steps=document.getElementById('bgSteps'),tip=document.getElementById('bgTip');
+  var N=steps.children.length, t0=Date.now(), MIN_TOTAL=6800, STEP_MS=1050;
+  var cur=1, target=1, doneReq=false, closed=false, lastAdv=Date.now();
   var tips=['오늘도 좋은 연습 되세요 📈','⭐를 누르면 관심종목 폴더에 담을 수 있어요',
     '고급 서비스의 매집 포착기로 세력 흔적을 분석해 보세요','실제 장 시간 제한은 설정에서 끄고 켤 수 있어요',
     'NXT 프리마켓은 오전 8시에 열립니다','투자경고 지정 종목은 NXT 주문이 자동으로 잠겨요'];
   var ti=0,tt=setInterval(function(){ti=(ti+1)%tips.length;tip.style.opacity=0;
-    setTimeout(function(){tip.textContent=tips[ti];tip.style.opacity=.6;},280);},2400);
-  function paint(){var n=steps.children.length;
-    for(var k=0;k<n;k++){var el=steps.children[k],i=+el.dataset.i;
+    setTimeout(function(){tip.textContent=tips[ti];tip.style.opacity=.6;},280);},2300);
+  function paint(){
+    for(var k=0;k<N;k++){var el=steps.children[k],i=+el.dataset.i;
       el.className='bg-st'+(i<cur?' done':i===cur?' run':'');}
-    fill.style.width=Math.min(100,Math.round((cur-0.5)/n*100))+'%';}
+    fill.style.width=Math.min(100,Math.round((cur-0.5)/N*100))+'%';
+  }
+  function close(){
+    if(closed)return; closed=true; clearInterval(tt); clearInterval(tk);
+    cur=N+1; paint(); fill.style.width='100%';
+    setTimeout(function(){g.classList.add('out');setTimeout(function(){try{g.remove();}catch(e){}},520);},300);
+  }
+  var tk=setInterval(function(){
+    var goal=doneReq?N+1:target;
+    if(cur<goal&&Date.now()-lastAdv>=STEP_MS){cur++;lastAdv=Date.now();paint();}
+    if(doneReq&&cur>N&&Date.now()-t0>=MIN_TOTAL)close();
+  },120);
   window.__boot={
-    step:function(i){if(doneFlag)return;if(i>cur){cur=i;paint();}},
+    step:function(i){if(i>target)target=i;},
     ver:function(v){try{document.getElementById('bgVer').textContent='v'+v;}catch(e){}},
-    done:function(){if(doneFlag)return;doneFlag=true;clearInterval(tt);cur=steps.children.length+1;paint();
-      fill.style.width='100%';
-      setTimeout(function(){g.classList.add('out');setTimeout(function(){try{g.remove();}catch(e){}},520);},260);}
+    done:function(){doneReq=true;}
   };
-  cur=1;paint();
-  setTimeout(function(){ if(!doneFlag){ tip.textContent='네트워크가 느려요 — 나머지 데이터는 화면에서 이어서 불러옵니다'; window.__boot.done(); } },10000);
+  paint();
+  setTimeout(function(){ if(!closed){ tip.textContent='네트워크가 느려요 — 나머지 데이터는 화면에서 이어서 불러옵니다'; doneReq=true; setTimeout(close,600); } },12000);
 })();
 </script>
 
@@ -1004,6 +1019,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=295"></script>
+<script type="module" src="/app.js?v=297"></script>
 </body>
 </html>

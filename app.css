@@ -567,15 +567,27 @@
   .etf-chips button:hover{border-color:var(--sub-2);color:var(--text)}
   .etf-chips button.on{background:var(--brand);border-color:var(--brand);color:#fff}
   .etf-chips.sub button.on{background:var(--amber);border-color:var(--amber);color:#3a2500}
-  .etf-table-head{display:grid;grid-template-columns:1fr 110px 100px 90px 120px;gap:8px;padding:14px 6px 8px;margin-top:14px;border-bottom:1px solid var(--border);font-size:11.5px;font-weight:700;color:var(--sub-2)}
+  /* [v4.10] ETF 표 리뉴얼 — 7열 고정 그리드(순위·로고·이름·현재가·등락·3개월·순자산).
+     이름 칸이 남는 폭을 전부 차지해 긴 이름도 온전히, 행 높이는 항상 일정. */
+  #etfRows{display:block}
+  .etf-table-head{display:grid;grid-template-columns:30px 34px minmax(0,1fr) 104px 94px 84px 118px;gap:10px;
+    padding:14px 8px 8px;margin-top:14px;border-bottom:1.5px solid var(--border);
+    font-size:11.5px;font-weight:800;color:var(--sub-2)}
+  .etf-table-head .c1{grid-column:1/4}
   .etf-table-head span:not(.c1){text-align:right}
-  .etf-row{display:grid;grid-template-columns:1fr 110px 100px 90px 120px;gap:8px;align-items:center;padding:13px 6px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:.12s}
+  .etf-row{display:grid;grid-template-columns:30px 34px minmax(0,1fr) 104px 94px 84px 118px;gap:10px;
+    align-items:center;padding:9px 8px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:.12s}
   .etf-row:hover{background:var(--bg)}
-  .etf-row span:not(.c1){text-align:right;font-size:13.5px;font-weight:700}
-  .etf-row .c1{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
-  .etf-row .c1 b{font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .etf-row .c1 i{flex-basis:100%;font-style:normal;font-size:11px;color:var(--sub-2);font-weight:600}
-  .etf-row .rk{display:inline-block;min-width:22px;font-size:11.5px;color:var(--sub-2);font-weight:800}
+  .etf-row:active{background:var(--border-soft)}
+  .etf-row .rk{text-align:center;font-size:11.5px;color:var(--sub-2);font-weight:800}
+  .etf-row .lgo{justify-self:center}
+  .etf-row .c1{min-width:0;display:flex;flex-direction:column;gap:2px}
+  .etf-row .e2-nm{display:flex;align-items:center;gap:6px;min-width:0}
+  .etf-row .e2-nm b{font-size:13.8px;font-weight:800;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .etf-row .e2-nm .etf-brand,.etf-row .e2-nm .etf-lev{flex:0 0 auto}
+  .etf-row .e2-sub{font-size:11px;color:var(--sub-2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .etf-row .c2,.etf-row .c3,.etf-row .c4,.etf-row .c5{text-align:right;font-size:13.3px;font-weight:700;white-space:nowrap}
+  .etf-row .c5{font-weight:800}
   .etf-brand{font-size:10px;font-weight:800;color:var(--sub);background:var(--bg);border:1px solid var(--border-soft);padding:1px 6px;border-radius:5px}
   .etf-lev{font-size:10px;font-weight:800;padding:1px 6px;border-radius:5px}
   .etf-lev.up{color:#b8860b;background:#fdf3dc}
@@ -585,13 +597,13 @@
   .sec-note{font-size:12px;color:var(--sub-2);line-height:1.6;margin-top:8px}
   @media(max-width:1000px){
     .etf-hero{grid-template-columns:1fr 1fr}
-    .etf-table-head,.etf-row{grid-template-columns:1fr 90px 80px 74px}
-    .etf-table-head .c5,.etf-row .c5{display:none}
-  }
-  @media(max-width:640px){
-    .etf-hero{grid-template-columns:1fr}
-    .etf-table-head,.etf-row{grid-template-columns:1fr 84px 76px}
+    .etf-table-head,.etf-row{grid-template-columns:26px 34px minmax(0,1fr) 96px 86px 108px}
     .etf-table-head .c4,.etf-row .c4{display:none}
+  }
+  @media(max-width:680px){
+    .etf-hero{grid-template-columns:1fr}
+    .etf-table-head,.etf-row{grid-template-columns:26px 34px minmax(0,1fr) 92px 82px}
+    .etf-table-head .c4,.etf-row .c4,.etf-table-head .c5,.etf-row .c5{display:none}
   }
   /* ===== 설정 ===== */
   .iconbtn{width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--sub);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s}
@@ -2944,3 +2956,38 @@ html[data-theme="dark"] .ac-verdict.s0{background:rgba(239,68,68,.12);border-col
 html[data-theme="dark"] .ac-bdg{background:rgba(59,130,246,.13);border-color:rgba(59,130,246,.35);color:#93c5fd}
 html[data-theme="dark"] .ac-bdg.spring{background:rgba(18,183,106,.13);border-color:rgba(18,183,106,.4);color:#6ee7b7}
 @media (max-width:640px){.ac-comp{grid-template-columns:112px 1fr 40px}}
+
+
+/* ── [v4.10] NXT 일시중단 표시 ─────────────────────────────────────────── */
+.nxt-badge.sus{background:#fee2e2;color:#b42318;border:1px solid #fca5a5}
+html[data-theme="dark"] .nxt-badge.sus{background:rgba(239,68,68,.16);color:#fca5a5;border-color:rgba(239,68,68,.45)}
+.ex-box.sus{border-color:#ffc9c9;background:#fff6f6}
+.ex-box.sus .ex-ch b{color:#b42318;font-size:12.5px}
+.ex-box.sus .ex-px{font-size:22px}
+html[data-theme="dark"] .ex-box.sus{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.4)}
+html[data-theme="dark"] .ex-box.sus .ex-ch b{color:#fca5a5}
+.ex-sus{color:#b42318;font-weight:800;font-size:11px}
+html[data-theme="dark"] .ex-sus{color:#fca5a5}
+.ac-sug-note{padding:10px 14px;font-size:12px;color:var(--sub-2);font-weight:600}
+
+/* ── [v4.11] 추천주 티어표 ─────────────────────────────────────────────── */
+.pk-tiers{margin-top:16px;border-top:1px dashed var(--border);padding-top:12px}
+.pk-tiers-h{font-size:13.5px;font-weight:900;margin-bottom:8px}
+.pk-tiers-h span{font-size:11.5px;font-weight:600;color:var(--sub-2)}
+.pk-tier-grp{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px 12px;margin-bottom:8px}
+.pk-tr{display:grid;grid-template-columns:26px minmax(0,1fr) 96px 66px;gap:8px;align-items:center;
+  padding:7px 9px;border:1px solid var(--border-soft);border-radius:10px;cursor:pointer;transition:.12s;background:var(--panel)}
+.pk-tr:hover{border-color:var(--sub-2);background:var(--bg)}
+.pk-tier{display:grid;place-items:center;width:24px;height:24px;border-radius:8px;font-size:12.5px;font-weight:900;color:#fff}
+.pk-tier.s{background:linear-gradient(135deg,#f5b30f,#e9900a)}
+.pk-tier.a{background:#6366f1}.pk-tier.b{background:#0ea5e9}.pk-tier.c{background:#94a3b8}
+.pk-tr-nm{font-size:12.8px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pk-tr-nm i{font-style:normal;font-size:10.5px;color:var(--sub-2);font-weight:600;margin-left:5px}
+.pk-tr-sc{display:flex;align-items:center;gap:6px}
+.pk-tr-sc i{display:block;height:5px;border-radius:99px;background:linear-gradient(90deg,#f5b30f,#e9900a);min-width:3px;flex:0 1 auto}
+.pk-tr-sc{position:relative}
+.pk-tr-sc>i{width:100%;max-width:64px}
+.pk-tr-sc b{font-size:12px;font-weight:800}
+.pk-tr-rt{text-align:right;font-size:12.3px;font-weight:800}
+.pk-tiers-n{font-size:11.5px;color:var(--sub-2);font-weight:600;line-height:1.5;margin-top:4px}
+@media(max-width:640px){.pk-tier-grp{grid-template-columns:1fr}}

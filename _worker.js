@@ -3015,6 +3015,9 @@ async function compute(budgetMs) {
   const pool2 = gatePassed ? strong : scored;
   let sel = pool2.filter((x) => x.score >= minScore);
   if (sel.length < 3) sel = pool2.slice(0, 3);
+  /* [v4.11] 엄선 통과가 3종뿐이어도 화면이 허전하지 않게, 점수순 확장 풀을
+     티어표(S/A/B/C)용으로 함께 내려 준다 — 엄선 통과분과 중복 허용(클라가 제외). */
+  const tiers = pool2.slice(0, 60).map((s) => ({ code: s.code, name: s.name, price: s.price != null ? s.price : null, rate: +s.rate || 0, score: Math.round(+s.score || 0) })).filter((x) => x.code && x.name);
   const picks = sel.slice(0, 12).map((s) => ({
     code: s.code,
     name: s.name,
@@ -3144,7 +3147,7 @@ var init_picks = __esm({
             generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
             note: NOTE,
             quick: true,
-            picks: res.picks,
+            picks: res.picks, tiers,
             scanned: res.scanned,
             universe: res.universe,
             gate: res.gate || null
@@ -8127,6 +8130,8 @@ async function krFutures() {
     }
   }
   const dayClose = out.day && out.day.price ? out.day.price : 0;
+  /* [v4.10] 야간값 인메모리 캐시 — 한 번이라도 잡히면 15분간 원천 장애를 버틴다 */
+  globalThis.__nfMem = globalThis.__nfMem || { at: 0, q: null };
   const takeNight = (px, src) => {
     if (!(px > 0) || !plaus(px)) {
       out.diag.push("night/" + src + ":implausible " + px);
@@ -8138,6 +8143,7 @@ async function krFutures() {
     }
     const base3 = dayClose || px;
     out.night = { price: px, change: px - base3, rate: base3 ? (px - base3) / base3 * 100 : 0, basis: dayClose ? "dayClose" : "self" };
+    globalThis.__nfMem = { at: Date.now(), q: out.night };
     out.diag.push("night/" + src + ":ok " + px);
     return true;
   };
@@ -8149,6 +8155,36 @@ async function krFutures() {
       else out.diag.push("night/m.index/" + nc + ":nodata");
     } catch (e) {
       out.diag.push("night/m.index/" + nc + ":" + String(e).slice(0, 20));
+    }
+  }
+  /* ══ [v4.10] 한국경제 markets 야간(EUREX 연계) 프로버 ═══════════════════
+     [원인] 기존 야간 소스는 ① 존재하지 않는 네이버 지수코드 추측 7종 ② CME 시절
+     레이아웃을 가정한 네이버 페이지 라벨 검색뿐이라, 2026년 EUREX 연계 야간시장
+     값(예: 1,008.35 +2.77%)을 한 번도 못 잡고 주간 마감값이 야간 카드에 남았다.
+     [해결] 파생 시세에 '야간' 표기를 실제로 싣는 한경 markets 페이지를 훑되,
+     주간 종가 ±12% 이내의 값만 야간으로 인정해 무관한 숫자를 걸러낸다. */
+  if (!out.night) {
+    for (const hu of ["https://markets.hankyung.com/indices/kospi-future", "https://markets.hankyung.com/futures", "https://markets.hankyung.com/derivatives", "https://markets.hankyung.com/koreaindex"]) {
+      if (out.night) break;
+      try {
+        const ch = new AbortController(); const th = setTimeout(() => ch.abort(), 5500);
+        const r = await fetch(hu, { headers: { "User-Agent": UA20, Accept: "text/html,*/*", "Accept-Language": "ko", Referer: "https://markets.hankyung.com/" }, signal: ch.signal });
+        clearTimeout(th);
+        if (!r.ok) { out.diag.push("night/hk:" + r.status); continue; }
+        const txt = await r.text();
+        let pos = 0, found = null;
+        for (let guard = 0; guard < 12 && !found; guard++) {
+          const rel = txt.slice(pos).search(/\uC57C\uAC04|EUREX|\uC720\uB809\uC2A4/);
+          if (rel < 0) break;
+          const at = pos + rel; pos = at + 2;
+          const win = txt.slice(at, at + 900);
+          const cand = [...win.matchAll(/([0-9]{1,4}(?:,[0-9]{3})*\.[0-9]{2})/g)].map((m) => Number(m[1].replace(/,/g, "")));
+          const px = cand.find((v) => v > 100 && v < 5e3 && (!dayClose || (Math.abs(v - dayClose) / dayClose <= 0.12 && Math.abs(v - dayClose) >= 5e-3)));
+          if (px != null) found = px;
+        }
+        if (found != null) takeNight(found, "hankyung");
+        else out.diag.push("night/hk:" + hu.split("/").pop() + ":no-label-price");
+      } catch (e) { out.diag.push("night/hk:" + String(e).slice(0, 18)); }
     }
   }
   if (!out.night) {
@@ -8169,20 +8205,23 @@ async function krFutures() {
           continue;
         }
         const html = decodeSmart9(await r.arrayBuffer(), r.headers.get("content-type"));
-        const i2 = html.search(/야간|야간선물|CME/);
+        const i2 = html.search(/야간|야간선물|CME|EUREX|유렉스/);
         if (i2 < 0) {
           out.diag.push("night/page:no-label");
           continue;
         }
-        const win2 = html.slice(i2, i2 + 1200);
+        const win2 = html.slice(i2, i2 + 2600);
         const cand = [...win2.matchAll(/([0-9]{2,4}(?:,[0-9]{3})*\.[0-9]{2})/g)].map((m) => Number(m[1].replace(/,/g, "")));
-        const px = cand.find((v) => plaus(v) && (!dayClose || Math.abs(v - dayClose) >= 5e-3));
+        const px = cand.find((v) => plaus(v) && (!dayClose || (Math.abs(v - dayClose) / dayClose <= 0.12 && Math.abs(v - dayClose) >= 5e-3)));
         if (px) takeNight(px, "page");
         else out.diag.push("night/page:no-usable-number");
       } catch (e) {
         out.diag.push("night/page:" + String(e).slice(0, 20));
       }
     }
+  }
+  if (!out.night && globalThis.__nfMem && globalThis.__nfMem.q && Date.now() - globalThis.__nfMem.at < 15 * 60 * 1000) {
+    out.night = globalThis.__nfMem.q; out.diag.push("night:mem-cache " + out.night.price);
   }
   if (!out.night) out.diag.push("night:unavailable");
   if (out.day) return out;
@@ -8337,7 +8376,7 @@ var market_default = async (req2) => {
           /* [v4.8] \uc608\uc804 \uc8fc\uc11d\uc758 '\uc8fc\uac04 \uc885\uac00 \uc815\uc9c1 \ud45c\uae30'\uac00 \uad6c\ud604\ub41c \uc801\uc774 \uc5c6\uc5b4
              \uc57c\uac04 \uc18c\uc2a4\uac00 \uc804\ubd80 \ub9c9\ud614 \ub54c \uce74\ub4dc\uac00 \ube48 \uaecd\ub370\uae30\ub85c \ub0a8\uc558\ub2e4.
              \uc8fc\uac04 \uac12\uc73c\ub85c \ubc1c\ud589\ud558\uace0 dayBasis \ud45c\uc2dc\ub97c \ubd99\uc5ec \ud074\ub77c\uc774\uc5b8\ud2b8\uac00 '\uc8fc\uac04 \ub9c8\uac10 \uae30\uc900'\uc784\uc744 \uc54c\ub9b0\ub2e4. */
-          if (krf && krf.day) { const c = P("\uCF54\uC2A4\uD53C200 \uC57C\uAC04\uC120\uBB3C", "K200NF", krf.day, "\uC120\uBB3C"); if (c) c.dayBasis = 1; return c; }
+          if (krf && krf.day) { const c = P("\uCF54\uC2A4\uD53C200 \uC57C\uAC04\uC120\uBB3C", "K200NF", krf.day, "\uC120\uBB3C"); if (c) { c.dayBasis = 1; c.change = 0; c.rate = 0; } return c; }
           return null;
         })(),
         P("VIX \uBCC0\uB3D9\uC131", "VIX", vix, "\uC9C0\uD45C"),
@@ -9210,6 +9249,22 @@ var popular_default = async (req2) => {
         items.push(it);
       }
     }
+    /* [v4.11] 네이버 조회상위 페이지는 30개가 상한 — 100위까지는
+       거래대금 상위(sise_quant)로 이어 붙이고 fill 표시를 남긴다. */
+    if (type === "search" && items.length >= 5 && items.length < 100) {
+      for (const qu of ["https://finance.naver.com/sise/sise_quant.naver?sosok=0", "https://finance.naver.com/sise/sise_quant.naver?sosok=1"]) {
+        if (items.length >= 100) break;
+        try {
+          const html2 = await fetchDecoded2(qu);
+          for (const it of parseRank(html2)) {
+            if (items.length >= 100) break;
+            if (seen.has(it.code)) continue;
+            seen.add(it.code); it.fill = "quant"; items.push(it);
+          }
+          diag.push(qu.split("sosok=")[1] === "0" ? "fill-kp:" + items.length : "fill-kd:" + items.length);
+        } catch (e) { diag.push("fill:err"); }
+      }
+    }
     if (items.length < 5) {
       try {
         const j = await rankFromJson(type);
@@ -9886,7 +9941,7 @@ var themes_default = async (req2) => {
     if (type === "theme") {
       const pages = [1, 2, 3, 4, 5, 6, 7, 8];
       const htmls = await Promise.all(pages.map((p) => getHtml(`https://finance.naver.com/sise/theme.naver?page=${p}`).catch((e) => {
-        diag.push("p" + p + ":" + String(e).slice(0, 30));
+        diag.push("p" + p + ":" + String(e).slice(0, 100));
         return "";
       })));
       const seen = /* @__PURE__ */ new Set();
@@ -10008,7 +10063,7 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.9.0",
+  version: "4.11.0",
   releasedAt: "2026-08-06 21:40",
   notes: [
     "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
@@ -10142,11 +10197,11 @@ async function krxalerts_default(req2, context) {
   const codesOf = (html) => { const set2 = new Set(); const re = /code=(\d{6})/g; let m; while ((m = re.exec(html || ""))) set2.add(m[1]); return [...set2]; };
   const many = async (base3, pages) => { const out = []; for (let i = 1; i <= pages; i++) { const h = await pull(base3 + (base3.includes("?") ? "&" : "?") + "page=" + i); if (!h) break; const cs = codesOf(h); out.push(h); if (cs.length < 5 && i > 1) break; } return out.join("\n"); };
   const [wH, rH, hH, mH, cH] = await Promise.all([
-    many("https://finance.naver.com/sise/investment_alert.naver?type=warning", 2),
-    pull("https://finance.naver.com/sise/investment_alert.naver?type=risk"),
+    many("https://finance.naver.com/sise/investment_alert.naver?type=warning", 3),
+    many("https://finance.naver.com/sise/investment_alert.naver?type=risk", 2),
     many("https://finance.naver.com/sise/trading_halt.naver", 2),
-    many("https://finance.naver.com/sise/management.naver", 3),
-    pull("https://finance.naver.com/sise/investment_alert.naver?type=caution")
+    many("https://finance.naver.com/sise/management.naver", 4),
+    many("https://finance.naver.com/sise/investment_alert.naver?type=caution", 5)
   ]);
   const map = {};
   for (const c of codesOf(mH)) map[c] = "mgmt";
@@ -10174,7 +10229,10 @@ async function stockflags_default(req2, context) {
   if (!/^\d{6}$/.test(code)) return new Response(JSON.stringify({ ok: false, err: "code" }), { headers: { "content-type": "application/json" } });
   const kvKey = "sflag:" + code, now = Date.now();
   try { if (KV) { const c = await KV.get(kvKey, "json");
-    if (c && c.at && now - c.at < 6 * 3600 * 1000)
+    /* [v4.11] 배지·증거금을 하나도 못 얻은 '약한 결과'는 30분만 캐시 —
+       예전엔 파싱 실패가 6시간 굳어 경고예고 종목이 계속 빈 칩으로 남았다. */
+    const _ttl = (c && (c.margin != null || (c.badges && c.badges.length))) ? 6 * 3600 * 1000 : 30 * 60 * 1000;
+    if (c && c.at && now - c.at < _ttl)
       return new Response(JSON.stringify({ ok: true, cached: true, ...c }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
   } } catch {}
   init_euckr();
@@ -10191,11 +10249,17 @@ async function stockflags_default(req2, context) {
       const mm = html.match(/\uC99D\uAC70\uAE08\uB960[\s\S]{0,200}?(\d{2,3})\s*%/);
       if (mm) margin = +mm[1];
       /* 배지는 종목명 블록 근처(wrap_company)만 본다 — 하단 도움말 범례의 전체 나열을 오탐하지 않기 위해 */
+      /* ══ [v4.11] 배지 파서 교체 ═══════════════════════════════════════════
+         [원인] 예전 정규식은 alt="투자경고지정예고" 처럼 공백 없는 정확 일치만
+         잡았는데, 네이버는 "투자경고 지정예고"처럼 띄어쓰기·태그 분절로 렌더링해
+         경고예고·단기과열 배지가 한 건도 안 잡혔다(첨부: 로보티즈·티엑스알 누락).
+         [해결] 종목명 블록 주변을 통째로 공백 제거한 평문으로 만들고,
+         긴 용어부터 검사한 뒤 지워 나간다 — 마크업이 어떻게 바뀌어도 견딘다. */
       const wi = html.indexOf("wrap_company");
-      const slice = wi >= 0 ? html.slice(wi, wi + 6000) : "";
-      const re = /(?:alt="|>)(\uD22C\uC790\uACBD\uACE0\uC9C0\uC815\uC608\uACE0|\uD22C\uC790\uC704\uD5D8\uC608\uACE0|\uB2E8\uAE30\uACFC\uC5F4\uC9C0\uC815\uC608\uACE0|\uD22C\uC790\uC8FC\uC758\uD658\uAE30\uC885\uBAA9|\uBD88\uC131\uC2E4\uACF5\uC2DC\uBC95\uC778|\uC815\uB9AC\uB9E4\uB9E4|\uB2E8\uAE30\uACFC\uC5F4|\uD22C\uC790\uACBD\uACE0|\uD22C\uC790\uC704\uD5D8|\uD22C\uC790\uC8FC\uC758|\uAD00\uB9AC\uC885\uBAA9|\uAC70\uB798\uC815\uC9C0)(?:"|<)/g;
-      let m; const seen = new Set();
-      while ((m = re.exec(slice))) { if (!seen.has(m[1])) { seen.add(m[1]); badges.push(m[1]); } }
+      const flat = (wi >= 0 ? html.slice(wi, wi + 9000) : html.slice(0, 9000)).replace(/\s+/g, "");
+      const TERMS = ["\uD22C\uC790\uACBD\uACE0\uC9C0\uC815\uC608\uACE0","\uD22C\uC790\uC704\uD5D8\uC608\uACE0","\uB2E8\uAE30\uACFC\uC5F4\uC9C0\uC815\uC608\uACE0","\uD22C\uC790\uC8FC\uC758\uD658\uAE30\uC885\uBAA9","\uBD88\uC131\uC2E4\uACF5\uC2DC\uBC95\uC778","\uC815\uB9AC\uB9E4\uB9E4","\uB2E8\uAE30\uACFC\uC5F4","\uD22C\uC790\uACBD\uACE0","\uD22C\uC790\uC704\uD5D8","\uD22C\uC790\uC8FC\uC758","\uAD00\uB9AC\uC885\uBAA9","\uAC70\uB798\uC815\uC9C0"];
+      let rest = flat;
+      for (const t of TERMS) { if (rest.includes(t)) { badges.push(t); rest = rest.split(t).join("\u00A7"); } }
     }
   } catch {}
   /* 2차(증거금 폴백): 다음 금융 JSON — 키 이름에 margin 이 들어간 수치 탐색 */

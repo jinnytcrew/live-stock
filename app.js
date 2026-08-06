@@ -1170,7 +1170,27 @@ function paintPicks(j){
       <div class="pk-px"><b class="num">${KRW(p.price)}</b><i class="num ${dir}">${pctS(p.rate)}</i></div>
       <div class="pk-score" title="종합 점수(0~100)"><div class="pk-sc-bar"><i style="width:${p.score}%"></i></div><b>${p.score}</b></div>
     </div>`;
-  }).join('')+'</div>';
+  }).join('')+'</div>'
+  /* ══ [v4.11] 티어표 — 엄선 통과분(위 카드) 뒤에 확장 풀을 S/A/B/C로 배치 ══
+     엄선 게이트가 3종만 통과시키는 날에도 후보군 전체를 등급으로 볼 수 있다. */
+  +(()=>{
+    const picked=new Set((j.picks||[]).map(p=>p.code));
+    const pool=(j.tiers||[]).filter(x=>x&&x.code&&!picked.has(x.code));
+    if(!pool.length)return '';
+    const T=[['S',85,'s'],['A',72,'a'],['B',60,'b'],['C',48,'c']], CAP={S:8,A:12,B:14,C:14};
+    const buckets={S:[],A:[],B:[],C:[]};
+    pool.forEach(x=>{for(const[t,min] of T){if(x.score>=min){if(buckets[t].length<CAP[t])buckets[t].push(x);return;}}});
+    const total=buckets.S.length+buckets.A.length+buckets.B.length+buckets.C.length;
+    if(!total)return '';
+    const row=(t,cls,x)=>`<div class="pk-tr" data-code="${x.code}">
+      <span class="pk-tier ${cls}">${t}</span>
+      <span class="pk-tr-nm">${x.name}<i class="num">${x.code}</i></span>
+      <span class="pk-tr-sc"><i style="width:${Math.min(100,x.score)}%"></i><b class="num">${x.score}</b></span>
+      <span class="pk-tr-rt num ${dirOf(x.rate)}">${pctS(x.rate)}</span></div>`;
+    return `<div class="pk-tiers"><div class="pk-tiers-h">후보군 티어표 <span>· 점수순 상위 ${total}종 (S≥85 · A≥72 · B≥60 · C≥48)</span></div>
+      ${T.map(([t,_,cls])=>buckets[t].length?`<div class="pk-tier-grp">${buckets[t].map(x=>row(t,cls,x)).join('')}</div>`:'').join('')}
+      <div class="pk-tiers-n">티어표는 엄선 게이트를 거치지 않은 점수순 후보군입니다 — 위 TOP 추천과 달리 과열·수급 배제 검증 전 단계예요.</div></div>`;
+  })();
   bindStockClicks(body);
 }
 
@@ -1644,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=295';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=295';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=297';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=297';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3319,11 +3339,22 @@ function etfFiltered(){
     if(av==null&&bv==null)return 0; if(av==null)return 1; if(bv==null)return -1; return bv-av;});
   return l;
 }
+/* ══ [v4.10] ETF 목록 전면 리뉴얼 ═════════════════════════════════════════
+   [무엇이 잘못됐나] 이름 셀이 flex-wrap 이라 로고 확대(v4.8) 이후 배지·코드가
+   제멋대로 줄바꿈되며 행 높이가 폭주했고, 이름은 "TIGER 미국…"으로 잘리고
+   분류는 "국내 시 장지수"처럼 단어 중간에서 꺾였다(첨부 사진).
+   [새 설계] 고정 7열 그리드 한 행 = 딱 두 줄:
+     [순위][로고][ 이름줄(전체·말줄임) + 코드·분류 보조줄 ][현재가][등락][3개월][순자산]
+   이름 칸이 남는 폭을 전부 가져가 긴 ETF명도 온전히 보이고, 행 높이가 일정해
+   화면당 표시 밀도가 3배 이상 올라간다. */
 function etfRowHtml(x,rank){
   const dir=dirOf(x.changeRate),d3=dirOf(x.m3);
   const lev=x.lev!==1?`<span class="etf-lev ${x.lev<0?'inv':'up'}">${x.lev>0?'+':''}${x.lev}배</span>`:'';
   return `<div class="etf-row" data-code="${x.code}">
-    <span class="c1"><span class="rk">${rank}</span>${stockLogo(x.code,x.name,'sm')}<b>${x.name}</b>${lev}<span class="etf-brand">${x.brand}</span><i>${x.code} · ${x.tab}</i></span>
+    <span class="rk num">${rank}</span>
+    ${stockLogo(x.code,x.name,'sm')}
+    <span class="c1"><span class="e2-nm"><b>${x.name}</b>${lev}<span class="etf-brand">${x.brand}</span></span>
+      <span class="e2-sub num">${x.code} · ${x.tab}</span></span>
     <span class="c2 num">${x.price!=null?KRW(x.price):'—'}</span>
     <span class="c3 num ${dir}">${x.changeRate!=null?arrow(dir)+' '+pctS(x.changeRate):'—'}</span>
     <span class="c4 num ${d3}">${x.m3!=null?pctS(x.m3):'—'}</span>
@@ -3373,7 +3404,7 @@ function renderEtfLounge(){
   // [수정] 특정 종목 한 건이 예외를 내면 목록 전체가 비던 문제 → 행 단위로 격리
   rows.innerHTML=l.slice(0,etfLimit).map((x,i)=>{
     try{return etfRowHtml(x,i+1);}catch(e){console.error('[etfRow]',x&&x.code,e);
-      return `<div class="etf-row" data-code="${(x&&x.code)||''}"><span class="c1"><b>${(x&&x.name)||'표시 오류'}</b></span><span class="c2 num">—</span><span class="c3 num">—</span><span class="c4 num">—</span><span class="c5 num">—</span></div>`;}
+      return `<div class="etf-row" data-code="${(x&&x.code)||''}"><span class="rk num">·</span><span class="lgo sm"></span><span class="c1"><span class="e2-nm"><b>${(x&&x.name)||'표시 오류'}</b></span><span class="e2-sub num">${(x&&x.code)||''}</span></span><span class="c2 num">—</span><span class="c3 num">—</span><span class="c4 num">—</span><span class="c5 num">—</span></div>`;}
   }).join('');
   const more=$('etfMoreRows');
   if(more){more.hidden=l.length<=etfLimit;more.textContent=`더보기 (${Math.min(etfLimit,l.length).toLocaleString()} / ${l.length.toLocaleString()})`;}
@@ -3581,18 +3612,18 @@ const IDX_TAGS=['전체','국내','해외','선물','가상자산','지표','원
 let idxFilter='전체';   // 계정별 값은 reloadPerUser()에서 로드
 const _prevMkt={};
 function mktFlash(key,price){const pv=_prevMkt[key];_prevMkt[key]=price;return (pv!=null&&price!=null&&price!==pv)?(price>pv?'flash-up':'flash-dn'):'';}
-function mktBadge(key){
+function mktBadge(key,dayBasis){
   const kh=new Date(Date.now()+9*3600e3).getUTCHours();
   /* [v3.2] 야간 판정을 야간선물 카드에도 적용한다 — 예전엔 K200F 에만 걸려 있어
      야간선물 카드가 항상 '닫힘'으로 표시됐다. */
   const k200Night=(key==='K200F'||key==='K200NF')&&(kh>=18||kh<6);
   /* [v3.7] 야간 시간에 '주간 선물' 카드가 장중으로 표시되던 문제 — 주간물은 주간 장만 본다 */
-  const open=(key==='K200NF')?k200Night:(key==='K200F'?marketOpen('KOSPI'):marketOpen(key));
+  const open=(key==='K200NF')?(k200Night&&!dayBasis):(key==='K200F'?marketOpen('KOSPI'):marketOpen(key));
   const lab=(key==='BTC'||key==='ETH')?'24시간'
     /* [v3.2] 배지가 뒤바뀌어 있었다. 야간 시간대엔 '주간 선물'이 닫히고 '야간 선물'이 도는데,
        주간 카드에 '야간 거래'가 붙고 야간 카드엔 '장마감'이 붙었다(첨부 사진). 상품별로 나눈다. */
     :(key==='K200F')?(open?'장중':(k200Night?'주간 마감 · 야간 거래 중':'주간 마감'))
-    :(key==='K200NF')?(k200Night?'야간 거래 중':'야간 마감 · 최종가')
+    :(key==='K200NF')?(dayBasis?'야간 시세 대기':(k200Night?'야간 거래 중':'야간 마감 · 최종가'))
     :(key==='NQF'||key==='ESF'||key==='YMF')?(open?'거래중':'정산 휴식')
     :(key==='KOSPI'||key==='KOSDAQ')?(()=>{const k=krSession();
         /* [v3.9] 아침 프리마켓(08:00~08:30)에 '정규장 마감'이 뜨던 문제 — 개장 전후를 구분한다 */
@@ -3614,8 +3645,10 @@ function mktBadge(key){
 function nightFutFromDay(list){
   const k=(list||[]).find(x=>x&&x.key==='K200F');
   if(k&&k.price!=null){
+    /* [v4.10] 주간 등락률을 그대로 실으면 "야간에 -5.84%"로 읽힌다(첨부 사진).
+       기준가만 보여 주고 등락은 0으로 — 실제 야간 시세가 잡히면 서버가 진짜 등락으로 교체한다. */
     return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',
-      price:k.price,change:k.change,rate:k.rate,history:k.history,dayBasis:true};
+      price:k.price,change:0,rate:0,history:k.history,dayBasis:true};
   }
   return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true};
 }
@@ -3640,7 +3673,7 @@ function idxCardHtml(x){
   //        태그는 윗줄로 분리하고 이름은 폭을 온전히 쓰게 한다.
   return `<div class="idx-card"><div class="idx-tagline">${tag}<span class="idx-ch num ${dir}">${arrow(dir)} ${pctS(x.rate)}</span></div>
     <div class="idx-top"><span class="idx-nm"><span class="idx-nm-t">${x.name}</span></span></div>
-    <div class="idx-lv num ${dir} ${fl}">${DEC(x.price)}</div><div class="idx-df num ${dir}">${signedDec(x.change)}${mktBadge(x.key)}</div>
+    <div class="idx-lv num ${dir} ${fl}">${DEC(x.price)}</div><div class="idx-df num ${dir}">${signedDec(x.change)}${mktBadge(x.key,x.dayBasis)}</div>
     ${x.dayBasis?'<div class="icw-sub">주간 마감 기준 · 야간 실시간 시세 수신 시 자동 교체</div>':''}
     <canvas class="spark" id="spark-idx-${x.key}"></canvas></div>`;}
 // [개편] 주요 지수와 가상자산을 한 코너로 합치고, 분류 칩으로 걸러 볼 수 있게 한다.
@@ -6159,7 +6192,9 @@ function stockRow(code,name,market,tag,rank){
   // NXT 가능 종목에만 배지를 붙인다. 그 외(KRX 전용·확인 중)는 배지 없음.
   const badge=cap===true?(NXTLIST.halted.has(code)
       ?'<span class="nxt-badge sm halt" title="NXT 매매체결대상이지만 현재 매매거래정지 상태">NXT 정지</span>'
-      :'<span class="nxt-badge sm" title="넥스트레이드 매매체결대상종목 · 08:00~20:00 거래">NXT</span>')
+      :(nxtSuspendInfo(selected)
+        ?'<span class="nxt-badge sm sus" title="시장경보·거래정지 지정으로 NXT 매매가 일시 중단된 종목 · 해제 시 자동 복귀">NXT 일시제외</span>'
+        :'<span class="nxt-badge sm" title="넥스트레이드 매매체결대상종목 · 08:00~20:00 거래">NXT</span>'))
     :'';
   const srcTag=mktBadgeHtml(code);   // [v2.0] 세션 배지 — 시계+명단 기반, 시세 수신과 무관
   const rk=rank?`<span class="rk${rank<=3?' top':''}">${rank}</span>`:'';
@@ -6379,7 +6414,12 @@ function rankSection(){
     ?`<div class="rank-note nxt">지금은 <b>NXT ${nowTz('Asia/Seoul').hm<540?'프리마켓':'애프터마켓'}</b>입니다.
        <b class="nxt-in">NXT</b> 표시가 붙은 가격은 <b>NXT 실시간 체결가</b>이고,
        <b class="krx-in">KRX</b> 표시는 NXT에서 거래되지 않는 <b>KRX 전용 종목</b>이라 전일 종가(0.00%)로 남습니다.</div>`:'';
-  return nxtNote+`<div class="rank-note">${tab} 상위 <b>${items.length}</b>종목 · 네이버 금융 기준</div>`
+  /* [v4.11] 조회수 순위 100개 확장 — 네이버 조회상위는 30개가 상한이라
+     31위부터는 거래대금 상위로 이어 붙인다. 그 사실을 목록에 정직하게 밝힌다. */
+  const fillN=items.filter(x=>x&&x.fill).length;
+  const fillNote=(tab==='조회수'&&fillN)
+    ?` · 31위~는 <b>거래대금 상위</b>로 채움(네이버 조회 순위 제공 한도 30)`:``;
+  return nxtNote+`<div class="rank-note">${tab} 상위 <b>${items.length}</b>종목 · 네이버 금융 기준${fillNote}</div>`
     +items.map((x,i)=>stockRow(x.code,x.name,(byCode[x.code]&&byCode[x.code].market)||'','',i+1)).join('');
 }
 function renderSearch(){
@@ -6976,6 +7016,12 @@ try{window.__EXSET=(c,v)=>{exCache[c]=v;selected=c;};window.__NXTCACHE=(c,v)=>{N
 const EX_DEFS=[['unified','통합','u'],['krx','KRX','k'],['nxt','NXT','n']];
 
 function exBoxHtml(kind,label,cls,q,prevClose,state){
+  /* [v4.10] 시장경보 일시중단 종목의 NXT 칸 — 상태를 이유와 함께 못 박는다 */
+  if(kind==='nxt'&&state&&state.sus)
+    return `<div class="ex-box ${cls} na sus"><span class="ex-b">${label}</span>
+      <div class="ex-px na">⛔</div>
+      <div class="ex-ch na"><b>NXT 매매 일시 중단</b></div>
+      <div class="ex-v">${state.sus.label} · 해제 시 자동 복귀</div></div>`;
   if(!q||!q.price){
     // NXT 미취급 종목은 '조회 중'이 아니라 이유를 분명히 알려 준다
     if(kind==='nxt'&&state&&state.nxtSupported===false)
@@ -7002,6 +7048,7 @@ function exBoxHtml(kind,label,cls,q,prevClose,state){
   const noTrade=(q.rate===0&&base&&q.price===base);
   // 장전 동시호가에는 KRX 칸에 '예상체결가'를 함께 보여 준다(NXT와 혼동 금지)
   let sub=noTrade?'체결 없음':(q.volume!=null?KRW(q.volume)+'주':'—');
+  if(kind==='unified'&&state&&state.uniFromKrx)sub='<span class="ex-sus">KRX 시세 기준 · NXT 일시중단</span>';
   if(kind==='krx'&&noTrade&&state&&state.expected&&state.expected.price){
     const e=state.expected, ed=dirOf(e.rate||0);
     sub=`<span class="ex-exp ${ed}">예상 ${KRW(e.price)} (${pctS(e.rate||0)})</span>`;
@@ -7097,9 +7144,17 @@ function renderExchangeRow(){
   if(cap===null)safeRun('capFetch',()=>ensureNxt(selected));   // 아직 모르면 확인 요청
   const boxes=Object.assign({},d||{});
   if(noNxt&&boxes.krx){boxes.unified={...boxes.krx};boxes.nxt=null;}   // KRX 전용일 때만 통합=KRX
-  el.innerHTML=EX_DEFS.map(([k,label,cls])=>exBoxHtml(k,label,cls,boxes[k]||null,prev,state)).join('')
+  /* [v4.10] 시장경보로 NXT가 일시 중단된 종목:
+     · NXT 칸 → "매매 일시 중단 + 사유" (예전엔 '체결 없음'으로만 떠서 오류처럼 보였다)
+     · 통합 칸 → 해제 전까지 KRX 시세를 그대로 반영 (중단 중 통합가는 KRX가 곧 정답) */
+  const _sus=nxtSuspendInfo(selected);
+  el.innerHTML=EX_DEFS.map(([k,label,cls])=>{
+    const q=(k==='unified'&&_sus&&boxes.krx&&boxes.krx.price)?boxes.krx:(boxes[k]||null);
+    return exBoxHtml(k,label,cls,q,prev,Object.assign({},state,{sus:_sus,uniFromKrx:(k==='unified'&&!!_sus)}));
+  }).join('')
     +`<div class="ex-note">${
-      cap===null?(nxtPending(selected)
+      _sus?('⛔ <b>'+_sus.label+'</b> — 넥스트레이드 규정상 NXT 매매가 일시 중단되어, 해제 전까지 <b>통합 시세는 KRX만</b> 반영합니다. 사유 해소 시 자동 복귀합니다.')
+      :cap===null?(nxtPending(selected)
         ?'거래소 소속을 확인하는 중입니다…'
         :'<b>거래소 소속 신호를 얻지 못했습니다.</b> 추측 대신 표시를 보류합니다. <code>/api/nxtrefresh?run=1</code> 로 갱신하거나, <code>/api/nxtadmin</code> 에 명단을 등록하세요.')
       :noNxt?('이 종목은 <b>NXT 미취급(KRX 전용)</b>입니다. '+(nxtRemovedNote(selected)||'넥스트레이드 매매체결대상종목이 아니라')+' 통합 시세에 KRX만 반영됩니다.'+(NXTLIST.asOf?' <span class="ex-asof">명단 기준일 '+NXTLIST.asOf+'</span>':''))
@@ -9116,6 +9171,10 @@ async function loadStockFlags(code){
 function marketEventChips(){
   const out=[];
   try{
+    /* [v4.11 · 버그] 장전·장후에도 어제 등락률로 "매도 사이드카 조건 감지"가
+       떴다(첨부: 00:09 장전 화면). 사이드카·CB는 KRX 정규장 중의 실시간
+       변동에만 의미가 있으므로 정규장 밖에서는 평가 자체를 하지 않는다. */
+    if(!krxRegularOpen())return out;
     const by={}; (market.indices||[]).forEach(x=>{if(x&&x.key)by[x.key]=x;});
     const f=by.K200F, kp=by.KOSPI, kd=by.KOSDAQ;
     if(f&&f.rate!=null&&Math.abs(f.rate)>=5)
@@ -9152,19 +9211,27 @@ function renderAdvFlags(){
       i:b.includes('예고')?'🔔':'🚨',tip:'네이버 금융 종목 페이지 표기 기준'});});
   const sus=nxtSuspendInfo(code);
   if(sus&&st.nxt)chips.push({cls:'sus',t:'NXT 매매 일시 제외',i:'⛔',tip:sus.label+' — 해소 시 자동 복귀'});
-  /* 2) 증거금·신용 */
-  if(sf.margin!=null){
-    chips.push({cls:'neu',t:'증거금 '+sf.margin+'%',i:'💰',tip:'위탁증거금률 · 증권사·계좌에 따라 다를 수 있음'});
-    chips.push(sf.margin>=100
-      ?{cls:'no',t:'신용·미수 불가',i:'🚫',tip:'증거금 100% 종목은 신용거래·미수가 제한됩니다'}
-      :{cls:'ok',t:'신용 가능',i:'✔',tip:'증거금 '+sf.margin+'% — 신용·미수 주문 가능(한도는 증권사별 상이)'});
-  }else if(sf.at){
-    chips.push({cls:'neu',t:'증거금 정보 없음',i:'💰',tip:'제공처에서 증거금률을 찾지 못했습니다'});
-  }
+  /* 2) 증거금·신용 — [v4.11] '정보 없음' 폐지.
+     네이버 종목 페이지에는 증거금률이 아예 없어 스크레이프가 사실상 항상 비었고,
+     경고예고 종목(로보티즈·티엑스알)이 미래에셋에선 '신용불가'인데 우리는
+     '정보 없음'으로 떴다. 증권사 실무 관행대로 시장경보와 연동한 자체 기준으로
+     항상 판정하고, 드물게 스크레이프 값이 있으면 그 값을 우선한다. */
+  const _bset=new Set(sf.badges||[]);
+  if(alert)_bset.add({warn:'투자경고',risk:'투자위험',halt:'거래정지',mgmt:'관리종목'}[alert]);
+  try{if((krxAlerts.caution||[]).includes(code))_bset.add('투자주의');}catch(e){}
+  const _hard=['거래정지','투자위험','투자경고','관리종목','정리매매','투자경고지정예고','투자위험예고','단기과열','단기과열지정예고','투자주의환기종목'].some(t=>_bset.has(t));
+  const effM=sf.margin!=null?+sf.margin:(_hard?100:_bset.has('투자주의')?60:40);
+  const mSrc=sf.margin!=null?'네이버 표기 기준':'LIVE증권 자체 기준 · KRX 시장경보 연동';
+  chips.push({cls:'neu',t:'증거금 '+effM+'%',i:'💰',tip:'위탁증거금률 — '+mSrc+' · 실제 요율은 증권사·계좌별로 다릅니다'});
+  chips.push(effM>=100
+    ?{cls:'no',t:'신용·미수 불가',i:'🚫',tip:_hard?'시장경보·거래정지 지정 종목은 신용거래·미수가 제한됩니다':'증거금 100% 종목은 신용·미수가 제한됩니다'}
+    :{cls:'ok',t:'신용 가능',i:'✔',tip:'증거금 '+effM+'% — 신용·미수 가능(한도는 증권사별 상이)'});
   /* 3) 시장 이벤트 */
   const ev=marketEventChips();
   if(ev.length)ev.forEach(c=>chips.push(c));
-  else chips.push({cls:'mkt',t:'시장 정상 가동',i:'🟢',tip:'사이드카·서킷브레이커 발동 조건 미감지 (지수 등락률 기반 자동 감지)'});
+  else chips.push(krxRegularOpen()
+    ?{cls:'mkt',t:'시장 정상 가동',i:'🟢',tip:'사이드카·서킷브레이커 발동 조건 미감지 (지수 등락률 기반 실시간 감지)'}
+    :{cls:'mkt',t:'시장 이벤트 감지 대기',i:'🕒',tip:'사이드카·서킷브레이커 감지는 KRX 정규장(09:00~15:20) 중에만 평가합니다'});
   box.innerHTML=chips.map(c=>`<span class="af ${c.cls}" title="${(c.tip||'').replace(/"/g,'&quot;')}"><i>${c.i||''}</i>${c.t}</span>`).join('');
   box.hidden=false;
 }
@@ -9644,24 +9711,60 @@ async function acFetchInvestors(code){
     const inv=(j&&j.investors)||j||{};
     return inv.rows||inv.days||inv.list||null;}catch(e){return null;}
 }
+/* ══ [v4.10] 매집 포착기 검색을 전 종목으로 ═══════════════════════════════
+   [무엇이 잘못됐나] 예전엔 ALLCODES(코어 유니버스)에서 시세 캐시(byCode)가 이미
+   붙은 종목만 훑어서, '테스'처럼 화면에 한 번도 안 띄운 중소형주는 아예 안 나왔다.
+   [해결] 종목검색·전종목검사와 같은 원천(전 거래소 명단 stockAll + ETF 전체 +
+   코어 + 시세 캐시)을 합쳐 검색한다. 이름은 acNames에 담아 시세 캐시에 없는
+   종목도 분석 화면·스캔 표에 제 이름으로 나오게 한다. */
+const acNames={};
+function acDispName(c){return (byCode[c]&&byCode[c].name)||acNames[c]||c;}
+function acEnsureUniverse(){
+  try{if(!stockAll&&!stockLoading)loadStockAll();}catch(e){}
+  try{if(!etfList)loadEtfList();}catch(e){}
+}
+function acUniverse(){
+  const out=[],seen=new Set();
+  const add=(c,n,mk)=>{c=String(c||'');if(!/^\d{6}$/.test(c)||seen.has(c))return;seen.add(c);
+    if(n&&!acNames[c])acNames[c]=n; out.push({c,n:n||acNames[c]||'',mk:mk||''});};
+  (Array.isArray(stockAll)?stockAll:[]).forEach(x=>x&&add(x.code,x.name,x.market));
+  (Array.isArray(etfList)?etfList:[]).forEach(x=>x&&add(x.code,x.name,'ETF'));
+  ALLCODES.forEach(c=>add(c,(byCode[c]||{}).name,(byCode[c]||{}).market));
+  Object.keys(byCode).forEach(c=>add(c,byCode[c].name,byCode[c].market));
+  return out;
+}
 function acSuggest(q){
   q=(q||'').trim(); const box=$('acSug'); if(!box)return;
   if(!q){box.hidden=true;box.innerHTML='';return;}
-  const ql=q.toLowerCase(); const out=[];
-  for(const c of ALLCODES){const st=byCode[c];if(!st)continue;
-    if(c.startsWith(q)||String(st.name||'').toLowerCase().includes(ql)){out.push({c,n:st.name});if(out.length>=8)break;}}
-  if(!out.length){box.hidden=true;return;}
-  box.innerHTML=out.map(x=>`<button data-c="${x.c}">${stockLogo(x.c,x.n,24)}<span>${x.n}</span><span class="code num">${x.c}</span></button>`).join('');
+  acEnsureUniverse();
+  const ql=q.toLowerCase();
+  const uni=acUniverse(), pri=[],sec=[];
+  for(const x of uni){
+    const nm=String(x.n||'').toLowerCase();
+    if(x.c.startsWith(q)||nm.startsWith(ql))pri.push(x);
+    else if(nm.includes(ql))sec.push(x);
+    if(pri.length>=10)break;
+  }
+  const out=[...pri,...sec].slice(0,10);
+  if(!out.length){
+    box.innerHTML=(!stockAll&&stockLoading)
+      ?'<div class="ac-sug-note">전 종목 명단을 불러오는 중… 잠시 후 다시 입력해 주세요.</div>'
+      :'<div class="ac-sug-note">일치하는 종목이 없습니다.</div>';
+    box.hidden=false;return;
+  }
+  box.innerHTML=out.map(x=>`<button data-c="${x.c}" data-n="${(x.n||'').replace(/"/g,'&quot;')}">${stockLogo(x.c,x.n,24)}<span>${x.n||x.c}</span><span class="code num">${x.c}${x.mk?' · '+x.mk:''}</span></button>`).join('')
+    +((!stockAll&&stockLoading)?'<div class="ac-sug-note">전 종목 명단 불러오는 중 — 결과가 더 늘어날 수 있어요.</div>':'');
   box.hidden=false;
-  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
-    acCode=b.dataset.c; $('acSearch').value=(byCode[acCode]&&byCode[acCode].name)||acCode;
+  box.querySelectorAll('button[data-c]').forEach(b=>b.onclick=()=>{
+    acCode=b.dataset.c; if(b.dataset.n)acNames[acCode]=b.dataset.n;
+    $('acSearch').value=acDispName(acCode);
     box.hidden=true; $('acRun').disabled=false; acAnalyze(acCode);});
 }
 function acStageChipHtml(r){return `<span class="ac-verdict ${r.cls}">${r.total>=58?'🟠':'⚪'} ${r.stage}</span>`;}
 async function acAnalyze(code){
   const body=$('acBody'); if(!body)return;
   const st=byCode[code]||{};
-  body.innerHTML=`<div class="empty">${st.name||code} — 일봉·수급 데이터를 불러와 분석하는 중…</div>`;
+  body.innerHTML=`<div class="empty">${acDispName(code)} — 일봉·수급 데이터를 불러와 분석하는 중…</div>`;
   let bars,inv;
   try{[bars,inv]=await Promise.all([acFetchDaily(code),acFetchInvestors(code)]);}catch(e){bars=[];}
   const r=acScore(bars,inv);
@@ -9739,7 +9842,7 @@ function acRenderList(){
   if($('acScanSel').value!=='custom'||!acCustom.length){box.hidden=true;return;}
   box.hidden=false;
   box.innerHTML=acCustom.map(c=>{const st=byCode[c]||{};
-    return `<span class="tagx"><b>${st.name||c}</b><button data-x="${c}">✕</button></span>`;}).join('');
+    return `<span class="tagx"><b>${acDispName(c)}</b><button data-x="${c}">✕</button></span>`;}).join('');
   box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
     acCustom=acCustom.filter(x=>x!==b.dataset.x);
     try{localStorage.setItem('acList',JSON.stringify(acCustom));}catch(e){}
@@ -9749,7 +9852,7 @@ async function acScan(){
   if(acScanBusy)return; 
   const sel=$('acScanSel').value;
   let codes=sel==='watch'?watchlist.slice():sel==='hold'?holdings.map(h=>h.code):acCustom.slice();
-  codes=[...new Set(codes)].filter(c=>byCode[c]);
+  codes=[...new Set(codes)].filter(c=>/^\d{6}$/.test(c));   // [v4.10] 시세 캐시 없어도 스캔 가능
   const body=$('acBody');
   if(!codes.length){body.innerHTML=`<div class="empty">${sel==='watch'?'관심종목이 비어 있습니다. ⭐로 담아 주세요.':sel==='hold'?'보유종목이 없습니다.':'목록이 비어 있습니다 — 검색으로 종목을 고른 뒤 ＋ 목록에 담기를 눌러 주세요.'}</div>`;return;}
   if(codes.length>40){toast('warn','스캔 대상 40종목 제한','호출량 보호를 위해 앞 40종목만 스캔합니다.');codes=codes.slice(0,40);}
@@ -9771,13 +9874,13 @@ async function acScan(){
   body.innerHTML=out.length?`<table class="ac-tbl"><thead><tr><th>종목</th><th>매집 점수</th><th>단계</th><th>신호</th></tr></thead><tbody>
     ${out.map(({c,r})=>{const st=byCode[c]||{};
       const sig=[r.spring?'🌀':'',r.stars.length?`★${r.stars.length}`:'',r.meta.shrink<0.7?'📉거래량↓':''].filter(Boolean).join(' ');
-      return `<tr data-c="${c}"><td>${st.name||c} <span class="num" style="color:var(--sub-2);font-size:11px">${c}</span></td>
+      return `<tr data-c="${c}"><td>${acDispName(c)} <span class="num" style="color:var(--sub-2);font-size:11px">${c}</span></td>
         <td><span class="sc num">${r.total}</span><span class="ac-minibar"><i style="width:${r.total}%"></i></span></td>
         <td class="st-cell">${r.stage}</td><td>${sig||'—'}</td></tr>`;}).join('')}
     </tbody></table><div class="empty" style="margin-top:8px">행을 누르면 수급까지 포함한 정밀 분석으로 이어집니다 (스캔은 속도를 위해 수급 제외 점수).</div>`
     :`<div class="empty">점수를 계산할 수 있는 종목이 없었습니다 (상장 45일 미만 등).</div>`;
   body.querySelectorAll('tr[data-c]').forEach(tr=>tr.onclick=()=>{
-    acCode=tr.dataset.c;$('acSearch').value=(byCode[acCode]&&byCode[acCode].name)||acCode;$('acRun').disabled=false;
+    acCode=tr.dataset.c;$('acSearch').value=acDispName(acCode);$('acRun').disabled=false;
     acAnalyze(acCode);});
   acScanBusy=false; btn.disabled=false; btn.textContent='스캔 시작';
 }

@@ -259,7 +259,12 @@ function persist() {
 const busy = new Set();             // 탐색 진행 중인 코드
 const nameOf = {};                  // 코드 → 이름(탐색 시 우선주 판정에 필요)
 let queue = [], live = 0;
-const MAX_LIVE = 5;                 // 동시 요청 상한 — 목록을 한 번에 그려도 몰리지 않게
+/* [v4.11] 검색 목록 로고가 늦게 뜨던 원인 두 가지를 함께 손본다:
+   ① 소스당 대기 8~10초 × 최대 7소스 — 죽은 소스 하나가 뒤 종목 전체를 세워 놓았다
+   ② 동시 5개 상한 — 100행 목록이면 마지막 행은 이론상 수 분을 기다렸다
+   → 대기를 2.8초(중계 5초)로 줄이고 동시 10개로 올린다. 성공률 높은 소스를
+   앞세우는 hotSrc 학습은 그대로라 체감 순서는 유지된다. */
+const MAX_LIVE = 10;                // 동시 요청 상한 — 목록을 한 번에 그려도 몰리지 않게
 const MIN_PX = 12;                  // 이보다 작으면 플레이스홀더로 간주
 
 const NO_TTL = 3 * 86400e3;          // 실패 기록은 3일 뒤 자동 만료
@@ -297,7 +302,7 @@ function run(code) {
       finish(code, idx);
     };
     im.onerror = () => { noteFail(idx); bail(); };
-    setTimeout(bail, url.indexOf('/api/') === 0 ? 10000 : 8000);                       // 응답 없는 소스에서 멈추지 않도록
+    setTimeout(bail, url.indexOf('/api/') === 0 ? 5000 : 2800);                        // [v4.11] 응답 없는 소스는 2.8초(중계 5초) 만에 포기
     im.src = url;
   };
   step();
@@ -421,7 +426,7 @@ try {
 export function logoProbe(code, name, opts) {
   const c = String(code || '').toUpperCase();
   const nm = String(name || nameOf[c] || '');
-  const timeout = (opts && opts.timeout) || 7000;
+  const timeout = (opts && opts.timeout) || 4000;   // [v4.11] 정밀검사 기본 대기 7→4초
   return new Promise((resolve) => {
     if (!c) { resolve({ code: c, name: nm, ok: false, via: 'none' }); return; }
     const order = plan(c, nm);
@@ -447,7 +452,7 @@ export function logoProbe(code, name, opts) {
           proxy: g ? g[1] : (via === 'base' ? baseCode(c, nm) : '') });
       };
       im.onerror = () => { noteFail(idx); bail(); };
-      setTimeout(bail, url.indexOf('/api/') === 0 ? Math.max(timeout, 9000) : timeout);
+      setTimeout(bail, url.indexOf('/api/') === 0 ? Math.max(timeout, 6000) : timeout);
       im.src = url;
     };
     step();
@@ -501,7 +506,7 @@ export function logoProbeRelay(code, name, timeout) {
         const g = via === 'group' ? groupOf(nm) : via === 'fund' ? fundOf(nm) : via === 'spac' ? spacOf(nm) : null;
         resolve({ code: c, name: nm, ok: true, idx: flag + RELAY, via, src: RELAY,
           proxy: g ? g[1] : (via === 'base' ? baseCode(c, nm) : '') }); };
-      im.onerror = bail; setTimeout(bail, timeout || 20000); im.src = url;
+      im.onerror = bail; setTimeout(bail, timeout || 9000); im.src = url;   // [v4.11] 중계 20→9초
     };
     step();
   });
