@@ -1,17 +1,19 @@
 # Cloudflare Workers 정적 자산 헤더 규칙
-# [v4.21] 이 파일은 Workers 에서 정식 지원된다(자산으로 서빙되지 않고 규칙만 적용됨).
-# v4.18 에서 이 파일을 .assetsignore 에 넣어 업로드를 막았던 것이 아이콘이 안 바뀌던 한 원인이다.
+# [v4.22] 매니페스트 주소는 /manifest.webmanifest 로 영구 고정한다.
+# (이름·위치·쿼리를 바꾸면 Chrome 이 PWA 업데이트 판정을 못 한다 — 공식 경고)
+# 변경 감지는 매니페스트 '안의' 아이콘 파일명(icon-...-307.png)으로만 한다.
 
-# 매니페스트는 절대 캐시에 가두지 않는다 — 브라우저가 '바뀐 사실'을 알아야 아이콘이 교체된다
+# 매니페스트는 항상 최신을 받아야 Chrome 이 아이콘 변경을 인지한다
 /manifest.webmanifest
-  Cache-Control: no-store
-  Content-Type: application/manifest+json; charset=utf-8
-/manifest-*.webmanifest
-  Cache-Control: no-store
+  Cache-Control: no-cache, must-revalidate
   Content-Type: application/manifest+json; charset=utf-8
 
-# 아이콘은 파일명에 버전이 박혀 있어 길게 캐시해도 안전하다(새 버전 = 새 파일명)
-/icon-*.png
+# 아이콘은 파일명에 버전이 박혀 있어 영구 캐시해도 안전하다
+/icon-192-*.png
+  Cache-Control: public, max-age=31536000, immutable
+/icon-512-*.png
+  Cache-Control: public, max-age=31536000, immutable
+/icon-maskable-512-*.png
   Cache-Control: public, max-age=31536000, immutable
 /favicon.png
   Cache-Control: public, max-age=0, must-revalidate

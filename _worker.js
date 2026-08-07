@@ -10209,7 +10209,7 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.21.0",
+  version: "4.23.0",
   releasedAt: "2026-08-06 21:40",
   notes: [
     "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
@@ -10560,6 +10560,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
+var APP_VER = "4.23.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -10579,7 +10580,39 @@ var worker_default = {
        아래 블록은 자산이 없을 때만 도달하므로 사실상 예비 경로다. */
     const res = await env.ASSETS.fetch(request);
     const p = url.pathname;
-    if (/^\/manifest(-\w+)?\.webmanifest$/.test(p) || /^\/icon-[\w-]+\.png$/.test(p)
+    /* ══ [v4.23] 매니페스트를 워커가 직접 만들어 준다 ═══════════════════════
+       [왜] Chrome 은 '전에 본 매니페스트'와 지금 것을 비교해 갱신을 판정한다.
+       정적 파일로 두면 배포 때 내용이 안 바뀔 수도 있고(아이콘 파일명을 고정했으므로),
+       엣지 캐시에 걸리면 새 내용이 전달되지 않는다.
+       → 주소는 /manifest.webmanifest 로 영구 고정하되, 내용은 매 요청 시 현재
+         배포 버전을 박아 생성한다. 버전이 오르면 매니페스트가 확실히 달라지고,
+         Chrome 은 그 차이를 보고 아이콘 재검사(해시 비교)를 예약한다.
+       run_worker_first 가 꺼져 있으면 정적 자산이 먼저 나가므로,
+       manifest.webmanifest 는 .assetsignore 로 자산에서 제외해 여기로 오게 한다. */
+    if (p === "/manifest.webmanifest") {
+      const body = JSON.stringify({
+        name: "LIVE\uC99D\uAD8C \u2014 \uC2E4\uC2DC\uAC04 \uBAA8\uC758\uD22C\uC790",
+        short_name: "LIVE\uC99D\uAD8C",
+        id: "/", start_url: "/", scope: "/",
+        display: "standalone", orientation: "any",
+        background_color: "#0d1424", theme_color: "#0d1424",
+        lang: "ko-KR", dir: "ltr",
+        categories: ["finance", "education"],
+        version: APP_VER,
+        description: "\uC2E4\uC2DC\uAC04 \uC2DC\uC138\uB85C \uC5F0\uC2B5\uD558\uB294 \uD55C\uAD6D \uC8FC\uC2DD \uBAA8\uC758\uD22C\uC790 \u00B7 v" + APP_VER,
+        icons: [
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
+        ]
+      }, null, 2);
+      return new Response(body, { headers: {
+        "content-type": "application/manifest+json; charset=utf-8",
+        "cache-control": "no-cache, must-revalidate",
+        "access-control-allow-origin": "*"
+      } });
+    }
+    if (/^\/icon-[\w-]+\.png$/.test(p)
         || p === "/favicon.png" || p === "/" || p === "/index.html") {
       const h = new Headers(res.headers);
       h.set("cache-control", "no-cache, must-revalidate");

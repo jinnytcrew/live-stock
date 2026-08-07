@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=307';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=307';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=309';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=309';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2593,32 +2593,50 @@ function pingManifest(){
   }catch(e){}
 }
 async function refreshAppIcons(){
-  const v=Date.now();
+  /* ══ [v4.23] 아이콘 자동 갱신 — 가능한 신호를 전부 보낸다 ═══════════════
+     [설계 원칙] 주소는 절대 바꾸지 않는다. 매니페스트도 아이콘도 고정 주소다.
+       · 매니페스트 주소를 바꾸면 Chrome 이 '전에 보던 것'과 비교를 못 한다
+       · 아이콘 파일명을 바꾸면 구버전 참조가 404 → Chrome 이 30일간 확인 중단
+     [대신 이렇게 알린다]
+       ① 매니페스트를 같은 주소로 강제 재수신 → Chrome 이 새 내용을 인지
+       ② 아이콘 3종을 cache:'reload' 로 강제 재수신 → 브라우저 캐시의 그림 교체
+          (Chrome 은 갱신 판정 때 아이콘을 실제로 받아 해시를 비교한다)
+       ③ 매니페스트 안의 version·description 이 배포마다 바뀌므로 내용 자체가 달라진다
+     이 셋이면 Chrome 이 감지하지 못할 경로가 남지 않는다. */
+  const bust=(u)=>fetch(u,{cache:'reload',credentials:'same-origin'}).catch(()=>{});
+  try{ await bust('/manifest.webmanifest'); }catch(e){}
+  try{ await Promise.all(['/icon-192.png','/icon-512.png','/icon-maskable-512.png','/favicon.png'].map(bust)); }catch(e){}
+  /* 브라우저 이미지 캐시에 새 그림을 확실히 앉힌다 */
+  try{ await Promise.all(['/icon-192.png','/icon-512.png'].map(u=>new Promise(r=>{
+    const im=new Image(); im.onload=im.onerror=()=>r(); im.src=u+'#'+Date.now();
+  }))); }catch(e){}
+  try{ localStorage.setItem('iconSyncAt',String(Date.now())); }catch(e){}
+}
+/* ══ [v4.23] 앱을 열 때마다 조용히 아이콘 동기화를 시도한다 ════════════════
+   사용자가 [지금 업데이트]를 누르지 않아도, 새 버전이 배포되면 알아서 최신 아이콘을
+   받아 두고 Chrome 이 갱신을 예약하도록 만든다. 하루 한 번만 돌려 부담을 주지 않는다. */
+function autoIconSync(){
   try{
-    /* 아이콘 파일을 캐시 무시로 미리 받아 둔다 — 교체 시 즉시 쓰이도록 */
-    await Promise.all(['/icon-192.png','/icon-512.png','/icon-maskable-512.png','/favicon.png']
-      .map(u=>fetch(u+'?r='+v,{cache:'reload'}).catch(()=>{})));
-  }catch(e){}
-  try{
-    /* 매니페스트 링크를 새 주소로 갈아 끼운다(제거 후 재삽입해야 재평가된다) */
-    const old=document.querySelector('link[rel="manifest"]');
-    const link=document.createElement('link');
-    link.rel='manifest'; link.id='manifestLink';
-    link.href='/manifest.webmanifest?v='+v;
-    if(old)old.remove();
-    document.head.appendChild(link);
-    await fetch(link.href,{cache:'reload'}).catch(()=>{});
-  }catch(e){}
-  try{
-    /* 파비콘·애플 아이콘도 같은 요령으로 즉시 반영 */
-    document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach(l=>{
-      const base=l.getAttribute('href').split('?')[0];
-      l.setAttribute('href',base+'?v='+v);
+    const last=+(localStorage.getItem('iconSyncAt')||0);
+    const ver=localStorage.getItem('iconSyncVer')||'';
+    const cur=(typeof APP_VERSION!=='undefined')?APP_VERSION:'';
+    const stale=Date.now()-last>20*3600e3;
+    if(!stale && ver===cur) return;                  // 오늘 이미 했고 버전도 그대로면 건너뛴다
+    refreshAppIcons().then(()=>{
+      try{ localStorage.setItem('iconSyncVer',cur); }catch(e){}
     });
   }catch(e){}
 }
+/* 홈 화면 아이콘 교체 조건 안내 — Chrome 이 실제로 요구하는 조건을 그대로 알려 준다 */
+function iconUpdateHelpText(){
+  return '홈 화면 아이콘은 안드로이드가 백그라운드에서 바꿔 줍니다. '
+    +'다음 조건이 모두 맞아야 진행돼요 — ① 앱을 <b>완전히 종료</b>(최근 앱에서 밀어 닫기) '
+    +'② <b>충전기 연결</b> ③ <b>Wi-Fi 연결</b>. 보통 몇 분~하루 안에 바뀝니다.<br>'
+    +'바로 바꾸고 싶으면 크롬 주소창에 <b>about:webapks</b> 를 열고 LIVE증권 항목의 '
+    +'<b>Update</b> 를 누르세요. 아이폰은 홈 화면에서 삭제 후 다시 추가해야 합니다.';
+}
 
-async function applyUpdate(){
+async function applyUpdate(){async function applyUpdate(){
   /* [v2.2] 업데이트 파이프라인:
      ① 진행 안내 모달 표시 → ② Cache Storage·서비스워커·무거운 로컬 캐시 정리
      → ③ 서버에서 새 index.html 확보 확인 → ④ ?upd= 캐시버스터로 재기동
@@ -2627,7 +2645,7 @@ async function applyUpdate(){
   ov.className='upd-overlay';
   ov.innerHTML=`<div class="upd-box"><div class="upd-spin"></div>
     <b>업데이트를 적용하고 있어요</b><p id="updStep">준비 중…</p>
-    <small>몇 초면 끝나요. 화면이 자동으로 다시 열립니다.<br>홈 화면 아이콘도 새 디자인으로 자동 교체됩니다.</small></div>`;
+    <small>몇 초면 끝나요. 화면이 자동으로 다시 열립니다.</small></div>`;
   document.body.appendChild(ov);
   const step=(t)=>{const el=ov.querySelector('#updStep');if(el)el.textContent=t;};
   const wait=(ms)=>new Promise(r=>setTimeout(r,ms));
@@ -2694,7 +2712,8 @@ function showUpdateGate(prevKey){
       <ul class="ug-notes" id="ugNotes"></ul>
     </div>
     <div class="ug-foot">
-      <p class="ug-d">캐시를 정리하고 다시 시작해 새 버전으로 <b>완전 최적화</b>합니다. 홈 화면에 설치해 두셨다면 <b>앱 아이콘도 자동으로 교체</b>됩니다. 관심종목·계좌 데이터는 그대로 유지돼요.</p>
+      <p class="ug-d">캐시를 정리하고 다시 시작해 새 버전으로 <b>완전 최적화</b>합니다. 관심종목·계좌 데이터는 그대로 유지돼요.</p>
+      <p class="ug-d ug-icon">📱 <b>홈 화면 아이콘</b> — ${iconUpdateHelpText()}</p>
       <button class="ug-go" id="ugGo">지금 업데이트</button>
       <button class="ug-skip" id="ugLater">나중에</button>
     </div>
@@ -9844,7 +9863,7 @@ window.addEventListener('resize',()=>{drawChart();if(currentView==='home')render
      로그인 화면으로 빠지는 경우에도 즉시 걷어야 입력이 가려지지 않는다. */
   try{window.__boot&&__boot.step(6);}catch(e){}
   requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__boot&&__boot.done();}catch(e){}}));
-  setTimeout(()=>{try{pingManifest();}catch(e){}},4000);   // [v4.16] 아이콘 자동 교체 유도
+  setTimeout(()=>{try{pingManifest();autoIconSync();}catch(e){}},4000);   // [v4.23] 아이콘 자동 동기화
 })();
 
 
