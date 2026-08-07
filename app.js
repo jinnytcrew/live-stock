@@ -1092,7 +1092,7 @@ function renderPicks(){
   if(picksCache&&picksCache.picks&&picksCache.picks.length)paintPicks(picksCache);
 }
 /* [수정] 무한 로딩 2가지 원인 해결:
-   ① 모든 요청에 t=시각 파라미터 → URL 이 매번 달라져 Netlify 엣지 CDN 캐시를 확실히 우회
+   ① 모든 요청에 t=시각 파라미터 → URL 이 매번 달라져 엣지 CDN 캐시를 확실히 우회
       (cache:'no-store' 는 브라우저 캐시만 우회하고 CDN 은 못 뚫는다)
    ② '새로 생성'은 예전 결과의 generatedAt 을 기억해 두고, '다른 generatedAt'(=새 결과)이
       나올 때까지 기다린다. 예전엔 재생성 중 옛 캐시 결과를 받으면 그걸 새 결과로 착각하고 멈췄다. */
@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=303';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=303';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=305';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=305';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -1995,10 +1995,10 @@ try{renderMktPill();}catch(e){}
 if(!window._connClock)window._connClock=setInterval(()=>{try{renderConnPill();renderMktPill();}catch(e){}},1000);
 
 function accounts(){return store.get('accounts')||{};}
-/* ===== 클라우드(Netlify Blobs) 동기화 — 실패 시 로컬로 폴백 ===== */
+/* ===== 클라우드(Cloudflare KV) 동기화 — 실패 시 로컬로 폴백 ===== */
 let CLOUD=true,syncT=null;
 async function cloudCall(body){
-  if(!CLOUD&&body.action!=='login')return null;
+  if(!CLOUD&&body.action!=='login'&&body.action!=='signup'&&body.action!=='ensure')return null;  // [v4.18] 가입·복구도 항상 시도
   const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);   // 8초 넘으면 포기(무한 '확인 중' 방지)
   try{const r=await fetch('/api/accounts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctrl.signal});
     if(!r.ok)return null;const j=await r.json();if(j&&j.err==='nostore'){CLOUD=false;return null;}return j;}
@@ -2109,29 +2109,40 @@ function seedTradeLog(){
 /* ===== 로그인/회원가입 UI ===== */
 $('tabLogin').onclick=()=>{$('tabLogin').classList.add('on');$('tabSignup').classList.remove('on');$('loginForm').hidden=false;$('signupForm').hidden=true;};
 $('tabSignup').onclick=()=>{$('tabSignup').classList.add('on');$('tabLogin').classList.remove('on');$('signupForm').hidden=false;$('loginForm').hidden=true;};
+/* [v4.18] 아이디는 서버와 똑같은 규칙(소문자·공백제거)으로 정규화한다.
+   기기마다 대소문자가 달라 '같은 아이디인데 다른 계정'이 되던 문제의 절반이 여기 있었다. */
+function normId(v){return String(v==null?'':v).trim().toLowerCase();}
 $('doLogin').onclick=async()=>{
-  const id=$('liId').value.trim(),pw=$('liPw').value,m=$('liMsg');
+  const id=normId($('liId').value),pw=$('liPw').value,m=$('liMsg');
   if(!id||!pw){m.textContent='아이디와 비밀번호를 입력하세요.';return;}
   const passH=await pwHash(pw), legacyH=legacyHash(pw);   // 새 해시 + 구버전 호환 해시
+  /* ══ [v4.18 · 치명] 로그인 순서를 뒤집는다 ═══════════════════════════════
+     예전엔 로컬에 같은 아이디가 있으면 서버를 보지도 않고 그 로컬 데이터로 들어갔다.
+     그래서 A기기에서 매매한 내역이 B기기에 안 보이고, 서로 다른 데이터를 각자
+     들고 갈라졌다(같은 계정인데 다른 계정처럼 보이던 진짜 이유).
+     이제 항상 서버를 먼저 물어 최신본을 받아오고, 서버가 응답하지 않을 때만
+     로컬로 들어간다. 오프라인 진입이면 그 사실을 분명히 알린다. */
   const local=accounts()[id];
-  if(local&&(local.pass===passH||local.pass===legacyH)){
-    if(local.pass===legacyH){const a=accounts();a[id].pass=passH;store.set('accounts',a);}   // 로컬도 승격
-    applyUser(id);unlockApp();initApp();
-    // 이 계정이 서버에 없으면 올려서 다른 기기에서도 로그인되게 한다(자동 복구)
-    cloudCall({action:'ensure',id,pass:passH,legacy:legacyH,name:local.name||id,email:local.email||'',acctPass:local.acctPass||'',created:local.created||Date.now(),
-      user:store.get('user:'+id)||{}}).then(r=>{ if(r&&r.created)toast('ok','계정 동기화 완료','이제 다른 기기에서도 같은 아이디로 로그인할 수 있어요'); });
-    return;
-  }
   m.textContent='확인 중…';
-  const cj=await cloudCall({action:'login',id,pass:passH,legacy:legacyH}); // 새 브라우저·재배포 시 서버에서 복원
+  const cj=await cloudCall({action:'login',id,pass:passH,legacy:legacyH});
   if(cj&&cj.ok){
     const accs=accounts();accs[id]={pass:passH,name:cj.name,email:cj.email||'',acctPass:(cj.user&&cj.user.acctPass)||legacyHash('0000'),created:cj.created||Date.now()};store.set('accounts',accs);
     store.set('user:'+id,cj.user||{});applyUser(id);unlockApp();initApp();return;
   }
-  // 시크릿 창이거나 서버에 없는 계정이면 여기로 온다. 무엇을 하라는지 분명히 알려 준다.
-  m.innerHTML=cj===null
-    ? '이 아이디를 찾을 수 없습니다. 비공개(시크릿) 창이면 저장된 계정이 없으니, 아래 <b>게스트로 둘러보기</b>를 쓰거나 일반 창에서 다시 시도하세요.'
-    : '아이디 또는 비밀번호가 올바르지 않습니다.';
+  if(cj&&cj.ok===false&&cj.err!=='nostore'){        // 서버가 '아니다'라고 답한 경우
+    m.textContent=cj.err==='toomany'?'시도가 너무 잦습니다. 잠시 후 다시 시도하세요.':'아이디 또는 비밀번호가 올바르지 않습니다.';
+    return;
+  }
+  // 여기부터는 서버에 닿지 못한 경우 — 로컬 자격증명으로 오프라인 진입 허용
+  if(local&&(local.pass===passH||local.pass===legacyH)){
+    if(local.pass===legacyH){const a=accounts();a[id].pass=passH;store.set('accounts',a);}
+    applyUser(id);unlockApp();initApp();
+    toast('warn','오프라인으로 시작했어요','서버에 연결되지 않아 이 기기에 저장된 내용으로 열었습니다. 연결되면 자동으로 동기화됩니다.');
+    cloudCall({action:'ensure',id,pass:passH,legacy:legacyH,name:local.name||id,email:local.email||'',acctPass:local.acctPass||'',created:local.created||Date.now(),
+      user:store.get('user:'+id)||{}}).then(r=>{ if(r&&r.created)toast('ok','계정 동기화 완료','이제 다른 기기에서도 같은 아이디로 로그인할 수 있어요'); });
+    return;
+  }
+  m.innerHTML='서버에 연결하지 못했고, 이 기기에도 저장된 계정이 없습니다. 잠시 후 다시 시도해 주세요.';
 };
 /* [v4.1] 게스트 진입 경로 제거 */
 // 전체 종목 검사 버튼 연결($ 정의 이후·요소 존재 이후에 바인딩)
@@ -2152,7 +2163,7 @@ if($('laReset'))$('laReset').onclick=()=>{
 };
 if($('saStop'))$('saStop').onclick=()=>{saRun=false;$('saStop').hidden=true;$('saStart').hidden=false;};
 $('doSignup').onclick=async()=>{
-  const id=$('suId').value.trim(),pw=$('suPw').value,pw2=$('suPw2').value;
+  const id=normId($('suId').value),pw=$('suPw').value,pw2=$('suPw2').value;
   const name=$('suName').value.trim()||id,email=$('suEmail').value.trim();
   const cashV=parseInt(($('suCash').value||'0').replace(/[^0-9]/g,''))||0;
   const a=$('suAcct').value,a2=$('suAcct2').value;
@@ -2166,12 +2177,16 @@ $('doSignup').onclick=async()=>{
   m.textContent='가입 처리 중…';
   const cj=await cloudCall({action:'signup',id,pass:passH,name,email,acctPass:acctH,cash:cashV});
   if(cj&&!cj.ok){m.textContent=cj.err==='exists'?'이미 존재하는 아이디입니다.':'가입에 실패했습니다. 잠시 후 다시 시도하세요.';return;}
-  if(!cj&&accounts()[id]){m.textContent='이미 존재하는 아이디입니다.';return;} // 클라우드 불가 시 로컬 중복확인
-  if(!cj||!cj.ok){setTimeout(()=>toast('warn','이 기기에만 저장됨','서버 연결이 불안정해 계정이 이 기기에만 저장됐습니다. 다음 로그인 때 자동으로 서버에 올라갑니다.'),400);}
+  /* [v4.18] 서버에 못 올린 계정을 로컬에만 만들면, 다른 기기에서는 존재하지 않는
+     계정이 된다(같은 아이디로 또 가입 → 데이터 분열). 가입은 서버 성공을 필수로 한다. */
+  if(!cj||!cj.ok){
+    m.innerHTML='서버에 연결하지 못해 가입을 완료할 수 없습니다. 잠시 후 다시 시도해 주세요.<br><small>계정을 이 기기에만 만들면 다른 기기에서 로그인할 수 없어 막았습니다.</small>';
+    return;
+  }
   const accs=accounts(); accs[id]={pass:passH,name,email,acctPass:acctH,created:Date.now()}; store.set('accounts',accs);
   store.set('user:'+id,{watchlist:['005930','000660','035420'],holdings:[],cash:cashV,ipoPlans:[],acctPass:acctH});
   applyUser(id); unlockApp(); initApp();
-  toast('buy','가입 완료 · '+name+'님',CLOUD?'계정이 서버에 저장되었습니다':'시작 예수금 '+KRW(cashV)+'원');
+  toast('buy','가입 완료 · '+name+'님','계정이 서버에 저장되어 어느 기기에서든 같은 아이디로 로그인할 수 있어요');
 };
 /* ===== 프로필 메뉴 ===== */
 function setPmTab(t){document.querySelectorAll('#pmTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pm===t));document.querySelectorAll('.pm-pane').forEach(p=>p.hidden=(p.id!=='pm-'+t));}
@@ -2181,7 +2196,22 @@ function avatarOf(nm){return (userPrefs&&userPrefs.avatar)||String(nm||'?').slic
 function paintHeaderUser(){
   const nm=currentUser?((accounts()[currentUser]||{}).name||currentUser):'';
   if($('uName'))$('uName').textContent=nm;
-  if($('uAv'))$('uAv').textContent=avatarOf(nm);
+  if($('uAv')){$('uAv').textContent=avatarOf(nm);
+    $('uAv').style.background=(userPrefs&&userPrefs.avColor)||'';}   // [v4.19]
+  if($('pmAv'))$('pmAv').style.background=(userPrefs&&userPrefs.avColor)||'';
+}
+const AV_COLORS=['','#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#ec4899','#8b5cf6','#64748b'];
+/* [v4.19] 아바타 배경색 */
+function renderAvColors(){
+  const g=$('avColors'); if(!g)return;
+  const cur=(userPrefs&&userPrefs.avColor)||'';
+  g.innerHTML=AV_COLORS.map(c=>'<button class="avc '+(cur===c?'on':'')+'" data-c="'+c+'" style="'+(c?('background:'+c):'')+'">'+(c?'':'기본')+'</button>').join('');
+  g.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    userPrefs=userPrefs||{}; userPrefs.avColor=b.dataset.c;
+    try{savePrefs();}catch(e){}
+    renderAvColors(); try{paintHeaderUser();}catch(e){}
+    const av=$('pmAv'); if(av)av.style.background=b.dataset.c||'';
+  });
 }
 function renderAvGrid(nm){
   const g=$('avGrid');if(!g)return;
@@ -2206,8 +2236,78 @@ function renderPmStats(){
     set('psHold',holdings.length+'종목');set('psWatch',watchlist.length+'종목');set('psFolder',watchFolders.length+'개');
     set('psTrades',tradeLog.length.toLocaleString()+'건');   // [v2.5] 실제 체결 기록
     let d0=0;try{d0=+localStorage.getItem('firstUseAt')||0;}catch(e){}
-    set('psDays',d0?('D+'+Math.max(1,Math.ceil((Date.now()-d0)/86400000))+'일'):'—');
+    const days=d0?Math.max(1,Math.ceil((Date.now()-d0)/86400000)):0;
+    set('psDays',days?('D+'+days+'일'):'—');
+    /* ══ [v4.19] 매매 성적 · 투자 성향 · 배지 ══════════════════════════════
+       기존 프로필은 자산 숫자 9칸이 전부라 '내가 어떻게 하고 있는지'를 알 수 없었다.
+       매도 기록에서 승률·최고·최저·수수료·평균보유일을 뽑고, 그것으로 성향을 진단한다. */
+    const sells=tradeLog.filter(t=>t&&t.side==='sell');
+    const wins=sells.filter(t=>(+t.pnl||0)>0), losses=sells.filter(t=>(+t.pnl||0)<0);
+    const realized=sells.reduce((a,t)=>a+(+t.pnl||0),0);
+    const feeSum=tradeLog.reduce((a,t)=>a+(+t.fee||0)+(+t.tax||0),0);
+    const best=sells.length?Math.max(...sells.map(t=>+t.pnl||0)):0;
+    const worst=sells.length?Math.min(...sells.map(t=>+t.pnl||0)):0;
+    set('psReal',signed(realized),dirOf(realized));
+    set('psWin',sells.length?Math.round(wins.length/sells.length*100)+'%':'—',
+        sells.length?dirOf(wins.length*2-sells.length):'');
+    set('psWinN',wins.length+'건'); set('psLossN',losses.length+'건');
+    set('psBest',sells.length?signed(best):'—',dirOf(best));
+    set('psWorst',sells.length?signed(worst):'—',dirOf(worst));
+    set('psFee',KRW(Math.round(feeSum))+'원');
+    /* 평균 보유일 — 종목별 첫 매수 → 매도 간격 */
+    const firstBuy={},spans=[];
+    tradeLog.slice().sort((a,b)=>(a.ts||0)-(b.ts||0)).forEach(t=>{
+      if(!t||!t.code)return;
+      if(t.side==='buy'){if(firstBuy[t.code]==null)firstBuy[t.code]=t.ts||0;}
+      else if(firstBuy[t.code]!=null){spans.push(Math.max(0,((t.ts||0)-firstBuy[t.code])/86400000));delete firstBuy[t.code];}});
+    set('psHoldDays',spans.length?(spans.reduce((a,b)=>a+b,0)/spans.length).toFixed(1)+'일':'—');
+    const cnt={};tradeLog.forEach(t=>{if(t&&t.code)cnt[t.code]=(cnt[t.code]||0)+1;});
+    const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+    set('psTop',top?(((byCode[top[0]]||{}).name||top[0])+' '+top[1]+'회'):'—');
+    renderPmStyle({sells:sells.length,win:sells.length?wins.length/sells.length:0,
+      span:spans.length?spans.reduce((a,b)=>a+b,0)/spans.length:0,
+      trades:tradeLog.length,days,hold:holdings.length,watch:watchlist.length,
+      realized,cashRatio:(cash+totEval)?cash/(cash+totEval):1});
+    renderPmBadges({trades:tradeLog.length,days,win:sells.length?wins.length/sells.length:0,
+      sells:sells.length,watch:watchlist.length,folders:watchFolders.length,realized,hold:holdings.length});
   }catch(e){}
+}
+/* 투자 성향 진단 — 거래빈도·보유기간·현금비중으로 4축을 매긴다 */
+function renderPmStyle(s){
+  const box=$('pmStyleBox'); if(!box)return;
+  if(!s.trades){box.innerHTML='<div class="pm-note">아직 매매 기록이 없어요. 몇 번 거래해 보면 성향을 분석해 드립니다.</div>';return;}
+  const perDay=s.days?s.trades/s.days:s.trades;
+  const axes=[
+    ['매매 빈도', Math.min(100,Math.round(perDay/1.5*100)), perDay>=1.2?'단타 성향':perDay>=0.4?'적당한 빈도':'느긋한 매매'],
+    ['보유 기간', Math.min(100,Math.round((s.span/20)*100)), s.span>=10?'중장기 보유':s.span>=3?'스윙':'초단기'],
+    ['현금 비중', Math.round(s.cashRatio*100), s.cashRatio>=.6?'보수적':s.cashRatio>=.25?'균형':'공격적'],
+    ['분산 정도', Math.min(100,Math.round(s.hold/10*100)), s.hold>=8?'넓게 분산':s.hold>=4?'적당히 분산':'집중 투자'],
+  ];
+  const label=perDay>=1.2?(s.cashRatio<.25?'⚡ 공격적 단타형':'🔥 활발한 단타형')
+            :s.span>=10?'🌳 장기 투자형':(s.cashRatio>=.6?'🛡 신중한 관망형':'⚖ 균형 스윙형');
+  box.innerHTML=`<div class="pm-style-label">${label}</div>`
+    +axes.map(([n,v,t])=>`<div class="pm-ax"><span>${n}</span>
+      <i><b style="width:${Math.max(4,Math.min(100,v))}%"></b></i><em>${t}</em></div>`).join('')
+    +`<div class="pm-note">최근 매매 기록으로 추정한 참고 지표입니다.</div>`;
+}
+/* 활동 배지 — 달성한 것만 색이 들어온다 */
+function renderPmBadges(s){
+  const box=$('pmBadges'); if(!box)return;
+  const B=[
+    ['🌱','첫 걸음','첫 거래를 마쳤어요',s.trades>=1],
+    ['📘','기록가','거래 20건 달성',s.trades>=20],
+    ['🏦','베테랑','거래 100건 달성',s.trades>=100],
+    ['⭐','수집가','관심종목 10종 이상',s.watch>=10],
+    ['🗂','정리왕','관심 폴더 3개 이상',s.folders>=3],
+    ['🧺','분산 투자','보유 5종목 이상',s.hold>=5],
+    ['🎯','승률왕','매도 10건 이상·승률 60%↑',s.sells>=10&&s.win>=.6],
+    ['💰','수익 실현','실현손익 플러스',s.realized>0],
+    ['📅','일주일','가입 7일차',s.days>=7],
+    ['🗓','한 달','가입 30일차',s.days>=30],
+  ];
+  const got=B.filter(b=>b[3]).length;
+  box.innerHTML=`<div class="pm-badge-n">${got} / ${B.length} 획득</div>`
+    +B.map(([ic,t,d,on])=>`<div class="pm-badge ${on?'on':''}" title="${d}"><i>${ic}</i><b>${t}</b><span>${d}</span></div>`).join('');
 }
 function openProfile(){
   const guest=!currentUser;
@@ -2217,6 +2317,22 @@ function openProfile(){
   $('pmId').textContent=guest?'게스트 · 이 브라우저에만 저장':'@'+currentUser;
   $('pmNameIn').value=guest?((userPrefs&&userPrefs.nick)||''):(acc.name||'');
   $('pmEmailIn').value=guest?'':(acc.email||'');
+  if($('pmBioIn'))$('pmBioIn').value=(userPrefs&&userPrefs.bio)||'';
+  /* [v4.19] 프로필 첫 화면 요약 카드 — 아이디만 덩그러니 있던 자리를 채운다 */
+  try{
+    const hero=$('pmHero');
+    if(hero){
+      let ev=0;(holdings||[]).forEach(x=>{const st=byCode[x.code]||{};ev+=((st.price!=null?st.price:x.avg)||0)*(x.qty||0);});
+      const tot=(cash||0)+ev, base=(holdings||[]).reduce((a,x)=>a+(x.avg||0)*(x.qty||0),0);
+      const pnl=ev-base, rate=base?pnl/base*100:0;
+      let d0=0;try{d0=+localStorage.getItem('firstUseAt')||0;}catch(e){}
+      const days=d0?Math.max(1,Math.ceil((Date.now()-d0)/86400000)):1;
+      hero.innerHTML='<div class="pmh-top"><b>'+KRW(Math.round(tot))+'원</b><span>총자산</span></div>'
+        +'<div class="pmh-row"><span class="'+dirOf(pnl)+'">'+signed(pnl)+' ('+pctS(rate)+')</span>'
+        +'<span>보유 '+holdings.length+' · 관심 '+watchlist.length+' · D+'+days+'</span></div>';
+    }
+  }catch(e){}
+  try{renderAvColors();}catch(e){}
   const em=$('pmEmailIn');if(em)em.closest('.fld2').style.display=guest?'none':'';
   if($('pmPw'))$('pmPw').value='';if($('pmAcct'))$('pmAcct').value='';
   $('pmProfileMsg').textContent='';$('pmSecMsg').textContent='';$('pmDataMsg').textContent='';
@@ -2308,9 +2424,9 @@ function renderSettingsUI(){
   segSel('setTheme',settings.theme);segSel('setColor',settings.color);
   $('setReal').classList.toggle('on',settings.realHours);$('setReal').setAttribute('aria-checked',settings.realHours);
   $('setOrderPass').classList.toggle('on',settings.orderPass);$('setOrderPass').setAttribute('aria-checked',settings.orderPass);
-  $('setRealDesc').textContent=settings.realHours?'켜짐 · 실제 장 시간에만 주문 가능 (KRX 09:00~15:30 · NXT 종목 08:00~20:00)':'꺼짐 · 시간과 무관하게 항상 매수/매도 가능';
+  $('setRealDesc').textContent=settings.realHours?'켜짐 · 실제 장 시간에만 주문 가능 (KRX 08:30~18:00 · NXT 종목 08:00~20:00)':'꺼짐 · 시간과 무관하게 항상 매수/매도 가능';
   const b=_fbGet();
-  $('setUsage').innerHTML=`이번 달 <b>${b.mc.toLocaleString()}</b> / ${fnCapM().toLocaleString()}회 <b>(${fnUsagePct()}%)</b> · 오늘 <b>${b.dc.toLocaleString()}</b> / ${fnCapD().toLocaleString()}회<br><span class="set-d">한도에 닿으면 자동으로 갱신을 늦춰 무료 크레딧(월 300) 초과를 막습니다.</span>`;
+  $('setUsage').innerHTML=`이번 달 <b>${b.mc.toLocaleString()}</b> / ${fnCapM().toLocaleString()}회 <b>(${fnUsagePct()}%)</b> · 오늘 <b>${b.dc.toLocaleString()}</b> / ${fnCapD().toLocaleString()}회<br><span class="set-d">한도에 닿으면 자동으로 갱신을 늦춰 서버 호출 한도 초과를 막습니다.</span>`;
   renderSettingsExtra();
   buildSetTabs();
 }
@@ -2690,7 +2806,7 @@ async function saveAdminNotice(){
   const tok=($('admTok').value||'').trim(), ver=($('admVer').value||'').trim();
   const notes=($('admNotes').value||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const m=$('admMsg');
-  if(!tok){m.textContent='관리자 토큰을 입력하세요 (Netlify 환경변수 NXT_ADMIN_TOKEN 값)';return;}
+  if(!tok){m.textContent='관리자 토큰을 입력하세요 (환경변수 NXT_ADMIN_TOKEN 값)';return;}
   if(!/^\d+\.\d+\.\d+$/.test(ver)){m.textContent='버전은 1.91.0 형식이어야 합니다';return;}
   if(!notes.length){m.textContent='업데이트 내용을 한 줄 이상 입력하세요';return;}
   try{sessionStorage.setItem('admtok',tok);}catch(e){}
@@ -2800,11 +2916,52 @@ document.querySelectorAll('#pmTabs button').forEach(b=>b.onclick=()=>setPmTab(b.
 $('pmLogout').onclick=()=>{store.del('session');requireAuth();location.reload();};   // [v4.1] 로그아웃 → 잠금
 $('pmSaveProfile').onclick=async()=>{
   const name=$('pmNameIn').value.trim(),email=$('pmEmailIn').value.trim(),acc=accounts()[currentUser];if(!acc)return;
+  try{userPrefs=userPrefs||{};userPrefs.bio=($('pmBioIn')?$('pmBioIn').value.trim():'').slice(0,40);savePrefs();}catch(e){}
   acc.name=name||currentUser;acc.email=email;const accs=accounts();accs[currentUser]=acc;store.set('accounts',accs);
   cloudCall({action:'profile',id:currentUser,pass:acc.pass,name:acc.name,email:acc.email});
   const dn=acc.name;$('uName').textContent=dn;$('uAv').textContent=avatarOf(dn);$('pmName').textContent=dn;$('pmAv').textContent=avatarOf(dn);
   $('pmProfileMsg').style.color='var(--up)';$('pmProfileMsg').textContent='저장되었습니다.';
 };
+/* ══ [v4.19] 백업에서 복원 ═══════════════════════════════════════════════
+   내려받기만 있고 되돌리는 길이 없어, 백업 파일이 사실상 무용지물이었다.
+   붙여넣기·파일 두 경로를 모두 제공하고, 덮어쓰기 전에 반드시 확인을 받는다. */
+function pmApplyRestore(text){
+  const m=$('pmDataMsg'); const bad=(t)=>{m.style.color='var(--down)';m.textContent=t;};
+  let j; try{ j=JSON.parse(String(text||'').trim()); }catch(e){ return bad('백업 코드를 읽을 수 없습니다. 내용을 다시 확인해 주세요.'); }
+  const d=(j&&j.user)?j.user:j;
+  if(!d||typeof d!=='object')return bad('백업 형식이 아닙니다.');
+  const hasAny=['watchlist','holdings','cash','tradeLog','watchFolders'].some(k=>d[k]!==undefined);
+  if(!hasAny)return bad('이 파일에는 복원할 계좌 데이터가 없습니다.');
+  const n=(Array.isArray(d.holdings)?d.holdings.length:0), w=(Array.isArray(d.watchlist)?d.watchlist.length:0);
+  if(!confirm(`복원하면 지금 계정의 데이터가 백업 내용으로 덮어써집니다.\n\n· 보유 ${n}종목 · 관심 ${w}종목 · 매매 ${Array.isArray(d.tradeLog)?d.tradeLog.length:0}건\n\n되돌릴 수 없습니다. 계속할까요?`))return;
+  try{
+    if(Array.isArray(d.watchlist))watchlist=d.watchlist.slice();
+    if(Array.isArray(d.holdings))holdings=d.holdings.slice();
+    if(d.cash!=null)cash=d.cash;
+    if(Array.isArray(d.ipoPlans))ipoPlans=d.ipoPlans.slice();
+    if(Array.isArray(d.tradeLog))tradeLog=d.tradeLog.slice();
+    if(d.tradeArchive&&typeof d.tradeArchive==='object')tradeArchive=d.tradeArchive;
+    if(Array.isArray(d.watchFolders))watchFolders=d.watchFolders.slice();
+    if(d.stockMemos&&typeof d.stockMemos==='object')stockMemos=d.stockMemos;
+    if(d.prefs&&typeof d.prefs==='object')userPrefs=Object.assign({},userPrefs,d.prefs);
+    try{sanitizeAccount(true);}catch(e){}
+    try{syncWatchUnion();}catch(e){}
+    saveState();
+    m.style.color='var(--up)';m.textContent='복원했습니다. 화면을 새로 그립니다…';
+    setTimeout(()=>{try{$('profileGate').hidden=true;}catch(e){}
+      ['renderPortfolioNumbers','renderHoldings','renderWatch','renderJournal'].forEach(f=>{try{window[f]&&window[f]();}catch(e){}});
+      toast('buy','백업 복원 완료','보유 '+holdings.length+'종목 · 관심 '+watchlist.length+'종목을 되살렸습니다.');},600);
+  }catch(e){ bad('복원 중 문제가 생겼습니다: '+String(e).slice(0,60)); }
+}
+{const b=$('pmRestore'); if(b)b.onclick=()=>pmApplyRestore($('pmRestoreIn')?$('pmRestoreIn').value:'');}
+{const b=$('pmRestoreFile'); if(b)b.onclick=()=>{const f=$('pmRestoreFileIn'); if(f)f.click();};}
+{const f=$('pmRestoreFileIn'); if(f)f.onchange=()=>{
+   const file=f.files&&f.files[0]; if(!file)return;
+   const rd=new FileReader();
+   rd.onload=()=>{ if($('pmRestoreIn'))$('pmRestoreIn').value=String(rd.result||''); pmApplyRestore(rd.result); };
+   rd.onerror=()=>{const m=$('pmDataMsg');m.style.color='var(--down)';m.textContent='파일을 읽지 못했습니다.';};
+   rd.readAsText(file); f.value='';
+ };}
 $('pmSaveSec').onclick=async()=>{
   const pw=$('pmPw').value,a=$('pmAcct').value,m=$('pmSecMsg'),acc=accounts()[currentUser];if(!acc)return;
   if(pw&&pw.length<6){m.style.color='var(--down)';m.textContent='비밀번호는 6자 이상.';return;}
@@ -3146,7 +3303,7 @@ function applyQuote(q,isSnap){
   }
 }
 
-/* ===== Netlify 무료 크레딧 보호: 함수 호출 사용량 상한(월/일, 속도설정 연동) ===== */
+/* ===== 서버 호출 보호: 함수 호출 사용량 상한(월/일, 속도설정 연동) ===== */
 function fnCapM(){return speedCfg().capM;}
 function fnCapD(){return speedCfg().capD;}
 function _fbGet(){let b={};try{b=JSON.parse(localStorage.getItem('fnbudget')||'{}')}catch(e){}
@@ -6430,7 +6587,7 @@ function rankSection(){
        그런데 rankSection() 은 목록이 비어 있으면 또 loadRank 를 걸기 때문에
        (_rankBusy 는 바로 앞줄에서 이미 false 로 풀린 상태) 고리가 닫혀 버린다.
        → /api/popular 가 죽거나 빈 응답이면 종목검색 화면이 무한 요청을 쏟아내며
-         탭이 멈추고 Netlify 함수 호출 한도까지 갉아먹었다.
+         탭이 멈추고 서버 호출 한도까지 갉아먹었다.
        해결: 실패가 확인된 탭은 자동 재시도하지 않고 '다시 시도' 버튼으로만 재개한다. */
     if(!_rankBusy[tab]&&!rankError[tab]){
       _rankBusy[tab]=true;

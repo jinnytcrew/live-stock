@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <link rel="manifest" href="/manifest.webmanifest?v=303" id="manifestLink">
+  <link rel="manifest" href="/manifest.webmanifest?v=305" id="manifestLink">
   <meta name="theme-color" content="#101a2e">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -13,11 +13,11 @@
 <meta name="format-detection" content="telephone=no">
 <title>LIVE증권 · 실시간 주식</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
-<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=303">
-<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=303">
-<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=303">
-<link rel="apple-touch-icon" href="/icon-192.png?v=303">
-<link rel="stylesheet" href="/app.css?v=303">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=305">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=305">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=305">
+<link rel="apple-touch-icon" href="/icon-192.png?v=305">
+<link rel="stylesheet" href="/app.css?v=305">
 </head>
 <body>
 
@@ -80,7 +80,7 @@
   <div class="bg-mid">
     <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
     <div class="bg-tag">실시간 시세로 연습하는 한국 주식 모의투자</div>
-      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=303" alt="" aria-hidden="true" decoding="async"></div>
+      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=305" alt="" aria-hidden="true" decoding="async"></div>
   </div>
   <div class="bg-low">
     <div class="bg-status"><span id="bgMsg">시작하고 있습니다</span><i id="bgPct">0%</i></div>
@@ -257,7 +257,7 @@
         <button class="set-btn danger" id="setAcctDel">삭제</button></div>
       <div class="set-about">💾 <b>자동 저장</b> — 관심종목·폴더·보유·메모·설정 등 모든 데이터는 바꾸는 즉시 이 브라우저와 클라우드 계정에 <b>실시간 자동 저장</b>됩니다. 따로 내보내기·백업할 필요가 없어요.</div>
 
-      <div class="set-sec">사용량 · Netlify 크레딧 보호</div>
+      <div class="set-sec">사용량 · 서버 호출 보호</div>
       <div class="set-usage" id="setUsage">—</div>
 
       <div class="set-sec">버전 · 업데이트</div>
@@ -269,7 +269,7 @@
       </div>
       <div class="adm-panel" id="admPanel" hidden>
         <div class="set-sec">🔐 관리자 · 업데이트 공지 편집</div>
-        <input class="ask-in" id="admTok" type="password" placeholder="관리자 토큰 (Netlify 환경변수 NXT_ADMIN_TOKEN 값)">
+        <input class="ask-in" id="admTok" type="password" placeholder="관리자 토큰 (환경변수 NXT_ADMIN_TOKEN 값)">
         <input class="ask-in" id="admVer" placeholder="버전 (예: 1.92.0)">
         <textarea class="ask-in ask-area" id="admNotes" rows="4" placeholder="업데이트 내용 — 한 줄에 하나씩"></textarea>
         <div class="set-btns"><button class="set-btn" id="admLoad">현재 공지 불러오기</button><button class="set-btn primary" id="admSave">공지 게시</button></div>
@@ -289,8 +289,13 @@
     <div class="pm-tabs" id="pmTabs"><button class="on" data-pm="profile">프로필</button><button data-pm="stats">내 통계</button><button data-pm="style">꾸미기</button><button data-pm="security">보안</button><button data-pm="data">계정 이전</button></div>
     <div class="pm-body">
       <div class="pm-pane" id="pm-profile">
-        <div class="fld2"><label>이름 / 닉네임</label><input id="pmNameIn" placeholder="이름"></div>
+        <div class="pm-hero" id="pmHero"></div>
+        <div class="pm-sec-t">활동 배지</div>
+        <div class="pm-badges" id="pmBadges"></div>
+        <div class="pm-sec-t">기본 정보</div>
+        <div class="fld2"><label>이름 / 닉네임</label><input id="pmNameIn" placeholder="이름" maxlength="20"></div>
         <div class="fld2"><label>이메일</label><input id="pmEmailIn" placeholder="이메일 (선택)"></div>
+        <div class="fld2"><label>한 줄 소개</label><input id="pmBioIn" placeholder="예: 반도체 위주로 연습 중" maxlength="40"></div>
         <div class="pm-msg" id="pmProfileMsg"></div>
         <button class="modal-btn" id="pmSaveProfile">프로필 저장</button>
       </div>
@@ -306,6 +311,20 @@
           <div class="ps-c"><span>체결 기록</span><b class="num" id="psTrades">—</b></div>
           <div class="ps-c"><span>함께한 날</span><b class="num" id="psDays">—</b></div>
         </div>
+        <div class="pm-sec-t">매매 성적</div>
+        <div class="ps-grid">
+          <div class="ps-c"><span>실현손익</span><b class="num" id="psReal">—</b></div>
+          <div class="ps-c"><span>승률</span><b class="num" id="psWin">—</b></div>
+          <div class="ps-c"><span>이긴 거래</span><b class="num" id="psWinN">—</b></div>
+          <div class="ps-c"><span>진 거래</span><b class="num" id="psLossN">—</b></div>
+          <div class="ps-c"><span>최고 수익</span><b class="num" id="psBest">—</b></div>
+          <div class="ps-c"><span>최대 손실</span><b class="num" id="psWorst">—</b></div>
+          <div class="ps-c"><span>총 수수료·세금</span><b class="num" id="psFee">—</b></div>
+          <div class="ps-c"><span>평균 보유</span><b class="num" id="psHoldDays">—</b></div>
+          <div class="ps-c"><span>최다 거래</span><b class="num" id="psTop">—</b></div>
+        </div>
+        <div class="pm-sec-t">투자 성향</div>
+        <div class="pm-style-box" id="pmStyleBox"></div>
         <div class="pm-note">실시간 평가 기준입니다. 자산 추이 그래프는 <b>내 계좌</b>에서 볼 수 있어요.</div>
         <div class="pm-quick">
           <button data-go="account">💼 내 계좌</button><button data-go="watch">⭐ 관심종목</button><button id="psSetGo">⚙️ 설정</button>
@@ -315,6 +334,8 @@
         <div class="pm-sec-t">아바타 선택</div>
         <div class="av-grid" id="avGrid"></div>
         <div class="pm-note">선택한 아바타는 이 브라우저의 프로필과 상단 바에 바로 적용돼요.</div>
+        <div class="pm-sec-t">아바타 배경색</div>
+        <div class="av-colors" id="avColors"></div>
       </div>
       <div class="pm-guest" id="pmGuestNote" hidden>
         <b>지금은 게스트 모드예요</b>
@@ -330,6 +351,11 @@
       <div class="pm-pane" id="pm-data" hidden>
         <div class="backup-desc" id="pmCloudNote"></div>
         <div class="backup-actions"><button class="modal-btn" id="pmBackup">백업 파일 내려받기</button><button class="modal-ghost" id="pmBackupCopy" style="flex:1">코드 복사</button></div>
+        <div class="pm-sec-t">백업에서 복원</div>
+        <div class="fld2"><label>백업 코드 붙여넣기</label><textarea id="pmRestoreIn" rows="3" placeholder="내려받은 파일의 내용 또는 복사한 코드를 붙여넣으세요"></textarea></div>
+        <div class="backup-actions"><button class="modal-ghost" id="pmRestoreFile" style="flex:1">파일에서 불러오기</button><button class="modal-btn" id="pmRestore">복원하기</button></div>
+        <input type="file" id="pmRestoreFileIn" accept=".json,application/json" hidden>
+        <div class="pm-warn">복원하면 <b>현재 계정의 관심종목·보유·매매일지가 백업 내용으로 덮어써집니다.</b> 되돌릴 수 없으니 먼저 지금 상태를 내려받아 두세요.</div>
         <div class="pm-msg" id="pmDataMsg"></div>
       </div>
     </div>
@@ -1035,6 +1061,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=303"></script>
+<script type="module" src="/app.js?v=305"></script>
 </body>
 </html>

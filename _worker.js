@@ -3013,12 +3013,17 @@ async function compute(budgetMs) {
   const minScore = weakMkt ? 64 : 58;
   const gatePassed = strong.length >= 5;
   const pool2 = gatePassed ? strong : scored;
+  /* [v4.18] 게이트가 하루 3종만 통과시키는 날이 많아 화면이 늘 3개였다.
+     엄선 기준은 유지하되, 통과분이 8종 미만이면 점수순으로 8종까지 채운다. */
   let sel = pool2.filter((x) => x.score >= minScore);
-  if (sel.length < 3) sel = pool2.slice(0, 3);
+  if (sel.length < 8) {
+    const have = new Set(sel.map((x) => x.code));
+    for (const x of pool2) { if (sel.length >= 8) break; if (have.has(x.code)) continue; have.add(x.code); sel.push(x); }
+  }
   /* [v4.11] 엄선 통과가 3종뿐이어도 화면이 허전하지 않게, 점수순 확장 풀을
      티어표(S/A/B/C)용으로 함께 내려 준다 — 엄선 통과분과 중복 허용(클라가 제외). */
-  const tiers = pool2.slice(0, 60).map((s) => ({ code: s.code, name: s.name, price: s.price != null ? s.price : null, rate: +s.rate || 0, score: Math.round(+s.score || 0) })).filter((x) => x.code && x.name);
-  const picks = sel.slice(0, 12).map((s) => ({
+  const tiers = pool2.slice(0, 80).map((s) => ({ code: s.code, name: s.name, price: s.price != null ? s.price : null, rate: +s.rate || 0, score: Math.round(+s.score || 0) })).filter((x) => x.code && x.name);
+  const picks = sel.slice(0, 16).map((s) => ({
     code: s.code,
     name: s.name,
     market: s.market,
@@ -3031,6 +3036,7 @@ async function compute(budgetMs) {
   return {
     ok: picks.length > 0,
     picks,
+    tiers,                                   // [v4.18] compute 밖에서 참조하던 것을 결과에 실어 전달
     scanned: scored.length,
     universe: cand.length,
     gate: { passed: gatePassed, strongN: strong.length, minScore, weakMkt }
@@ -3044,6 +3050,7 @@ async function buildAndStore(store) {
   if (!res.ok) return { ok: false, why: res.why };
   const payload = {
     ok: true,
+    tiers: res.tiers || [],
     targetDay: targetYmd,
     dayLabel: `${target.getMonth() + 1}\uC6D4 ${target.getDate()}\uC77C (${WD[target.getDay()]})`,
     isReopen: (target - now) / 864e5 > 1.3,
@@ -3147,7 +3154,7 @@ var init_picks = __esm({
             generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
             note: NOTE,
             quick: true,
-            picks: res.picks, tiers,
+            picks: res.picks, tiers: res.tiers || [],
             scanned: res.scanned,
             universe: res.universe,
             gate: res.gate || null
@@ -4306,7 +4313,21 @@ var accounts_default = async (req2) => {
   }
   if (!db.accounts) db.accounts = {};
   if (!db.users) db.users = {};
-  const { action, id, pass, legacy } = body;
+  /* [v4.18 · 치명] 아이디를 그대로 키로 썼다. 기기마다 대소문자·공백이 조금만 달라도
+     ("Jinny" vs "jinny ") 서버에는 다른 계정으로 저장돼, 같은 아이디인데 다른 기기에서
+     로그인이 안 되는 것처럼 보였다. 이제 소문자·공백제거로 정규화한 키를 쓰되,
+     예전에 만들어진 계정도 찾아 자동으로 옮겨 준다(무손실 이전). */
+  const { action, pass, legacy } = body;
+  const rawId = String(body.id == null ? "" : body.id);
+  let id = rawId.trim().toLowerCase();
+  if (id && !db.accounts[id]) {
+    const hit = Object.keys(db.accounts).find((k) => k.trim().toLowerCase() === id);
+    if (hit && hit !== id) {                       // 옛 키 → 정규화 키로 이전
+      db.accounts[id] = db.accounts[hit]; delete db.accounts[hit];
+      if (db.users[hit]) { db.users[id] = db.users[hit]; delete db.users[hit]; }
+      try { await store.setJSON("db", db); } catch (e) { }
+    }
+  }
   const acc = id ? db.accounts[id] : null;
   if (["login", "sync", "profile", "ensure"].includes(action) && id && tooManyTries(db, id))
     return json({ ok: false, err: "toomany", retryAfterMin: 15 });
@@ -9336,60 +9357,56 @@ var popular_default = async (req2) => {
         items.push(it);
       }
     }
-    /* ══ [v4.13] 조회수 100위 — '종합 관심도' 합성 ══════════════════════════
-       [원인] 네이버 조회상위(lastsearch2)는 30개가 상한인 데다, 스크레이프가
-       실패하면 40개짜리 JSON 폴백으로 통째로 대체돼 화면에 늘 40위까지만 떴다.
-       (parseRank 에도 40 하드캡이 있었다 — 함께 제거)
-       [설계] 한 소스로 100위를 만들 수 있는 곳은 없다. 그래서 여러 '관심도'
-       신호를 순위점수로 합산해 100위를 만든다. 각 항목이 어느 신호에서 왔는지
-       origin 으로 남겨 화면에서 정직하게 밝힌다.
-         · 네이버 조회상위      가중 1.00 (진짜 조회수)
-         · 다음 인기검색        가중 0.85 (다른 포털의 조회 신호)
-         · 거래대금 상위        가중 0.55
-         · 거래량 상위          가중 0.40
-         · 상승률/하락률 상위   가중 0.30 (화제성)
-       ═════════════════════════════════════════════════════════════════════ */
+    /* ══ [v4.18] 조회수 100위 — 가볍고 죽지 않는 합성 ═══════════════════════
+       [v4.13 이 왜 화면을 통째로 비웠나]
+         ① 최종 응답이 여전히 items.slice(0,40) 이라 100위가 잘려 나갔고
+         ② 합성 블록에 try/catch 가 없어, 추가로 붙인 5개 원격 호출 중 하나만
+            느려도(=Cloudflare CPU·시간 한도 초과) 함수 전체가 예외로 떨어져
+            '조회수 순위를 불러오지 못했습니다'가 됐다.
+       [해결] 무거운 합성은 KV 에 5분 캐시하고, 실패해도 기본 목록은 반드시 살린다.
+       원격 호출은 2개(거래대금 코스피·코스닥)로 줄여 한도 안에 들어오게 한다. */
     if (type === "search") {
-      const score = /* @__PURE__ */ new Map();   // code -> {code,name,sc,origin}
-      const feed = (list, weight, origin) => {
-        const n = list.length || 1;
-        list.forEach((it, i) => {
-          if (!it || !it.code) return;
-          const add = weight * (1 - i / n);
-          const cur = score.get(it.code);
-          if (cur) { cur.sc += add; if (!cur.origin.includes(origin)) cur.origin.push(origin); if (!cur.name && it.name) cur.name = it.name; }
-          else score.set(it.code, { code: it.code, name: it.name || "", sc: add, origin: [origin] });
-        });
-      };
-      feed(items, 1.0, "view");                                   // 네이버 조회상위(이미 받은 것)
-      const more = await Promise.all([
-        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_quant.naver?sosok=0"); return parseRank(h); } catch { return []; } })(),
-        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_quant.naver?sosok=1"); return parseRank(h); } catch { return []; } })(),
-        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_rise.naver?sosok=0"); return parseRank(h); } catch { return []; } })(),
-        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_rise.naver?sosok=1"); return parseRank(h); } catch { return []; } })(),
-        (async () => {   /* 다음 금융 인기검색 */
-          try {
-            const c5 = new AbortController(); const t5 = setTimeout(() => c5.abort(), 5000);
-            const r5 = await fetch("https://finance.daum.net/api/search/ranks?limit=30",
-              { headers: { "User-Agent": UA19, Referer: "https://finance.daum.net/domestic/all_stocks", Accept: "application/json" }, signal: c5.signal });
-            clearTimeout(t5);
-            if (!r5.ok) return [];
-            const j5 = await r5.json();
-            return (j5.data || []).map((x) => ({ code: String(x.symbolCode || x.code || "").replace(/^A/, ""), name: x.name || x.koreanName || "" })).filter((x) => /^\d{6}$/.test(x.code));
-          } catch { return []; }
-        })()
-      ]);
-      diag.push("quant:" + more[0].length + "+" + more[1].length, "rise:" + more[2].length + "+" + more[3].length, "daum:" + more[4].length);
-      feed(more[4], 0.85, "daum");
-      feed(more[0], 0.55, "value"); feed(more[1], 0.55, "value");
-      feed(more[2], 0.30, "hot");   feed(more[3], 0.30, "hot");
-      const merged = [...score.values()].sort((a2, b2) => b2.sc - a2.sc).slice(0, 100);
-      if (merged.length > items.length) {
-        const viewSet = new Set(items.map((x) => x.code));
-        items = merged.map((x) => ({ code: x.code, name: x.name, origin: x.origin.join("+"), fill: viewSet.has(x.code) ? "" : x.origin[0] }));
-        src = "composite";
-        diag.push("composite:" + items.length);
+      const CK = "rank:composite";
+      let merged = null;
+      try {
+        const cached = KV ? await KV.get(CK, "json") : null;
+        if (cached && cached.at && Date.now() - cached.at < 5 * 60 * 1000 && Array.isArray(cached.items) && cached.items.length >= 60) {
+          merged = cached.items; diag.push("comp:cache" + merged.length);
+        }
+      } catch (e) { diag.push("comp:kvget"); }
+
+      if (!merged) {
+        try {
+          const score = /* @__PURE__ */ new Map();
+          const feed = (list, weight, origin) => {
+            const n = list.length || 1;
+            list.forEach((it, i) => {
+              if (!it || !it.code) return;
+              const add = weight * (1 - i / n);
+              const cur = score.get(it.code);
+              if (cur) { cur.sc += add; if (cur.origin.indexOf(origin) < 0) cur.origin.push(origin); if (!cur.name && it.name) cur.name = it.name; }
+              else score.set(it.code, { code: it.code, name: it.name || "", sc: add, origin: [origin] });
+            });
+          };
+          feed(items, 1.0, "view");
+          const grab = async (u) => { try { return parseRank(await fetchDecoded2(u, 4500)); } catch (e) { return []; } };
+          const more = await Promise.all([
+            grab("https://finance.naver.com/sise/sise_quant.naver?sosok=0"),
+            grab("https://finance.naver.com/sise/sise_quant.naver?sosok=1")
+          ]);
+          diag.push("quant:" + more[0].length + "+" + more[1].length);
+          feed(more[0], 0.55, "value"); feed(more[1], 0.55, "value");
+          const viewSet = new Set(items.map((x) => x.code));
+          const list = [...score.values()].sort((a2, b2) => b2.sc - a2.sc).slice(0, 100)
+            .map((x) => ({ code: x.code, name: x.name, origin: x.origin.join("+"), fill: viewSet.has(x.code) ? "" : x.origin[0] }));
+          if (list.length > items.length) {
+            merged = list;
+            try { if (KV) await KV.put(CK, JSON.stringify({ at: Date.now(), items: list }), { expirationTtl: 900 }); } catch (e) { }
+          }
+          diag.push("comp:build" + (merged ? merged.length : 0));
+        } catch (e) { diag.push("comp:err " + String(e).slice(0, 30)); }   // 실패해도 기본 목록 유지
       }
+      if (merged && merged.length > items.length) { items = merged; src = "composite"; }
     }
     if (items.length < 5 || (type === "search" && items.length < 60)) {
       try {
@@ -9407,7 +9424,7 @@ var popular_default = async (req2) => {
       }
     }
     return new Response(
-      JSON.stringify({ ok: items.length > 0, type, n: items.length, src, items: items.slice(0, 40), diag }),
+      JSON.stringify({ ok: items.length > 0, type, n: items.length, src, items: items.slice(0, 100), diag }),
       { headers: { "content-type": "application/json", "cache-control": items.length ? "s-maxage=60" : "public, max-age=5" } }
     );
   } catch (e) {
@@ -10192,7 +10209,7 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.13.0",
+  version: "4.18.0",
   releasedAt: "2026-08-06 21:40",
   notes: [
     "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
@@ -10527,7 +10544,21 @@ var worker_default = {
     if (url.pathname.startsWith("/api/")) {
       return onRequest({ request, env, waitUntil: ctx.waitUntil.bind(ctx), next: () => env.ASSETS.fetch(request) });
     }
-    return env.ASSETS.fetch(request);
+    /* ══ [v4.18 · 아이콘 자동교체가 안 되던 진짜 이유] ═══════════════════════
+       캐시 규칙을 _headers 파일에 적어 뒀는데, _headers 는 Cloudflare **Pages**
+       전용이다. 이 사이트는 Workers(정적 자산) 라서 그 파일이 통째로 무시됐고,
+       매니페스트와 아이콘이 기본 캐시에 갇혀 브라우저가 '바뀐 사실'을 끝내
+       알지 못했다. → 워커가 자산을 내보낼 때 헤더를 직접 붙인다. */
+    const res = await env.ASSETS.fetch(request);
+    const p = url.pathname;
+    if (p === "/manifest.webmanifest" || p === "/icon-192.png" || p === "/icon-512.png"
+        || p === "/icon-maskable-512.png" || p === "/favicon.png" || p === "/" || p === "/index.html") {
+      const h = new Headers(res.headers);
+      h.set("cache-control", "no-cache, must-revalidate");
+      if (p === "/manifest.webmanifest") h.set("content-type", "application/manifest+json; charset=utf-8");
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+    }
+    return res;
   }
 };
 export {
