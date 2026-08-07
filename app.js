@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=305';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=305';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=307';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=307';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -9393,28 +9393,83 @@ function marketEventChips(){
   }catch(e){}
   return out;
 }
-const AF_BADGE_STYLE={'투자위험':'risk','투자위험예고':'pre','투자위험지정예고':'pre','투자경고':'warn','투자경고지정예고':'pre',
-  '투자주의지정예고':'pre','단기과열지정예고':'pre',
-  '투자주의':'caution','거래정지':'halt','관리종목':'mgmt','정리매매':'halt','단기과열':'warn',
-  '단기과열지정예고':'pre','투자주의환기종목':'caution','불성실공시법인':'mgmt'};
+/* ══ [v4.20] 시장경보 배지 정규화 ═══════════════════════════════════════════
+   [무엇이 잘못됐나] 배지를 세 곳에서 모아 합집합으로 그렸다 —
+     ① 공시 상태기계(sf.badges) ② KRX 투자경고·위험 명단(alert) ③ 투자주의 명단.
+   이들이 서로 다른 시점을 보기 때문에, 이미 '투자경고 지정'된 종목에
+   철 지난 '투자주의 지정예고'가 나란히 붙었다(첨부 사진의 삼현).
+   [규칙] 시장경보는 주의 → 경고 → 위험 3단계의 사다리다.
+     · 같은 등급에 '지정'이 있으면 그 등급의 '지정예고'는 의미가 없다 → 제거
+     · 더 높은 등급이 지정돼 있으면 아래 등급은 지정이든 예고든 이미 흡수됐다 → 제거
+     · 상위 등급의 '예고'는 아래 등급이 지정된 상태에서도 유효하다(승격 예고) → 유지
+   거래정지·관리종목·단기과열·정리매매는 별개 축이라 사다리에서 제외한다.
+   ('투자주의환기종목'은 이름만 비슷할 뿐 관리종목 계열이므로 주의 등급과 섞지 않는다) */
+const AF_TIER={'투자주의':1,'투자경고':2,'투자위험':3};
+function normalizeAlertBadges(set){
+  const arr=[...set].filter(Boolean);
+  const isPre=(t)=>/지정예고$/.test(t);
+  const baseOf=(t)=>t.replace(/지정예고$/,'');
+  // 사다리에서 '지정'된 최고 등급
+  let top=0;
+  arr.forEach(t=>{ if(t==='투자주의환기종목')return;
+    if(!isPre(t)&&AF_TIER[t])top=Math.max(top,AF_TIER[t]); });
+  const out=arr.filter(t=>{
+    if(t==='투자주의환기종목')return true;              // 별개 축
+    const b=baseOf(t), tier=AF_TIER[b];
+    if(!tier)return true;                              // 정지·관리·과열 등은 그대로
+    if(isPre(t)){
+      if(tier<=top)return false;                       // 이미 그 등급 이상이 지정됨 → 철 지난 예고
+      return true;                                     // 상위 등급 승격 예고는 유지
+    }
+    return tier>=top;                                  // 지정: 최고 등급만 남긴다
+  });
+  return new Set(out);
+}
+/* ══ [v4.21] 시장경보 배지 표기 규격 ═══════════════════════════════════════
+   증권사 MTS 관행대로 짧고 단정하게 — 지정예고는 '경고예', 지정 확정은 '경고'. */
+const AF_BADGE_DEF={
+  '투자위험'        :{t:'위험',        i:'⛔️',cls:'risk',   tip:'시장경보 3단계 · 투자위험종목 지정 — 매매거래가 정지될 수 있습니다'},
+  '투자위험지정예고':{t:'위험예',      i:'⚠️',cls:'pre',    tip:'투자위험종목 지정예고 — 요건 충족 시 지정됩니다'},
+  '투자경고'        :{t:'경고',        i:'⛔️',cls:'warn',   tip:'시장경보 2단계 · 투자경고종목 지정 — 신용·미수 불가, 위탁증거금 100%'},
+  '투자경고지정예고':{t:'경고예',      i:'⚠️',cls:'pre',    tip:'투자경고종목 지정예고 — 요건 충족 시 투자경고로 지정됩니다'},
+  '투자주의'        :{t:'주의',        i:'🔔',cls:'caution',tip:'시장경보 1단계 · 투자주의종목 지정 — NXT 거래는 유지됩니다'},
+  '투자주의지정예고':{t:'주의예',      i:'⚠️',cls:'pre',    tip:'투자주의종목 지정예고'},
+  '단기과열'        :{t:'단기과열',    i:'🔥',cls:'warn',   tip:'단기과열종목 지정 — 30분 단일가매매가 적용됩니다'},
+  '단기과열지정예고':{t:'과열예',      i:'⚠️',cls:'pre',    tip:'단기과열종목 지정예고'},
+  '거래정지'        :{t:'거래정지',    i:'🛑',cls:'halt',   tip:'매매거래 정지 중 — 주문을 낼 수 없습니다'},
+  '정리매매'        :{t:'정리매매',    i:'🛑',cls:'halt',   tip:'상장폐지 확정 후 정리매매 기간'},
+  '관리종목'        :{t:'관리종목',    i:'📛',cls:'mgmt',   tip:'관리종목 지정 — 상장폐지 요건에 해당합니다'},
+  '투자주의환기종목':{t:'투자주의환기',i:'📛',cls:'mgmt',   tip:'투자주의환기종목 — 내부회계·경영 안정성 관련 지정'},
+  '불성실공시법인'  :{t:'불성실공시',  i:'📛',cls:'mgmt',   tip:'불성실공시법인 지정'},
+};
+const AF_BADGE_STYLE=Object.fromEntries(Object.entries(AF_BADGE_DEF).map(([k,v])=>[k,v.cls]));
+const AF_RANK={'거래정지':0,'정리매매':1,'투자위험':2,'투자위험지정예고':3,'투자경고':4,'투자경고지정예고':5,
+  '단기과열':6,'단기과열지정예고':7,'투자주의':8,'투자주의지정예고':9,'관리종목':10,'투자주의환기종목':11,'불성실공시법인':12};
 function renderAdvFlags(){
   const box=$('advFlags'); if(!box)return;
   const code=selected, st=byCode[code];
   if(!code||!st){box.hidden=true;return;}
   const chips=[];
   const sf=stockFlags[code]||{};
-  /* 1) 시장경보 — 명단(확정) 우선, 페이지 배지로 예고류 보강 */
-  const seen=new Set();
+  /* ══ [v4.21 · 치명] 배지를 정규화 없이 그리고 있었다 ═════════════════════
+     v4.20 에서 계층 정규화를 만들었지만, 정작 화면 칩은 명단·공시를 각자 따로
+     push 하고 정규화 결과는 '증거금 계산'에만 썼다. 그래서 삼현처럼
+     '투자경고 지정'과 '투자주의 지정예고'가 여전히 나란히 떴다.
+     → 세 출처를 한 집합으로 모아 정규화한 뒤, 그 결과만으로 칩을 만든다.
+     화면·증거금·신용 판정이 같은 한 벌을 보게 되어 어긋날 수 없다. */
   const alert=krxAlerts.map&&krxAlerts.map[code];
-  if(alert){const lb=NXT_SUS_LABEL[alert]||alert;
-    chips.push({cls:{warn:'warn',risk:'risk',halt:'halt',mgmt:'mgmt'}[alert]||'warn',t:lb,i:'🚨',
-      tip:'KRX 시장경보 명단 기준 · 10분마다 자동 갱신'});
-    seen.add({warn:'투자경고',risk:'투자위험',halt:'거래정지',mgmt:'관리종목'}[alert]);}
-  try{if((krxAlerts.caution||[]).includes(code)&&!seen.has('투자주의')){
-    chips.push({cls:'caution',t:'투자주의 지정',i:'⚠️',tip:'시장경보 1단계 — NXT 거래는 유지됩니다'});seen.add('투자주의');}}catch(e){}
-  (sf.badges||[]).forEach(b=>{if(seen.has(b))return;seen.add(b);
-    chips.push({cls:AF_BADGE_STYLE[b]||'warn',t:b.includes('예고')?b.replace('지정예고',' 지정예고'):b,
-      i:b.includes('예고')?'🔔':'🚨',tip:'네이버 금융 종목 페이지 표기 기준'});});
+  const _ALERT2B={warn:'투자경고',risk:'투자위험',halt:'거래정지',mgmt:'관리종목'};
+  let _bset=new Set(sf.badges||[]);
+  if(alert&&_ALERT2B[alert])_bset.add(_ALERT2B[alert]);
+  try{if((krxAlerts.caution||[]).includes(code))_bset.add('투자주의');}catch(e){}
+  _bset=normalizeAlertBadges(_bset);
+  [..._bset].sort((x,y)=>(AF_RANK[x]!=null?AF_RANK[x]:99)-(AF_RANK[y]!=null?AF_RANK[y]:99)).forEach(bn=>{
+    const d=AF_BADGE_DEF[bn];
+    const fromList=!!(alert&&_ALERT2B[alert]===bn);
+    chips.push(d?{cls:d.cls,t:d.t,i:d.i,
+        tip:d.tip+(fromList?' · KRX 시장경보 명단 기준(10분마다 갱신)':' · 거래소 시장경보 공시 기준')}
+      :{cls:'warn',t:bn,i:'🚨',tip:'거래소 시장경보 기준'});
+  });
   const sus=nxtSuspendInfo(code);
   if(sus&&st.nxt)chips.push({cls:'sus',t:'NXT 매매 일시 제외',i:'⛔',tip:sus.label+' — 해소 시 자동 복귀'});
   /* 2) 증거금·신용 — [v4.11] '정보 없음' 폐지.
@@ -9422,9 +9477,7 @@ function renderAdvFlags(){
      경고예고 종목(로보티즈·티엑스알)이 미래에셋에선 '신용불가'인데 우리는
      '정보 없음'으로 떴다. 증권사 실무 관행대로 시장경보와 연동한 자체 기준으로
      항상 판정하고, 드물게 스크레이프 값이 있으면 그 값을 우선한다. */
-  const _bset=new Set(sf.badges||[]);
-  if(alert)_bset.add({warn:'투자경고',risk:'투자위험',halt:'거래정지',mgmt:'관리종목'}[alert]);
-  try{if((krxAlerts.caution||[]).includes(code))_bset.add('투자주의');}catch(e){}
+  /* 위에서 확정한 _bset 을 그대로 사용 — 화면과 증거금 판정이 어긋날 수 없다 */
   /* [v4.12] '…지정예고'로 끝나는 어떤 배지든 증거금 100%·신용불가로 본다
      (미래에셋이 '경고예'를 신용불가로 표시하는 것과 동일한 실무 기준). */
   const _hard=[..._bset].some(t=>/지정예고|예고$/.test(t))

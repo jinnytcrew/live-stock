@@ -10209,7 +10209,7 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.18.0",
+  version: "4.21.0",
   releasedAt: "2026-08-06 21:40",
   notes: [
     "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
@@ -10419,11 +10419,20 @@ async function stockflags_default(req2, context) {
   const noticeDiag = [];
   try {
     const c4 = new AbortController(); const t4 = setTimeout(() => c4.abort(), 6000);
-    const rn = await fetch("https://finance.naver.com/item/news_notice.naver?code=" + code + "&page=1",
-      { headers: { "User-Agent": UA, "Referer": "https://finance.naver.com/item/main.naver?code=" + code }, signal: c4.signal });
+    /* [v4.20] 1페이지만 읽으면 '지정예고' 뒤에 온 '지정'·'해제' 공시를 놓쳐
+       철 지난 예고가 계속 배지로 남는다(삼현 사례). 2페이지까지 읽어 최신 상태를 만든다. */
+    const pages = await Promise.all([1, 2].map(async (pg) => {
+      try {
+        const rr = await fetch("https://finance.naver.com/item/news_notice.naver?code=" + code + "&page=" + pg,
+          { headers: { "User-Agent": UA, "Referer": "https://finance.naver.com/item/main.naver?code=" + code }, signal: c4.signal });
+        if (!rr.ok) return "";
+        return decodeSmart2(await rr.arrayBuffer(), rr.headers.get("content-type"));
+      } catch (e) { return ""; }
+    }));
     clearTimeout(t4);
+    const rn = { ok: pages.some((x) => x) };
     if (rn.ok) {
-      const nh = decodeSmart2(await rn.arrayBuffer(), rn.headers.get("content-type"));
+      const nh = pages.join("\n");
       /* 행 단위로 제목+날짜를 뽑아 최신순 정렬 */
       const rows = [];
       for (const tr of (nh.match(/<tr[\s\S]*?<\/tr>/gi) || [])) {
@@ -10443,8 +10452,21 @@ async function stockflags_default(req2, context) {
           else if (/\uC9C0\uC815/.test(row.t)) state[key] = label;
         }
       }
+      /* [v4.20] 사다리 정리 — 상위 등급이 지정되면 하위 등급(및 그 예고)은 흡수된다.
+         클라이언트에서도 한 번 더 거르지만, 원천에서 깨끗하게 내보내는 편이 낫다. */
+      const TIER = { "\uD22C\uC790\uC8FC\uC758": 1, "\uD22C\uC790\uACBD\uACE0": 2, "\uD22C\uC790\uC704\uD5D8": 3 };
+      let topTier = 0;
       for (const k of Object.keys(state)) {
-        if (state[k] && !badges.includes(state[k])) badges.push(state[k]);
+        const v = state[k];
+        if (v && TIER[v]) topTier = Math.max(topTier, TIER[v]);
+      }
+      for (const k of Object.keys(state)) {
+        const v = state[k]; if (!v) continue;
+        const base = v.replace(/\uC9C0\uC815\uC608\uACE0$/, "");
+        const t = TIER[base] || 0;
+        if (t && t < topTier) continue;                        // 하위 등급은 버린다
+        if (t && t === topTier && v !== base && TIER[v] !== topTier) continue;   // 같은 등급의 철 지난 예고
+        if (!badges.includes(v)) badges.push(v);
       }
       noticeDiag.push("rows:" + rows.length, "state:" + JSON.stringify(state));
     } else noticeDiag.push("http:" + rn.status);
@@ -10544,18 +10566,24 @@ var worker_default = {
     if (url.pathname.startsWith("/api/")) {
       return onRequest({ request, env, waitUntil: ctx.waitUntil.bind(ctx), next: () => env.ASSETS.fetch(request) });
     }
-    /* ══ [v4.18 · 아이콘 자동교체가 안 되던 진짜 이유] ═══════════════════════
-       캐시 규칙을 _headers 파일에 적어 뒀는데, _headers 는 Cloudflare **Pages**
-       전용이다. 이 사이트는 Workers(정적 자산) 라서 그 파일이 통째로 무시됐고,
-       매니페스트와 아이콘이 기본 캐시에 갇혀 브라우저가 '바뀐 사실'을 끝내
-       알지 못했다. → 워커가 자산을 내보낼 때 헤더를 직접 붙인다. */
+    /* ══ [v4.21 · 정정] v4.18 의 진단은 틀렸다 ═══════════════════════════════
+       _headers 는 Pages 전용이 아니라 Workers 정적 자산에서도 정식 지원된다.
+       진짜 문제는 두 가지였다.
+         ① Workers 는 run_worker_first 가 꺼져 있으면(기본값) 요청 경로와 일치하는
+            자산을 워커를 거치지 않고 바로 내보낸다. 즉 아래 헤더 주입 코드는
+            /icon-*.png · /manifest.webmanifest 에 대해 한 번도 실행되지 않았다.
+         ② 그런데도 v4.18 에서 _headers 를 .assetsignore 에 넣어 업로드를 막아,
+            유일하게 동작하던 통제 수단마저 꺼 버렸다.
+       → 헤더 통제는 _headers 로 되돌리고, 아이콘은 파일명에 버전을 박아
+         어떤 캐시도 본 적 없는 새 주소로 배포한다(가장 확실한 방법).
+       아래 블록은 자산이 없을 때만 도달하므로 사실상 예비 경로다. */
     const res = await env.ASSETS.fetch(request);
     const p = url.pathname;
-    if (p === "/manifest.webmanifest" || p === "/icon-192.png" || p === "/icon-512.png"
-        || p === "/icon-maskable-512.png" || p === "/favicon.png" || p === "/" || p === "/index.html") {
+    if (/^\/manifest(-\w+)?\.webmanifest$/.test(p) || /^\/icon-[\w-]+\.png$/.test(p)
+        || p === "/favicon.png" || p === "/" || p === "/index.html") {
       const h = new Headers(res.headers);
       h.set("cache-control", "no-cache, must-revalidate");
-      if (p === "/manifest.webmanifest") h.set("content-type", "application/manifest+json; charset=utf-8");
+      if (/\.webmanifest$/.test(p)) h.set("content-type", "application/manifest+json; charset=utf-8");
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
     }
     return res;

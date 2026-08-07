@@ -47,7 +47,7 @@ const SRC = [
    475150은 이전 버전에서 이미 '로고 없음'으로 기록됐고(3일 만료), want() 가
    그 기록을 보고 재탐색을 건너뛰어 새로 추가한 그룹 단계가 실행조차 되지 않았다.
    앞으로 소스 목록·그룹 표·탐색 순서를 손댈 때는 반드시 이 숫자를 올린다. */
-const PLAN_VER = 11;   // [v4.8] HS효성 그룹 매핑 추가 — 캐시 무효화로 재탐색 유도
+const PLAN_VER = 12;   // [v4.20] 병렬 탐색 전환 — 순차 시절 굳은 실패 기록을 통째로 무효화
 const BASE_FLAG = 100;              // idx >= 100 → 본주 코드로 받은 로고
 
 /* ── 1-b. 그룹 계열사 로고 상속 ────────────────────────────────────────────
@@ -264,10 +264,12 @@ let queue = [], live = 0;
    ② 동시 5개 상한 — 100행 목록이면 마지막 행은 이론상 수 분을 기다렸다
    → 대기를 2.8초(중계 5초)로 줄이고 동시 10개로 올린다. 성공률 높은 소스를
    앞세우는 hotSrc 학습은 그대로라 체감 순서는 유지된다. */
-const MAX_LIVE = 10;                // 동시 요청 상한 — 목록을 한 번에 그려도 몰리지 않게
+const MAX_LIVE = 6;                 // [v4.20] 종목당 후보를 동시에 쏘므로 종목 동시수는 낮춘다
 const MIN_PX = 12;                  // 이보다 작으면 플레이스홀더로 간주
 
-const NO_TTL = 3 * 86400e3;          // 실패 기록은 3일 뒤 자동 만료
+const NO_TTL = 12 * 3600e3;          /* [v4.20] 실패 기록 만료 3일 → 12시간.
+   순차 탐색 시절 '시간 초과'로 굳은 실패가 사흘이나 유지돼, 병렬 탐색으로 고쳐도
+   같은 종목이 계속 빈 배지로 남는다. 재도전 주기를 짧게 잡아 스스로 회복하게 한다. */
 function isDead(code) {
   const t = noMap[code];
   if (!t) return false;
@@ -285,27 +287,45 @@ function pump() {
 function run(code) {
   const nm = nameOf[code] || '';
   const order = plan(code, nm);
-  let k = 0;
-  const step = () => {
-    if (k >= order.length) { finish(code, null); return; }
-    const idx = order[k++], url = urlOf(code, nm, idx);
-    if (!url) { step(); return; }
+  /* ══ [v4.20] 소스 탐색을 '순차'에서 '동시 경마'로 ═════════════════════════
+     [왜 느렸나] 후보 소스를 하나씩 두드리고 응답을 기다렸다. 이 통신망에서는
+     토스·네이버가 아예 막혀 있어 매번 제한시간을 꽉 채우고 실패한다.
+     중계(5초) + 직접 6곳(각 2.8초) = 한 종목에 최대 21.8초. 목록을 열면
+     아래쪽 종목은 몇십 초씩 빈 배지로 남았다(첨부 사진).
+     [바꾼 방식] 후보 전부를 동시에 요청하고, 가장 먼저 도착한 유효 이미지를 쓴다.
+     대기 시간이 '전부의 합'에서 '가장 빠른 하나'로 바뀐다 — 보통 0.3초 안에 끝난다.
+     이미지 요청은 가벼워 동시에 띄워도 부담이 없고, 실패는 즉시 404 로 끝난다. */
+  const cands = order.map((idx) => ({ idx, url: urlOf(code, nm, idx) })).filter((x) => x.url);
+  if (!cands.length) { finish(code, null); return; }
+  let done = false, left = cands.length;
+  const shots = [];
+  const win = (idx) => {
+    if (done) return; done = true;
+    shots.forEach((im) => { try { im.onload = im.onerror = null; im.src = ''; } catch (e) {} });
+    finish(code, idx);
+  };
+  const lose = (idx) => {
+    if (done) return;
+    if (idx != null) noteFail(idx);
+    if (--left <= 0) { done = true; finish(code, null); }
+  };
+  cands.forEach(({ idx, url }) => {
     const im = new Image();
+    shots.push(im);
     im.referrerPolicy = 'no-referrer';
     im.decoding = 'async';
     let settled = false;
-    const bail = () => { if (!settled) { settled = true; step(); } };
+    const end = (okIdx) => { if (settled) return; settled = true; okIdx != null ? win(okIdx) : lose(idx); };
     im.onload = () => {
-      if (settled) return; settled = true;
       /* 실측 크기 검사 — 1×1 투명 픽셀이나 빈 응답을 로고로 착각하지 않는다 */
-      if ((im.naturalWidth || 0) < MIN_PX || (im.naturalHeight || 0) < MIN_PX) { step(); return; }
-      finish(code, idx);
+      if ((im.naturalWidth || 0) < MIN_PX || (im.naturalHeight || 0) < MIN_PX) { end(null); return; }
+      end(idx);
     };
-    im.onerror = () => { noteFail(idx); bail(); };
-    setTimeout(bail, url.indexOf('/api/') === 0 ? 5000 : 2800);                        // [v4.11] 응답 없는 소스는 2.8초(중계 5초) 만에 포기
+    im.onerror = () => end(null);
+    /* 중계는 서버가 여러 곳을 대신 뒤지므로 넉넉히, 직접 소스는 짧게 */
+    setTimeout(() => end(null), url.indexOf('/api/') === 0 ? 8000 : 3200);
     im.src = url;
-  };
-  step();
+  });
 }
 function finish(code, idx) {
   busy.delete(code); live = Math.max(0, live - 1);

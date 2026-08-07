@@ -1,31 +1,23 @@
-# Cloudflare Pages 정적 자산 캐시 규칙
-# 버전 쿼리(?v=NNN)가 붙은 자산은 내용이 바뀌면 주소가 바뀌므로 길게 캐시해도 안전하다.
+# Cloudflare Workers 정적 자산 헤더 규칙
+# [v4.21] 이 파일은 Workers 에서 정식 지원된다(자산으로 서빙되지 않고 규칙만 적용됨).
+# v4.18 에서 이 파일을 .assetsignore 에 넣어 업로드를 막았던 것이 아이콘이 안 바뀌던 한 원인이다.
 
-/assets/*
-  Cache-Control: public, max-age=604800
-
-/feed.js
-  Cache-Control: public, max-age=604800
-
-# [v4.16] 앱 아이콘 자동 교체를 위해 매니페스트와 아이콘은 항상 재검증한다.
-# Chrome 은 앱 실행 때 매니페스트를 다시 읽어 바뀌었으면 홈 화면 아이콘(WebAPK)을 갱신하는데,
-# 매니페스트가 캐시에 갇히면 '바뀐 사실'을 영영 모른다. 그래서 여기만 no-cache 로 둔다.
+# 매니페스트는 절대 캐시에 가두지 않는다 — 브라우저가 '바뀐 사실'을 알아야 아이콘이 교체된다
 /manifest.webmanifest
-  Cache-Control: no-cache, must-revalidate
+  Cache-Control: no-store
   Content-Type: application/manifest+json; charset=utf-8
-/icon-192.png
-  Cache-Control: public, max-age=0, must-revalidate
-/icon-512.png
-  Cache-Control: public, max-age=0, must-revalidate
-/icon-maskable-512.png
-  Cache-Control: public, max-age=0, must-revalidate
+/manifest-*.webmanifest
+  Cache-Control: no-store
+  Content-Type: application/manifest+json; charset=utf-8
+
+# 아이콘은 파일명에 버전이 박혀 있어 길게 캐시해도 안전하다(새 버전 = 새 파일명)
+/icon-*.png
+  Cache-Control: public, max-age=31536000, immutable
 /favicon.png
   Cache-Control: public, max-age=0, must-revalidate
-/mascot.png
-  Cache-Control: public, max-age=86400
 
-# HTML 은 항상 최신을 받아야 새 버전이 즉시 반영된다
+# HTML 은 항상 최신
 /
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: no-cache, must-revalidate
 /index.html
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: no-cache, must-revalidate
