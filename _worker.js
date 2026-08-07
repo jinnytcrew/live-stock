@@ -4305,12 +4305,28 @@ var accounts_default = async (req2) => {
   } catch {
     return json({ ok: false, err: "nostore" });
   }
-  let db;
+  /* ══ [v4.24 · 치명] DB 읽기에 실패했는데 그대로 덮어쓰면 전 계정이 사라진다 ══
+     KV 가 순간적으로 응답하지 않으면 db 가 빈 객체가 되고, 그 상태에서
+     로그인 실패 한 번만 나도 noteFail → setJSON 으로 '빈 DB'가 저장돼
+     모든 사용자의 계정이 통째로 지워진다. 로드 성공 여부를 기억해 두고,
+     실패했으면 어떤 쓰기도 하지 않는다(읽기 전용으로만 응답). */
+  let db, dbLoaded = false;
   try {
-    db = await store.get("db", { type: "json" }) || { accounts: {}, users: {} };
+    const raw = await store.get("db", { type: "json" });
+    if (raw && typeof raw === "object") { db = raw; dbLoaded = true; }
+    else { db = { accounts: {}, users: {} }; dbLoaded = raw === null; }
   } catch {
-    db = { accounts: {}, users: {} };
+    db = { accounts: {}, users: {} }; dbLoaded = false;
   }
+  const saveDb = async () => {
+    if (!dbLoaded) return false;                 // 로드 실패 상태에서는 쓰지 않는다
+    if (!db.accounts || typeof db.accounts !== "object") return false;
+    /* [v4.25 · 치명] 여기서 saveDb() 를 다시 불러 무한 재귀가 났다.
+       비밀번호가 맞아 로그인이 성공하는 순간 clearTries → saveDb() 에서
+       스택이 터지고 워커가 500 을 반환 → 클라이언트는 "서버 연결 실패"로 보였다.
+       즉 '올바른 비밀번호일수록 반드시 실패하는' 구조였다. 실제 저장을 호출한다. */
+    try { await store.setJSON("db", db); return true; } catch (e) { return false; }
+  };
   if (!db.accounts) db.accounts = {};
   if (!db.users) db.users = {};
   /* [v4.18 · 치명] 아이디를 그대로 키로 썼다. 기기마다 대소문자·공백이 조금만 달라도
@@ -4325,11 +4341,11 @@ var accounts_default = async (req2) => {
     if (hit && hit !== id) {                       // 옛 키 → 정규화 키로 이전
       db.accounts[id] = db.accounts[hit]; delete db.accounts[hit];
       if (db.users[hit]) { db.users[id] = db.users[hit]; delete db.users[hit]; }
-      try { await store.setJSON("db", db); } catch (e) { }
+      try { await saveDb(); } catch (e) { }
     }
   }
   const acc = id ? db.accounts[id] : null;
-  if (["login", "sync", "profile", "ensure"].includes(action) && id && tooManyTries(db, id))
+  if (["login", "sync", "profile"].includes(action) && id && tooManyTries(db, id))   // [v4.24] ensure(복구)는 잠금 대상에서 제외
     return json({ ok: false, err: "toomany", retryAfterMin: 15 });
   try {
     if (action === "signup") {
@@ -4337,7 +4353,7 @@ var accounts_default = async (req2) => {
       if (db.accounts[id]) return json({ ok: false, err: "exists" });
       db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: Date.now() }, pass);
       db.users[id] = { watchlist: ["005930", "000660", "035420"], holdings: [], cash: Number(body.cash) || 0, ipoPlans: [], acctPass: body.acctPass || "" };
-      await store.setJSON("db", db);
+      await saveDb();
       return json({ ok: true });
     }
     if (action === "ensure") {
@@ -4345,19 +4361,19 @@ var accounts_default = async (req2) => {
       if (!db.accounts[id]) {
         db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: body.created || Date.now() }, pass);
         db.users[id] = body.user || { watchlist: [], holdings: [], cash: 0, ipoPlans: [] };
-        await store.setJSON("db", db);
+        await saveDb();
         return json({ ok: true, created: true });
       }
       {
         const v = await verify(db.accounts[id], pass, legacy);
         if (!v.ok) {
           noteFail(db, id);
-          await store.setJSON("db", db);
+          await saveDb();
           return json({ ok: false, err: "exists-diff" });
         }
         if (v.upgraded || v.rehash) {
           await setPassword(db.accounts[id], pass);
-          await store.setJSON("db", db);
+          await saveDb();
         }
         clearTries(db, id);
         return json({ ok: true, created: false });
@@ -4365,30 +4381,34 @@ var accounts_default = async (req2) => {
     }
     if (action === "status") return json({ ok: true, cloud: true });
     if (action === "login") {
+      /* [v4.24] '계정 자체가 없음'과 '비밀번호 틀림'을 구분해 돌려준다.
+         앞의 경우는 복구(ensure)로 되살릴 수 있으므로 화면에서 다르게 안내한다.
+         계정이 없을 땐 실패 횟수도 세지 않는다(잠금으로 복구를 막지 않기 위해). */
+      if (!acc) return json({ ok: false, err: "nouser", dbLoaded });
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await store.setJSON("db", db);
+        await saveDb();
         return json({ ok: false, err: "invalid" });
       }
       if (v.upgraded || v.rehash) {
         await setPassword(acc, pass);
       }
       clearTries(db, id);
-      await store.setJSON("db", db);
+      await saveDb();
       return json({ ok: true, name: acc.name, email: acc.email, created: acc.created, user: db.users[id] || {} });
     }
     if (action === "sync") {
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await store.setJSON("db", db);
+        await saveDb();
         return json({ ok: false, err: "invalid" });
       }
       if (v.upgraded || v.rehash) await setPassword(acc, pass);
       clearTries(db, id);
       db.users[id] = body.user || db.users[id] || {};
-      await store.setJSON("db", db);
+      await saveDb();
       return json({ ok: true });
     }
     if (action === "delete") {
@@ -4396,20 +4416,20 @@ var accounts_default = async (req2) => {
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await store.setJSON("db", db);
+        await saveDb();
         return json({ ok: false, err: "wrongpass" });
       }
       delete db.accounts[id];
       delete db.users[id];
       if (db.tries) delete db.tries[id];
-      await store.setJSON("db", db);
+      await saveDb();
       return json({ ok: true, deleted: id });
     }
     if (action === "profile") {
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await store.setJSON("db", db);
+        await saveDb();
         return json({ ok: false, err: "invalid" });
       }
       if (v.upgraded || v.rehash) await setPassword(acc, pass);
@@ -4421,7 +4441,7 @@ var accounts_default = async (req2) => {
         acc.acctPass = body.acctPass;
         if (db.users[id]) db.users[id].acctPass = body.acctPass;
       }
-      await store.setJSON("db", db);
+      await saveDb();
       return json({ ok: true });
     }
   } catch (e) {
@@ -10209,7 +10229,7 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.23.0",
+  version: "4.24.0",
   releasedAt: "2026-08-06 21:40",
   notes: [
     "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
@@ -10560,7 +10580,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.23.0";
+var APP_VER = "4.25.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

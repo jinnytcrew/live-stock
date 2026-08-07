@@ -18,9 +18,9 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
-<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=309">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=310">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=309">
+<link rel="stylesheet" href="/app.css?v=310">
 </head>
 <body>
 
@@ -84,15 +84,45 @@
 
 /* 아래 — 상태 문구 + 진행바 */
 .bg-low{position:relative;z-index:2;width:min(520px,92vw);margin-bottom:22px;flex:none}
-.bg-status{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-  font-size:clamp(15px,3.2vw,17px);font-weight:800;letter-spacing:-.3px;padding-bottom:12px;color:#fff}
-.bg-status i{font-style:normal;font-size:13.5px;font-weight:900;color:#f5b30f;font-variant-numeric:tabular-nums}
+/* ══ [v4.25] 진행 표시를 전부 CSS 애니메이션으로 ═══════════════════════════
+   [무엇이 잘못됐나] 진행바와 문구를 setInterval 로 그렸다. 그런데 부팅 중
+   app.js 가 메인 스레드를 길게 점유하면 타이머가 아예 돌지 못해, 막대가 11%에
+   멈춰 있다가 안전장치가 켜지는 순간 100%로 튀었다. 문구도 첫 줄에서 안 바뀌었다.
+   [해결] 진행은 JS 가 아니라 CSS 타임라인이 그린다. transform 기반이라
+   메인 스레드가 막혀도 컴포지터에서 계속 움직이고, 문구도 opacity 키프레임으로
+   스스로 넘어간다. JS 는 '끝났다'는 신호만 준다. */
+.bg-status{position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  font-size:clamp(15px,3.2vw,17px);font-weight:800;letter-spacing:-.3px;padding-bottom:12px;color:#fff;
+  min-height:24px}
+.bg-msgs{position:relative;flex:1 1 auto;min-width:0;display:block;height:1.35em}
+.bg-msgs b{position:absolute;left:0;top:0;width:100%;font-weight:800;opacity:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  animation:bgMsgCycle 7.2s steps(1,end) forwards}
+.bg-msgs b:nth-child(1){animation-delay:0s}
+.bg-msgs b:nth-child(2){animation-delay:1.05s}
+.bg-msgs b:nth-child(3){animation-delay:2.1s}
+.bg-msgs b:nth-child(4){animation-delay:3.15s}
+.bg-msgs b:nth-child(5){animation-delay:4.2s}
+.bg-msgs b:nth-child(6){animation-delay:5.25s}
+.bg-msgs b.fin{animation:none;opacity:0}
+#bootGate.fin .bg-msgs b{animation:none;opacity:0}
+#bootGate.fin .bg-msgs b.fin{opacity:1}
+@keyframes bgMsgCycle{0%{opacity:0}1%{opacity:1}14.6%{opacity:1}15.6%{opacity:0}100%{opacity:0}}
+.bg-step{font-style:normal;font-size:13.5px;font-weight:900;color:#f5b30f;flex:none}
+.bg-step::after{content:'1 / 6';animation:bgStepNum 7.2s steps(1,end) forwards}
+@keyframes bgStepNum{
+  0%{content:'1 / 6'}14.6%{content:'2 / 6'}29.2%{content:'3 / 6'}
+  43.8%{content:'4 / 6'}58.3%{content:'5 / 6'}72.9%{content:'6 / 6'}100%{content:'6 / 6'}}
+#bootGate.fin .bg-step::after{content:'완료';animation:none}
 .bg-bar{position:relative;width:100%;height:7px;border-radius:99px;overflow:hidden;
   background:rgba(255,255,255,.12);box-shadow:inset 0 1px 2px rgba(0,0,0,.4)}
-.bg-fill{position:relative;height:100%;width:3%;border-radius:99px;
+.bg-fill{position:absolute;inset:0;border-radius:99px;transform-origin:left center;
+  transform:scaleX(.02);will-change:transform;
   background:linear-gradient(90deg,#ffc93c,#f5a30d 60%,#ff8a3d);
   box-shadow:0 0 16px rgba(245,163,13,.65);
-  transition:width .55s cubic-bezier(.25,.8,.3,1)}
+  animation:bgGrow 7.2s cubic-bezier(.42,0,.58,1) forwards}
+@keyframes bgGrow{from{transform:scaleX(.02)}to{transform:scaleX(.94)}}
+#bootGate.fin .bg-fill{animation:none;transform:scaleX(1);transition:transform .45s cubic-bezier(.25,.8,.3,1)}
 .bg-fill::after{content:'';position:absolute;inset:0;border-radius:99px;
   background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.55) 50%,transparent 80%);
   background-size:220% 100%;animation:bgShine 1.7s linear infinite}
@@ -105,7 +135,8 @@
   border-top:1px solid rgba(255,255,255,.10);padding-top:14px}
 .bg-foot b{font-weight:800;color:rgba(234,240,250,.6)}
 @media (prefers-reduced-motion:reduce){
-  .bg-mark,.bg-char,.bg-fill::after,#bootGate::before,#bootGate::after{animation:none}}
+  .bg-mark,.bg-char,.bg-fill::after,#bootGate::before,#bootGate::after{animation:none}
+  .bg-fill{animation-duration:7.2s}}
 @media (max-height:760px){.bg-char{width:clamp(190px,38vw,240px)}.bg-tag{margin-top:11px}}
 @media (max-height:600px){.bg-charwrap{display:none}.bg-wm{font-size:clamp(34px,7vw,44px)}}
 </style>
@@ -114,10 +145,21 @@
   <div class="bg-mid">
     <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
     <div class="bg-tag">실시간 시세로 연습하는 한국 주식 모의투자</div>
-      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=309" alt="" aria-hidden="true" decoding="async"></div>
+      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=310" alt="" aria-hidden="true" decoding="async"></div>
   </div>
   <div class="bg-low">
-    <div class="bg-status"><span id="bgMsg">시작하고 있습니다</span><i id="bgPct">0%</i></div>
+    <div class="bg-status">
+      <span class="bg-msgs" id="bgMsgs">
+        <b>앱 모듈을 불러오는 중입니다</b>
+        <b>버전과 실행 환경을 확인하고 있습니다</b>
+        <b>종목 데이터를 준비하고 있습니다 · 2,800+ 종목</b>
+        <b>계정과 설정을 동기화하고 있습니다</b>
+        <b>실시간 시세 서버에 연결하고 있습니다</b>
+        <b>화면을 구성하고 있습니다</b>
+        <b class="fin">준비가 끝났습니다</b>
+      </span>
+      <i class="bg-step" id="bgStep"></i>
+    </div>
     <div class="bg-bar"><div class="bg-fill" id="bgFill"></div></div>
     <div class="bg-tip" id="bgTip">잠시만요, 시작할 준비를 하고 있어요…</div>
   </div>
@@ -125,48 +167,41 @@
   종목정보 변경 직후 접속하신 경우 신규 상장 종목 반영에 잠시 시간이 걸릴 수 있습니다 · <b id="bgVer"></b></div>
 </div>
 <script>
-/* [v4.14] 부팅 제어 — 체크리스트 대신 '상태 문구 + 진행바' 한 벌로 표현한다.
-   · 단계마다 문구가 바뀌고 바가 그만큼 찬다 (단계당 최소 1,050ms 체류)
-   · 전체 최소 6.8초 유지 → 통상 6~8초에 열린다
-   · 네트워크가 느려도 12초 안전장치가 무조건 연다
-   실제 진행은 app.js 가 window.__boot.step(n) 으로 밀어 준다. */
+/* [v4.25] 부팅 제어 — 진행 표시는 CSS 가 그린다. JS 는 '언제 닫을지'만 정한다.
+   이전에는 setInterval 로 막대와 문구를 갱신했는데, 부팅 중 app.js 가 메인
+   스레드를 길게 잡으면 타이머가 돌지 못해 11%에서 굳었다가 100%로 튀었다.
+   이제 막대(transform)와 문구(opacity)는 컴포지터에서 스스로 흐르므로
+   메인 스레드가 막혀도 매끄럽게 진행된다.
+   · 최소 7.2초 노출 → 6단계가 눈에 읽힌다
+   · 실제 준비가 끝나면(done) 그 이후에 닫는다
+   · 무슨 일이 있어도 15초에는 반드시 연다 */
 (function(){
-  var g=document.getElementById('bootGate'),fill=document.getElementById('bgFill'),
-      msg=document.getElementById('bgMsg'),pct=document.getElementById('bgPct'),
-      tip=document.getElementById('bgTip');
-  var MSGS=['앱 모듈을 불러오는 중입니다','버전과 실행 환경을 확인하고 있습니다',
-    '종목 데이터를 준비하고 있습니다 · 2,800+ 종목','계정과 설정을 동기화하고 있습니다',
-    '실시간 시세 서버에 연결하고 있습니다','화면을 구성하고 있습니다'];
-  var N=MSGS.length, t0=Date.now(), MIN_TOTAL=6800, STEP_MS=1050;
-  var cur=1, target=1, doneReq=false, closed=false, lastAdv=Date.now();
+  var g=document.getElementById('bootGate'), tip=document.getElementById('bgTip');
+  var t0=Date.now(), MIN_TOTAL=7200, HARD=15000, doneReq=false, closed=false;
   var tips=['오늘도 좋은 연습 되세요 📈','⭐를 누르면 관심종목 폴더에 담을 수 있어요',
     '고급 서비스의 매집 포착기로 세력 흔적을 분석해 보세요','실제 장 시간 제한은 설정에서 끄고 켤 수 있어요',
     'NXT 프리마켓은 오전 8시에 열립니다','투자경고 지정 종목은 NXT 주문이 자동으로 잠겨요'];
   var ti=0,tt=setInterval(function(){ti=(ti+1)%tips.length;tip.style.opacity=0;
-    setTimeout(function(){tip.textContent=tips[ti];tip.style.opacity=.55;},280);},2300);
-  function paint(){
-    var p=Math.min(100,Math.round((cur-0.35)/N*100));
-    if(p<3)p=3;
-    fill.style.width=p+'%'; pct.textContent=p+'%';
-    msg.textContent=MSGS[Math.min(N,cur)-1]||MSGS[N-1];
-  }
+    setTimeout(function(){tip.textContent=tips[ti];tip.style.opacity=.62;},280);},2400);
   function close(){
-    if(closed)return; closed=true; clearInterval(tt); clearInterval(tk);
-    fill.style.width='100%'; pct.textContent='100%'; msg.textContent='준비가 끝났습니다';
-    setTimeout(function(){g.classList.add('out');setTimeout(function(){try{g.remove();}catch(e){}},560);},340);
+    if(closed)return; closed=true; clearInterval(tt); clearTimeout(hardT);
+    g.classList.add('fin');
+    setTimeout(function(){g.classList.add('out');
+      setTimeout(function(){try{g.remove();}catch(e){}},600);},520);
   }
-  var tk=setInterval(function(){
-    var goal=doneReq?N+1:target;
-    if(cur<goal&&Date.now()-lastAdv>=STEP_MS){cur++;lastAdv=Date.now();paint();}
-    if(doneReq&&cur>N&&Date.now()-t0>=MIN_TOTAL)close();
-  },120);
+  function maybeClose(){
+    if(closed||!doneReq)return;
+    var left=MIN_TOTAL-(Date.now()-t0);
+    if(left>0)setTimeout(maybeClose,left+30); else close();
+  }
+  var hardT=setTimeout(function(){
+    if(!closed){ tip.textContent='네트워크가 느려요 — 나머지 데이터는 화면에서 이어서 불러옵니다'; close(); }
+  },HARD);
   window.__boot={
-    step:function(i){if(i>target)target=i;},
+    step:function(){},                                     // 진행 표시는 CSS 가 담당
     ver:function(v){try{document.getElementById('bgVer').textContent='v'+v;}catch(e){}},
-    done:function(){doneReq=true;}
+    done:function(){ doneReq=true; maybeClose(); }
   };
-  paint();
-  setTimeout(function(){ if(!closed){ tip.textContent='네트워크가 느려요 — 나머지 데이터는 화면에서 이어서 불러옵니다'; doneReq=true; setTimeout(close,600); } },12000);
 })();
 </script>
 
@@ -1095,6 +1130,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=309"></script>
+<script type="module" src="/app.js?v=310"></script>
 </body>
 </html>

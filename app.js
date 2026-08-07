@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=309';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=309';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=310';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=310';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2078,6 +2078,11 @@ function requireAuth(){
   const g=$('authGate');
   if(g){g.hidden=false;g.classList.add('auth-force');}
   try{document.body.classList.add('locked');}catch(e){}
+  /* [v4.24 · 버그] 부팅 완료 신호(step 4·6·done)는 initApp() 안에만 있었다.
+     로그인 전에는 initApp 이 실행되지 않아 신호가 영영 오지 않았고,
+     입장 화면이 12초 안전장치가 터질 때까지 11%에 멈춰 있다가
+     한 번에 100%로 튀었다. 로그인 화면을 띄우는 것도 '준비 끝'이다. */
+  try{window.__boot&&(__boot.step(4),__boot.step(5),__boot.step(6),__boot.done());}catch(e){}
 }
 function unlockApp(){
   const g=$('authGate');
@@ -2113,36 +2118,59 @@ $('tabSignup').onclick=()=>{$('tabSignup').classList.add('on');$('tabLogin').cla
    기기마다 대소문자가 달라 '같은 아이디인데 다른 계정'이 되던 문제의 절반이 여기 있었다. */
 function normId(v){return String(v==null?'':v).trim().toLowerCase();}
 $('doLogin').onclick=async()=>{
-  const id=normId($('liId').value),pw=$('liPw').value,m=$('liMsg');
+  const raw=$('liId').value.trim();
+  const id=normId(raw),pw=$('liPw').value,m=$('liMsg');
   if(!id||!pw){m.textContent='아이디와 비밀번호를 입력하세요.';return;}
-  const passH=await pwHash(pw), legacyH=legacyHash(pw);   // 새 해시 + 구버전 호환 해시
-  /* ══ [v4.18 · 치명] 로그인 순서를 뒤집는다 ═══════════════════════════════
-     예전엔 로컬에 같은 아이디가 있으면 서버를 보지도 않고 그 로컬 데이터로 들어갔다.
-     그래서 A기기에서 매매한 내역이 B기기에 안 보이고, 서로 다른 데이터를 각자
-     들고 갈라졌다(같은 계정인데 다른 계정처럼 보이던 진짜 이유).
-     이제 항상 서버를 먼저 물어 최신본을 받아오고, 서버가 응답하지 않을 때만
-     로컬로 들어간다. 오프라인 진입이면 그 사실을 분명히 알린다. */
-  const local=accounts()[id];
+  const passH=await pwHash(pw), legacyH=legacyHash(pw);
+  const local=accounts()[id]||accounts()[raw];
+  const localOk=!!(local&&(local.pass===passH||local.pass===legacyH));
   m.textContent='확인 중…';
-  const cj=await cloudCall({action:'login',id,pass:passH,legacy:legacyH});
-  if(cj&&cj.ok){
-    const accs=accounts();accs[id]={pass:passH,name:cj.name,email:cj.email||'',acctPass:(cj.user&&cj.user.acctPass)||legacyHash('0000'),created:cj.created||Date.now()};store.set('accounts',accs);
-    store.set('user:'+id,cj.user||{});applyUser(id);unlockApp();initApp();return;
-  }
-  if(cj&&cj.ok===false&&cj.err!=='nostore'){        // 서버가 '아니다'라고 답한 경우
-    m.textContent=cj.err==='toomany'?'시도가 너무 잦습니다. 잠시 후 다시 시도하세요.':'아이디 또는 비밀번호가 올바르지 않습니다.';
-    return;
-  }
-  // 여기부터는 서버에 닿지 못한 경우 — 로컬 자격증명으로 오프라인 진입 허용
-  if(local&&(local.pass===passH||local.pass===legacyH)){
-    if(local.pass===legacyH){const a=accounts();a[id].pass=passH;store.set('accounts',a);}
+  const enter=(j)=>{
+    const accs=accounts();
+    accs[id]={pass:passH,name:(j&&j.name)||(local&&local.name)||id,email:(j&&j.email)||(local&&local.email)||'',
+      acctPass:(j&&j.user&&j.user.acctPass)||(local&&local.acctPass)||legacyHash('0000'),
+      created:(j&&j.created)||(local&&local.created)||Date.now()};
+    store.set('accounts',accs);
+    if(j&&j.user)store.set('user:'+id,j.user);
     applyUser(id);unlockApp();initApp();
-    toast('warn','오프라인으로 시작했어요','서버에 연결되지 않아 이 기기에 저장된 내용으로 열었습니다. 연결되면 자동으로 동기화됩니다.');
-    cloudCall({action:'ensure',id,pass:passH,legacy:legacyH,name:local.name||id,email:local.email||'',acctPass:local.acctPass||'',created:local.created||Date.now(),
-      user:store.get('user:'+id)||{}}).then(r=>{ if(r&&r.created)toast('ok','계정 동기화 완료','이제 다른 기기에서도 같은 아이디로 로그인할 수 있어요'); });
+  };
+  /* ══ [v4.24] 로그인 복구 경로 ══════════════════════════════════════════
+     서버 우선으로 확인하되, 서버가 '그런 계정 없음'이라고 하면 그대로 막지 않는다.
+     서버 저장소가 순간 장애로 비었거나 키가 어긋난 경우 멀쩡한 사용자가
+     자기 계정에서 통째로 잠기기 때문이다. 이 기기의 비밀번호가 맞으면
+     로컬 데이터로 들여보낸 뒤, 그 데이터를 서버에 되올려 계정을 복원한다. */
+  let cj=await cloudCall({action:'login',id,pass:passH,legacy:legacyH});
+  if(cj&&cj.ok){ enter(cj); return; }
+  if((!cj||cj.err==='nouser') && raw && raw!==id){          // 옛 대소문자 키 구제
+    const cj2=await cloudCall({action:'login',id:raw,pass:passH,legacy:legacyH});
+    if(cj2&&cj2.ok){ enter(cj2); return; }
+    if(cj2&&cj2.ok===false)cj=cj2;
+  }
+  if(cj&&cj.err==='toomany'){
+    m.innerHTML='로그인 시도가 너무 잦습니다. <b>15분 뒤</b>에 다시 시도해 주세요.'; return;
+  }
+  if(cj&&cj.err==='invalid'&&!localOk){
+    m.textContent='비밀번호가 올바르지 않습니다.'; return;
+  }
+  /* 서버가 계정을 못 찾았거나 응답이 없다 — 이 기기 자격증명으로 복구 시도 */
+  if(localOk){
+    enter(null);
+    const kind=(cj&&cj.err==='nouser')?'서버에 계정이 없어 이 기기 기록으로 복구합니다'
+              :'서버에 연결하지 못해 이 기기 기록으로 열었습니다';
+    toast('warn','계정 복구 중',kind+' — 잠시 뒤 자동으로 서버에 저장됩니다.');
+    cloudCall({action:'ensure',id,pass:passH,legacy:legacyH,
+      name:(local&&local.name)||id,email:(local&&local.email)||'',
+      acctPass:(local&&local.acctPass)||'',created:(local&&local.created)||Date.now(),
+      user:store.get('user:'+id)||store.get('user:'+raw)||{}})
+      .then(r=>{ if(r&&r.ok)toast('ok','계정 복구 완료','이제 다른 기기에서도 같은 아이디로 로그인할 수 있어요.'); });
     return;
   }
-  m.innerHTML='서버에 연결하지 못했고, 이 기기에도 저장된 계정이 없습니다. 잠시 후 다시 시도해 주세요.';
+  if(cj&&cj.err==='nouser'){
+    m.innerHTML='이 아이디로 저장된 계정을 찾지 못했습니다.<br>'
+      +'<b>회원가입</b> 탭에서 새로 만들거나, 아래 <b>다른 주소·기기에서 쓰던 계정 복원</b>을 눌러 백업 코드로 되살릴 수 있어요.';
+    return;
+  }
+  m.innerHTML='서버에 연결하지 못했고, 이 기기에도 저장된 계정이 없습니다.<br>잠시 후 다시 시도해 주세요.';
 };
 /* [v4.1] 게스트 진입 경로 제거 */
 // 전체 종목 검사 버튼 연결($ 정의 이후·요소 존재 이후에 바인딩)
@@ -2636,7 +2664,7 @@ function iconUpdateHelpText(){
     +'<b>Update</b> 를 누르세요. 아이폰은 홈 화면에서 삭제 후 다시 추가해야 합니다.';
 }
 
-async function applyUpdate(){async function applyUpdate(){
+async function applyUpdate(){
   /* [v2.2] 업데이트 파이프라인:
      ① 진행 안내 모달 표시 → ② Cache Storage·서비스워커·무거운 로컬 캐시 정리
      → ③ 서버에서 새 index.html 확보 확인 → ④ ?upd= 캐시버스터로 재기동
