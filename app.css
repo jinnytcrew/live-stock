@@ -1818,11 +1818,18 @@ html.reduce-motion .info-tabs .lv{animation:none}
 /* ETF 라운지: 카드 호버 + 넓은 화면 목록 2단 */
 .etf-hero>*{transition:transform .12s,box-shadow .12s}
 .etf-hero>*:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(20,30,50,.08)}
-#etfRows>*{border-radius:12px;transition:background .1s}
+#etfRows>*{border-radius:10px;transition:background .1s}
 #etfRows>*:hover{background:var(--border-soft)}
+/* [v4.12] 어떤 나중 규칙도 목록을 다단으로 만들지 못하게 못 박는다 */
+#etfRows{display:block !important}
+.etf-row{width:100%}
+/* ══ [v4.12 · 원인] 여기(1824행)의 넓은화면 2단 규칙이 위(572행)의 #etfRows{display:block}
+   보다 뒤에 있어 그대로 이겼다. 한 행이 화면 절반만 쓰게 되니 이름 칸(minmax(0,1fr))이
+   찌그러져 ETF명이 통째로 사라지고 코드가 "0."으로 잘렸다(첨부 사진).
+   목록은 항상 1단 전체폭으로 고정하고, 표 머리글도 계속 보이게 한다. */
 @media (min-width:1100px){
-  #etfRows{display:grid;grid-template-columns:1fr 1fr;gap:2px 24px;align-items:start}
-  .etf-table-head{display:none}
+  #etfRows{display:block}
+  .etf-table-head{display:grid}
 }
 
 /* ═══════ v2.2.1 ═══════ */

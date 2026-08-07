@@ -7,6 +7,23 @@
 /feed.js
   Cache-Control: public, max-age=604800
 
+# [v4.16] 앱 아이콘 자동 교체를 위해 매니페스트와 아이콘은 항상 재검증한다.
+# Chrome 은 앱 실행 때 매니페스트를 다시 읽어 바뀌었으면 홈 화면 아이콘(WebAPK)을 갱신하는데,
+# 매니페스트가 캐시에 갇히면 '바뀐 사실'을 영영 모른다. 그래서 여기만 no-cache 로 둔다.
+/manifest.webmanifest
+  Cache-Control: no-cache, must-revalidate
+  Content-Type: application/manifest+json; charset=utf-8
+/icon-192.png
+  Cache-Control: public, max-age=0, must-revalidate
+/icon-512.png
+  Cache-Control: public, max-age=0, must-revalidate
+/icon-maskable-512.png
+  Cache-Control: public, max-age=0, must-revalidate
+/favicon.png
+  Cache-Control: public, max-age=0, must-revalidate
+/mascot.png
+  Cache-Control: public, max-age=86400
+
 # HTML 은 항상 최신을 받아야 새 버전이 즉시 반영된다
 /
   Cache-Control: public, max-age=0, must-revalidate

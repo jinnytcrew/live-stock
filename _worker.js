@@ -8220,6 +8220,90 @@ async function krFutures() {
       }
     }
   }
+  /* ══ [v4.13] KRX 정보데이터시스템 — 야간선물 1순위 소스 ════════════════
+     [결정적 사실] 2025년 6월 9일부터 EUREX 연계가 끝나고 KRX 가 야간거래를
+     자체 운영한다. 그래서 'EUREX/CME' 라벨을 찾던 기존 프로버는 구조적으로
+     맞을 수 없었다. KRX 데이터시스템은 파생상품 시세를 정규/야간으로 나눠
+     제공하므로 여기를 1순위로 둔다. 야간 데이터의 조회 기준일은 야간거래
+     종료일(T+1)이므로, 지금이 자정 이후면 오늘, 자정 전이면 다음 영업일로 묻는다. */
+  if (!out.night) {
+    const kD = new Date(Date.now() + 9 * 3600e3);
+    const hh = kD.getUTCHours();
+    if (hh >= 18) kD.setUTCDate(kD.getUTCDate() + 1);              // 18시 이후 → 종료일은 내일
+    const ymd = kD.toISOString().slice(0, 10).replace(/-/g, "");
+    const BLDS = [
+      "dbms/MDC/STAT/standard/MDCSTAT12501",
+      "dbms/MDC/STAT/standard/MDCSTAT12502",
+      "dbms/MDC/STAT/standard/MDCSTAT13501"
+    ];
+    for (const bld of BLDS) {
+      if (out.night) break;
+      try {
+        const ck = new AbortController(); const tk2 = setTimeout(() => ck.abort(), 6000);
+        const body = new URLSearchParams({
+          bld, locale: "ko_KR", trdDd: ymd, prodId: "KRDRVFUK2I",
+          mktTpCd: "N", secugrpId: "KRDRVFUK2I", money: "1", csvxls_isNo: "false"
+        });
+        const r = await fetch("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd", {
+          method: "POST",
+          headers: {
+            "User-Agent": UA20, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Referer": "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest", "Accept-Language": "ko"
+          }, body: body.toString(), signal: ck.signal
+        });
+        clearTimeout(tk2);
+        if (!r.ok) { out.diag.push("night/krx:" + r.status); continue; }
+        const txt = await r.text();
+        /* 최근월물 = 응답의 첫 행. 현재가 필드명이 버전마다 달라 폭넓게 훑는다. */
+        let j = null; try { j = JSON.parse(txt); } catch { }
+        const rows = j ? (j.output || j.OutBlock_1 || j.block1 || []) : [];
+        let px = null;
+        for (const row of rows.slice(0, 6)) {
+          for (const k of ["TDD_CLSPRC", "TDD_CLOSE", "CLSPRC", "PRSNT_PRC", "ISU_PRC"]) {
+            const v = Number(String(row[k] == null ? "" : row[k]).replace(/,/g, ""));
+            if (isFinite(v) && v > 100 && v < 5e3) { px = v; break; }
+          }
+          if (px != null) break;
+        }
+        if (px != null) takeNight(px, "krx/" + bld.slice(-9));
+        else out.diag.push("night/krx:" + bld.slice(-9) + ":rows" + rows.length);
+      } catch (e) { out.diag.push("night/krx:" + String(e).slice(0, 20)); }
+    }
+  }
+  /* ══ [v4.12] 야간선물 소스 추가 — 네이버 모바일 선물 API 계열 ═══════════
+     지수코드 추측(NFUT/FUTN…)과 데스크톱 페이지 스크레이프가 모두 실패해 왔다.
+     m.stock 의 선물 상품 목록에서 이름에 '야간'이 들어간 항목을 직접 찾는다. */
+  if (!out.night) {
+    for (const mu of [
+      "https://m.stock.naver.com/api/index/category/FUT",
+      "https://m.stock.naver.com/api/index/FUT/basic",
+      "https://api.stock.naver.com/index/category/FUT"
+    ]) {
+      if (out.night) break;
+      try {
+        const cm = new AbortController(); const tm2 = setTimeout(() => cm.abort(), 5000);
+        const r = await fetch(mu, { headers: { "User-Agent": UA20, Accept: "application/json", Referer: "https://m.stock.naver.com/" }, signal: cm.signal });
+        clearTimeout(tm2);
+        if (!r.ok) { out.diag.push("night/mapi:" + r.status); continue; }
+        const txt = await r.text();
+        /* 이름에 '야간'이 든 객체를 통째로 찾아 그 안의 첫 유효 숫자를 쓴다 */
+        let pos = 0, hit = null;
+        for (let g = 0; g < 20 && hit == null; g++) {
+          const rel = txt.slice(pos).indexOf("\uC57C\uAC04");
+          if (rel < 0) break;
+          const at = pos + rel; pos = at + 2;
+          const win = txt.slice(Math.max(0, at - 400), at + 400);
+          const cand = [...win.matchAll(/([0-9]{3,4}\.[0-9]{1,2})/g)].map((m) => Number(m[1]));
+          const px = cand.find((v) => v > 100 && v < 5e3 && (!dayClose || (Math.abs(v - dayClose) / dayClose <= 0.12 && Math.abs(v - dayClose) >= 5e-3)));
+          if (px != null) hit = px;
+        }
+        if (hit != null) takeNight(hit, "mapi");
+        else out.diag.push("night/mapi:no-night-obj");
+      } catch (e) { out.diag.push("night/mapi:" + String(e).slice(0, 18)); }
+    }
+  }
   if (!out.night && globalThis.__nfMem && globalThis.__nfMem.q && Date.now() - globalThis.__nfMem.at < 15 * 60 * 1000) {
     out.night = globalThis.__nfMem.q; out.diag.push("night:mem-cache " + out.night.price);
   }
@@ -8376,7 +8460,10 @@ var market_default = async (req2) => {
           /* [v4.8] \uc608\uc804 \uc8fc\uc11d\uc758 '\uc8fc\uac04 \uc885\uac00 \uc815\uc9c1 \ud45c\uae30'\uac00 \uad6c\ud604\ub41c \uc801\uc774 \uc5c6\uc5b4
              \uc57c\uac04 \uc18c\uc2a4\uac00 \uc804\ubd80 \ub9c9\ud614 \ub54c \uce74\ub4dc\uac00 \ube48 \uaecd\ub370\uae30\ub85c \ub0a8\uc558\ub2e4.
              \uc8fc\uac04 \uac12\uc73c\ub85c \ubc1c\ud589\ud558\uace0 dayBasis \ud45c\uc2dc\ub97c \ubd99\uc5ec \ud074\ub77c\uc774\uc5b8\ud2b8\uac00 '\uc8fc\uac04 \ub9c8\uac10 \uae30\uc900'\uc784\uc744 \uc54c\ub9b0\ub2e4. */
-          if (krf && krf.day) { const c = P("\uCF54\uC2A4\uD53C200 \uC57C\uAC04\uC120\uBB3C", "K200NF", krf.day, "\uC120\uBB3C"); if (c) { c.dayBasis = 1; c.change = 0; c.rate = 0; } return c; }
+          /* [v4.12] 야간 시세를 못 받았으면 주간 숫자를 야간 카드에 싣지 않는다.
+             981.15 를 '야간선물'로 보여 주는 것은 명백한 오정보다(실제는 1,008선).
+             값은 비우고 주간 마감가는 '참고'로만 덧붙인다. */
+          if (krf && krf.day) return { name: "\uCF54\uC2A4\uD53C200 \uC57C\uAC04\uC120\uBB3C", key: "K200NF", price: null, change: null, rate: null, tag: "\uC120\uBB3C", history: [], nightMissing: 1, dayRef: krf.day.price };
           return null;
         })(),
         P("VIX \uBCC0\uB3D9\uC131", "VIX", vix, "\uC9C0\uD45C"),
@@ -9155,7 +9242,7 @@ function parseRank(html) {
     if (!name || /^\d+$/.test(name) || seen.has(code)) continue;
     seen.add(code);
     out.push({ code, name });
-    if (out.length >= 40) break;
+    if (out.length >= 200) break;          // [v4.13] 40 하드캡 해제 — 100위까지 만들려면 원재료가 더 필요
   }
   return out;
 }
@@ -9206,9 +9293,9 @@ async function rankFromJson(type) {
   if (uni.length < 50) return [];
   const live = uni.filter((x) => x.volume > 0);
   const base3 = live.length >= 50 ? live : uni;
-  if (type === "rise") return base3.filter((x) => x.rate > 0).sort((a, b) => b.rate - a.rate).slice(0, 40);
-  if (type === "fall") return base3.filter((x) => x.rate < 0).sort((a, b) => a.rate - b.rate).slice(0, 40);
-  return base3.slice().sort((a, b) => b.volume * b.price - a.volume * a.price).slice(0, 40);
+  if (type === "rise") return base3.filter((x) => x.rate > 0).sort((a, b) => b.rate - a.rate).slice(0, 100);
+  if (type === "fall") return base3.filter((x) => x.rate < 0).sort((a, b) => a.rate - b.rate).slice(0, 100);
+  return base3.slice().sort((a, b) => b.volume * b.price - a.volume * a.price).slice(0, 100);
 }
 var URLS = {
   search: "https://finance.naver.com/sise/lastsearch2.naver",
@@ -9249,29 +9336,71 @@ var popular_default = async (req2) => {
         items.push(it);
       }
     }
-    /* [v4.11] 네이버 조회상위 페이지는 30개가 상한 — 100위까지는
-       거래대금 상위(sise_quant)로 이어 붙이고 fill 표시를 남긴다. */
-    if (type === "search" && items.length >= 5 && items.length < 100) {
-      for (const qu of ["https://finance.naver.com/sise/sise_quant.naver?sosok=0", "https://finance.naver.com/sise/sise_quant.naver?sosok=1"]) {
-        if (items.length >= 100) break;
-        try {
-          const html2 = await fetchDecoded2(qu);
-          for (const it of parseRank(html2)) {
-            if (items.length >= 100) break;
-            if (seen.has(it.code)) continue;
-            seen.add(it.code); it.fill = "quant"; items.push(it);
-          }
-          diag.push(qu.split("sosok=")[1] === "0" ? "fill-kp:" + items.length : "fill-kd:" + items.length);
-        } catch (e) { diag.push("fill:err"); }
+    /* ══ [v4.13] 조회수 100위 — '종합 관심도' 합성 ══════════════════════════
+       [원인] 네이버 조회상위(lastsearch2)는 30개가 상한인 데다, 스크레이프가
+       실패하면 40개짜리 JSON 폴백으로 통째로 대체돼 화면에 늘 40위까지만 떴다.
+       (parseRank 에도 40 하드캡이 있었다 — 함께 제거)
+       [설계] 한 소스로 100위를 만들 수 있는 곳은 없다. 그래서 여러 '관심도'
+       신호를 순위점수로 합산해 100위를 만든다. 각 항목이 어느 신호에서 왔는지
+       origin 으로 남겨 화면에서 정직하게 밝힌다.
+         · 네이버 조회상위      가중 1.00 (진짜 조회수)
+         · 다음 인기검색        가중 0.85 (다른 포털의 조회 신호)
+         · 거래대금 상위        가중 0.55
+         · 거래량 상위          가중 0.40
+         · 상승률/하락률 상위   가중 0.30 (화제성)
+       ═════════════════════════════════════════════════════════════════════ */
+    if (type === "search") {
+      const score = /* @__PURE__ */ new Map();   // code -> {code,name,sc,origin}
+      const feed = (list, weight, origin) => {
+        const n = list.length || 1;
+        list.forEach((it, i) => {
+          if (!it || !it.code) return;
+          const add = weight * (1 - i / n);
+          const cur = score.get(it.code);
+          if (cur) { cur.sc += add; if (!cur.origin.includes(origin)) cur.origin.push(origin); if (!cur.name && it.name) cur.name = it.name; }
+          else score.set(it.code, { code: it.code, name: it.name || "", sc: add, origin: [origin] });
+        });
+      };
+      feed(items, 1.0, "view");                                   // 네이버 조회상위(이미 받은 것)
+      const more = await Promise.all([
+        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_quant.naver?sosok=0"); return parseRank(h); } catch { return []; } })(),
+        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_quant.naver?sosok=1"); return parseRank(h); } catch { return []; } })(),
+        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_rise.naver?sosok=0"); return parseRank(h); } catch { return []; } })(),
+        (async () => { try { const h = await fetchDecoded2("https://finance.naver.com/sise/sise_rise.naver?sosok=1"); return parseRank(h); } catch { return []; } })(),
+        (async () => {   /* 다음 금융 인기검색 */
+          try {
+            const c5 = new AbortController(); const t5 = setTimeout(() => c5.abort(), 5000);
+            const r5 = await fetch("https://finance.daum.net/api/search/ranks?limit=30",
+              { headers: { "User-Agent": UA19, Referer: "https://finance.daum.net/domestic/all_stocks", Accept: "application/json" }, signal: c5.signal });
+            clearTimeout(t5);
+            if (!r5.ok) return [];
+            const j5 = await r5.json();
+            return (j5.data || []).map((x) => ({ code: String(x.symbolCode || x.code || "").replace(/^A/, ""), name: x.name || x.koreanName || "" })).filter((x) => /^\d{6}$/.test(x.code));
+          } catch { return []; }
+        })()
+      ]);
+      diag.push("quant:" + more[0].length + "+" + more[1].length, "rise:" + more[2].length + "+" + more[3].length, "daum:" + more[4].length);
+      feed(more[4], 0.85, "daum");
+      feed(more[0], 0.55, "value"); feed(more[1], 0.55, "value");
+      feed(more[2], 0.30, "hot");   feed(more[3], 0.30, "hot");
+      const merged = [...score.values()].sort((a2, b2) => b2.sc - a2.sc).slice(0, 100);
+      if (merged.length > items.length) {
+        const viewSet = new Set(items.map((x) => x.code));
+        items = merged.map((x) => ({ code: x.code, name: x.name, origin: x.origin.join("+"), fill: viewSet.has(x.code) ? "" : x.origin[0] }));
+        src = "composite";
+        diag.push("composite:" + items.length);
       }
     }
-    if (items.length < 5) {
+    if (items.length < 5 || (type === "search" && items.length < 60)) {
       try {
         const j = await rankFromJson(type);
         diag.push("json:" + j.length);
         if (j.length >= 5) {
-          items = j;
-          src = "json";
+          if (items.length >= 5) {          // [v4.13] 있는 목록을 버리지 않고 뒤에 이어 붙인다
+            const have = new Set(items.map((x) => x.code));
+            for (const it of j) { if (items.length >= 100) break; if (have.has(it.code)) continue; have.add(it.code); it.fill = it.fill || "value"; items.push(it); }
+            src = src + "+json";
+          } else { items = j.slice(0, 100); src = "json"; }
         }
       } catch (e) {
         diag.push("json:err " + String(e).slice(0, 40));
@@ -10063,7 +10192,7 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.11.0",
+  version: "4.13.0",
   releasedAt: "2026-08-06 21:40",
   notes: [
     "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
@@ -10245,7 +10374,9 @@ async function stockflags_default(req2, context) {
       { headers: { "User-Agent": UA, "Referer": "https://finance.naver.com/" }, signal: c2.signal });
     clearTimeout(t);
     if (r.ok) {
-      const html = (() => { const buf = null; return null; })() || decodeEucKr(await r.arrayBuffer());
+      /* [v4.12] 예전엔 EUC-KR 로 단정 디코딩했다. 네이버가 UTF-8 로 주면 한글이
+         전부 깨져 어떤 용어도 매칭되지 않는다(무증상 실패). content-type 을 보고 고른다. */
+      const html = decodeSmart2(await r.arrayBuffer(), r.headers.get("content-type"));
       const mm = html.match(/\uC99D\uAC70\uAE08\uB960[\s\S]{0,200}?(\d{2,3})\s*%/);
       if (mm) margin = +mm[1];
       /* 배지는 종목명 블록 근처(wrap_company)만 본다 — 하단 도움말 범례의 전체 나열을 오탐하지 않기 위해 */
@@ -10262,6 +10393,46 @@ async function stockflags_default(req2, context) {
       for (const t of TERMS) { if (rest.includes(t)) { badges.push(t); rest = rest.split(t).join("\u00A7"); } }
     }
   } catch {}
+  /* ══ [v4.12 · 진짜 원인] 지정예고는 네이버 종목 페이지에 아예 없다 ══════════
+     네이버 종목 페이지가 아이콘으로 보여 주는 건 '실제 지정'(관리·주의·경고·위험·정지)뿐이고,
+     미래에셋이 표시하는 '경고예'(투자경고 지정예고)는 거래소 시장경보 공시로만 나온다.
+     그래서 파서를 아무리 고쳐도 로보티즈·티엑스알에 배지가 붙을 수 없었다.
+     → 종목 공시 목록(news_notice)에서 시장경보 공시를 읽어 카테고리별 최신 상태를 만든다.
+       지정예고 → 지정 → 해제 순서로 덮어써서 '지금 상태'만 남긴다. */
+  const noticeDiag = [];
+  try {
+    const c4 = new AbortController(); const t4 = setTimeout(() => c4.abort(), 6000);
+    const rn = await fetch("https://finance.naver.com/item/news_notice.naver?code=" + code + "&page=1",
+      { headers: { "User-Agent": UA, "Referer": "https://finance.naver.com/item/main.naver?code=" + code }, signal: c4.signal });
+    clearTimeout(t4);
+    if (rn.ok) {
+      const nh = decodeSmart2(await rn.arrayBuffer(), rn.headers.get("content-type"));
+      /* 행 단위로 제목+날짜를 뽑아 최신순 정렬 */
+      const rows = [];
+      for (const tr of (nh.match(/<tr[\s\S]*?<\/tr>/gi) || [])) {
+        const dm = tr.match(/(20\d{2})[.\-\/](\d{2})[.\-\/](\d{2})/);
+        const title = stripTags(tr).replace(/\s+/g, " ").trim();
+        if (!title) continue;
+        rows.push({ d: dm ? dm[1] + dm[2] + dm[3] : "", t: title.replace(/\s+/g, "") });
+      }
+      rows.sort((a2, b2) => (a2.d < b2.d ? -1 : a2.d > b2.d ? 1 : 0));   // 오래된 → 최신
+      const CATS = [["\uD22C\uC790\uC704\uD5D8", "\uD22C\uC790\uC704\uD5D8"], ["\uD22C\uC790\uACBD\uACE0", "\uD22C\uC790\uACBD\uACE0"], ["\uB2E8\uAE30\uACFC\uC5F4", "\uB2E8\uAE30\uACFC\uC5F4"], ["\uD22C\uC790\uC8FC\uC758", "\uD22C\uC790\uC8FC\uC758"]];
+      const state = {};
+      for (const row of rows) {
+        for (const [key, label] of CATS) {
+          if (row.t.indexOf(key) < 0) continue;
+          if (/\uD574\uC81C/.test(row.t)) state[key] = null;                      // 해제
+          else if (/\uC9C0\uC815\uC608\uACE0/.test(row.t)) state[key] = label + "\uC9C0\uC815\uC608\uACE0";
+          else if (/\uC9C0\uC815/.test(row.t)) state[key] = label;
+        }
+      }
+      for (const k of Object.keys(state)) {
+        if (state[k] && !badges.includes(state[k])) badges.push(state[k]);
+      }
+      noticeDiag.push("rows:" + rows.length, "state:" + JSON.stringify(state));
+    } else noticeDiag.push("http:" + rn.status);
+  } catch (e) { noticeDiag.push("err:" + String(e).slice(0, 30)); }
+
   /* 2차(증거금 폴백): 다음 금융 JSON — 키 이름에 margin 이 들어간 수치 탐색 */
   if (margin == null) {
     try {
@@ -10274,7 +10445,7 @@ async function stockflags_default(req2, context) {
       }
     } catch {}
   }
-  const body = { at: now, margin, badges };
+  const body = { at: now, margin, badges, diag: noticeDiag };
   const got = margin != null || badges.length > 0;
   try { if (KV && got) await KV.put(kvKey, JSON.stringify(body), { expirationTtl: 86400 }); } catch {}
   if (!got) { try { if (KV) { const c = await KV.get(kvKey, "json");
@@ -10283,6 +10454,45 @@ async function stockflags_default(req2, context) {
   return new Response(JSON.stringify({ ok: true, ...body }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
 }
 ROUTES["stockflags"] = stockflags_default;
+/* [v4.13] 야간선물 소스 진단 — /api/nightdiag 를 열면 각 후보가 무엇을 돌려줬는지 그대로 보여 준다.
+   샌드박스에서 원천에 접속할 수 없어 추측으로 고치는 일을 끝내기 위한 창구다. */
+async function nightdiag_default() {
+  const out = { at: new Date().toISOString(), tried: [] };
+  const kD = new Date(Date.now() + 9 * 3600e3);
+  if (kD.getUTCHours() >= 18) kD.setUTCDate(kD.getUTCDate() + 1);
+  const ymd = kD.toISOString().slice(0, 10).replace(/-/g, "");
+  out.kstNow = new Date(Date.now() + 9 * 3600e3).toISOString().replace("T", " ").slice(0, 19);
+  out.krxQueryDate = ymd;
+  const probe = async (label, url, opt) => {
+    const rec = { label, url };
+    try {
+      const c = new AbortController(); const t = setTimeout(() => c.abort(), 6000);
+      const r = await fetch(url, Object.assign({ headers: { "User-Agent": UA20, "Accept-Language": "ko" }, signal: c.signal }, opt || {}));
+      clearTimeout(t);
+      rec.status = r.status;
+      const txt = await r.text();
+      rec.len = txt.length;
+      const i = txt.search(/\uC57C\uAC04|night|NIGHT/);
+      rec.hasNightLabel = i >= 0;
+      if (i >= 0) rec.sample = txt.slice(Math.max(0, i - 160), i + 360).replace(/\s+/g, " ");
+      rec.numbers = [...txt.matchAll(/([0-9]{3,4}\.[0-9]{2})/g)].map((m) => m[1]).slice(0, 14);
+    } catch (e) { rec.err = String(e).slice(0, 60); }
+    out.tried.push(rec);
+  };
+  await probe("krx-json", "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd", {
+    method: "POST",
+    headers: { "User-Agent": UA20, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "Referer": "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd", "X-Requested-With": "XMLHttpRequest" },
+    body: "bld=dbms/MDC/STAT/standard/MDCSTAT12501&locale=ko_KR&trdDd=" + ymd + "&prodId=KRDRVFUK2I&mktTpCd=N"
+  });
+  await probe("naver-sise", "https://finance.naver.com/sise/");
+  await probe("naver-fut", "https://finance.naver.com/sise/sise_index.naver?code=FUT");
+  await probe("mstock-fut", "https://m.stock.naver.com/api/index/FUT/basic");
+  await probe("mstock-cat", "https://m.stock.naver.com/api/index/category/FUT");
+  await probe("hankyung", "https://markets.hankyung.com/indices/kospi-future");
+  await probe("daum-fut", "https://finance.daum.net/api/quotes/futures");
+  return new Response(JSON.stringify(out, null, 2), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+}
+ROUTES["nightdiag"] = nightdiag_default;
 
 async function onRequest(ctx) {
   const { request, env, waitUntil } = ctx;

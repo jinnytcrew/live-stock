@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=297';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=297';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=303';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=303';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2457,6 +2457,51 @@ function hasNewVersion(){
   const byBuild=!!(verBuildLatest&&APP_BUILD&&verBuildLatest!==APP_BUILD);
   return byVer||byBuild;
 }
+/* ══ [v4.16] 홈 화면 아이콘 자동 교체 ═════════════════════════════════════
+   [문제] 아이콘을 새로 만들어도 홈 화면 바로가기는 옛 그림 그대로였다.
+   재설치를 안내했지만, 사용자가 [지금 업데이트]만 눌러도 바뀌어야 맞다.
+   [원리] Chrome(안드로이드)은 앱을 열 때 매니페스트를 다시 읽어, 내용이
+   바뀌었으면 홈 화면 아이콘(WebAPK)을 백그라운드로 교체한다. 문제는
+     ① 매니페스트가 캐시에 갇히면 '바뀐 사실'을 아예 모르고
+     ② <link rel=manifest> 주소가 그대로면 재확인을 게을리한다는 점이었다.
+   [해결] 업데이트 시 매니페스트·아이콘을 캐시 무시로 강제로 다시 받고,
+   link 주소를 새 버전으로 바꿔 끼워 브라우저가 즉시 재평가하게 만든다.
+   (_headers 에서 매니페스트·아이콘을 no-cache 로 둔 것과 한 벌로 동작한다) */
+/* 앱을 열 때마다 매니페스트를 조용히 재확인한다.
+   브라우저가 '바뀐 매니페스트'를 보게 만들어 두면, 사용자가 아무것도 안 해도
+   다음 실행 즈음에는 홈 화면 아이콘이 알아서 교체된다(Chrome WebAPK 갱신). */
+function pingManifest(){
+  try{
+    const l=document.querySelector('link[rel="manifest"]');
+    if(l)fetch(l.href,{cache:'no-cache'}).catch(()=>{});
+  }catch(e){}
+}
+async function refreshAppIcons(){
+  const v=Date.now();
+  try{
+    /* 아이콘 파일을 캐시 무시로 미리 받아 둔다 — 교체 시 즉시 쓰이도록 */
+    await Promise.all(['/icon-192.png','/icon-512.png','/icon-maskable-512.png','/favicon.png']
+      .map(u=>fetch(u+'?r='+v,{cache:'reload'}).catch(()=>{})));
+  }catch(e){}
+  try{
+    /* 매니페스트 링크를 새 주소로 갈아 끼운다(제거 후 재삽입해야 재평가된다) */
+    const old=document.querySelector('link[rel="manifest"]');
+    const link=document.createElement('link');
+    link.rel='manifest'; link.id='manifestLink';
+    link.href='/manifest.webmanifest?v='+v;
+    if(old)old.remove();
+    document.head.appendChild(link);
+    await fetch(link.href,{cache:'reload'}).catch(()=>{});
+  }catch(e){}
+  try{
+    /* 파비콘·애플 아이콘도 같은 요령으로 즉시 반영 */
+    document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach(l=>{
+      const base=l.getAttribute('href').split('?')[0];
+      l.setAttribute('href',base+'?v='+v);
+    });
+  }catch(e){}
+}
+
 async function applyUpdate(){
   /* [v2.2] 업데이트 파이프라인:
      ① 진행 안내 모달 표시 → ② Cache Storage·서비스워커·무거운 로컬 캐시 정리
@@ -2466,7 +2511,7 @@ async function applyUpdate(){
   ov.className='upd-overlay';
   ov.innerHTML=`<div class="upd-box"><div class="upd-spin"></div>
     <b>업데이트를 적용하고 있어요</b><p id="updStep">준비 중…</p>
-    <small>몇 초면 끝나요. 화면이 자동으로 다시 열립니다.</small></div>`;
+    <small>몇 초면 끝나요. 화면이 자동으로 다시 열립니다.<br>홈 화면 아이콘도 새 디자인으로 자동 교체됩니다.</small></div>`;
   document.body.appendChild(ov);
   const step=(t)=>{const el=ov.querySelector('#updStep');if(el)el.textContent=t;};
   const wait=(ms)=>new Promise(r=>setTimeout(r,ms));
@@ -2476,6 +2521,9 @@ async function applyUpdate(){
     try{if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()));}}catch(e){}
     try{localStorage.removeItem('stockAll');localStorage.removeItem('verLast');}catch(e){}
     await wait(350);
+    step('앱 아이콘을 갱신하는 중…');
+    await refreshAppIcons();
+    await wait(300);
     step('새 파일을 내려받는 중…');
     const bv=await probeLatestBuild();      // 서버에서 최신 HTML 이 실제로 오는지 검증
     await wait(300);
@@ -2530,7 +2578,7 @@ function showUpdateGate(prevKey){
       <ul class="ug-notes" id="ugNotes"></ul>
     </div>
     <div class="ug-foot">
-      <p class="ug-d">캐시를 정리하고 다시 시작해 새 버전으로 <b>완전 최적화</b>합니다. 관심종목·계좌 데이터는 그대로 유지돼요.</p>
+      <p class="ug-d">캐시를 정리하고 다시 시작해 새 버전으로 <b>완전 최적화</b>합니다. 홈 화면에 설치해 두셨다면 <b>앱 아이콘도 자동으로 교체</b>됩니다. 관심종목·계좌 데이터는 그대로 유지돼요.</p>
       <button class="ug-go" id="ugGo">지금 업데이트</button>
       <button class="ug-skip" id="ugLater">나중에</button>
     </div>
@@ -3643,13 +3691,12 @@ function mktBadge(key,dayBasis){
    '주간 마감 기준' 안내줄을 붙인다. 실시간 K200NF 가 들어오는 즉시
    (idx 배열에 실물이 생기므로) 이 합성 카드는 만들어지지 않고 자동 교체된다. */
 function nightFutFromDay(list){
+  /* [v4.12] 주간 종가를 야간 카드 숫자로 쓰지 않는다.
+     981.15 를 '코스피200 야간선물'로 표기하면 실제(1,008선)와 다른 오정보가 된다.
+     값은 비우고, 참고용으로 주간 마감가만 아래에 밝힌다. */
   const k=(list||[]).find(x=>x&&x.key==='K200F');
-  if(k&&k.price!=null){
-    /* [v4.10] 주간 등락률을 그대로 실으면 "야간에 -5.84%"로 읽힌다(첨부 사진).
-       기준가만 보여 주고 등락은 0으로 — 실제 야간 시세가 잡히면 서버가 진짜 등락으로 교체한다. */
-    return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',
-      price:k.price,change:0,rate:0,history:k.history,dayBasis:true};
-  }
+  return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true,
+    dayRef:(k&&k.price!=null)?k.price:null};
   return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true};
 }
 function withNightWait(arr){
@@ -3664,9 +3711,10 @@ function withNightWait(arr){
   }catch(e){return arr;}
 }
 function idxCardHtml(x){
-  if(x&&x._wait)return `<div class="idx-card wait" data-key="${x.key}"><span class="tag">선물</span>
+  if(x&&(x._wait||x.nightMissing))return `<div class="idx-card wait" data-key="${x.key}"><span class="tag">선물</span>
     <b class="icw-nm">${x.name}</b><div class="icw-px">—</div>
-    <div class="icw-sub">야간 시세 수신 대기 중 · 받는 대로 표시됩니다</div>${mktBadge(x.key)}</div>`;
+    <div class="icw-sub">야간 시세 미수신 — 값이 확인되면 표시합니다${(x.dayRef!=null)?`<br><i>주간 마감 ${DEC(x.dayRef)} 참고</i>`:''}</div>
+    ${mktBadge(x.key,true)}</div>`;
   const dir=dirOf(x.change),fl=mktFlash(x.key,x.price);
   const tag=x.tag?`<span class="idx-tag t-${x.tag}">${x.tag}</span>`:'';
   // [수정] 태그와 이름을 한 줄에 넣어 이름이 '나스닥 …'으로 잘리고 태그가 세로로 깨지던 문제 →
@@ -3687,7 +3735,7 @@ function allIndexCards(){
       idx.splice(at+1,0,nightFutFromDay(idx));
     }}catch(e){}
   const cry=(market.crypto||[]).map(x=>({...x,tag:x.tag||'가상자산'}));
-  return [...idx,...cry].filter(x=>x&&(x.price!=null));
+  return [...idx,...cry].filter(x=>x&&(x.price!=null||x._wait||x.nightMissing));
 }
 function renderMarket(){
   try{if(currentView==='home')renderHeroMarket();}catch(e){}   // [v2.3.1] 지수 갱신 주기에 시장 카드 동반 갱신
@@ -6414,11 +6462,11 @@ function rankSection(){
     ?`<div class="rank-note nxt">지금은 <b>NXT ${nowTz('Asia/Seoul').hm<540?'프리마켓':'애프터마켓'}</b>입니다.
        <b class="nxt-in">NXT</b> 표시가 붙은 가격은 <b>NXT 실시간 체결가</b>이고,
        <b class="krx-in">KRX</b> 표시는 NXT에서 거래되지 않는 <b>KRX 전용 종목</b>이라 전일 종가(0.00%)로 남습니다.</div>`:'';
-  /* [v4.11] 조회수 순위 100개 확장 — 네이버 조회상위는 30개가 상한이라
-     31위부터는 거래대금 상위로 이어 붙인다. 그 사실을 목록에 정직하게 밝힌다. */
+  /* [v4.13] 조회수 100위 — 한 소스로는 불가능해 여러 관심도 신호를 합산한다.
+     구성을 숨기지 않고 목록 상단에 그대로 밝힌다. */
   const fillN=items.filter(x=>x&&x.fill).length;
   const fillNote=(tab==='조회수'&&fillN)
-    ?` · 31위~는 <b>거래대금 상위</b>로 채움(네이버 조회 순위 제공 한도 30)`:``;
+    ?` · <b>종합 관심도</b> 기준(조회 순위 + 다른 포털 인기검색 + 거래대금·거래량·등락 상위 합산)`:``;
   return nxtNote+`<div class="rank-note">${tab} 상위 <b>${items.length}</b>종목 · 네이버 금융 기준${fillNote}</div>`
     +items.map((x,i)=>stockRow(x.code,x.name,(byCode[x.code]&&byCode[x.code].market)||'','',i+1)).join('');
 }
@@ -9188,7 +9236,8 @@ function marketEventChips(){
   }catch(e){}
   return out;
 }
-const AF_BADGE_STYLE={'투자위험':'risk','투자위험예고':'pre','투자경고':'warn','투자경고지정예고':'pre',
+const AF_BADGE_STYLE={'투자위험':'risk','투자위험예고':'pre','투자위험지정예고':'pre','투자경고':'warn','투자경고지정예고':'pre',
+  '투자주의지정예고':'pre','단기과열지정예고':'pre',
   '투자주의':'caution','거래정지':'halt','관리종목':'mgmt','정리매매':'halt','단기과열':'warn',
   '단기과열지정예고':'pre','투자주의환기종목':'caution','불성실공시법인':'mgmt'};
 function renderAdvFlags(){
@@ -9219,7 +9268,10 @@ function renderAdvFlags(){
   const _bset=new Set(sf.badges||[]);
   if(alert)_bset.add({warn:'투자경고',risk:'투자위험',halt:'거래정지',mgmt:'관리종목'}[alert]);
   try{if((krxAlerts.caution||[]).includes(code))_bset.add('투자주의');}catch(e){}
-  const _hard=['거래정지','투자위험','투자경고','관리종목','정리매매','투자경고지정예고','투자위험예고','단기과열','단기과열지정예고','투자주의환기종목'].some(t=>_bset.has(t));
+  /* [v4.12] '…지정예고'로 끝나는 어떤 배지든 증거금 100%·신용불가로 본다
+     (미래에셋이 '경고예'를 신용불가로 표시하는 것과 동일한 실무 기준). */
+  const _hard=[..._bset].some(t=>/지정예고|예고$/.test(t))
+    ||['거래정지','투자위험','투자경고','관리종목','정리매매','단기과열','투자주의환기종목','불성실공시법인'].some(t=>_bset.has(t));
   const effM=sf.margin!=null?+sf.margin:(_hard?100:_bset.has('투자주의')?60:40);
   const mSrc=sf.margin!=null?'네이버 표기 기준':'LIVE증권 자체 기준 · KRX 시장경보 연동';
   chips.push({cls:'neu',t:'증거금 '+effM+'%',i:'💰',tip:'위탁증거금률 — '+mSrc+' · 실제 요율은 증권사·계좌별로 다릅니다'});
@@ -9582,6 +9634,7 @@ window.addEventListener('resize',()=>{drawChart();if(currentView==='home')render
      로그인 화면으로 빠지는 경우에도 즉시 걷어야 입력이 가려지지 않는다. */
   try{window.__boot&&__boot.step(6);}catch(e){}
   requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__boot&&__boot.done();}catch(e){}}));
+  setTimeout(()=>{try{pingManifest();}catch(e){}},4000);   // [v4.16] 아이콘 자동 교체 유도
 })();
 
 
