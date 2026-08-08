@@ -21,11 +21,24 @@
   .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:-.4px;flex:0 0 auto}
   .brand .mark{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:linear-gradient(135deg,var(--amber),var(--amber-2));color:#0e1726;font-weight:900;font-size:17px}
   .brand b{color:var(--amber)}
-  .main-nav{display:flex;gap:2px}
-  .main-nav button{padding:9px 13px;border-radius:9px;color:#a9b6ca;font-weight:700;font-size:14px;transition:.15s;white-space:nowrap}
+  /* ══ [v4.51] 헤더가 가로로 넘쳐 배경 밖으로 삐져나오던 문제 ═══════════════
+     메뉴 11개 + 장상태·연결 알약 2개 + 설정 + 사용자칩을 한 줄에 늘어놓으면
+     900~1300px 구간에서 폭이 모자란다. 그런데 배경(.site-header)은 자기 상자
+     너비만 칠하므로, 넘친 사용자칩만 흰 바탕 위에 덩그러니 남았다.
+     → ① 메뉴를 줄어들 수 있게(min-width:0) 만들고 넘치면 가로로 밀어 보게 한다
+        ② 사용자 영역은 절대 줄지 않게 고정한다
+        ③ 알약은 더 일찍 감춘다(1300px)
+     이렇게 하면 어떤 폭에서도 헤더 안에서 해결되어 밖으로 새지 않는다. */
+  .main-nav{display:flex;gap:2px;flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden;
+    scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch}
+  .main-nav::-webkit-scrollbar{display:none}
+  .main-nav button{padding:9px 13px;border-radius:9px;color:#a9b6ca;font-weight:700;font-size:14px;transition:.15s;white-space:nowrap;flex:0 0 auto}
   .main-nav button:hover{color:#fff;background:rgba(255,255,255,.06)}
   .main-nav button.on{color:#fff;background:rgba(255,255,255,.12)}
-  .header-right{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:700}
+  .header-right{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:700;
+    flex:0 0 auto;min-width:0}
+  @media (max-width:1300px){ .header-right .pill{display:none} }
+  @media (max-width:1080px){ .main-nav button{padding:9px 10px;font-size:13.5px} .header-inner{gap:10px} }
   .pill{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);padding:6px 10px;border-radius:20px;color:#c4cfdd;white-space:nowrap}
   .dot{width:7px;height:7px;border-radius:50%;background:#8a95a5}
   .dot.on{background:#2ec27e;animation:pulse 1.4s infinite}.dot.off{background:#f5384e}.dot.idle{background:#ffb020;animation:pulse 1.4s infinite}
@@ -416,7 +429,8 @@
     .ipo-form,.ipo-calc{grid-template-columns:1fr 1fr}
     .home-cols,.trade-grid{grid-template-columns:1fr}.acct-cards{grid-template-columns:1fr 1fr}
     .nav-toggle{display:block}
-    .main-nav{position:absolute;top:60px;left:0;right:0;background:var(--brand);flex-direction:column;padding:8px;gap:2px;display:none;box-shadow:0 10px 20px rgba(0,0,0,.25)}
+    .main-nav{position:absolute;top:60px;left:0;right:0;background:var(--brand);flex-direction:column;padding:8px;gap:2px;display:none;box-shadow:0 10px 20px rgba(0,0,0,.25);
+      flex:none;overflow:visible;max-height:calc(100vh - 68px);overflow-y:auto}
     .main-nav.open{display:flex}.main-nav button{text-align:left;padding:13px 16px;border-radius:8px}
     .header-right .pill{display:none}.header-inner{gap:10px}
   }
@@ -3417,3 +3431,383 @@ html[data-theme="dark"] .mkt-tabs button.on{background:linear-gradient(135deg,#4
 .afx-c.on span{color:#3b7ef0}
 
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [v4.49] 해외 주식 라운지 전면 리뉴얼 · 비밀번호 강도 표시
+   ──────────────────────────────────────────────────────────────────────────
+   설계 의도
+   · 시그니처는 '마켓 클록' 하나로 몰았다. 한국에서 미국장을 볼 때 첫 질문은
+     늘 "지금 열렸나, 아니면 몇 시에"다. 프리~애프터 14시간을 한 줄 트랙으로
+     펴고 현재 시각 마커를 얹어 그 답을 문장 없이 보여 준다.
+   · 나머지는 전부 조용하게. 앱의 기존 토큰(--panel/--border/--up/--down)만 쓰고
+     새 색을 만들지 않아 국내 화면과 이질감이 없다.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 마켓 클록 히어로 ── */
+.uz-hero{position:relative;overflow:hidden;border-radius:20px;padding:18px 18px 14px;margin-bottom:14px;
+  background:linear-gradient(126deg,#111b2f 0%,#17253f 48%,#1d3355 100%);color:#fff;
+  box-shadow:0 1px 2px rgba(16,26,45,.06),0 14px 34px rgba(16,26,45,.14)}
+.uz-hero::after{content:'';position:absolute;right:-80px;top:-100px;width:250px;height:250px;border-radius:50%;
+  background:radial-gradient(circle,rgba(96,165,250,.24),transparent 66%);pointer-events:none}
+.uz-hero-top{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.uz-hero-t{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
+.uz-hero-t b{font-size:16px;font-weight:900;letter-spacing:-.3px}
+.uz-hero-t small{width:100%;font-size:11.5px;color:rgba(255,255,255,.62);font-weight:600;padding-left:15px}
+.uz-hero-fx{text-align:right;flex-shrink:0}
+.uz-hero-fx small{display:block;font-size:10px;color:rgba(255,255,255,.55);font-weight:700;letter-spacing:.4px}
+.uz-hero-fx b{font-size:19px;font-weight:900;letter-spacing:-.5px}
+.uz-hero-fx i{display:block;font-size:10px;color:rgba(255,255,255,.45);font-style:normal;font-weight:600}
+.uz-dot{width:8px;height:8px;border-radius:50%;background:#64748b;flex-shrink:0}
+.uz-dot.regular{background:#34d399;box-shadow:0 0 0 0 rgba(52,211,153,.7);animation:uzpulse 2s infinite}
+.uz-dot.pre,.uz-dot.after{background:#fbbf24}
+@keyframes uzpulse{70%{box-shadow:0 0 0 9px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+@media (prefers-reduced-motion:reduce){.uz-dot.regular{animation:none}}
+
+/* 트랙: 04:00~18:00 ET 를 100% 로 편다 */
+.uz-track{position:relative;height:26px;margin:15px 0 4px;border-radius:8px;
+  background:rgba(255,255,255,.07)}
+.uz-track.off{opacity:.42}
+.uz-seg{position:absolute;top:0;bottom:0;border-radius:7px;display:flex;align-items:center;justify-content:center}
+.uz-seg i{font-style:normal;font-size:10px;font-weight:800;color:rgba(255,255,255,.62);letter-spacing:.2px}
+.uz-seg.pre,.uz-seg.after{background:rgba(251,191,36,.16)}
+.uz-seg.regular{background:rgba(52,211,153,.2)}
+.uz-seg.now i{color:#fff}
+.uz-seg.now.regular{background:rgba(52,211,153,.38)}
+.uz-seg.now.pre,.uz-seg.now.after{background:rgba(251,191,36,.36)}
+.uz-mark{position:absolute;top:-5px;bottom:-5px;width:2px;background:#fff;border-radius:2px;
+  box-shadow:0 0 10px rgba(255,255,255,.8);transition:left .6s ease}
+.uz-mark i{position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:7px;height:7px;
+  border-radius:50%;background:#fff}
+.uz-tick{position:relative;height:14px}
+.uz-tick span{position:absolute;top:0;font-size:9.5px;font-weight:700;color:rgba(255,255,255,.5);white-space:nowrap}
+
+/* 시장 폭 막대 */
+.uz-hero-foot{position:relative;margin-top:11px;padding-top:11px;border-top:1px solid rgba(255,255,255,.12)}
+.uz-hf-wait{font-size:11.5px;color:rgba(255,255,255,.6);font-weight:600}
+.uz-breadth{display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.1)}
+.uz-breadth i{display:block;height:100%}
+.uz-breadth i.up{background:#f87182}.uz-breadth i.dn{background:#6f9dff}.uz-breadth i.fl{background:rgba(255,255,255,.25)}
+.uz-hf-l{display:block;margin-top:7px;font-size:11px;font-weight:700;color:rgba(255,255,255,.7)}
+.uz-hf-l b.up{color:#ff8f9d!important}.uz-hf-l b.dn{color:#8fb4ff!important}
+.uz-hf-l em{font-style:normal;color:rgba(255,255,255,.42);font-weight:600;margin-left:5px}
+
+/* ── 4갈래 세그먼트 내비 ── */
+.uz-nav{display:flex;gap:3px;padding:3px;border-radius:13px;background:var(--border-soft);
+  margin-bottom:14px;position:sticky;top:64px;z-index:20;
+  box-shadow:0 1px 2px rgba(16,26,45,.04)}
+/* 상단 헤더(.site-header, 60px)가 sticky 로 먼저 붙으므로 그 아래에 세운다 —
+   두 개가 같은 자리에서 겹쳐 탭이 헤더 뒤로 숨는 일을 막는다 */
+@media (max-width:760px){.uz-nav{top:60px}}
+html[data-theme="dark"] .uz-nav{background:rgba(255,255,255,.06)}
+.uz-nav button{flex:1;height:36px;border:0;border-radius:10px;background:transparent;cursor:pointer;
+  font-size:13px;font-weight:800;color:var(--sub);transition:background .14s,color .14s}
+.uz-nav button.on{background:var(--panel);color:var(--text);box-shadow:0 1px 3px rgba(16,26,45,.1)}
+
+/* ── 검색바 ── */
+.uz-searchbar{position:relative;display:flex;align-items:center;margin-bottom:14px}
+.uz-searchbar .uz-si{position:absolute;left:14px;font-size:14px;opacity:.5;pointer-events:none}
+.uz-searchbar input{width:100%;height:46px;padding:0 42px;border-radius:14px;border:1px solid var(--border);
+  background:var(--panel);color:var(--text);font-size:14px;font-weight:600}
+.uz-searchbar input::placeholder{color:var(--sub-2);font-weight:500}
+.uz-sx{position:absolute;right:8px;width:28px;height:28px;border:0;border-radius:50%;cursor:pointer;
+  background:var(--border-soft);color:var(--sub);font-size:12px;font-weight:800}
+
+/* ── 섹션 머리 · 안내줄 ── */
+.uz-sec{display:flex;align-items:baseline;gap:8px;margin:18px 2px 9px}
+.uz-sec b{font-size:15px;font-weight:900;letter-spacing:-.3px}
+.uz-sec span{font-size:11.5px;color:var(--sub-2);font-weight:600}
+.uz-note{margin:2px 2px 9px;font-size:11.5px;color:var(--sub);font-weight:600}
+.uz-note b{color:var(--text)}
+
+/* ── 분야 칩 ── */
+.uz-chips{display:flex;gap:7px;overflow-x:auto;padding:2px 2px 8px;-webkit-overflow-scrolling:touch}
+.uz-chips::-webkit-scrollbar{display:none}
+.uz-chip{flex-shrink:0;height:34px;padding:0 14px;border-radius:99px;cursor:pointer;
+  border:1px solid var(--border);background:var(--panel);color:var(--sub);
+  font-size:12.5px;font-weight:700;transition:all .14s}
+.uz-chip em{font-style:normal;opacity:.7;margin-left:3px}
+.uz-chip:hover{border-color:var(--sub-2)}
+.uz-chip.on{background:var(--text);border-color:var(--text);color:var(--panel)}
+html[data-theme="dark"] .uz-chip.on{background:#fff;color:#111}
+
+/* ── 인기 종목 가로 카드 ── */
+.uz-stars{display:flex;gap:9px;overflow-x:auto;padding:2px 2px 10px;-webkit-overflow-scrolling:touch}
+.uz-stars::-webkit-scrollbar{display:none}
+.uz-star{flex-shrink:0;width:112px;padding:12px 11px;border-radius:15px;cursor:pointer;text-align:left;
+  border:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;gap:5px;
+  transition:transform .12s,box-shadow .12s}
+.uz-star:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.uz-star .t{display:flex;align-items:center;gap:6px;min-width:0}
+.uz-star .t b{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.uz-star .p{font-size:15px;font-weight:900;letter-spacing:-.4px;color:var(--text)}
+.uz-star .r{font-size:11.5px;font-weight:800}
+
+/* ── 종목 행 ── */
+.uz-list{border-radius:16px;background:var(--panel);border:1px solid var(--border);overflow:hidden}
+.uz-row{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;cursor:pointer;
+  border:0;border-bottom:1px solid var(--border-soft);background:transparent;text-align:left;
+  transition:background .12s}
+.uz-list .uz-row:last-child{border-bottom:0}
+.uz-row:hover{background:var(--border-soft)}
+.uz-row:active{background:var(--border)}
+.uz-rk{flex-shrink:0;width:19px;font-size:12px;font-weight:800;color:var(--sub-2);text-align:center}
+.uz-row:nth-child(-n+3) .uz-rk{color:var(--text)}
+.uz-nm{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.uz-nm b{font-size:13.5px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.uz-nm>span{font-size:11px;color:var(--sub-2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.uz-nm>span em{font-style:normal;margin:0 4px;opacity:.55}
+.uz-etf{font-style:normal;margin-left:5px;padding:1px 5px;border-radius:5px;font-size:9.5px;font-weight:800;
+  background:var(--border-soft);color:var(--sub);vertical-align:1px}
+.uz-px{flex-shrink:0;text-align:right;display:flex;flex-direction:column;gap:1px;
+  font-size:14px;font-weight:900;letter-spacing:-.3px;color:var(--text)}
+.uz-px small{font-size:10px;font-weight:600;color:var(--sub-2);letter-spacing:0}
+.uz-wait{font-style:normal;font-size:11.5px;font-weight:700;color:var(--sub-2)}
+.uz-rt{flex-shrink:0;min-width:62px;text-align:right;font-size:13px;font-weight:800}
+
+/* ══ [v4.50] 등락 배지 ═══════════════════════════════════════════════════════
+   색 글씨만으로는 작은 화면에서 상승·하락이 한눈에 안 들어왔다. 배경을 옅게 깐
+   알약 모양으로 바꿔 목록을 훑을 때 방향이 즉시 읽히게 한다. */
+.uz-badge{flex-shrink:0;min-width:66px;text-align:center;padding:5px 8px;border-radius:9px;
+  font-size:12.5px;font-weight:800;letter-spacing:-.2px;line-height:1.15;
+  font-variant-numeric:tabular-nums;background:var(--border-soft);color:var(--sub)}
+.uz-badge.up{background:rgba(229,72,77,.11);color:var(--up)}
+.uz-badge.down{background:rgba(47,122,229,.11);color:var(--down)}
+html[data-theme="dark"] .uz-badge.up{background:rgba(255,110,115,.15)}
+html[data-theme="dark"] .uz-badge.down{background:rgba(105,160,255,.15)}
+
+/* ── 52주 위치 미니바 — 목록만 훑어도 고점권/저점권이 보이게 ── */
+.uz-nm>.uz-mini{display:block;position:relative;height:3px;margin-top:5px;max-width:132px;
+  border-radius:2px;background:var(--border-soft);overflow:visible;font-size:0}
+.uz-mini i{display:block;height:100%;border-radius:2px;background:var(--sub-2);opacity:.5}
+.uz-mini em{position:absolute;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;
+  border-radius:50%;background:var(--sub)}
+.uz-mini.hi i,.uz-mini.hi em{background:var(--up);opacity:.85}
+.uz-mini.lo i,.uz-mini.lo em{background:var(--down);opacity:.85}
+.uz-sub2{display:block}
+
+/* ── 로딩 골격 — 빈 화면에 글자로 사과하는 대신 들어올 자리를 보여 준다 ── */
+.uz-skel{cursor:default;pointer-events:none}
+.uz-skel .uz-nm b{opacity:.5}
+.sk{display:block;border-radius:5px;background:linear-gradient(90deg,
+  var(--border-soft) 25%,var(--border) 37%,var(--border-soft) 63%);
+  background-size:400% 100%;animation:skg 1.3s ease-in-out infinite}
+@keyframes skg{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.sk-a{width:74px;height:9px;margin-top:5px}
+.sk-b{width:56px;height:13px}
+.sk-c{width:40px;height:8px;margin-top:4px;margin-left:auto}
+.sk-d{flex-shrink:0;width:66px;height:26px;border-radius:9px}
+@media (prefers-reduced-motion:reduce){.sk{animation:none}}
+
+/* ── 빈 상태 · 재시도 ── */
+.uz-empty{padding:30px 20px;text-align:center;border-radius:16px;background:var(--panel);
+  border:1px dashed var(--border)}
+.uz-empty b{display:block;font-size:14px;font-weight:800;color:var(--text);margin-bottom:5px}
+.uz-empty span{display:block;font-size:12px;color:var(--sub);line-height:1.6}
+.uz-retry{margin-top:13px;height:38px;padding:0 20px;border-radius:11px;cursor:pointer;
+  border:0;background:var(--text);color:var(--panel);font-size:12.5px;font-weight:800}
+html[data-theme="dark"] .uz-retry{background:#fff;color:#111}
+
+/* ── 내 자산 ── */
+.uz-minehead{display:flex;gap:8px;padding:4px 2px 14px;flex-wrap:wrap}
+.uz-minehead>div{flex:1;min-width:96px}
+.uz-minehead small{display:block;font-size:10.5px;color:var(--sub-2);font-weight:700;margin-bottom:3px}
+.uz-minehead b{font-size:16px;font-weight:900;letter-spacing:-.4px}
+.uz-minehead b em{font-style:normal;font-size:12px;margin-left:3px;opacity:.85}
+.uz-fxhead{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
+  padding-bottom:11px;border-bottom:1px solid var(--border-soft)}
+.uz-fxhead span{font-size:11.5px;color:var(--sub);font-weight:600}
+.uz-fxhead b{font-size:12.5px;font-weight:800;color:#b47207}
+.uz-fxbal{display:flex;gap:9px;margin-top:12px;flex-wrap:wrap}
+.uz-fxbal>div{flex:1;min-width:130px;padding:11px 13px;border-radius:13px;background:var(--border-soft)}
+.uz-fxbal small{display:block;font-size:10.5px;color:var(--sub-2);font-weight:700;margin-bottom:3px}
+.uz-fxbal b{font-size:16px;font-weight:900;letter-spacing:-.4px}
+.uz-fxbal i{display:block;margin-top:3px;font-size:10.5px;color:var(--sub-2);font-style:normal;font-weight:600}
+
+/* ══ [v4.50] 하단 고정 주문바 ═══════════════════════════════════════════════
+   넓은 화면에는 오른쪽에 주문 카드가 늘 보이므로 필요 없다 — 좁은 화면에서만 뜬다.
+   [겹침 처리] 768px 이하에서는 하단 탭바(.tabbar, z-index 920)가 이미 바닥을
+   차지한다. 탭바 높이를 CSS 에 숫자로 박으면 글꼴·안전영역에 따라 어긋나므로
+   실제 높이를 재서 --tabbar-h 로 넘겨받는다(usSyncTabbarH).
+   [hidden 존중] 미디어쿼리의 display:flex 는 [hidden] 의 기본 display:none 보다
+   우선순위가 높다 — 명시적으로 되돌리지 않으면 다른 화면에서도 바가 남는다. */
+.uz-cta{display:none}
+.uz-cta[hidden]{display:none!important}
+@media(max-width:900px){
+  .uz-cta{display:flex;position:fixed;left:0;right:0;z-index:900;
+    bottom:var(--tabbar-h,0px);
+    align-items:center;gap:8px;
+    padding:10px 12px calc(10px + var(--cta-safe,0px));
+    background:var(--panel);border-top:1px solid var(--border);
+    box-shadow:0 -6px 22px rgba(15,23,42,.10)}
+  html[data-theme="dark"] .uz-cta{box-shadow:0 -6px 22px rgba(0,0,0,.40)}
+  .uz-cta-px{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;line-height:1.2}
+  .uz-cta-px b{font-size:17px;font-weight:900;letter-spacing:-.4px;
+    font-variant-numeric:tabular-nums;color:var(--text)}
+  .uz-cta-px span{font-size:11.5px;font-weight:800;color:var(--sub-2)}
+  .uz-cta-px span.up{color:var(--up)} .uz-cta-px span.down{color:var(--down)}
+  .uz-cta-b{flex-shrink:0;min-width:84px;height:46px;border:0;border-radius:13px;cursor:pointer;
+    font-size:14.5px;font-weight:900;letter-spacing:-.2px;transition:transform .1s,filter .15s}
+  .uz-cta-b:active{transform:scale(.97)}
+  .uz-cta-b.buy{background:var(--up);color:#fff;filter:saturate(.5) opacity(.7)}
+  .uz-cta-b.buy.on{filter:none}
+  .uz-cta-b.sell{background:var(--border-soft);color:var(--down)}
+  .uz-cta-b.sell.on{background:var(--down);color:#fff}
+  /* 바에 가려 마지막 내용이 안 읽히지 않게 여백을 준다 */
+  #view-ustrade{padding-bottom:80px}
+}
+@media(max-width:900px) and (prefers-reduced-motion:reduce){.uz-cta-b{transition:none}}
+@media(min-width:769px) and (max-width:900px){
+  /* 탭바가 없는 구간 — 안전영역은 바 자신이 흡수한다 */
+  .uz-cta{--cta-safe:env(safe-area-inset-bottom)}
+}
+
+/* ── 가이드 ── */
+.uz-guide{border-radius:16px;background:var(--panel);border:1px solid var(--border);padding:6px 4px}
+.uz-g{display:flex;gap:12px;padding:14px 14px;border-bottom:1px solid var(--border-soft)}
+.uz-g:last-of-type{border-bottom:0}
+.uz-gi{flex-shrink:0;width:34px;height:34px;border-radius:11px;display:flex;align-items:center;
+  justify-content:center;font-size:16px;background:var(--border-soft)}
+.uz-g b{display:block;font-size:13.5px;font-weight:800;margin-bottom:4px}
+.uz-g p{margin:0;font-size:12px;color:var(--sub);line-height:1.65}
+.uz-guide .us-ord-note{padding:12px 14px 8px}
+
+/* ── 좁은 화면 ── */
+@media (max-width:420px){
+  .uz-hero{padding:16px 15px 12px}
+  .uz-hero-fx b{font-size:17px}
+  .uz-nav button{font-size:12.5px}
+  .uz-row{padding:11px 12px;gap:8px}
+  .uz-rt{min-width:56px;font-size:12.5px}
+  .uz-px{font-size:13.5px}
+}
+
+/* ══ 비밀번호 강도 표시 ══ */
+.pw-meter{margin:-4px 0 12px}
+.pw-bar{height:5px;border-radius:3px;background:var(--border-soft);overflow:hidden}
+.pw-bar i{display:block;height:100%;border-radius:3px;transition:width .22s ease,background .22s}
+.pw-bar i.lv0,.pw-bar i.lv1{background:#f5384e}
+.pw-bar i.lv2{background:#f59e0b}
+.pw-bar i.lv3{background:#3b82f6}
+.pw-bar i.lv4{background:#10b981}
+.pw-hint{margin-top:6px;font-size:11.5px;font-weight:700;line-height:1.5}
+.pw-hint.ok{color:#10b981}
+.pw-hint.no{color:var(--sub)}
+
+
+/* ══ [v4.51] 계좌 개설 4단계 · 송금 ═══════════════════════════════════════ */
+.ab-no{margin-top:4px;font-size:11px;font-weight:700;color:var(--sub-2);letter-spacing:.2px}
+.ab-no b{font-weight:900;color:var(--sub);font-variant-numeric:tabular-nums}
+
+/* 단계 표시 */
+.ae-steps{display:flex;gap:4px;margin:0 0 16px}
+.ae-st{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;
+  font-size:10.5px;font-weight:700;color:var(--sub-2);text-align:center}
+.ae-st i{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-style:normal;
+  font-size:11.5px;font-weight:900;background:var(--border-soft);color:var(--sub-2)}
+.ae-st span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.ae-st.on i{background:var(--text);color:var(--panel)}
+.ae-st.on{color:var(--text)}
+.ae-st.done i{background:var(--up);color:#fff}
+html[data-theme="dark"] .ae-st.on i{background:#fff;color:#111}
+
+.ae-nav{margin-top:14px}
+.ae-nav.two{display:flex;gap:8px}
+.ae-nav.two .modal-btn{flex:1}
+.modal-btn.ghost{background:var(--border-soft);color:var(--text)}
+
+/* 약관 */
+.ae-all{width:100%;display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:14px;cursor:pointer;
+  border:1.5px solid var(--border);border-radius:14px;background:var(--panel);text-align:left;margin-bottom:10px}
+.ae-all.on{border-color:var(--up);background:rgba(229,72,77,.05)}
+.ae-all b{font-size:14px;font-weight:900;color:var(--text)}
+.ae-all small{width:100%;padding-left:31px;font-size:11px;color:var(--sub-2);font-weight:600}
+.ae-ck{flex-shrink:0;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  font-size:12px;font-weight:900;color:#fff;background:var(--border);transition:background .15s}
+.ae-all.on .ae-ck,.ae-trow.on .ae-ck{background:var(--up)}
+.ae-terms{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--panel)}
+.ae-t{border-bottom:1px solid var(--border-soft)}
+.ae-t:last-child{border-bottom:0}
+.ae-trow{display:flex;align-items:center;gap:9px;width:100%;padding:12px 13px 4px;cursor:pointer;
+  border:0;background:transparent;text-align:left}
+.ae-tt{flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--text);line-height:1.45}
+.ae-tt i{font-style:normal;margin-right:6px;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:900}
+.ae-tt i.req{background:rgba(229,72,77,.12);color:var(--up)}
+.ae-tt i.opt{background:var(--border-soft);color:var(--sub-2)}
+.ae-tmore{display:block;margin:0 0 10px 44px;padding:0;border:0;background:none;cursor:pointer;
+  font-size:11px;font-weight:700;color:var(--sub-2);text-decoration:underline}
+.ae-tbox{margin:0 13px 13px 44px;padding:11px 12px;border-radius:10px;background:var(--border-soft);
+  font-size:11.5px;line-height:1.75;color:var(--sub);font-weight:600}
+
+.ae-recap{padding:13px 14px;border-radius:13px;background:var(--border-soft);margin-bottom:13px}
+.ae-recap b{display:block;font-size:14.5px;font-weight:900;color:var(--text)}
+.ae-recap span{display:block;margin-top:3px;font-size:11.5px;font-weight:600;color:var(--sub-2)}
+.ae-warn{padding:11px 13px;border-radius:11px;margin-bottom:12px;font-size:12px;line-height:1.7;
+  font-weight:600;background:rgba(245,163,13,.10);color:#8a5a00;border:1px solid rgba(245,163,13,.28)}
+html[data-theme="dark"] .ae-warn{color:#f5c877}
+.ae-note{margin:10px 0 0;font-size:11.5px;line-height:1.7;color:var(--sub-2);font-weight:600}
+
+/* 개설 완료 */
+.ae-done{text-align:center}
+.aed-ic{font-size:40px;line-height:1;margin-bottom:8px}
+.aed-t{font-size:15px;font-weight:900;color:var(--text);margin-bottom:14px}
+.aed-no{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;
+  padding:14px;border-radius:14px;background:var(--border-soft);margin-bottom:12px}
+.aed-no small{width:100%;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.aed-no b{font-size:19px;font-weight:900;letter-spacing:.5px;color:var(--text);font-variant-numeric:tabular-nums}
+.aed-copy{padding:5px 11px;border:0;border-radius:8px;cursor:pointer;font-size:11.5px;font-weight:800;
+  background:var(--text);color:var(--panel)}
+html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
+.aed-kv{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;font-size:12.5px;
+  border-bottom:1px solid var(--border-soft)}
+.aed-kv span{color:var(--sub-2);font-weight:700}
+.aed-kv b{font-weight:800;color:var(--text)}
+.aed-note{margin:13px 0 15px;font-size:11px;line-height:1.7;color:var(--sub-2);font-weight:600;text-align:left}
+
+/* 송금 */
+.asend{padding:16px}
+.asend-from{padding:13px 14px;border-radius:13px;background:var(--border-soft)}
+.asend-from small{display:block;font-size:10.5px;font-weight:700;color:var(--sub-2);margin-bottom:3px}
+.asend-from b{font-size:14px;font-weight:900;color:var(--text)}
+.asend-from i{display:block;margin-top:2px;font-style:normal;font-size:12px;font-weight:800;
+  color:var(--sub);letter-spacing:.3px;font-variant-numeric:tabular-nums}
+.asend-from span{display:block;margin-top:5px;font-size:11.5px;font-weight:700;color:var(--sub-2)}
+.asend-arrow{text-align:center;font-size:17px;color:var(--sub-2);margin:7px 0}
+.asend-picks{display:flex;flex-direction:column;gap:6px;margin:8px 0 4px}
+.asend-p{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 13px;cursor:pointer;
+  border:1px solid var(--border);border-radius:12px;background:var(--panel);text-align:left}
+.asend-p:hover{border-color:var(--sub-2)}
+.asend-p b{font-size:13px;font-weight:800;color:var(--text)}
+.asend-p i{font-style:normal;font-size:11.5px;font-weight:700;color:var(--sub-2);font-variant-numeric:tabular-nums}
+.asend-p span{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--sub)}
+.asend-ok{margin:8px 0 2px;padding:10px 13px;border-radius:11px;
+  background:rgba(47,122,229,.08);border:1px solid rgba(47,122,229,.25)}
+.asend-ok b{font-size:13px;font-weight:900;color:var(--text)}
+.asend-ok span{margin-left:8px;font-size:11.5px;font-weight:700;color:var(--sub)}
+.asend-bad{margin:8px 0 2px;padding:10px 13px;border-radius:11px;font-size:12px;font-weight:700;
+  background:rgba(229,72,77,.08);color:var(--up);border:1px solid rgba(229,72,77,.25)}
+.asend-quick{display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 10px}
+.asend-quick button{padding:7px 11px;border:1px solid var(--border);border-radius:9px;cursor:pointer;
+  background:var(--panel);font-size:11.5px;font-weight:800;color:var(--sub)}
+.asend-quick button:hover{border-color:var(--sub-2);color:var(--text)}
+.asend-log{margin-top:14px;padding-top:12px;border-top:1px solid var(--border-soft)}
+.asl-h{font-size:11.5px;font-weight:800;color:var(--sub-2);margin-bottom:7px}
+.asl-r{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12px}
+.asl-r span{flex-shrink:0;width:44px;color:var(--sub-2);font-weight:700}
+.asl-r b{flex:1;min-width:0;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.asl-r i{font-style:normal;font-weight:800;color:var(--sub)}
+.asend-empty{padding:26px 18px;text-align:center}
+.asend-empty b{display:block;font-size:14px;font-weight:800;color:var(--text);margin-bottom:5px}
+.asend-empty span{display:block;font-size:12px;color:var(--sub);line-height:1.6}
+
+.askpw input{width:100%;height:52px;text-align:center;font-size:24px;letter-spacing:10px;
+  border:1.5px solid var(--border);border-radius:13px;background:var(--panel);color:var(--text);
+  font-weight:900;box-sizing:border-box}
+.askpw input:focus{outline:none;border-color:var(--sub-2)}
+
+@media(max-width:520px){
+  .ae-st span{display:none}
+  .ae-steps{gap:6px;justify-content:center}
+  .ae-tbox,.ae-tmore{margin-left:13px}
+  .aed-no b{font-size:17px;letter-spacing:.3px}
+}

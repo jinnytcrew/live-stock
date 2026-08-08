@@ -1789,6 +1789,71 @@ const store={get(k){try{return JSON.parse(localStorage.getItem(k));}catch{return
 function legacyHash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return 'h'+(h>>>0).toString(16);}
 /* [보안] 비밀번호 해시 = SHA-256(고정 도메인 접두 + 비밀번호). Web Crypto 사용.
    서버는 이 값을 그대로 저장하지 않고 계정별 솔트를 덧붙여 다시 해싱한다. */
+/* ══ [v4.49] 로그인 비밀번호 규칙 ══════════════════════════════════════════
+   기존에는 '6자 이상' 하나뿐이라 'aaaaaa' 도 통과했다. 이 앱은 계정 하나에
+   보유·거래기록·계좌가 묶여 있고 어느 기기에서나 같은 아이디로 들어오므로,
+   실제 증권사 수준의 최소 요건을 건다.
+   ① 8자 이상 32자 이하 ② 영문·숫자·특수문자 각 1개 이상
+   ③ 아이디·이름을 그대로 담지 않기 ④ 같은 문자 3연속 금지(aaa, 111)
+   ⑤ 키보드·숫자 연속 3자 금지(abc, 123, qwe) ⑥ 흔한 비밀번호 금지
+   판정은 { ok, msg } 로 돌려주고, 강도 막대는 pwStrength() 가 따로 계산한다. */
+var PW_MIN=8, PW_MAX=32;
+var PW_COMMON=['password','passw0rd','12345678','123456789','qwerty123','qwertyui',
+  'iloveyou','admin123','letmein1','welcome1','abc12345','asdf1234','1q2w3e4r','zaq12wsx',
+  'p@ssw0rd','football','baseball','sunshine','princess','dragon12','monkey12','master12'];
+function pwSeq3(s){
+  const L=s.toLowerCase();
+  const rows=['abcdefghijklmnopqrstuvwxyz','0123456789','qwertyuiop','asdfghjkl','zxcvbnm'];
+  for(let i=0;i+2<L.length;i++){
+    const a=L.slice(i,i+3), b=a.split('').reverse().join('');
+    for(const r of rows)if(r.includes(a)||r.includes(b))return true;
+  }
+  return false;
+}
+function pwCheck(pw,id,name){
+  const s=String(pw==null?'':pw);
+  if(s.length<PW_MIN)return {ok:false,msg:`비밀번호는 ${PW_MIN}자 이상으로 만들어 주세요.`};
+  if(s.length>PW_MAX)return {ok:false,msg:`비밀번호는 ${PW_MAX}자까지 쓸 수 있습니다.`};
+  if(/\s/.test(s))return {ok:false,msg:'비밀번호에 공백은 쓸 수 없습니다.'};
+  if(!/[A-Za-z]/.test(s))return {ok:false,msg:'영문자를 1자 이상 넣어 주세요.'};
+  if(!/[0-9]/.test(s))return {ok:false,msg:'숫자를 1자 이상 넣어 주세요.'};
+  if(!/[^A-Za-z0-9]/.test(s))return {ok:false,msg:'특수문자(!@#$ 등)를 1자 이상 넣어 주세요.'};
+  if(/(.)\1\1/.test(s))return {ok:false,msg:'같은 문자를 3번 연달아 쓸 수 없습니다.'};
+  if(pwSeq3(s))return {ok:false,msg:'abc·123·qwe 처럼 연속된 문자는 쓸 수 없습니다.'};
+  const low=s.toLowerCase();
+  if(PW_COMMON.some(x=>low.includes(x)))return {ok:false,msg:'너무 흔한 비밀번호입니다. 다른 조합으로 바꿔 주세요.'};
+  const uid=String(id||'').toLowerCase(), nm=String(name||'').toLowerCase();
+  if(uid.length>=3&&low.includes(uid))return {ok:false,msg:'비밀번호에 아이디를 담을 수 없습니다.'};
+  if(nm.length>=3&&low.includes(nm))return {ok:false,msg:'비밀번호에 이름을 담을 수 없습니다.'};
+  return {ok:true,msg:''};
+}
+/* 0~4 단계 강도 — 규칙 통과 여부와 별개로 '얼마나 튼튼한지'를 보여 준다 */
+function pwStrength(pw){
+  const s=String(pw==null?'':pw); if(!s)return {lv:0,label:'',pct:0};
+  let sc=0;
+  if(s.length>=8)sc++; if(s.length>=12)sc++; if(s.length>=16)sc++;
+  if(/[A-Z]/.test(s)&&/[a-z]/.test(s))sc++;
+  if(/[0-9]/.test(s))sc++;
+  if(/[^A-Za-z0-9]/.test(s))sc++;
+  if(new Set(s).size>=s.length*0.7)sc++;
+  if(/(.)\1\1/.test(s)||pwSeq3(s))sc-=2;
+  const lv=Math.max(0,Math.min(4,Math.round(sc*4/7)));
+  return {lv,label:['매우 약함','약함','보통','안전','매우 안전'][lv],pct:[8,30,55,78,100][lv]};
+}
+/* 입력창 아래에 강도 막대와 안내를 붙인다 — 눌러 보고서야 실패를 아는 일이 없게 */
+function pwWire(inputId,meterId,idGetter,nameGetter){
+  const inp=$(inputId), box=$(meterId);
+  if(!inp||!box||inp._pwWired)return; inp._pwWired=true;
+  const paint=()=>{
+    const v=inp.value||'';
+    if(!v){box.innerHTML='';box.hidden=true;return;}
+    box.hidden=false;
+    const st=pwStrength(v), ck=pwCheck(v,idGetter?idGetter():'',nameGetter?nameGetter():'');
+    box.innerHTML=`<div class="pw-bar"><i class="lv${st.lv}" style="width:${st.pct}%"></i></div>
+      <div class="pw-hint ${ck.ok?'ok':'no'}">${ck.ok?`✓ 사용할 수 있어요 · 강도 ${st.label}`:ck.msg}</div>`;
+  };
+  inp.addEventListener('input',paint); inp.addEventListener('blur',paint);
+}
 async function pwHash(s){
   try{
     const buf=new TextEncoder().encode('livejt|'+String(s));
@@ -2011,7 +2076,7 @@ function acctSwitch(id){
   acctSnap(); acctLoad(id); saveState();
   try{sanitizeAccount(true);}catch(e){}
   try{renderPortfolioNumbers();}catch(e){}
-  try{if(currentView==='account'){renderAcctFx();}}catch(e){}
+  try{if(currentView==='account'){renderAcctFx();renderAcctSend();}}catch(e){}
   try{renderAcctBar();}catch(e){}
   const a=acctCur();
   toast('buy','계좌 전환',(a?ACCT_TYPES[a.type].n:'')+' · 예수금 '+KRW(cash)+'원');
@@ -2130,6 +2195,175 @@ function fmtCur(v,c){ const d=curInfo(c).dec;
   return (+v||0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function fmtRate(r,c){ const i=curInfo(c);
   return i.per?KRW(Math.round(r*i.per))+'원/'+i.per+i.c : KRW(Math.round(r*100)/100)+'원'; }
+/* ══ [v4.51] 송금 ══════════════════════════════════════════════════════════
+   [왜 필요했나] 계좌를 여러 개 열 수 있는데 그 사이에 돈을 옮길 방법이 없었다.
+   ISA 에 예수금을 몰아넣었다가 해외 계좌로 옮기고 싶어도, 예수금을 손으로 고쳐
+   쓰는 수밖에 없었다 — 그건 이체가 아니라 숫자 조작이라 배우는 게 없다.
+   [설계] 실제 이체 절차를 그대로 옮긴다.
+     · 받는 계좌를 '계좌번호'로 지정한다(직접 입력 또는 내 계좌에서 고르기)
+     · 금액 · 받는 분 통장 표시(메모) 를 넣는다
+     · 1회/1일 이체한도를 두고, 계좌 비밀번호로 확인한 뒤 실행한다
+     · 양쪽 장부에 각각 기록이 남는다
+   앱 안의 내 계좌끼리만 오간다 — 바깥으로 나가는 실제 송금이 아니다. */
+var SEND_LIMIT_ONE=50000000, SEND_LIMIT_DAY=100000000;
+var sendLog=[];                                     // [{at,from,to,amt,memo}]
+function sendTodayTotal(){
+  const d=kstDay();
+  return sendLog.filter(x=>x&&x.day===d).reduce((a,x)=>a+(+x.amt||0),0);
+}
+function acctByNo(no){
+  const clean=String(no||'').replace(/\s/g,'');
+  return acctList.find(a=>a.no&&a.no.replace(/\s/g,'')===clean)||null;
+}
+function acctLabel(a){
+  if(!a)return '—';
+  const t=ACCT_TYPES[a.type]||ACCT_TYPES.general;
+  return `${t.ic} ${t.n}`;
+}
+function acctCashOf(id){
+  if(id===acctActive)return cash;
+  return intOf((acctBooks[id]||{}).cash,0);
+}
+/* 실제 이체 — 보내는 쪽에서 빼고 받는 쪽에 더한 뒤 양쪽 장부에 기록을 남긴다 */
+function doSend(toId,amt,memo){
+  const from=acctCur();
+  if(!from)return {ok:false,msg:'출금 계좌를 찾을 수 없습니다'};
+  if(toId===from.id)return {ok:false,msg:'같은 계좌로는 보낼 수 없습니다'};
+  const to=acctList.find(a=>a.id===toId);
+  if(!to)return {ok:false,msg:'받는 계좌를 찾을 수 없습니다'};
+  const v=intOf(amt,0);
+  if(v<1000)return {ok:false,msg:'1,000원 이상부터 보낼 수 있습니다'};
+  if(v>cash)return {ok:false,msg:`출금 계좌 예수금이 부족합니다 (보유 ${KRW(cash)}원)`};
+  if(v>SEND_LIMIT_ONE)return {ok:false,msg:`1회 이체한도는 ${KRW(SEND_LIMIT_ONE)}원입니다`};
+  if(sendTodayTotal()+v>SEND_LIMIT_DAY)
+    return {ok:false,msg:`1일 이체한도 ${KRW(SEND_LIMIT_DAY)}원을 넘습니다 (오늘 ${KRW(sendTodayTotal())}원 이체함)`};
+  const tt=ACCT_TYPES[to.type];
+  if(tt&&tt.limit){
+    const after=acctCashOf(to.id)+v;
+    if(after>tt.limit)
+      return {ok:false,msg:`${tt.n}의 연 납입한도는 ${KRW(tt.limit)}원입니다. 이체 후 ${KRW(after)}원이 되어 한도를 넘습니다`};
+  }
+  cash=intOf(cash-v,0);                       // 보내는 계좌(=현재 활성)에서 차감
+  acctSnap();
+  const bk=acctBooks[to.id]||(acctBooks[to.id]={cash:0,usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]});
+  bk.cash=intOf(bk.cash,0)+v;                 // 받는 계좌에 입금
+  const rec={at:Date.now(),day:kstDay(),from:from.no||from.id,to:to.no||to.id,
+    fromId:from.id,toId:to.id,amt:v,memo:String(memo||'').slice(0,20)};
+  sendLog.unshift(rec); if(sendLog.length>200)sendLog.length=200;
+  saveState();
+  return {ok:true,msg:`${acctLabel(to)}(${to.no||''}) 로 ${KRW(v)}원을 보냈습니다`,rec};
+}
+var sendToId='';
+function renderAcctSend(){
+  const sec=$('acctSendSec'); if(!sec)return;
+  if(!acctOpened()){ sec.innerHTML=''; return; }
+  const me=acctCur();
+  const others=acctList.filter(a=>a.id!==me.id);
+  if(!others.length){
+    sec.innerHTML=`<div class="sec"><div class="sec-title">송금 <span class="sec-sub">· 내 계좌 사이 이체</span></div>
+      <div class="panel asend"><div class="asend-empty"><b>보낼 곳이 아직 없습니다</b>
+        <span>계좌를 하나 더 개설하면 계좌번호로 예수금을 옮길 수 있어요.</span>
+        <button type="button" class="uz-retry" id="asOpenAcct">계좌 개설하기</button></div></div></div>`;
+    const b=$('asOpenAcct'); if(b)b.onclick=()=>openAcctOpenSheet();
+    return;
+  }
+  if(!others.some(a=>a.id===sendToId))sendToId='';
+  const today=sendTodayTotal();
+  sec.innerHTML=`<div class="sec"><div class="sec-title">송금 <span class="sec-sub">· 내 계좌 사이 이체 · 1회 ${KRW(SEND_LIMIT_ONE)}원 · 1일 ${KRW(SEND_LIMIT_DAY)}원</span></div>
+    <div class="panel asend">
+      <div class="asend-from"><small>출금 계좌</small>
+        <b>${acctLabel(me)}</b><i class="num">${me.no||'번호 없음'}</i>
+        <span class="num">출금가능 ${KRW(cash)}원</span></div>
+      <div class="asend-arrow">↓</div>
+      <div class="us-fld"><label><span>받는 계좌번호</span>
+        <span class="num">오늘 이체 ${KRW(today)}원 / ${KRW(SEND_LIMIT_DAY)}원</span></label>
+        <div class="us-inrow"><input id="asNo" inputmode="numeric" placeholder="900-01-123456-7"
+          value="${sendToId?htmlEsc((acctList.find(a=>a.id===sendToId)||{}).no||''):''}">
+          <button id="asPick" style="width:96px;font-size:12px">내 계좌</button></div></div>
+      <div class="asend-picks" id="asPicks" hidden>${others.map(a=>`
+        <button type="button" class="asend-p" data-asto="${a.id}">
+          <b>${acctLabel(a)}</b><i class="num">${a.no||'—'}</i>
+          <span class="num">${KRW(acctCashOf(a.id))}원</span></button>`).join('')}</div>
+      <div class="asend-to" id="asTo"></div>
+      <div class="us-fld"><label><span>보낼 금액</span><span class="num">보유 ${KRW(cash)}원</span></label>
+        <div class="us-inrow"><input id="asAmt" class="num" inputmode="numeric" placeholder="예: 1,000,000">
+          <button id="asMax" style="width:64px;font-size:12px">전액</button></div></div>
+      <div class="asend-quick">${[100000,500000,1000000,5000000].map(v=>
+        `<button type="button" data-asq="${v}">+${KRW(v)}</button>`).join('')}
+        <button type="button" data-asq="0">지우기</button></div>
+      <div class="us-fld"><label><span>받는 분 통장 표시</span><span class="num">선택 · 20자</span></label>
+        <div class="us-inrow"><input id="asMemo" maxlength="20" placeholder="비워 두면 예금주 이름으로 표시됩니다"></div></div>
+      <div id="asMsg" class="ae-msg"></div>
+      <button class="us-submit buy" id="asGo">송금하기</button>
+      <div class="us-ord-note">※ 앱 안의 내 계좌끼리만 이동합니다. 외부 금융기관으로 나가는 실제 송금이 아닙니다.<br>
+      ※ 보유 주식은 함께 옮겨지지 않습니다. 예수금(원화)만 이동합니다.</div>
+      ${sendLog.length?`<div class="asend-log"><div class="asl-h">최근 이체</div>
+        ${sendLog.slice(0,5).map(r=>`<div class="asl-r"><span>${new Date(r.at).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})}</span>
+          <b>${htmlEsc(r.to)}</b><i class="num">${KRW(r.amt)}원</i></div>`).join('')}</div>`:''}
+    </div></div>`;
+  const noIn=$('asNo'), amt=$('asAmt'), msg=$('asMsg'), toBox=$('asTo');
+  const paintTo=()=>{
+    const a=acctByNo(noIn.value);
+    if(!noIn.value.trim()){ toBox.innerHTML=''; sendToId=''; return; }
+    if(!a){ toBox.innerHTML=`<div class="asend-bad">등록되지 않은 계좌번호입니다</div>`; sendToId=''; return; }
+    if(a.id===acctActive){ toBox.innerHTML=`<div class="asend-bad">지금 쓰는 계좌입니다. 다른 계좌를 골라 주세요</div>`; sendToId=''; return; }
+    sendToId=a.id;
+    const h=(a.holder&&a.holder.name)?a.holder.name:(currentUser||'');
+    toBox.innerHTML=`<div class="asend-ok"><b>${acctLabel(a)}</b><span>예금주 ${htmlEsc(h)}</span></div>`;
+  };
+  noIn.oninput=()=>{ let v=noIn.value.replace(/[^0-9]/g,'').slice(0,12);
+    if(v.length>11)v=v.slice(0,3)+'-'+v.slice(3,5)+'-'+v.slice(5,11)+'-'+v.slice(11);
+    else if(v.length>5)v=v.slice(0,3)+'-'+v.slice(3,5)+'-'+v.slice(5);
+    else if(v.length>3)v=v.slice(0,3)+'-'+v.slice(3);
+    noIn.value=v; paintTo(); };
+  paintTo();
+  $('asPick').onclick=()=>{ const p=$('asPicks'); p.hidden=!p.hidden; };
+  sec.querySelectorAll('[data-asto]').forEach(b=>b.onclick=()=>{
+    const a=acctList.find(x=>x.id===b.dataset.asto);
+    if(a){ noIn.value=a.no||''; $('asPicks').hidden=true; paintTo(); } });
+  amt.oninput=()=>{ const n=amt.value.replace(/[^0-9]/g,'');
+    amt.value=n?Number(n).toLocaleString('en-US'):''; };
+  $('asMax').onclick=()=>{ amt.value=KRW(cash); };
+  sec.querySelectorAll('[data-asq]').forEach(b=>b.onclick=()=>{
+    const add=+b.dataset.asq;
+    if(!add){ amt.value=''; return; }
+    const cur=parseInt(amt.value.replace(/[^0-9]/g,''))||0;
+    amt.value=Number(Math.min(cur+add,cash)).toLocaleString('en-US'); });
+  $('asGo').onclick=()=>{
+    msg.style.color='var(--down)';
+    if(!sendToId){ msg.textContent='받는 계좌번호를 확인해 주세요.'; return; }
+    const v=parseInt(String(amt.value).replace(/[^0-9]/g,''))||0;
+    if(!(v>0)){ msg.textContent='보낼 금액을 입력해 주세요.'; return; }
+    /* 실제 이체와 같이 계좌 비밀번호로 확인한다 */
+    askAcctPw('송금 확인',`${KRW(v)}원을 보냅니다`,(ok)=>{
+      if(!ok){ msg.textContent='비밀번호가 올바르지 않습니다.'; return; }
+      const r=doSend(sendToId,v,$('asMemo').value);
+      if(!r.ok){ msg.textContent=r.msg; return; }
+      msg.style.color='var(--up)'; msg.textContent=r.msg;
+      toast('buy','송금 완료',r.msg);
+      renderAcctSend(); renderAcctBar();
+      try{renderPortfolioNumbers();renderAcctFx();}catch(e){}
+    });
+  };
+}
+/* 계좌 비밀번호 확인 — 주문 확인과 같은 방식을 송금에도 쓴다 */
+function askAcctPw(title,sub,cb){
+  openLiteGate(title,`<div class="askpw">
+    <p class="ae-d">${htmlEsc(sub)} · 계좌 비밀번호 4자리를 입력해 주세요.</p>
+    <input id="askPwIn" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off">
+    <div class="ae-msg" id="askPwMsg"></div>
+    <div class="ae-nav two"><button class="modal-btn ghost" id="askPwNo">취소</button>
+      <button class="modal-btn" id="askPwOk">확인</button></div></div>`);
+  const inp=$('askPwIn'); if(inp)setTimeout(()=>inp.focus(),80);
+  const done=(ok)=>{ closeLiteGate(); cb(ok); };
+  $('askPwNo').onclick=()=>closeLiteGate();
+  const go=()=>{ const v=(inp.value||'').trim();
+    if(!/^\d{4}$/.test(v)){ $('askPwMsg').textContent='숫자 4자리를 입력해 주세요.'; return; }
+    pwHash(v).then(h=>{ const AP=acctPwOf();
+      done(h===AP||legacyHash(v)===AP); }); };
+  $('askPwOk').onclick=go;
+  if(inp)inp.onkeydown=(e)=>{ if(e.key==='Enter')go(); };
+}
 /* ══ [v4.40] 계좌 선택 바 + 미개설 안내 ═══════════════════════════════════ */
 var aeSel='general';
 var fxSel='USD', fxDir='toCur';
@@ -2217,6 +2451,7 @@ function renderAcctBar(){
         <select id="acctSelect">${acctList.map(a=>{const ty=ACCT_TYPES[a.type]||ACCT_TYPES.general;
           const bk=(a.id===acctActive)?{cash}:(acctBooks[a.id]||{});
           return `<option value="${a.id}" ${a.id===acctActive?'selected':''}>${ty.ic} ${ty.n} · ${KRW(intOf(bk.cash,0))}원</option>`;}).join('')}</select>
+        <div class="ab-no">계좌번호 <b>${cur.no||'—'}</b></div>
       </div></div>
     <div class="ab-r">
       <div class="ab-kv"><span>국내</span><b>${(FEE_RATE_BASE*t.feeKr*100).toFixed(4)}%</b></div>
@@ -2241,49 +2476,292 @@ function renderAeTypes(){
       ${a.cons.map(x=>`<span class="acct-con">· ${x}</span>`).join('')}</div></div>`;
   const go=$('aeGo'); if(go)go.onclick=()=>doAcctOpen();
 }
-function finishAcctOpen(t,v){
-  toast('buy','계좌 개설 완료',t.n+' · 예수금 '+KRW(v)+'원 · 비밀번호 설정 완료');
+function finishAcctOpen(t,v,a){
   try{sanitizeAccount(true);}catch(e){}
   try{closeLiteGate();}catch(e){}
-  renderAcctBar(); try{renderAcctFx();renderPortfolioNumbers();renderHoldings();}catch(e){}
+  renderAcctBar(); try{renderAcctFx();renderAcctSend();renderPortfolioNumbers();renderHoldings();}catch(e){}
+  /* [v4.51] 개설 결과를 계좌번호와 함께 보여 준다 — 번호가 없으면 계좌를 텄다는 실감이 안 난다 */
+  const no=(a&&a.no)?a.no:'—';
+  openLiteGate('계좌 개설 완료',`<div class="ae-done">
+    <div class="aed-ic">${t.ic}</div>
+    <div class="aed-t">${t.n} 개설이 완료되었습니다</div>
+    <div class="aed-no"><small>계좌번호</small><b id="aedNo">${no}</b>
+      <button type="button" class="aed-copy" id="aedCopy">복사</button></div>
+    <div class="aed-kv"><span>예금주</span><b>${htmlEsc((a&&a.holder&&a.holder.name)||(currentUser||''))}</b></div>
+    <div class="aed-kv"><span>시작 예수금</span><b class="num">${KRW(v)}원</b></div>
+    <div class="aed-kv"><span>국내 수수료</span><b>${(FEE_RATE_BASE*t.feeKr*100).toFixed(4)}%</b></div>
+    <div class="aed-kv"><span>해외 수수료</span><b>${(US_FEE_BASE*t.feeUs*100).toFixed(2)}%</b></div>
+    <div class="aed-note">계좌번호는 이 모의 서비스 전용입니다. 실제 금융기관 계좌와 아무 관계가 없으며, 송금도 앱 안의 내 계좌끼리만 이루어집니다.</div>
+    <button class="modal-btn" id="aedClose">확인</button></div>`);
+  const cp=$('aedCopy');
+  if(cp)cp.onclick=()=>{ try{navigator.clipboard.writeText(no);
+    cp.textContent='복사됨'; setTimeout(()=>{cp.textContent='복사';},1400);}catch(e){} };
+  const cl=$('aedClose'); if(cl)cl.onclick=closeLiteGate;
+  toast('buy','계좌 개설 완료',t.n+' · '+no+' · 예수금 '+KRW(v)+'원');
+}
+/* ══ [v4.51] 계좌 개설 전면 개편 ═══════════════════════════════════════════
+   [무엇이 부족했나] 예전 개설 화면은 '계좌 종류 · 시작 예수금 · 비밀번호' 셋뿐이었다.
+   실제 증권사에서 계좌를 트면 신원 확인, 투자성향 파악, 약관 동의를 반드시 거치고
+   그 결과로 '계좌번호'를 받는다. 번호가 없으니 개설했다는 실감도 나지 않았다.
+   [무엇을 넣었나]
+     1단계 계좌 선택 — 기존과 같되 비교가 쉽게 정리
+     2단계 신청인 정보 — 이름·생년월일·연락처·이메일·직업·투자목적·자금출처·투자성향
+     3단계 약관 동의 — 필수 4종(개설약관·개인정보 수집이용·고유식별정보·투자위험고지)
+                       + 선택 2종(마케팅 수신·제3자 제공). 전체동의와 개별 펼쳐보기 제공
+     4단계 예수금·비밀번호 — 4자리 확인 입력까지
+   [계좌번호] 개설 즉시 발급한다. 증권사 실계좌와 헷갈리지 않도록 모의 전용
+   기관코드(900)를 앞에 두고, 같은 계정 안에서 중복되지 않게 검사한다. */
+var AE_STEP=1, aeForm=null;
+var AE_JOBS=['회사원','공무원','자영업','전문직','학생','주부','프리랜서','무직','기타'];
+var AE_PURPOSE=['자산 증식','노후 준비','목돈 마련','학자금 마련','주택 마련','기타'];
+var AE_SOURCE=['근로소득','사업소득','금융소득','상속·증여','퇴직금','부모 지원','기타'];
+var AE_RISK=[
+  ['stable','안정형','원금 손실을 원하지 않습니다. 예금 수준의 변동만 감내합니다.'],
+  ['safe','안정추구형','원금 보전을 우선하되 약간의 손실은 감수할 수 있습니다.'],
+  ['neutral','위험중립형','기대수익을 위해 그에 상응하는 손실 위험을 받아들입니다.'],
+  ['active','적극투자형','높은 수익을 위해 상당한 손실 위험을 감수합니다.'],
+  ['aggressive','공격투자형','원금 대부분의 손실도 감수하고 최대 수익을 추구합니다.']
+];
+var AE_TERMS=[
+  ['t1',1,'계좌 개설 및 금융거래 약관','이 서비스는 학습용 모의투자입니다. 실제 매매·실제 자금 이동이 발생하지 않으며, 화면의 모든 손익은 가상입니다. 모의 계좌는 언제든 해지할 수 있습니다.'],
+  ['t2',1,'개인정보 수집·이용 동의','수집 항목: 이름, 생년월일, 연락처, 이메일, 직업, 투자목적, 자금출처, 투자성향. 이용 목적: 모의 계좌 개설과 화면 표시. 보관 기간: 계좌 해지 시까지. 이 정보는 이 기기와 회원 계정에만 저장되며 외부에 제공되지 않습니다. 동의를 거부할 수 있으나 그 경우 계좌를 개설할 수 없습니다.'],
+  ['t3',1,'고유식별정보 처리 동의','실제 증권사는 주민등록번호로 실명을 확인합니다. 이 모의 서비스는 주민등록번호를 받지 않으며, 생년월일만으로 성인 여부만 확인합니다.'],
+  ['t4',1,'투자위험 고지 확인','주식 투자는 원금 손실이 발생할 수 있고 예금자보호를 받지 않습니다. 해외 주식은 환율 변동에 따라 추가 손익이 생깁니다. 과거 수익률이 미래 수익을 보장하지 않습니다.'],
+  ['t5',0,'마케팅 정보 수신 동의 (선택)','새 기능과 학습 콘텐츠 안내를 앱 알림으로 받습니다. 동의하지 않아도 계좌 개설과 모든 기능 이용에 제한이 없습니다.'],
+  ['t6',0,'제3자 정보 제공 동의 (선택)','이 모의 서비스는 실제로 제3자에게 정보를 제공하지 않습니다. 실제 증권사 개설 절차를 그대로 보여 주기 위한 항목입니다.']
+];
+/* 모의 전용 계좌번호 — 900-계좌종류(2)-일련(6)-검증(1) */
+var ACCT_CODE={general:'01',isa:'21',pension:'31',irp:'32',overseas:'41',cma:'51',credit:'61'};
+function acctNewNo(type){
+  const mid=ACCT_CODE[type]||'09';
+  for(let tries=0;tries<40;tries++){
+    let ser=''; for(let i=0;i<6;i++)ser+=Math.floor(Math.random()*10);
+    /* 검증숫자 — 자리별 가중합의 나머지. 아무 번호나 통과하지 않게 하는 실제 방식이다 */
+    const body=('900'+mid+ser).split('').map(Number);
+    let sum=0; body.forEach((n,i)=>sum+=n*((i%2)?1:3));
+    const chk=(10-(sum%10))%10;
+    const no=`900-${mid}-${ser}-${chk}`;
+    if(!acctList.some(a=>a.no===no))return no;
+  }
+  return '900-'+mid+'-'+Date.now().toString().slice(-6)+'-0';
+}
+function aeInit(){
+  AE_STEP=1; aeSel='general';
+  const acc=(typeof accounts==='function'&&currentUser)?(accounts()[currentUser]||{}):{};
+  aeForm={name:acc.name||'',birth:'',phone:'',email:acc.email||'',job:'',purpose:'',source:'',
+    risk:'',cash:'10,000,000',pw:'',pw2:'',terms:{}};
+}
+function aeSave(){
+  const g=(id)=>{const e=$(id);return e?String(e.value||'').trim():'';};
+  if(AE_STEP===2){ aeForm.name=g('aeName'); aeForm.birth=g('aeBirth'); aeForm.phone=g('aePhone');
+    aeForm.email=g('aeEmail'); aeForm.job=g('aeJob'); aeForm.purpose=g('aePurpose');
+    aeForm.source=g('aeSource'); aeForm.risk=g('aeRisk'); }
+  if(AE_STEP===4){ aeForm.cash=g('aeCash'); aeForm.pw=g('aePw'); aeForm.pw2=g('aePw2'); }
+}
+function aeGo(step){ aeSave(); AE_STEP=step; renderAeSheet(); }
+function aeSay(html,ok){
+  const m=$('aeMsg'); if(!m)return;
+  m.style.color=ok?'var(--up)':'var(--down)'; m.innerHTML=html;
+}
+/* 만 나이 — 생년월일로 성인 여부를 판단한다 */
+function aeAge(b){
+  const m=String(b||'').match(/^(\d{4})-?(\d{2})-?(\d{2})$/); if(!m)return null;
+  const y=+m[1],mo=+m[2],d=+m[3];
+  if(mo<1||mo>12||d<1||d>31)return null;
+  const dt=new Date(Date.UTC(y,mo-1,d));
+  if(dt.getUTCFullYear()!==y||dt.getUTCMonth()!==mo-1||dt.getUTCDate()!==d)return null;
+  const now=kstNow();
+  let age=now.getUTCFullYear()-y;
+  const passed=(now.getUTCMonth()+1>mo)||((now.getUTCMonth()+1===mo)&&now.getUTCDate()>=d);
+  if(!passed)age--;
+  return age;
+}
+function aeValidStep2(){
+  aeSave();
+  if(aeForm.name.length<2)return '이름을 2자 이상 입력해 주세요.';
+  if(!/^[가-힣A-Za-z ·]+$/.test(aeForm.name))return '이름에는 한글 또는 영문만 쓸 수 있습니다.';
+  const age=aeAge(aeForm.birth);
+  if(age==null)return '생년월일을 <b>YYYY-MM-DD</b> 형식으로 정확히 입력해 주세요.';
+  if(age<0||age>120)return '생년월일을 다시 확인해 주세요.';
+  if(age<19)return `만 <b>${age}세</b>로 확인됩니다. 실제 증권 계좌는 만 19세부터 단독 개설할 수 있어, 이 모의 절차도 같은 기준을 따릅니다.`;
+  if(!/^01[016789]-?\d{3,4}-?\d{4}$/.test(aeForm.phone.replace(/\s/g,'')))
+    return '휴대전화 번호를 <b>010-1234-5678</b> 형식으로 입력해 주세요.';
+  if(!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(aeForm.email))return '이메일 주소를 정확히 입력해 주세요.';
+  if(!aeForm.job)return '직업을 선택해 주세요.';
+  if(!aeForm.purpose)return '투자 목적을 선택해 주세요.';
+  if(!aeForm.source)return '자금 출처를 선택해 주세요.';
+  if(!aeForm.risk)return '투자성향을 선택해 주세요.';
+  return '';
+}
+function aeRiskWarn(){
+  const t=ACCT_TYPES[aeSel]||ACCT_TYPES.general;
+  const lv=AE_RISK.findIndex(r=>r[0]===aeForm.risk);
+  if(lv<=1&&(aeSel==='credit'||aeSel==='overseas'))
+    return `선택하신 <b>${AE_RISK[lv][1]}</b> 성향에 견주면 <b>${t.n}</b>는 변동이 큰 편입니다. 계속 진행할 수 있지만, 실제 증권사라면 부적합 안내를 받는 조합입니다.`;
+  return '';
+}
+function renderAeSheet(){
+  const body=$('liteBody'); if(!body)return;
+  const steps=['계좌 선택','신청인 정보','약관 동의','예수금·비밀번호'];
+  const bar=`<div class="ae-steps">${steps.map((n,i)=>{
+    const k=i+1, st=k<AE_STEP?'done':k===AE_STEP?'on':'';
+    return `<div class="ae-st ${st}"><i>${k<AE_STEP?'✓':k}</i><span>${n}</span></div>`;}).join('')}</div>`;
+  let inner='';
+  if(AE_STEP===1){
+    inner=`<p class="ae-d">목적에 맞는 계좌를 고르세요. 계좌마다 예수금·보유·매매일지가 따로 관리되고, 수수료와 세제도 다르게 계산됩니다.</p>
+      <div class="acct-pick" id="aeTypes"></div><div class="acct-detail" id="aeDetail"></div>
+      <div class="ae-msg" id="aeMsg"></div>
+      <div class="ae-nav"><button class="modal-btn" id="aeNext">다음 · 신청인 정보</button></div>`;
+  }
+  if(AE_STEP===2){
+    /* 옵션 묶음만 만드는 조각과, 라벨까지 붙인 한 줄 — 문자열을 나중에 잘라 쓰지 않는다 */
+    const opt=(id,arr,val)=>`<select id="${id}"><option value="">선택</option>`
+      +arr.map(x=>`<option value="${x}" ${val===x?'selected':''}>${x}</option>`).join('')+`</select>`;
+    const sel=(id,label,arr,val,ph)=>`<div class="fld2"><label>${label}</label>
+      <select id="${id}"><option value="">${ph}</option>
+      ${arr.map(x=>`<option value="${x}" ${val===x?'selected':''}>${x}</option>`).join('')}</select></div>`;
+    inner=`<p class="ae-d">실제 증권사 개설 절차와 같은 항목을 받습니다. 입력한 내용은 이 기기와 회원 계정에만 저장되며 외부로 나가지 않습니다.</p>
+      <div class="fld2 two">
+        <div><label>이름</label><input id="aeName" value="${htmlEsc(aeForm.name)}" placeholder="홍길동" autocomplete="name"></div>
+        <div><label>생년월일</label><input id="aeBirth" value="${htmlEsc(aeForm.birth)}" placeholder="2000-01-01" inputmode="numeric" maxlength="10"></div>
+      </div>
+      <div class="fld2 two">
+        <div><label>휴대전화</label><input id="aePhone" value="${htmlEsc(aeForm.phone)}" placeholder="010-1234-5678" inputmode="tel" maxlength="13"></div>
+        <div><label>이메일</label><input id="aeEmail" value="${htmlEsc(aeForm.email)}" placeholder="me@example.com" inputmode="email"></div>
+      </div>
+      ${sel('aeJob','직업',AE_JOBS,aeForm.job,'선택해 주세요')}
+      <div class="fld2 two">
+        <div><label>투자 목적</label>${opt('aePurpose',AE_PURPOSE,aeForm.purpose)}</div>
+        <div><label>자금 출처</label>${opt('aeSource',AE_SOURCE,aeForm.source)}</div>
+      </div>
+      <div class="fld2"><label>투자성향 <small style="font-weight:600;color:var(--sub-2)">— 감당할 수 있는 손실 정도를 고르세요</small></label>
+        <select id="aeRisk"><option value="">선택해 주세요</option>
+        ${AE_RISK.map(r=>`<option value="${r[0]}" ${aeForm.risk===r[0]?'selected':''}>${r[1]} — ${r[2]}</option>`).join('')}</select></div>
+      <div class="ae-msg" id="aeMsg"></div>
+      <div class="ae-nav two"><button class="modal-btn ghost" id="aePrev">이전</button>
+        <button class="modal-btn" id="aeNext">다음 · 약관 동의</button></div>`;
+  }
+  if(AE_STEP===3){
+    const allOn=AE_TERMS.every(t=>aeForm.terms[t[0]]);
+    inner=`<p class="ae-d">항목을 눌러 내용을 펼쳐 볼 수 있습니다. <b>필수</b> 항목에 모두 동의해야 개설이 진행됩니다.</p>
+      <button type="button" class="ae-all ${allOn?'on':''}" id="aeAll">
+        <span class="ae-ck">${allOn?'✓':''}</span><b>약관 전체 동의</b>
+        <small>필수 4건 · 선택 2건을 한 번에 동의합니다</small></button>
+      <div class="ae-terms">${AE_TERMS.map(([k,req,title,txt])=>`
+        <div class="ae-t">
+          <button type="button" class="ae-trow ${aeForm.terms[k]?'on':''}" data-aet="${k}">
+            <span class="ae-ck">${aeForm.terms[k]?'✓':''}</span>
+            <span class="ae-tt"><i class="${req?'req':'opt'}">${req?'필수':'선택'}</i>${title}</span>
+          </button>
+          <button type="button" class="ae-tmore" data-aem="${k}">내용 보기 ▾</button>
+          <div class="ae-tbox" id="aetb-${k}" hidden>${txt}</div>
+        </div>`).join('')}</div>
+      <div class="ae-msg" id="aeMsg"></div>
+      <div class="ae-nav two"><button class="modal-btn ghost" id="aePrev">이전</button>
+        <button class="modal-btn" id="aeNext">다음 · 예수금 설정</button></div>`;
+  }
+  if(AE_STEP===4){
+    const t=ACCT_TYPES[aeSel]||ACCT_TYPES.general;
+    const warn=aeRiskWarn();
+    inner=`<div class="ae-recap"><b>${t.ic} ${t.n}</b>
+        <span>${htmlEsc(aeForm.name)} · ${htmlEsc(aeForm.birth)} · ${(AE_RISK.find(r=>r[0]===aeForm.risk)||[,'—'])[1]}</span></div>
+      ${warn?`<div class="ae-warn">⚠ ${warn}</div>`:''}
+      <div class="fld2"><label>시작 예수금 (원) <small style="font-weight:600;color:var(--sub-2)">— 1만원 이상${t.limit?' · 연 납입한도 '+KRW(t.limit)+'원':''}</small></label>
+        <input id="aeCash" class="num" inputmode="numeric" value="${htmlEsc(aeForm.cash)}"></div>
+      <div class="fld2 two">
+        <div><label>계좌 비밀번호 <small style="font-weight:600;color:var(--sub-2)">— 숫자 4자리</small></label>
+          <input id="aePw" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
+        <div><label>비밀번호 확인</label>
+          <input id="aePw2" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
+      </div>
+      <div class="ae-note">개설을 누르면 <b>계좌번호</b>가 즉시 발급됩니다. 이 번호는 모의 전용이며 실제 금융기관 계좌와 무관합니다.</div>
+      <div class="ae-msg" id="aeMsg"></div>
+      <div class="ae-nav two"><button class="modal-btn ghost" id="aePrev">이전</button>
+        <button class="modal-btn" id="aeDone">계좌 개설하기</button></div>`;
+  }
+  body.innerHTML=`<div class="ae-sheet">${bar}${inner}</div>`;
+  wireAeSheet();
+}
+function wireAeSheet(){
+  const prev=$('aePrev'); if(prev)prev.onclick=()=>aeGo(AE_STEP-1);
+  const next=$('aeNext');
+  if(next)next.onclick=()=>{
+    if(AE_STEP===2){ const e=aeValidStep2(); if(e)return aeSay(e); }
+    if(AE_STEP===3){
+      const miss=AE_TERMS.filter(t=>t[1]&&!aeForm.terms[t[0]]);
+      if(miss.length)return aeSay(`필수 항목 <b>${miss.length}건</b>에 아직 동의하지 않으셨습니다.`);
+    }
+    aeGo(AE_STEP+1);
+  };
+  if(AE_STEP===1)setTimeout(renderAeTypes,10);
+  if(AE_STEP===2){
+    /* 입력하는 대로 하이픈을 넣어 준다 — 형식 때문에 반려되는 일이 없게 */
+    const b=$('aeBirth');
+    if(b)b.oninput=()=>{ let v=b.value.replace(/[^0-9]/g,'').slice(0,8);
+      if(v.length>6)v=v.slice(0,4)+'-'+v.slice(4,6)+'-'+v.slice(6);
+      else if(v.length>4)v=v.slice(0,4)+'-'+v.slice(4);
+      b.value=v; };
+    const ph=$('aePhone');
+    if(ph)ph.oninput=()=>{ let v=ph.value.replace(/[^0-9]/g,'').slice(0,11);
+      if(v.length>7)v=v.slice(0,3)+'-'+v.slice(3,7)+'-'+v.slice(7);
+      else if(v.length>3)v=v.slice(0,3)+'-'+v.slice(3);
+      ph.value=v; };
+  }
+  if(AE_STEP===3){
+    const all=$('aeAll');
+    if(all)all.onclick=()=>{ const on=!AE_TERMS.every(t=>aeForm.terms[t[0]]);
+      AE_TERMS.forEach(t=>aeForm.terms[t[0]]=on); renderAeSheet(); };
+    document.querySelectorAll('[data-aet]').forEach(b=>b.onclick=()=>{
+      const k=b.dataset.aet; aeForm.terms[k]=!aeForm.terms[k]; renderAeSheet(); });
+    document.querySelectorAll('[data-aem]').forEach(b=>b.onclick=()=>{
+      const box=$('aetb-'+b.dataset.aem); if(!box)return;
+      box.hidden=!box.hidden; b.textContent=box.hidden?'내용 보기 ▾':'접기 ▴'; });
+  }
+  if(AE_STEP===4){
+    const c=$('aeCash');
+    if(c)c.oninput=()=>{ const n=c.value.replace(/[^0-9]/g,'');
+      c.value=n?Number(n).toLocaleString('en-US'):''; };
+    const d=$('aeDone'); if(d)d.onclick=()=>doAcctOpen();
+  }
 }
 function doAcctOpen(){
+  aeSave();
   const t=ACCT_TYPES[aeSel]||ACCT_TYPES.general;
-  const v=parseInt((($('aeCash')||{}).value||'0').replace(/[^0-9]/g,''))||0;
-  const msg=$('aeMsg');
-  const say=(html)=>{ if(msg){msg.style.color='var(--down)'; msg.innerHTML=html;} };
-  /* ══ [v4.45] 개설 안전장치 ═══════════════════════════════════════════════
-     지금까지 개수 제한도, 같은 종류 중복 방지도 없었다. 실제 증권사도
-     ISA·연금저축은 1인 1계좌만 허용하므로 그 규칙을 반영한다. */
+  const v=parseInt(String(aeForm.cash||'0').replace(/[^0-9]/g,''))||0;
+  const say=(h)=>aeSay(h);
   if(acctList.length>=6)return say('계좌는 최대 <b>6개</b>까지 개설할 수 있습니다.');
   if(['isa','pension','irp'].includes(aeSel)&&acctList.some(a=>a.type===aeSel))
     return say(`<b>${t.n}</b>는 1인 1계좌만 개설할 수 있습니다. 이미 보유 중이에요.`);
-  if(v<10000)return say('시작 예수금은 10,000원 이상으로 설정해 주세요.');
+  if(v<10000)return say('시작 예수금은 <b>10,000원</b> 이상으로 설정해 주세요.');
   if(v>1000000000)return say('시작 예수금은 <b>10억원</b> 이하로 설정해 주세요.');
   if(t.limit&&v>t.limit)
     return say(`<b>${t.n}</b>의 연 납입한도는 <b>${KRW(t.limit)}원</b>입니다. 금액을 낮추거나 다른 계좌를 선택해 주세요.`);
-  const pwv=(($('aePw')||{}).value||'').trim();
+  const pwv=aeForm.pw, pw2=aeForm.pw2;
   if(!/^\d{4}$/.test(pwv))return say('계좌 비밀번호를 <b>숫자 4자리</b>로 설정해 주세요.');
-  if(/^(\d)\1{3}$/.test(pwv)||['0123','1234','2345','3456','4567','5678','6789','9876','4321'].includes(pwv))
+  if(/^(\d)\1{3}$/.test(pwv)||['0123','1234','2345','3456','4567','5678','6789','9876','4321','3210'].includes(pwv))
     return say('같은 숫자 반복이나 연속된 숫자는 사용할 수 없습니다.');
+  if(pwv!==pw2)return say('비밀번호 확인이 일치하지 않습니다.');
+  if(aeForm.birth.replace(/[^0-9]/g,'').slice(4)===pwv)
+    return say('생년월일과 같은 번호는 비밀번호로 쓸 수 없습니다.');
+  if(AE_TERMS.some(x=>x[1]&&!aeForm.terms[x[0]]))return say('필수 약관에 모두 동의해야 개설할 수 있습니다.');
+  say('개설 처리 중…',true);
   pwHash(pwv).then(hh=>{
-    acctOpen(aeSel,v,hh);
-    finishAcctOpen(t,v);
+    const id=acctOpen(aeSel,v,hh);
+    const a=acctList.find(x=>x.id===id);
+    if(a){
+      a.no=acctNewNo(aeSel);
+      a.holder={name:aeForm.name,birth:aeForm.birth,phone:aeForm.phone,email:aeForm.email,
+        job:aeForm.job,purpose:aeForm.purpose,source:aeForm.source,risk:aeForm.risk};
+      a.terms={at:Date.now(),agreed:AE_TERMS.filter(x=>aeForm.terms[x[0]]).map(x=>x[0])};
+      saveState();
+    }
+    finishAcctOpen(t,v,a);
   });
-  return;
 }
 function openAcctOpenSheet(){
-  aeSel='general';
-  openLiteGate('계좌 개설',`<div class="ae-sheet">
-    <p class="ae-d">목적에 맞는 계좌를 하나 더 열 수 있습니다. 계좌마다 예수금·보유·매매일지가 따로 관리됩니다.</p>
-    <div class="acct-pick" id="aeTypes"></div><div class="acct-detail" id="aeDetail"></div>
-    <div class="fld2" style="margin-top:12px"><label>시작 예수금 (원)</label>
-      <input id="aeCash" class="num" inputmode="numeric" value="10,000,000"></div>
-    <div class="fld2"><label>계좌 비밀번호 <small style="font-weight:600;color:var(--sub-2)">— 숫자 4자리</small></label>
-      <input id="aePw" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
-    <div class="ae-msg" id="aeMsg"></div>
-    <button class="modal-btn" id="aeGo">계좌 개설하기</button></div>`);
-  setTimeout(renderAeTypes,60);
+  aeInit();
+  openLiteGate('계좌 개설','');
+  renderAeSheet();
 }
 function acctMigrate(){
   if(acctOpened())return;
@@ -2367,10 +2845,10 @@ function cloudSync(){
   clearTimeout(syncT);
   syncT=setTimeout(()=>cloudCall({action:'sync',id:currentUser,pass:acc.pass,
     /* 폴더·종목메모·개인설정까지 자동 저장 — 기기를 바꿔 로그인해도 그대로 복원된다(수동 내보내기 불필요) */
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}),800);
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}),800);
 }
 function saveState(){ if(!currentUser)return; try{acctSnap();}catch(e){}   // [v4.40] 활성 계좌 장부 반영
-  store.set('user:'+currentUser,{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash}); cloudSync(); }
+  store.set('user:'+currentUser,{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash}); cloudSync(); }
 /* [폴더] 관심종목 폴더 상태 */
 let watchFolders=[]; let watchTab='all';
 /* [v1.99] 관심종목 = 폴더 소속 종목. '전체' 가상 폴더 폐지.
@@ -2417,6 +2895,10 @@ function applyUser(u){
   const hasNewFmt=Object.prototype.hasOwnProperty.call(d,'acctList');
   acctList=Array.isArray(d.acctList)?d.acctList.filter(a=>a&&a.id&&ACCT_TYPES[a.type]):[];
   acctBooks=(d.acctBooks&&typeof d.acctBooks==='object')?d.acctBooks:{};
+  sendLog=Array.isArray(d.sendLog)?d.sendLog:[];                      // [v4.51] 이체 내역
+  /* 예전에 개설된 계좌에는 번호가 없다 — 불러올 때 한 번 발급해 준다 */
+  {let need=false; acctList.forEach(a=>{ if(!a.no){ a.no=acctNewNo(a.type); need=true; } });
+   if(need)setTimeout(()=>{try{saveState();}catch(e2){}},400);}
   acctActive=(d.acctActive&&acctList.some(a=>a.id===d.acctActive))?d.acctActive:(acctList[0]?acctList[0].id:'');
   if(acctOpened()&&acctActive)acctLoad(acctActive);
   else if(!hasNewFmt)acctMigrate();                      // 예전 사용자 → 계좌 하나로 이전
@@ -2581,6 +3063,11 @@ function renderAcctPick(){
     <div class="acct-tags">${a.pros.map(x=>`<span class="acct-pro">✓ ${x}</span>`).join('')}
       ${a.cons.map(x=>`<span class="acct-con">· ${x}</span>`).join('')}</div></div>`;
 }
+/* [v4.49] 실시간 강도·규칙 안내 — 가입 버튼을 누른 뒤에야 실패를 아는 일이 없게 */
+try{
+  pwWire('suPw','suPwMeter',()=>($('suId')||{}).value||'',()=>($('suName')||{}).value||'');
+  pwWire('pmPw','pmPwMeter',()=>currentUser||'',()=>((accounts()[currentUser]||{}).name||''));
+}catch(e){}
 $('doSignup').onclick=async()=>{
   const id=normId($('suId').value),pw=$('suPw').value,pw2=$('suPw2').value;
   acctType=ACCT_TYPES[suAcctSel]?suAcctSel:'general';           // [v4.32] 선택한 계좌 종류
@@ -2600,15 +3087,19 @@ $('doSignup').onclick=async()=>{
      return;}}
   const a=$('suAcct').value,a2=$('suAcct2').value;
   const m=$('suMsg');
-  if(id.length<4){m.textContent='아이디는 4자 이상.';return;}
-  if(pw.length<6){m.textContent='비밀번호는 6자 이상.';return;}
+  if(id.length<4){m.textContent='아이디는 4자 이상으로 정해 주세요.';return;}
+  {const ck=pwCheck(pw,id,name); if(!ck.ok){m.textContent=ck.msg;$('suPw').focus();return;}}
   if(pw!==pw2){m.textContent='비밀번호가 일치하지 않습니다.';return;}
-  if(!/^\d{4}$/.test(a)){m.textContent='계좌 비밀번호는 숫자 4자리.';return;}
+  if(!/^\d{4}$/.test(a)){m.textContent='계좌 비밀번호는 숫자 4자리로 입력해 주세요.';return;}
+  if(/^(\d)\1{3}$/.test(a)||['0123','1234','2345','3456','4567','5678','6789','4321','9876','8765','7654','3210'].includes(a)){
+    m.textContent='계좌 비밀번호에 같은 숫자 반복이나 연속된 숫자는 쓸 수 없습니다.';return;}
   if(a!==a2){m.textContent='계좌 비밀번호가 일치하지 않습니다.';return;}
   const passH=await pwHash(pw),acctH=await pwHash(a);
   m.textContent='가입 처리 중…';
   const cj=await cloudCall({action:'signup',id,pass:passH,name,email,acctPass:acctH,cash:cashV});
-  if(cj&&!cj.ok){m.textContent=cj.err==='exists'?'이미 존재하는 아이디입니다.':'가입에 실패했습니다. 잠시 후 다시 시도하세요.';return;}
+  if(cj&&!cj.ok){m.textContent=cj.err==='exists'?'이미 존재하는 아이디입니다.'
+    :cj.err==='weak'?'비밀번호가 보안 규칙을 만족하지 않습니다. 다시 확인해 주세요.'
+    :'가입에 실패했습니다. 잠시 후 다시 시도하세요.';return;}
   /* [v4.18] 서버에 못 올린 계정을 로컬에만 만들면, 다른 기기에서는 존재하지 않는
      계정이 된다(같은 아이디로 또 가입 → 데이터 분열). 가입은 서버 성공을 필수로 한다. */
   if(!cj||!cj.ok){
@@ -3449,8 +3940,19 @@ function pmApplyRestore(text){
  };}
 $('pmSaveSec').onclick=async()=>{
   const pw=$('pmPw').value,a=$('pmAcct').value,m=$('pmSecMsg'),acc=accounts()[currentUser];if(!acc)return;
-  if(pw&&pw.length<6){m.style.color='var(--down)';m.textContent='비밀번호는 6자 이상.';return;}
-  if(a&&!/^\d{4}$/.test(a)){m.style.color='var(--down)';m.textContent='계좌 비밀번호는 숫자 4자리.';return;}
+  const pw2=(($('pmPw2')||{}).value)||'';
+  /* ══ [v4.50] 비밀번호 변경 안전장치 ═════════════════════════════════════════
+     ① 확인 입력 — 예전에는 새 비밀번호를 한 번만 받았다. 오타가 나면 그대로 저장돼
+        본인이 자기 계정에서 잠기고, 서버에도 이미 바뀐 뒤라 되돌릴 방법이 없었다.
+     ② 기존과 동일 금지 — '바꿨다'고 안내해 놓고 실제로는 그대로인 상태를 막는다. */
+  if(pw){const ck=pwCheck(pw,currentUser,acc.name);
+    if(!ck.ok){m.style.color='var(--down)';m.textContent=ck.msg;return;}
+    if(pw!==pw2){m.style.color='var(--down)';m.textContent='새 비밀번호가 일치하지 않습니다.';return;}
+    if(await pwHash(pw)===acc.pass||legacyHash(pw)===acc.pass){
+      m.style.color='var(--down)';m.textContent='지금 쓰는 비밀번호와 다른 것으로 바꿔 주세요.';return;}}
+  if(a&&!/^\d{4}$/.test(a)){m.style.color='var(--down)';m.textContent='계좌 비밀번호는 숫자 4자리로 입력해 주세요.';return;}
+  if(a&&(/^(\d)\1{3}$/.test(a)||['0123','1234','2345','3456','4567','5678','6789','4321','9876','8765','7654','3210'].includes(a))){
+    m.style.color='var(--down)';m.textContent='계좌 비밀번호에 같은 숫자 반복이나 연속된 숫자는 쓸 수 없습니다.';return;}
   if(!pw&&!a){m.style.color='var(--down)';m.textContent='변경할 항목을 입력하세요.';return;}
   const body={action:'profile',id:currentUser,pass:acc.pass};
   if(pw)body.newPass=await pwHash(pw); if(a)body.acctPass=await pwHash(a);
@@ -3458,6 +3960,7 @@ $('pmSaveSec').onclick=async()=>{
   if(pw)acc.pass=await pwHash(pw); if(a){const ah=await pwHash(a);acc.acctPass=ah;acctPassHash=ah;const u=store.get('user:'+currentUser)||{};u.acctPass=ah;store.set('user:'+currentUser,u);}
   const accs=accounts();accs[currentUser]=acc;store.set('accounts',accs);
   m.style.color='var(--up)';m.textContent='변경되었습니다.';$('pmPw').value='';$('pmAcct').value='';
+  {const e2=$('pmPw2'); if(e2)e2.value=''; const mt=$('pmPwMeter'); if(mt){mt.innerHTML='';mt.hidden=true;}}
 };
 $('pmBackup').onclick=()=>{$('backupDownload').click();$('pmDataMsg').style.color='var(--up)';$('pmDataMsg').textContent='백업 파일을 저장했습니다.';};
 $('pmBackupCopy').onclick=()=>{$('backupCopy').click();$('pmDataMsg').style.color='var(--up)';$('pmDataMsg').textContent='백업 코드를 복사했습니다.';};
@@ -3619,6 +4122,7 @@ function _showView(name){
   document.querySelectorAll('.main-nav button').forEach(b=>b.classList.toggle('on',b.dataset.view===navName));
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.bv===name));   // 모바일 하단 내비 동기화
   $('mainNav').classList.remove('open');window.scrollTo(0,0);
+  {const cta=$('usCta'); if(cta)cta.hidden=(name!=='ustrade');}   // [v4.50] 주문바는 상세에서만
   // [수정] 화면별 렌더러가 예외를 던져도 탭 전환 자체는 성공하도록 격리
   if(name==='home'){safeRun('home',renderHome);safeRun('market',renderMarket);safeRun('aiBrief',()=>{renderAiBrief();aiSchedule();});}
   if(name==='watch')safeRun('watch',renderWatch);
@@ -3638,7 +4142,7 @@ function _showView(name){
     safeRun('nxtStatus',loadNxtStatus);}
   if(name==='clan'){safeRun('clan',renderClan);}
   if(name==='friend'){safeRun('friend',renderFriend);}
-  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
+  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('acctsend',renderAcctSend);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
     safeRun('equity',()=>{seedEquityFromTrades();recordEquity();requestAnimationFrame(drawEquity);});
     safeRun('bgList',refreshStockListSoon);
     if(currentView==='home')safeRun('heroeq',drawHeroEq);
@@ -6517,6 +7021,11 @@ function renderHomeHotUs(){
   const ready=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
   if(ready.length<5){
     if(wrap)wrap.hidden=false;
+    if(_usQFail>=2){ /* [v4.48] 무한 '불러오는 중' 수리 — 실패가 이어지면 멈추고 버튼으로만 재시도 */
+      el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">해외 시세 서버가 응답하지 않습니다</span><button class="hh-c" id="hhUsRetry">다시 시도</button>`;
+      const b=$('hhUsRetry'); if(b)b.onclick=()=>{_usQFail=0;renderHomeHotUs();};
+      return;
+    }
     el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">해외 시세를 불러오는 중…</span>`;
     usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{ if(currentView==='home'&&homeHotMkt==='us')renderHomeHotUs(); });
     return;
@@ -7215,6 +7724,9 @@ function rankRetry(tab){rankCache[tab]=null;rankError[tab]=false;_rankBusy[tab]=
 function bindRankRetry(){
   const b=$('rankRetryBtn');
   if(b)b.addEventListener('click',(e)=>{e.stopPropagation();rankRetry(b.dataset.tab||searchRankTab);});
+  const u=$('usRankRetry'); /* [v4.48] 해외 순위 다시 시도 */
+  if(u)u.addEventListener('click',(e)=>{e.stopPropagation();_usQFail=0;
+    $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();});
 }
 /* ══ [v4.38] 해외 순위 — 국내와 같은 세 가지 기준으로 정렬한다 ═══════════════
    조회수는 미국 종목에 공개 지표가 없어, 거래대금(가격×거래량)으로 대신한다.
@@ -7223,6 +7735,8 @@ function usRankSection(){
   const tab=searchRankTab;
   const pool=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
   if(!pool.length){
+    if(_usQFail>=2) /* [v4.48] 무한 대기 → 실패·다시시도 상태 */
+      return '<div class="empty">해외 시세 서버가 지금 응답하지 않습니다<br><button class="rank-retry" id="usRankRetry">다시 시도</button></div>';
     usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{
       if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
         $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();
@@ -7459,6 +7973,11 @@ function renderUsSector(){
   const box=$('secUsBody'); if(!box)return;
   const ready=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null&&usQ[t].prev);
   if(ready.length<5){
+    if(_usQFail>=2){ /* [v4.48] 무한 대기 → 실패·다시시도 상태 */
+      box.innerHTML='<div class="empty">해외 시세 서버가 지금 응답하지 않습니다<br><button class="rank-retry" id="usSecRetry">다시 시도</button></div>';
+      const b=$('usSecRetry'); if(b)b.onclick=()=>{_usQFail=0;renderUsSector();};
+      return;
+    }
     box.innerHTML='<div class="empty">해외 시세를 불러오는 중…</div>';
     usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{ if(currentView==='sector'&&sectorMkt==='us')renderUsSector(); });
     usPollStart(US_UNI.map(u=>u[0]));
@@ -11337,53 +11856,70 @@ function usSession(now){
   let dAdd=0, base=new Date(et);
   if(!(wd>=1&&wd<=5)||mins>=960){ dAdd=1; let w=(wd+1)%7; while(w===0||w===6){dAdd++;w=(w+1)%7;} }
   const nx=(dAdd===0?'오늘':dAdd===1?'내일':['일','월','화','수','목','금','토'][(wd+dAdd)%7]+'요일')+' '+kst.open;
-  return {phase,label,dst,kst,next:nx};
+  return {phase,label,dst,kst,next:nx,mins,wd};   // [v4.49] 마켓 클록 트랙용 ET 분·요일
 }
 
 /* ── 4. 시세 수집 ── */
 var usQ={}, _usLoadBusy=false, _usPollT=null, _usPollSet=[];
+/* [v4.48] ① 부분 성공 병합: 어떤 원천은 52주·시가총액을 안 준다. 새 응답의 null 이
+   이미 알던 값을 지우지 않도록 필드 단위로 합친다.
+   ② 실패 카운터: 0건 응답이 이어지면 화면이 '불러오는 중…' 을 다시 그리고, 그 갱신이
+   또 시세 요청을 부르는 되먹임(무한 재시도 폭주)이 있었다 — 두 번 연속 0건이면
+   렌더러들이 실패·다시시도 상태로 바꾼다. */
+var _usQFail=0;
+function usApplyQuote(reu,q){
+  if(!q||q.price==null)return false;
+  const t=Object.keys(usMeta).find(k=>usMeta[k].reu===reu); if(!t)return false;
+  const keep=usQ[t]||{};
+  const nn={}; Object.keys(q).forEach(k=>{ if(q[k]!=null)nn[k]=q[k]; });
+  usQ[t]={...keep,...nn,t,at:Date.now()};
+  const b=byCode[t]||{};
+  byCode[t]={...b,code:t,name:usMeta[t].kr,us:1,price:usQ[t].price,prevClose:usQ[t].prev,
+    open:usQ[t].open,high:usQ[t].high,low:usQ[t].low,vol:usQ[t].vol,cap:usQ[t].cap,
+    w52h:usQ[t].w52h,w52l:usQ[t].w52l,ex:usMeta[t].sfx};
+  return true;
+}
 async function usEnsureQuotes(tickers,withFx){
   const need=[...new Set(tickers.filter(t=>usMeta[t]))];
-  if(!need.length)return;
-  /* [v4.39] 서버 한도에 맞춰 18종목씩 나눠 보내고, 빠진 종목은 한 번 더 시도한다 */
+  if(!need.length)return 0;
+  let gained=0;
+  /* ══ [v4.49] 목록 절반이 계속 '—' 로 남던 진짜 이유 ═══════════════════════
+     18종목씩 잘라 보내는 것까지는 맞았는데, 그 배치들을 await 로 '한 줄로 세워'
+     보내고 있었다. 유니버스 113종 → 7번을 차례로 기다리므로 마지막 배치는
+     20~35초 뒤에나 도착한다. 그 사이 화면은 계속 '—' 였고, 폴링(20초)이
+     먼저 돌아 같은 줄서기를 또 시작해 영영 못 따라잡았다.
+     → 배치를 동시에 띄운다. 워커는 요청마다 별개 실행이라 서브리퀘스트 한도(★11)도
+       배치별로 따로 계산돼 오히려 안전하다. 콜드 로딩이 2~4초로 줄어든다. */
   const missed=[];
-  for(let i=0;i<need.length;i+=18){
-    const batch=need.slice(i,i+18);
+  const batches=[];
+  for(let i=0;i<need.length;i+=18)batches.push(need.slice(i,i+18));
+  await Promise.all(batches.map(async(batch,bi)=>{
     try{
-      const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(','))+(withFx?'&fx=1':''),
+      const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(','))+((withFx&&bi===0)?'&fx=1':''),
         {cache:'no-store'});
       const j=await r.json();
       if(j&&j.fx)usFxSet(j.fx);
       const got=new Set(Object.keys((j&&j.codes)||{}));
       batch.forEach(t=>{ if(!got.has(usMeta[t].reu))missed.push(t); });
-      if(j&&j.codes)Object.keys(j.codes).forEach(reu=>{
-        const t=Object.keys(usMeta).find(k=>usMeta[k].reu===reu); if(!t)return;
-        const q=j.codes[reu]; if(!q||q.price==null)return;
-        usQ[t]={...q,t,at:Date.now()};
-        byCode[t]={code:t,name:usMeta[t].kr,us:1,price:q.price,prevClose:q.prev,
-          open:q.open,high:q.high,low:q.low,vol:q.vol,cap:q.cap,w52h:q.w52h,w52l:q.w52l,ex:usMeta[t].sfx};
-      });
+      if(j&&j.codes)Object.keys(j.codes).forEach(reu=>{ if(usApplyQuote(reu,j.codes[reu]))gained++; });
     }catch(e){ batch.forEach(t=>missed.push(t)); }
-  }
+  }));
   /* 빠진 종목 재시도 — 첫 판에 실패해도 두 번째에는 캐시가 채워져 대부분 성공한다 */
   if(missed.length&&!_usRetry){
     _usRetry=true;
-    try{
-      for(let i=0;i<missed.length;i+=18){
-        const batch=missed.slice(i,i+18);
+    const rb=[];
+    for(let i=0;i<missed.length;i+=18)rb.push(missed.slice(i,i+18));
+    await Promise.all(rb.map(async(batch)=>{
+      try{
         const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(',')),{cache:'no-store'});
         const j=await r.json();
-        if(j&&j.codes)Object.keys(j.codes).forEach(reu=>{
-          const t=Object.keys(usMeta).find(k=>usMeta[k].reu===reu); if(!t)return;
-          const q=j.codes[reu]; if(!q||q.price==null)return;
-          usQ[t]={...q,t,at:Date.now()};
-          byCode[t]={code:t,name:usMeta[t].kr,us:1,price:q.price,prevClose:q.prev,
-            open:q.open,high:q.high,low:q.low,vol:q.vol,cap:q.cap,w52h:q.w52h,w52l:q.w52l,ex:usMeta[t].sfx};
-        });
-      }
-    }catch(e){}
+        if(j&&j.codes)Object.keys(j.codes).forEach(reu=>{ if(usApplyQuote(reu,j.codes[reu]))gained++; });
+      }catch(e){}
+    }));
     _usRetry=false;
   }
+  _usQFail=gained>0?0:_usQFail+1;
+  return gained;
 }
 var _usRetry=false;
 function usPollStart(list){
@@ -11567,58 +12103,195 @@ try{
 function usRateCls(q){const d=(q&&q.price!=null&&q.prev)?q.price-q.prev:0;return dirOf(d);}
 function usRateTxt(q){if(!q||q.price==null||!q.prev)return '—';
   const r=(q.price-q.prev)/q.prev*100;return pctS(r);}
-function usRow(t){
-  const m=usMeta[t],q=usQ[t];
-  return `<div class="us-row" data-us="${t}">${usTick(t)}
-    <div class="us-nm"><b>${m.kr}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en}</span></div>
-    <div class="us-px">$${q?USD2(q.price):'—'}<small>${q?USDKR(q.price):''}</small></div>
-    <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;
+/* ══ [v4.49] 종목 한 줄 — 순위 자리·상태 문구를 갖춘 새 행 ══════════════════
+   시세가 아직 없을 때 '$—' 를 띄우면 값이 0인지 고장인지 알 수 없다.
+   도착 전에는 '조회 중', 조회에 실패했으면 '시세 없음' 으로 상태를 말해 준다. */
+/* ══ [v4.50] 종목 행 재설계 ═════════════════════════════════════════════════
+   [무엇이 문제였나] 순위 화면은 '거래대금 순'·'시가총액 순'으로 줄을 세워 놓고
+   정작 그 값을 화면에 보여 주지 않았다. 사용자 입장에서는 왜 이 순서인지 확인할
+   길이 없고, 1위와 20위의 차이가 두 배인지 백 배인지도 알 수 없었다.
+   → 정렬 기준이 되는 값을 행에 함께 적는다. 순위표의 기본 요건이다.
+   [함께 넣은 것] 52주 위치를 가는 막대로 곁들여, 목록만 훑어도 지금 이 종목이
+   고점권인지 저점권인지 감이 오게 했다. 등락률은 색 글씨 대신 배지로 바꿔
+   작은 화면에서도 상승·하락이 즉시 구분되게 했다. */
+function usBigNum(v,unit){
+  if(v==null||!isFinite(v))return '';
+  const s=unit==='$'?'$':'';
+  if(v>=1e12)return s+(v/1e12).toFixed(2)+'T';
+  if(v>=1e9)return s+(v/1e9).toFixed(1)+'B';
+  if(v>=1e6)return s+(v/1e6).toFixed(1)+'M';
+  if(v>=1e3)return s+(v/1e3).toFixed(1)+'K';
+  return s+Math.round(v);
+}
+/* 정렬 기준값 한 줄 — 어떤 탭을 보고 있는지에 따라 다른 값을 적는다 */
+function usMetricTxt(t,kind){
+  const q=usQ[t]; if(!q)return '';
+  if(kind==='cap')return q.cap>0?`시총 ${usBigNum(q.cap,'$')}`:'';
+  if(kind==='val'){const v=(q.price||0)*(q.vol||0); return v>0?`거래대금 ${usBigNum(v,'$')}`:'';}
+  if(kind==='vol')return q.vol>0?`거래량 ${usBigNum(q.vol)}주`:'';
+  return '';
+}
+/* 52주 위치 — 값이 온전할 때만 그린다(짐작으로 막대를 그리면 거짓 정보가 된다) */
+function usBandMini(q){
+  if(!q||q.price==null||q.w52h==null||q.w52l==null||!(q.w52h>q.w52l))return '';
+  const p=Math.max(0,Math.min(100,(q.price-q.w52l)/(q.w52h-q.w52l)*100));
+  const tone=p>=80?'hi':p<=20?'lo':'mid';
+  return `<span class="uz-mini ${tone}" title="52주 범위에서 ${p.toFixed(0)}% 지점">
+    <i style="width:${p}%"></i><em style="left:${p}%"></em></span>`;
+}
+function usRow(t,rank,metric){
+  const m=usMeta[t]; if(!m)return '';
+  const q=usQ[t], has=q&&q.price!=null;
+  if(!has&&_usQFail<2)return usRowSkel(t,rank);          // 기다리는 중이면 골격을 보여 준다
+  const mt=has?usMetricTxt(t,metric):'';
+  const band=has?usBandMini(q):'';
+  const rt=usRateTxt(q), cls=usRateCls(q);
+  return `<button type="button" class="us-row uz-row" data-us="${t}">
+    ${rank?`<span class="uz-rk num">${rank}</span>`:''}${usTick(t)}
+    <span class="us-nm uz-nm"><b>${m.kr}${m.etf?'<i class="uz-etf">ETF</i>':''}</b>
+      <span class="uz-sub2">${t}<em>·</em>${mt||m.en}</span>${band}</span>
+    <span class="us-px uz-px">${has?'$'+USD2(q.price):'<i class="uz-wait">시세 없음</i>'}
+      <small>${has?USDKR(q.price):''}</small></span>
+    <span class="uz-badge ${cls}">${rt||'—'}</span></button>`;
+}
+/* 로딩 골격 — '···' 이나 '조회 중' 글자보다, 들어올 자리가 보이는 편이 덜 불안하다 */
+function usRowSkel(t,rank){
+  const m=usMeta[t]||{};
+  return `<div class="uz-row uz-skel">${rank?`<span class="uz-rk num">${rank}</span>`:''}${usTick(t)}
+    <span class="uz-nm"><b>${m.kr||''}</b><span class="sk sk-a"></span></span>
+    <span class="uz-px"><span class="sk sk-b"></span><span class="sk sk-c"></span></span>
+    <span class="sk sk-d"></span></div>`;
 }
 
 /* ── 6. 라운지 ── */
-var usRankTab='up', usThemeSel='ai';
-function renderUsLounge(){
+var usRankTab='up', usThemeSel='ai', usPane='find';
+/* 분야 칩 = 테마 10 + ETF 그룹 5. 예전에는 테마 목록과 ETF 목록이 서로 다른
+   섹션에 따로 있어 같은 종목이 두 번 나왔다 — 한 줄로 합친다. */
+function usChipList(){ return US_THEMES.concat(US_ETF_GROUPS); }
+
+/* ══ 시그니처: 마켓 클록 ═════════════════════════════════════════════════
+   한국에서 미국장을 볼 때 가장 먼저 궁금한 건 '지금 열렸나, 안 열렸으면 언제'다.
+   프리(04:00 ET) ~ 애프터 종료(18:00 ET) 840분을 한 줄 트랙으로 펴고,
+   현재 시각을 마커로 얹어 한눈에 답한다. 휴장이면 트랙을 재우고 개장 시각만 남긴다. */
+function renderUsHero(){
+  const box=$('usHero'); if(!box)return;
   const ses=usSession(), fx=usFx();
-  const el=$('usCount'); if(el)el.textContent=`내장 ${US_UNI.length}종 + 검색으로 미국 전 종목`;
-  $('usTop').innerHTML=`<div class="us-strip">
-    <div class="us-sess ${ses.phase==='regular'?'on':ses.phase==='closed'?'off':'ext'}">
-      <b>${ses.phase==='regular'?'🟢':'⏱'} 미국 증시 ${ses.label}</b>
-      <span>정규장 ${ses.kst.open}~${ses.kst.close} (한국시간) · ${ses.dst?'서머타임 적용 중':'표준시'}<br>
-      ${ses.phase==='closed'?'다음 개장 '+ses.next:ses.phase==='pre'?'정규장까지 프리마켓 시세로 표시됩니다':ses.phase==='after'?'애프터마켓 '+ses.kst.close+'~'+ses.kst.aft:'실시간 거래 중'}</span></div>
-    <div class="us-fx"><small>환율 (USD/KRW)</small>
-      <b class="num">${fx?KRW(Math.round(fx))+'원':'수신 중…'}</b>
-      <i>${fx?'주문 시 이 환율로 원화 자동 환전됩니다':'잠시 후 자동으로 표시됩니다'}</i></div></div>`;
-  $('usStars').innerHTML=`<div class="us-stars">${US_STARS.map(t=>{const m=usMeta[t],q=usQ[t];
-      return `<div class="us-star" data-us="${t}"><div class="t">${usTick(t)}<b>${m.kr}</b></div>
-        <div class="p num">$${q?USD2(q.price):'—'}</div>
-        <div class="r ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
-  $('usRank').innerHTML=`<div class="us-chips">${[['up','상승률'],['down','하락률'],['val','거래대금']].map(([k,l])=>
-      `<button class="us-chip ${usRankTab===k?'on':''}" data-usrank="${k}">${l}</button>`).join('')}</div>
-    <div id="usRankBody"></div>`;
-  $('usThemeTabs').innerHTML=US_THEMES.map(([k,l])=>`<button class="us-chip ${usThemeSel===k?'on':''}" data-ustheme="${k}">${l}</button>`).join('');
-  $('usEtfs').innerHTML=US_ETF_GROUPS.map(([k,l])=>{const list=US_UNI.filter(u=>u[4]===k).map(u=>u[0]);
-      return `<div class="us-sec" style="margin-top:12px"><b style="font-size:13px">${l}</b></div>`+list.map(usRow).join('');}).join('');
-  renderUsFxCard(); renderUsMine(); renderUsTax(); renderUsRules(); renderUsRankBody(); renderUsThemeBody();
+  const T0=240, TW=840;                                   // 04:00 ET 시작 · 14시간 폭
+  const seg=[['pre',240,570,'프리'],['regular',570,960,'정규장'],['after',960,1080,'애프터']];
+  const live=ses.phase!=='closed';
+  const pos=Math.max(0,Math.min(100,(ses.mins-T0)/TW*100));
+  const track=`<div class="uz-track ${live?'':'off'}">
+    ${seg.map(([k,a,b,l])=>`<span class="uz-seg ${k} ${ses.phase===k?'now':''}"
+        style="left:${(a-T0)/TW*100}%;width:${(b-a)/TW*100}%"><i>${l}</i></span>`).join('')}
+    ${live?`<span class="uz-mark" style="left:${pos}%"><i></i></span>`:''}</div>
+    <div class="uz-tick">
+      <span style="left:0%">${ses.kst.pre}</span>
+      <span style="left:${(570-T0)/TW*100}%">${ses.kst.open}</span>
+      <span style="left:${(960-T0)/TW*100}%">${ses.kst.close}</span>
+      <span style="left:100%;transform:translateX(-100%)">${ses.kst.aft}</span></div>`;
+  const sub=ses.phase==='closed'?`다음 개장 ${ses.next}`
+    :ses.phase==='pre'?`정규장까지 프리마켓 시세로 표시됩니다`
+    :ses.phase==='after'?`애프터마켓 체결가로 표시됩니다`
+    :`실시간 체결 중`;
+  box.innerHTML=`<div class="uz-hero-top">
+      <div class="uz-hero-t"><span class="uz-dot ${ses.phase}"></span>
+        <b>미국 증시 ${ses.label}</b><small>${sub}</small></div>
+      <div class="uz-hero-fx"><small>USD/KRW</small>
+        <b class="num">${fx?KRW(Math.round(fx)):'···'}</b><i>${ses.dst?'서머타임':'표준시'}</i></div>
+    </div>${track}
+    <div class="uz-hero-foot" id="usHeroFoot"></div>`;
+  renderUsBreadthChip();
+}
+/* 시장 폭 — 우리가 이미 받은 시세만으로 계산한다(추가 호출 없음) */
+function usBreadth(){
+  let up=0,down=0,flat=0,none=0;
+  US_UNI.forEach(u=>{const q=usQ[u[0]];
+    if(!q||q.price==null||!q.prev){none++;return;}
+    const d=q.price-q.prev; if(d>0)up++; else if(d<0)down++; else flat++;});
+  return {up,down,flat,none,got:US_UNI.length-none};
+}
+function renderUsBreadthChip(){
+  const el=$('usHeroFoot'); if(!el)return;
+  const b=usBreadth();
+  if(!b.got){el.innerHTML=`<span class="uz-hf-wait">시세를 받는 중… ${US_UNI.length}종</span>`;return;}
+  const tot=b.up+b.down+b.flat||1;
+  el.innerHTML=`<div class="uz-breadth" title="내장 유니버스 ${b.got}종 기준">
+      <i class="up" style="width:${b.up/tot*100}%"></i><i class="fl" style="width:${b.flat/tot*100}%"></i><i class="dn" style="width:${b.down/tot*100}%"></i></div>
+    <span class="uz-hf-l"><b class="up">▲${b.up}</b> <b class="dn">▼${b.down}</b>
+      <em>${b.got}/${US_UNI.length}종 수신${b.none?` · ${b.none}종 대기`:''}</em></span>`;
+}
+
+function usPaneShow(p){
+  usPane=p;
+  document.querySelectorAll('#usNav button').forEach(b=>b.classList.toggle('on',b.dataset.uspane===p));
+  ['find','rank','mine','guide'].forEach(k=>{const el=$('uspane-'+k); if(el)el.hidden=(k!==p);});
+  if(p==='rank'){renderUsRankTabs();renderUsRankBody();}
+  if(p==='mine'){renderUsFxCard();renderUsMine();renderUsTax();}
+  if(p==='guide')renderUsRules();
+  try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){}
+}
+function renderUsLounge(){
+  const el=$('usCount'); if(el)el.textContent=`내장 ${US_UNI.length}종 · 검색은 미국 전 종목`;
+  renderUsHero();
+  $('usStars').innerHTML=`<div class="us-stars uz-stars">${US_STARS.map(t=>{const m=usMeta[t],q=usQ[t];
+      return `<button type="button" class="us-star uz-star" data-us="${t}"><span class="t">${usTick(t)}<b>${m.kr}</b></span>
+        <span class="p num">${q&&q.price!=null?'$'+USD2(q.price):'···'}</span>
+        <span class="r num ${usRateCls(q)}">${usRateTxt(q)}</span></button>`;}).join('')}</div>`;
+  $('usThemeTabs').innerHTML=usChipList().map(([k,l])=>
+    `<button type="button" class="uz-chip ${usThemeSel===k?'on':''}" data-ustheme="${k}">${l}</button>`).join('');
+  renderUsThemeBody();
+  usPaneShow(usPane);
   usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>renderUsLive());
   usPollStart(US_UNI.map(u=>u[0]));
   wireUsLounge();
 }
+function renderUsRankTabs(){
+  const el=$('usRankTabs'); if(!el)return;
+  el.innerHTML=[['up','상승률'],['down','하락률'],['val','거래대금'],['cap','시가총액']].map(([k,l])=>
+    `<button type="button" class="uz-chip ${usRankTab===k?'on':''}" data-usrank="${k}">${l}</button>`).join('');
+  el.querySelectorAll('[data-usrank]').forEach(b=>b.onclick=()=>{
+    usRankTab=b.dataset.usrank; renderUsRankTabs(); renderUsRankBody();});
+}
 function renderUsRankBody(){
-  const rows=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null&&usQ[t].prev);
-  const rate=t=>(usQ[t].price-usQ[t].prev)/usQ[t].prev*100;
-  let sorted;
-  if(usRankTab==='up')sorted=rows.sort((a,b)=>rate(b)-rate(a));
-  else if(usRankTab==='down')sorted=rows.sort((a,b)=>rate(a)-rate(b));
-  else sorted=rows.sort((a,b)=>(usQ[b].price*(usQ[b].vol||0))-(usQ[a].price*(usQ[a].vol||0)));
-  $('usRankBody').innerHTML=sorted.length?sorted.slice(0,10).map(usRow).join('')
-    :`<div class="etf-empty">시세를 불러오는 중입니다…</div>`;
+  const box=$('usRankBody'); if(!box)return;
+  const bd=$('usBreadth');
+  const pool=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
+  if(!pool.length){
+    if(bd)bd.innerHTML='';
+    box.innerHTML=_usQFail>=2
+      ? `<div class="uz-empty"><b>해외 시세 서버가 지금 응답하지 않습니다</b>
+           <span>잠시 뒤 다시 시도하거나, 주소창에 /api/usdiag 를 열어 어느 원천이 살아 있는지 확인할 수 있어요.</span>
+           <button type="button" class="uz-retry" id="usRankRetry">다시 시도</button></div>`
+      : `<div class="uz-empty"><b>시세를 받는 중입니다</b><span>내장 ${US_UNI.length}종을 동시에 조회하고 있어요.</span></div>`;
+    const r=$('usRankRetry'); if(r)r.onclick=()=>{_usQFail=0;renderUsRankBody();
+      usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>renderUsLive());};
+    return;
+  }
+  const rate=t=>{const q=usQ[t];return q.prev?(q.price-q.prev)/q.prev*100:0;};
+  const val=t=>{const q=usQ[t];return (q.price||0)*(q.vol||0);};
+  const rated=pool.filter(t=>usQ[t].prev);
+  let list,note;
+  if(usRankTab==='up'){list=rated.slice().sort((a,b)=>rate(b)-rate(a));note='오늘 가장 많이 오른 순서';}
+  else if(usRankTab==='down'){list=rated.slice().sort((a,b)=>rate(a)-rate(b));note='오늘 가장 많이 내린 순서';}
+  else if(usRankTab==='cap'){list=pool.filter(t=>usQ[t].cap).slice().sort((a,b)=>usQ[b].cap-usQ[a].cap);note='시가총액이 큰 순서';}
+  else {list=pool.filter(t=>usQ[t].vol).slice().sort((a,b)=>val(b)-val(a));
+        note='거래대금(가격×거래량) 순서 — 미국은 조회수 지표를 공개하지 않습니다';}
+  if(bd){const b=usBreadth();
+    bd.innerHTML=`<div class="uz-note">${note} · <b>${list.length}종</b>${b.none?` · ${b.none}종은 아직 시세 대기`:''}</div>`;}
+  /* [v4.50] 정렬 기준이 된 값을 행에도 적어 준다 — 왜 이 순서인지 보이게 */
+  const mk=usRankTab==='cap'?'cap':usRankTab==='val'?'val':'';
+  box.innerHTML=list.length?`<div class="uz-list">${list.map((t,i)=>usRow(t,i+1,mk)).join('')}</div>`
+    :`<div class="uz-empty"><b>정렬할 값이 아직 없습니다</b><span>이 기준에 필요한 항목이 시세에 담겨 오면 곧 채워집니다.</span></div>`;
 }
 function renderUsThemeBody(){
   const box=$('usThemeBody'); if(!box)return;
-  const q=($('usSearch')&&$('usSearch').value.trim())||'';
-  if(q){box.innerHTML='';return;}                      // 검색 중에는 테마 목록을 감춘다
+  const q=(($('usSearch')||{}).value||'').trim();
+  if(q){box.innerHTML='';return;}                      // 검색 중에는 목록을 감춘다
   const list=US_UNI.filter(u=>u[4]===usThemeSel).map(u=>u[0]);
-  box.innerHTML=list.map(usRow).join('');
+  const lbl=(usChipList().find(x=>x[0]===usThemeSel)||[,''])[1];
+  box.innerHTML=list.length?`<div class="uz-note">${lbl} <b>${list.length}종</b></div>
+    <div class="uz-list">${list.map(t=>usRow(t)).join('')}</div>`
+    :`<div class="uz-empty"><b>이 분야에 담긴 종목이 없습니다</b><span>다른 칩을 골라 보세요.</span></div>`;
 }
 var usFxDir='toUsd';
 function renderUsFxCard(){
@@ -11626,21 +12299,22 @@ function renderUsFxCard(){
   usSettle();
   const fx=usFx(), hold=usdSettling.reduce((a,x)=>a+x.amt,0), avail=usUsdAvailable();
   const toU=usFxDir==='toUsd';
-  box.innerHTML=`<div class="us-fxwrap"><div class="us-sec"><b>💱 환전</b>
-      <span>기준 스프레드 ${US_FX_SPREAD}원 · <b style="color:#b47207">우대 ${US_FX_PREF_OF()*100}%</b> 적용 → 실부담 ${usFxMargin().toFixed(1)}원/$</span></div>
-    <div class="us-strip" style="margin-bottom:12px">
-      <div class="us-fx"><small>원화 예수금</small><b class="num">${KRW(cash)}원</b></div>
-      <div class="us-fx"><small>달러 예수금</small><b class="num">$${USD2(usdCash)}</b>
+  box.innerHTML=`<div class="us-fxwrap">
+    <div class="uz-fxhead"><span>기준 스프레드 ${US_FX_SPREAD}원 · 우대 ${US_FX_PREF_OF()*100}%</span>
+      <b>실부담 ${usFxMargin().toFixed(1)}원 / $1</b></div>
+    <div class="uz-fxbal">
+      <div><small>원화 예수금</small><b class="num">${KRW(cash)}원</b></div>
+      <div><small>달러 예수금</small><b class="num">$${USD2(usdCash)}</b>
         <i>${hold>0?`환전 가능 $${USD2(avail)} · 미결제 $${USD2(hold)} (T+1)`:'전액 환전 가능'}</i></div></div>
-    <div class="us-chips" style="margin-bottom:10px">
-      <button class="us-chip ${toU?'on':''}" data-usfxdir="toUsd">원화 → 달러 (매수환율 ${fx?KRW(usFxBuy()):'—'})</button>
-      <button class="us-chip ${!toU?'on':''}" data-usfxdir="toKrw">달러 → 원화 (매도환율 ${fx?KRW(usFxSell()):'—'})</button></div>
+    <div class="uz-chips" style="margin:12px 0 10px">
+      <button type="button" class="uz-chip ${toU?'on':''}" data-usfxdir="toUsd">원화 → 달러 ${fx?`<em>${KRW(usFxBuy())}</em>`:''}</button>
+      <button type="button" class="uz-chip ${!toU?'on':''}" data-usfxdir="toKrw">달러 → 원화 ${fx?`<em>${KRW(usFxSell())}</em>`:''}</button></div>
     <div class="us-fld"><label><span>${toU?'환전할 원화 금액':'환전할 달러 금액'}</span>
         <span class="num">${toU?'보유 '+KRW(cash)+'원':'가능 $'+USD2(avail)}</span></label>
       <div class="us-inrow"><input id="usFxAmt" inputmode="decimal" placeholder="${toU?'예: 1000000':'예: 500'}">
-        <button id="usFxMax" style="width:64px;font-size:12px">전액</button></div></div>
+        <button type="button" id="usFxMax" style="width:64px;font-size:12px">전액</button></div></div>
     <div id="usFxPreview" class="us-ord-note" style="margin:6px 0 10px"></div>
-    <button class="us-submit buy" id="usFxGo">${fx?'환전 실행':'환율 확인 중 · 눌러서 다시 시도'}</button>
+    <button type="button" class="us-submit buy" id="usFxGo">${fx?'환전 실행':'환율 확인 중 · 눌러서 다시 시도'}</button>
     <div class="us-ord-note">※ 매도 대금(달러)은 즉시 재매수에 쓸 수 있지만, 원화 환전은 미국 T+1 결제가 끝나는 <b>다음 영업일부터</b> 가능합니다.</div></div>`;
   const amt=$('usFxAmt'), pv=$('usFxPreview');
   const prev=()=>{const v=parseFloat(amt.value)||0;
@@ -11649,7 +12323,7 @@ function renderUsFxCard(){
     else pv.innerHTML=`받게 될 원화: <b class="num">${KRW(Math.floor(Math.min(v,avail)*usFxSell()))}원</b>`;};
   amt.oninput=prev;
   $('usFxMax').onclick=()=>{amt.value=toU?cash:avail;prev();};
-  document.querySelectorAll('[data-usfxdir]').forEach(b=>b.onclick=()=>{usFxDir=b.dataset.usfxdir;renderUsFxCard();});
+  box.querySelectorAll('[data-usfxdir]').forEach(b=>b.onclick=()=>{usFxDir=b.dataset.usfxdir;renderUsFxCard();});
   $('usFxGo').onclick=()=>{
     if(!usFx()){ toast('warn','환율을 받는 중입니다','잠시 후 자동으로 반영됩니다');
       usEnsureQuotes(['AAPL'],true).then(()=>renderUsFxCard()); return; }
@@ -11662,11 +12336,9 @@ function renderUsTax(){
   const box=$('usTax'); if(!box)return;
   const sec=$('usTaxSec');
   const t=usTaxEstimate();
-  /* [v4.39] 올해 매도 기록이 없으면 제목만 남아 빈 자리로 보였다 — 섹션째 숨긴다 */
   if(!t.n){box.innerHTML=''; if(sec)sec.hidden=true; return;}
   if(sec)sec.hidden=false;
-  box.innerHTML=`<div class="panel us-card"><div class="us-sec"><b>🧾 해외주식 세금 도우미</b><span>${t.year}년 실현 기준 · 참고용</span></div>
-    <div class="us-stat-g">
+  box.innerHTML=`<div class="panel us-card"><div class="us-stat-g">
       <div class="us-stat"><small>올해 매도 건수</small><b class="num">${t.n}건</b></div>
       <div class="us-stat"><small>실현손익 합산</small><b class="num ${dirOf(t.pnl)}">${signed(t.pnl)}원</b></div>
       <div class="us-stat"><small>과세표준 (250만 공제)</small><b class="num">${KRW(t.taxable)}원</b></div>
@@ -11674,88 +12346,100 @@ function renderUsTax(){
     <div class="us-ord-note" style="margin-top:9px">연 250만원까지 비과세 · 초과분에 22%(양도세 20%+지방세 2%) · 이익과 손실은 1년 단위로 합산(손익 통산)되며 다음 해 5월에 자진 신고합니다. 배당은 미국에서 15% 원천징수됩니다(모의에서는 배당 미지급).</div></div>`;
 }
 function renderUsMine(){
-  const mine=holdings.filter(h=>h.us);
-  const sec=$('usMineSec');
-  if(!mine.length&&usdCash<=0){$('usMine').innerHTML=''; if(sec)sec.hidden=true; return;}
+  const box=$('usMine'); if(!box)return;
+  const mine=holdings.filter(h=>h.us), sec=$('usMineSec');
+  if(!mine.length&&usdCash<=0){
+    box.innerHTML=`<div class="uz-empty"><b>아직 보유한 해외 종목이 없습니다</b>
+      <span>탐색 탭에서 종목을 고르면 여기에 평가금액과 손익이 모입니다.</span>
+      <button type="button" class="uz-retry" id="usGoFind">종목 탐색하기</button></div>`;
+    if(sec)sec.hidden=false;
+    const g=$('usGoFind'); if(g)g.onclick=()=>usPaneShow('find');
+    return;
+  }
   if(sec)sec.hidden=false;
   const fx=usFx()||0;
   let ev=0,cost=0;
   mine.forEach(h=>{const q=usQ[h.code]||byCode[h.code]||{};const px=q.price!=null?q.price:h.avg;
     ev+=px*h.qty*fx; cost+=h.avg*h.qty*fx;});
-  const pnl=ev-cost;
-  $('usMine').innerHTML=`<div class="panel us-card"><div class="us-sec"><b>💼 내 해외 보유</b>
-      <span>평가 ${KRW(Math.round(ev))}원 · <i class="num ${dirOf(pnl)}">${signed(Math.round(pnl))}</i></span></div>
-    ${mine.map(h=>usRow(h.code)).join('')}</div>`;
+  const pnl=ev-cost, rt=cost?pnl/cost*100:0;
+  box.innerHTML=`<div class="panel us-card">
+    <div class="uz-minehead"><div><small>평가금액</small><b class="num">${KRW(Math.round(ev))}원</b></div>
+      <div><small>평가손익</small><b class="num ${dirOf(pnl)}">${signed(Math.round(pnl))}원 <em>${pctS(rt)}</em></b></div>
+      <div><small>달러 예수금</small><b class="num">$${USD2(usdCash)}</b></div></div>
+    <div class="uz-list">${mine.map(h=>usRow(h.code)).join('')}</div></div>`;
 }
 function renderUsRules(){
+  const box=$('usRules'); if(!box)return;
   const ses=usSession();
-  $('usRules').innerHTML=`<div class="panel us-card"><div class="us-sec"><b>ℹ️ 해외 거래 규칙</b><span>실제 제도를 그대로 반영했습니다</span></div>
-    <div class="us-rules-g">
-      <div class="us-rule"><b>💱 두 가지 결제 방식</b><span><b>직접 환전</b>: 미리 달러로 바꿔 두면 추가 환전 비용 없이 결제됩니다.<br><b>원화 자동환전</b>: 원화로 바로 주문 — 매수환율(스프레드 포함)이 적용됩니다. 실제 브로커는 가환율로 결제 후 익일 정산하지만 모의에서는 정식 환율을 즉시 적용해요.</span></div>
-      <div class="us-rule"><b>🧾 수수료 0.25% + SEC Fee</b><span>매수·매도 각 0.25%, 매도 시 미국 증권거래위원회 수수료 ${(US_SEC_FEE*100).toFixed(4)}%가 추가 차감됩니다. 거래세는 없습니다.</span></div>
-      <div class="us-rule"><b>📅 T+1 결제</b><span>매도 대금(달러)은 <b>즉시 재매수</b>에 쓸 수 있지만, 원화 환전은 <b>다음 영업일</b>부터 가능합니다 (2024년부터 미국 T+1 시행).</span></div>
-      <div class="us-rule"><b>🔢 소수점 매매</b><span>0.01주 단위로 살 수 있어 고가 주식도 소액으로 연습할 수 있습니다. 호가는 $0.01, 상·하한가 제도는 없습니다.</span></div>
-      <div class="us-rule"><b>🕒 장 시간 (한국)</b><span>프리 ${ses.kst.pre}~${ses.kst.open} · 정규 ${ses.kst.open}~${ses.kst.close} · 애프터 ${ses.kst.close}~${ses.kst.aft} (증권사별 상이). 서머타임 자동 반영 · 주간거래(데이마켓)는 미지원 — 설정에서 장 시간 제한을 끄면 언제든 모의 주문할 수 있어요. 미국 휴장일은 별도 반영되지 않을 수 있습니다.</span></div>
-      <div class="us-rule"><b>📊 환차익 · 환차손</b><span>주가가 올라도 환율이 내리면 원화 수익이 줄 수 있습니다. 주문 화면의 보유 정보에서 <b>주가손익과 환손익을 분해</b>해 보여 드려요.</span></div>
-      <div class="us-rule"><b>🧾 세금 (참고)</b><span>연 실현손익 250만원까지 비과세, 초과분 22% 양도소득세 — 아래 세금 도우미에서 자동 계산됩니다. 배당은 미국 15% 원천징수(모의에서는 배당 미지급).</span></div>
-    </div></div>`;
+  box.innerHTML=`<div class="uz-guide">
+    ${[['💱','두 가지 결제 방식',`<b>직접 환전</b>: 미리 달러로 바꿔 두면 추가 환전 비용 없이 결제됩니다.<br><b>원화 자동환전</b>: 원화로 바로 주문 — 매수환율(스프레드 포함)이 적용됩니다.`],
+       ['🧾','수수료 0.25% + SEC Fee',`매수·매도 각 0.25%, 매도 시 미국 증권거래위원회 수수료 ${(US_SEC_FEE*100).toFixed(4)}%가 추가 차감됩니다. 거래세는 없습니다.`],
+       ['📅','T+1 결제','매도 대금(달러)은 <b>즉시 재매수</b>에 쓸 수 있지만, 원화 환전은 <b>다음 영업일</b>부터 가능합니다 (2024년부터 미국 T+1 시행).'],
+       ['🔢','소수점 매매','0.01주 단위로 살 수 있어 고가 주식도 소액으로 연습할 수 있습니다. 호가는 $0.01, 상·하한가 제도는 없습니다.'],
+       ['🕒','장 시간 (한국 시각)',`프리 ${ses.kst.pre} · 정규 ${ses.kst.open}~${ses.kst.close} · 애프터 ${ses.kst.aft}까지. 서머타임은 자동 반영되며, 미국 휴장일은 반영되지 않을 수 있습니다.`],
+       ['📊','환차익 · 환차손','주가가 올라도 환율이 내리면 원화 수익이 줄 수 있습니다. 주문 화면에서 주가손익과 환손익을 나눠 보여 드립니다.'],
+       ['🧾','세금 (참고)','연 실현손익 250만원까지 비과세, 초과분 22% 양도소득세 — 내 자산 탭의 세금 도우미가 자동 계산합니다.']
+      ].map(([ic,t,d])=>`<div class="uz-g"><span class="uz-gi">${ic}</span>
+        <div><b>${t}</b><p>${d}</p></div></div>`).join('')}
+    <div class="us-ord-note">실제 제도를 그대로 옮겼지만 체결은 모두 모의입니다. 실제 주문은 이뤄지지 않습니다.</div></div>`;
 }
-/* ══ [v4.42] 시세가 도착해도 목록이 안 바뀌던 진짜 이유 ═══════════════════
-   이 함수가 '해외 라운지'에서만 돌게 막혀 있었다. 그래서 종목검색·순위 화면에서는
-   시세를 받아도 화면을 다시 칠하지 않아 $— 가 영구히 남았다(첨부 2·5번 사진).
-   → 어느 화면이든 눈에 보이는 .us-row 를 갱신한다. */
+/* ══ [v4.42] 시세가 도착해도 목록이 안 바뀌던 이유 — 라운지에서만 돌게 막혀 있었다.
+   어느 화면이든 눈에 보이는 행을 갱신한다. */
 function usPaintRows(root){
   (root||document).querySelectorAll('.us-row[data-us], .us-star[data-us]').forEach(el=>{
     const t=el.dataset.us,q=usQ[t]; if(!q||q.price==null)return;
     const px=el.querySelector('.us-px'), rt=el.querySelector('.us-rt');
     if(px)px.innerHTML='$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
-    if(rt){rt.textContent=usRateTxt(q); rt.className='us-rt num '+usRateCls(q);}
+    if(rt){rt.textContent=usRateTxt(q);
+      rt.classList.remove('up','down','flat'); rt.classList.add('num',usRateCls(q));}
     const p=el.querySelector('.p'), r=el.querySelector('.r');
     if(p)p.textContent='$'+USD2(q.price);
-    if(r){r.textContent=usRateTxt(q); r.className='r num '+usRateCls(q);}
+    if(r){r.textContent=usRateTxt(q);
+      r.classList.remove('up','down','flat'); r.classList.add('num',usRateCls(q));}
   });
 }
 function renderUsLive(){
   usPaintRows();                                   // 화면 종류와 무관하게 먼저 칠한다
   if(currentView!=='us')return;
-  renderUsRankBody(); renderUsThemeBody(); renderUsMine();
-  /* 스타 카드·행 시세만 부분 갱신 */
-  document.querySelectorAll('#usStars .us-star').forEach(el=>{
-    const t=el.dataset.us,q=usQ[t]; if(!q)return;
-    el.querySelector('.p').textContent='$'+USD2(q.price);
-    const r=el.querySelector('.r'); r.textContent=usRateTxt(q); r.className='r num '+usRateCls(q);});
-  document.querySelectorAll('#usEtfs .us-row, #usThemeBody .us-row, #usSearchOut .us-row, #searchResults .us-row').forEach(el=>{
-    const t=el.dataset.us,q=usQ[t]; if(!q)return;
-    el.querySelector('.us-px').innerHTML='$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
-    const r=el.querySelector('.us-rt'); r.textContent=usRateTxt(q); r.className='us-rt num '+usRateCls(q);});
-  /* [v4.34] 환율 표시는 여러 곳에 있다 — 첫 요소만 갱신하면 환전 카드가 옛 값으로 남는다 */
+  renderUsBreadthChip();
+  if(usPane==='rank')renderUsRankBody();
+  if(usPane==='find')renderUsThemeBody();
+  if(usPane==='mine')renderUsMine();
   const fx=usFx();
-  if(fx){const el=document.querySelector('#usTop .us-fx b'); if(el)el.textContent=KRW(Math.round(fx))+'원';}
+  if(fx){const el=document.querySelector('#usHero .uz-hero-fx b'); if(el)el.textContent=KRW(Math.round(fx));}
 }
 function wireUsLounge(){
-  document.querySelectorAll('[data-usrank]').forEach(b=>b.onclick=()=>{usRankTab=b.dataset.usrank;
-    document.querySelectorAll('[data-usrank]').forEach(x=>x.classList.toggle('on',x===b));renderUsRankBody();});
+  document.querySelectorAll('#usNav button').forEach(b=>b.onclick=()=>usPaneShow(b.dataset.uspane));
   document.querySelectorAll('[data-ustheme]').forEach(b=>b.onclick=()=>{usThemeSel=b.dataset.ustheme;
     document.querySelectorAll('[data-ustheme]').forEach(x=>x.classList.toggle('on',x===b));renderUsThemeBody();});
-  const inp=$('usSearch');
+  /* 마켓 클록은 1분마다 스스로 움직인다 — 화면을 떠나면 멈춘다 */
+  if(!window._usClockT)window._usClockT=setInterval(()=>{
+    if(currentView==='us')renderUsHero(); },60e3);
+  const inp=$('usSearch'), clr=$('usSearchClear');
   if(inp&&!inp._wired){inp._wired=true;
     const paint=(q)=>{
-      const local=usLocalMatch(q);
-      const box=$('usSearchOut');
+      const box=$('usSearchOut'), main=$('usFindMain');
+      if(clr)clr.hidden=!q;
+      if(main)main.hidden=!!q;
       if(!q){box.innerHTML='';return;}
-      const draw=(list,note)=>{ box.innerHTML=(list.length?list.slice(0,12).map(usRow).join('')
-        :`<div class="etf-empty">'${q}' 검색 결과가 없습니다</div>`)+(note?`<div class="us-ord-note" style="padding:6px 4px">${note}</div>`:'');
-        if(list.length)usEnsureQuotes(list.slice(0,12),true).then(()=>usPaintRows($('usSearchOut'))); };
+      const local=usLocalMatch(q);
+      const draw=(list,note)=>{ box.innerHTML=(list.length
+          ? `<div class="uz-note">'${q}' 검색 <b>${list.length}종</b>${note?' · '+note:''}</div>
+             <div class="uz-list">${list.slice(0,20).map(t=>usRow(t)).join('')}</div>`
+          : `<div class="uz-empty"><b>'${q}' 검색 결과가 없습니다</b><span>${note||'티커(AAPL) 또는 한글·영문 종목명으로 찾아 보세요.'}</span></div>`);
+        if(list.length)usEnsureQuotes(list.slice(0,20),true).then(()=>usPaintRows($('usSearchOut'))); };
       draw(local, local.length?'':'전 종목에서 찾는 중…');
       usSearchRemote(q,(items)=>{
         if(inp.value.trim()!==q)return;                       // 입력이 바뀌었으면 버린다
         const merged=[...new Set(local.concat(items.map(x=>x.t)))];
-        draw(merged, merged.length>local.length?`내장 ${local.length}종 + 전 종목 검색 ${merged.length-local.length}종`
+        draw(merged, merged.length>local.length?`내장 ${local.length}종 + 전 종목 ${merged.length-local.length}종`
           :(merged.length?'':'미국 상장 종목에서도 찾지 못했습니다'));
       });
     };
     let _t=null;
-    inp.oninput=()=>{const q=inp.value.trim(); clearTimeout(_t); _t=setTimeout(()=>paint(q),220);};}
+    inp.oninput=()=>{const q=inp.value.trim(); clearTimeout(_t); _t=setTimeout(()=>paint(q),220);};
+    if(clr)clr.onclick=()=>{inp.value='';paint('');inp.focus();};
+  }
 }
 document.addEventListener('click',(e)=>{const n=e.target.closest('[data-us]');
   if(n&&n.dataset.us){openUS(n.dataset.us);}});
@@ -11811,9 +12495,14 @@ function renderUsTrade(){
     renderUsInfo();});
   document.querySelectorAll('#usInfoTabs button').forEach(x=>x.classList.toggle('on',x.dataset.uinfo===usInfoTab));
   renderUsInfo();
-  usEnsureQuotes([usSel],true).then(()=>{renderUsHead();renderUsOrder();renderUsInfo();});
+  usEnsureQuotes([usSel],true).then(()=>{renderUsHead();renderUsOrder();renderUsInfo();renderUsCta();});
   usPollStart([usSel]);
   loadUsCandles();
+  /* [v4.50] 하단 고정 주문바 — 모듈이라 inline onclick 을 쓸 수 없어 여기서 묶는다 */
+  {const b=$('usCtaBuy'), sl=$('usCtaSell');
+   if(b&&!b._w){b._w=1;b.addEventListener('click',()=>usCtaGo('buy'));}
+   if(sl&&!sl._w){sl._w=1;sl.addEventListener('click',()=>usCtaGo('sell'));}}
+  renderUsCta();
 }
 /* ══ [v4.37] 해외 종목정보 — 국내와 같은 8개 코너 ═══════════════════════════ */
 function renderUsInfo(){
@@ -11832,17 +12521,34 @@ function renderUsSummary(el){
   const d=(q.price!=null&&q.prev)?q.price-q.prev:null;
   const fmt=(v)=>v==null?'—':'$'+USD2(v);
   const vol=(v)=>v==null?'—':(v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':KRW(v));
+  /* [v4.49] 시가총액은 T/B/M 어느 구간이든 원화 환산을 함께 보여 준다.
+     예전에는 1조 달러 이상일 때만 원화를 붙여, B 단위 종목은 감이 안 왔다. */
   const capS=(v)=>{if(v==null)return '—';const fx=usFx();
-    if(v>=1e12)return '$'+(v/1e12).toFixed(2)+'T'+(fx?` <small>≈${Math.round(v*fx/1e12)}조원</small>`:'');
-    if(v>=1e9)return '$'+(v/1e9).toFixed(1)+'B';return '$'+(v/1e6).toFixed(0)+'M';};
-  /* 52주 위치 막대 — 국내 '연간 가격 변화'와 같은 형태 */
+    const usd=v>=1e12?'$'+(v/1e12).toFixed(2)+'T':v>=1e9?'$'+(v/1e9).toFixed(1)+'B':'$'+(v/1e6).toFixed(0)+'M';
+    if(!fx)return usd;
+    const krw=v*fx;
+    const won=krw>=1e12?(krw/1e12).toFixed(krw>=1e13?0:1)+'조원':(krw/1e8).toFixed(0)+'억원';
+    return usd+` <small>≈${won}</small>`;};
+  /* 52주 위치 막대 — 국내 '연간 가격 변화'와 같은 형태.
+     [v4.49] 캔들에서 계산했고 1년치가 안 되면 몇 거래일 기준인지 밝힌다.
+     '52주'라고 적어 놓고 실제로는 3개월치인 상황을 그대로 두면 값이 거짓말이 된다. */
   let band='';
   if(q.w52h!=null&&q.w52l!=null&&q.price!=null&&q.w52h>q.w52l){
     const pos=Math.max(0,Math.min(100,(q.price-q.w52l)/(q.w52h-q.w52l)*100));
-    band=`<div class="us-sec2">52주 가격 위치</div>
+    const partial=(q.w52n&&q.w52n<240)?`<small>실제 데이터 ${q.w52n}거래일 기준</small>`:'';
+    band=`<div class="us-sec2">52주 가격 위치 ${partial}</div>
       <div class="us-band"><i style="left:${pos}%"></i></div>
       <div class="us-band-lb"><span>최저 ${fmt(q.w52l)}<b class="up">+${((q.price-q.w52l)/q.w52l*100).toFixed(0)}%</b></span>
         <span>최고 ${fmt(q.w52h)}<b class="down">${((q.price-q.w52h)/q.w52h*100).toFixed(0)}%</b></span></div>`;
+  }
+  /* 시세 자체가 안 왔을 때 빈 표를 보여 주는 대신 무슨 일인지 말해 준다 */
+  if(q.price==null){
+    el.innerHTML=`<div class="uz-empty"><b>${_usQFail>=2?'시세를 받지 못했습니다':'시세를 받는 중입니다'}</b>
+      <span>${_usQFail>=2?'해외 시세 서버가 응답하지 않고 있어요. 잠시 뒤 다시 시도해 주세요.':'잠시만 기다려 주세요.'}</span>
+      <button type="button" class="uz-retry" id="usSumRetry">다시 시도</button></div>`;
+    const b=$('usSumRetry');
+    if(b)b.onclick=()=>{_usQFail=0;el.innerHTML='';usEnsureQuotes([usSel],true).then(()=>renderUsInfo());};
+    return;
   }
   const th=(US_THEMES.find(x=>x[0]===m.theme)||[,''])[1];
   el.innerHTML=`<div class="us-px-big"><b class="num ${dirOf(d||0)}">$${USD2(q.price)}</b>
@@ -11988,7 +12694,7 @@ function renderUsFinance(el){
     </div>`;
 }
 function renderUsTradeLive(){ if(currentView!=='ustrade')return;
-  renderUsHead(); if(usInfoTab==='summary'||usInfoTab==='ai')renderUsInfo();
+  renderUsHead(); renderUsCta(); if(usInfoTab==='summary'||usInfoTab==='ai')renderUsInfo();
   const pxIn=$('usPxIn'); if(pxIn&&document.activeElement!==pxIn&&usOrdPx==null)renderUsOrder();
   else updateUsSum();
 }
@@ -12014,7 +12720,14 @@ async function loadUsCandles(){
     const r=await fetch('/api/uscandle?code='+encodeURIComponent(usMeta[usSel].reu)+'&n=560',{cache:'no-store'});
     const j=await r.json();
     if(j&&j.ok&&Array.isArray(j.candles)&&j.candles.length){
-      usCandles=j.candles; $('usChartNote').textContent='';
+      usCandles=j.candles;
+      /* [v4.49] '차트가 잘 나오는지' 를 사용자도 확인할 수 있게 근거를 적는다 —
+         받은 봉 수와 첫 날짜를 밝히면, 5년 월봉을 골랐는데 2년치만 그려질 때
+         차트가 고장난 건지 데이터가 거기까지인 건지 헷갈리지 않는다. */
+      {const n=j.candles.length, f=String(j.candles[0].t);
+       const src=(j.diag&&j.diag[0])||(j.cached?'캐시':'');
+       $('usChartNote').textContent=`일봉 ${n}개 · ${f.slice(0,4)}.${f.slice(4,6)}.${f.slice(6,8)}부터`
+         +(src?` · 원천 ${src}`:'');}
       /* 52주 고저를 캔들에서 직접 계산해 보강 — 시세 API 가 안 줄 때 대비 */
       /* [v4.35] 52주 고저가 '—' 로 비던 문제 — 시세 API 가 안 주면 캔들에서 직접 계산한다.
          기간이 짧으면 있는 만큼으로라도 채워 빈칸을 남기지 않는다. */
@@ -12115,6 +12828,43 @@ function usMaxQty(px,pay){
   return Math.max(0,Math.floor(cash/(px*f*(1+US_FEE_OF()))*100)/100);
 }
 var usPay='auto';
+/* 하단 탭바는 화면 폭·글꼴·기기 안전영역에 따라 높이가 달라진다. 숫자로 박아 두면
+   어떤 기기에서는 주문바가 탭바에 먹히고 어떤 기기에서는 뜬다 — 실제 높이를 재서 넘긴다. */
+function usSyncTabbarH(){
+  try{
+    const tb=document.querySelector('.tabbar');
+    const on=tb&&getComputedStyle(tb).display!=='none';
+    const h=on?Math.round(tb.getBoundingClientRect().height):0;
+    document.documentElement.style.setProperty('--tabbar-h',h+'px');
+    /* 탭바가 이미 안전영역을 흡수했으면 주문바는 더 띄우지 않는다(이중 여백 방지) */
+    document.documentElement.style.setProperty('--cta-safe',on?'0px':'env(safe-area-inset-bottom)');
+  }catch(e){}
+}
+try{ window.addEventListener('resize',()=>{ if(currentView==='ustrade')usSyncTabbarH(); },{passive:true});
+     window.addEventListener('orientationchange',()=>setTimeout(usSyncTabbarH,220)); }catch(e){}
+/* ══ [v4.50] 하단 고정 주문바 ══════════════════════════════════════════════
+   좁은 화면에서 주문 카드는 '종목요약·AI·차트·시세·뉴스·투자자별·컨센서스·재무'
+   여덟 탭 아래에 놓인다. 사고 싶을 때마다 화면 끝까지 내려야 했고, 현재가도
+   같이 사라져 얼마에 사는지 모르는 채 스크롤하게 됐다.
+   → 현재가를 붙인 고정 바를 깔고, 누르면 주문 카드로 데려가며 매수/매도까지 맞춰 둔다. */
+function renderUsCta(){
+  const bar=$('usCta'); if(!bar)return;
+  if(currentView!=='ustrade'||!usSel){bar.hidden=true;return;}
+  usSyncTabbarH();
+  const q=usQ[usSel]||{};
+  bar.hidden=false;
+  const px=$('usCtaPx'), rt=$('usCtaRt');
+  if(px)px.textContent=q.price!=null?'$'+USD2(q.price):'—';
+  if(rt){rt.textContent=q.price!=null?usRateTxt(q):'시세 대기';
+    rt.className='num '+(q.price!=null?usRateCls(q):'');}
+  bar.querySelectorAll('.uz-cta-b').forEach(b=>b.classList.remove('on'));
+  const on=bar.querySelector(usSide==='sell'?'.sell':'.buy'); if(on)on.classList.add('on');
+}
+function usCtaGo(side){
+  usSide=side; renderUsOrder(); renderUsCta();
+  const card=$('usOrder');
+  if(card)try{card.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){card.scrollIntoView();}
+}
 function renderUsOrder(){
   const q=usQ[usSel]||{},fx=usFx();
   if(usOrdPx==null&&q.price!=null)usOrdPx=+q.price.toFixed(2);

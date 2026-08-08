@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=332">
+<link rel="stylesheet" href="/app.css?v=335">
 </head>
 <body>
 
@@ -36,7 +36,12 @@
    app.css 보다 먼저 칠해져야 하므로 인라인으로 둔다. */
 /* [v4.37] 태블릿 가로 화면에서 배지·푸터가 화면 밖으로 잘리던 문제 —
    좌우 안전영역을 반영하고 내부 요소가 넘치지 않도록 폭을 제한한다. */
-#bootGate{position:fixed;inset:0;z-index:2000000;display:flex;flex-direction:column;align-items:center;
+/* [v4.51] 아래쪽 문구가 잘리던 문제 — inset:0 은 '보이는 화면'이 아니라 100vh 를
+   기준으로 잡히는데, 안드로이드·아이패드는 하단 시스템 표시줄만큼 그보다 낮다.
+   그 차이만큼 푸터 둘째 줄이 화면 밖으로 밀려 잘렸다(overflow:hidden 이라 조용히).
+   → 실제 보이는 높이(dvh)를 쓰고, 그래도 모자라면 잘리는 대신 줄어들게 한다. */
+#bootGate{position:fixed;inset:0;height:100vh;height:100dvh;
+  z-index:2000000;display:flex;flex-direction:column;align-items:center;
   justify-content:flex-start;overflow:hidden;box-sizing:border-box;max-width:100vw;
   background:#0b1120;color:#eaf0fa;
   font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
@@ -64,7 +69,7 @@
 
 /* 가운데 */
 .bg-mid{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;width:min(560px,94vw);z-index:2}
+  justify-content:center;width:min(560px,94vw);z-index:2;overflow:hidden}
 .bg-logo{display:flex;align-items:center;gap:clamp(14px,3.4vw,22px)}
 .bg-mark{position:relative;width:clamp(80px,16vw,112px);height:clamp(80px,16vw,112px);
   border-radius:clamp(22px,4.4vw,30px);
@@ -151,9 +156,14 @@
   background:rgba(245,179,15,.12);border:1px solid rgba(245,179,15,.35);
   border-radius:99px;padding:5px 13px;backdrop-filter:blur(6px)}
 
-.bg-foot{position:relative;z-index:2;flex:none;width:min(600px,88vw);max-width:100%;text-align:center;
+.bg-foot{position:relative;z-index:2;flex:0 0 auto;width:min(600px,88vw);max-width:100%;text-align:center;
   font-size:12px;line-height:1.7;color:rgba(234,240,250,.78);font-weight:700;
-  border-top:1px solid rgba(255,255,255,.10);padding-top:14px}
+  border-top:1px solid rgba(255,255,255,.10);padding-top:14px;
+  /* 자리는 마지막까지 지킨다 — 공간이 모자라면 위쪽(로고·마스코트)이 먼저 줄어든다 */
+  padding-bottom:2px}
+/* 세로가 아주 짧으면 둘째 줄 안내는 접는다 — 반쯤 잘린 글자를 남기는 것보다 낫다 */
+@media (max-height:520px){.bg-foot br,.bg-foot br~*{display:none}
+  .bg-foot{font-size:10px;padding-top:8px;line-height:1.5}}
 .bg-foot b{font-weight:900;color:#eaf0fa}
 @media (prefers-reduced-motion:reduce){
   .bg-mark,.bg-char,.bg-fill::after,#bootGate::before,#bootGate::after{animation:none}
@@ -266,7 +276,7 @@
       </div>
       <div id="signupForm" hidden>
         <div class="fld2"><label>아이디</label><input id="suId" placeholder="4자 이상"></div>
-        <div class="fld2 two"><div><label>비밀번호</label><input id="suPw" type="password" placeholder="6자 이상"></div><div><label>비밀번호 확인</label><input id="suPw2" type="password"></div></div>
+        <div class="fld2 two"><div><label>비밀번호</label><input id="suPw" type="password" autocomplete="new-password" placeholder="8자 이상 · 영문+숫자+특수문자"></div><div><label>비밀번호 확인</label><input id="suPw2" type="password" autocomplete="new-password"></div></div><div class="pw-meter" id="suPwMeter" hidden></div>
         <div class="fld2 two"><div><label>이름/닉네임</label><input id="suName" placeholder="홍길동"></div><div><label>이메일 (선택)</label><input id="suEmail" placeholder="선택"></div></div>
         <div class="fld2"><label>계좌 종류 <small style="font-weight:600;color:var(--sub-2)">— 종류에 따라 수수료·세제 혜택이 달라집니다</small></label>
           <div class="acct-pick" id="suAcctType"></div>
@@ -455,7 +465,8 @@
         <button class="btn-primary" id="pmLoginGo">로그인 / 회원가입</button>
       </div>
       <div class="pm-pane" id="pm-security" hidden>
-        <div class="fld2"><label>새 로그인 비밀번호</label><input id="pmPw" type="password" placeholder="6자 이상 (변경 시에만 입력)"></div>
+        <div class="fld2"><label>새 로그인 비밀번호</label><input id="pmPw" type="password" autocomplete="new-password" placeholder="8자 이상 · 영문+숫자+특수문자 (변경 시에만)"></div><div class="pw-meter" id="pmPwMeter" hidden></div>
+        <div class="fld2"><label>새 로그인 비밀번호 확인</label><input id="pmPw2" type="password" autocomplete="new-password" placeholder="위와 같게 한 번 더"></div>
         <div class="fld2"><label>새 계좌 비밀번호 (숫자 4자리)</label><input id="pmAcct" type="password" inputmode="numeric" maxlength="4" placeholder="변경 시에만 입력"></div>
         <div class="pm-msg" id="pmSecMsg"></div>
         <button class="modal-btn" id="pmSaveSec">변경 저장</button>
@@ -868,51 +879,53 @@
   </section>
 
   <!-- ══ [v4.35] 해외 주식 라운지 — ETF 라운지와 같은 구조(sec / sec-title / panel) ══ -->
+  <!-- ══ [v4.49] 해외 주식 라운지 — 전면 리뉴얼 ═══════════════════════════
+       기존: 9개 섹션이 세로로만 쌓여 스크롤이 4천 픽셀을 넘었고, 종목 목록이
+       '인기 · 테마 · ETF · 순위' 네 군데로 흩어져 같은 종목을 반복해 보여 줬다.
+       개편: 마켓 클록(장 상태 트랙) 하나로 머리를 정리하고, 본문은 네 갈래
+       (탐색 · 순위 · 내 자산 · 가이드)로 나눠 한 번에 한 가지만 보게 한다. -->
   <section class="view" id="view-us" hidden>
-    <div class="page-title">해외 주식 라운지</div>
-    <div class="page-sub">뉴욕·나스닥 상장 주식과 ETF를 실제 시세로 연습합니다. <span id="usCount"></span></div>
+    <div class="uz-hero" id="usHero"></div>
 
-    <div class="sec"><div class="sec-title">시장 현황</div>
-      <div id="usTop"></div>
+    <div class="uz-nav" id="usNav" role="tablist">
+      <button class="on" data-uspane="find" role="tab">탐색</button>
+      <button data-uspane="rank" role="tab">순위</button>
+      <button data-uspane="mine" role="tab">내 자산</button>
+      <button data-uspane="guide" role="tab">가이드</button>
     </div>
 
-    <div class="sec"><div class="sec-title">실시간 환전</div>
-      <div class="panel" id="usFxCard"></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-title">전체 종목 탐색</div>
-      <div class="panel etf-browser">
-        <div class="etf-filter">
-          <input id="usSearch" placeholder="티커·종목명 검색 (예: NVDA, 엔비디아, 테슬라)" autocomplete="off">
-        </div>
-        <div class="us-chips" id="usThemeTabs"></div>
-        <div id="usSearchOut"></div>
+    <div class="uz-pane" id="uspane-find">
+      <div class="uz-searchbar">
+        <span class="uz-si" aria-hidden="true">🔍</span>
+        <input id="usSearch" placeholder="티커 · 종목명 검색 (NVDA, 엔비디아, 테슬라)" autocomplete="off">
+        <button class="uz-sx" id="usSearchClear" hidden aria-label="검색어 지우기">✕</button>
+      </div>
+      <div id="usSearchOut"></div>
+      <div id="usFindMain">
+        <div class="uz-sec"><b>인기 종목</b><span id="usCount"></span></div>
+        <div id="usStars"></div>
+        <div class="uz-sec"><b>분야로 찾기</b><span>칩을 눌러 목록을 바꿉니다</span></div>
+        <div class="uz-chips" id="usThemeTabs"></div>
         <div id="usThemeBody"></div>
       </div>
     </div>
 
-    <div class="sec"><div class="sec-title">인기 미국 주식</div>
-      <div id="usStars"></div>
+    <div class="uz-pane" id="uspane-rank" hidden>
+      <div class="uz-chips" id="usRankTabs"></div>
+      <div id="usBreadth"></div>
+      <div id="usRankBody"></div>
     </div>
 
-    <div class="sec"><div class="sec-title">실시간 등락</div>
-      <div class="panel" id="usRank"></div>
+    <div class="uz-pane" id="uspane-mine" hidden>
+      <div id="usMineSec"><div class="uz-sec"><b>내 해외 보유</b><span>평가액은 현재 환율 기준입니다</span></div>
+        <div id="usMine"></div></div>
+      <div class="uz-sec"><b>환전</b><span>원화 ↔ 달러</span></div>
+      <div class="panel us-card" id="usFxCard"></div>
+      <div id="usTaxSec" hidden><div class="uz-sec"><b>세금 도우미</b><span>올해 실현손익 기준</span></div>
+        <div id="usTax"></div></div>
     </div>
 
-    <div class="sec"><div class="sec-title">미국 ETF</div>
-      <div class="panel" id="usEtfs"></div>
-    </div>
-
-    <div class="sec" id="usMineSec"><div class="sec-title">내 해외 보유</div>
-      <div id="usMine"></div>
-    </div>
-
-    <div class="sec" id="usTaxSec" hidden><div class="sec-title">세금 도우미</div>
-      <div id="usTax"></div>
-    </div>
-
-    <div class="sec"><div class="sec-title">해외 거래 규칙</div>
+    <div class="uz-pane" id="uspane-guide" hidden>
       <div id="usRules"></div>
     </div>
   </section>
@@ -946,6 +959,13 @@
       <div class="us-right">
         <div class="panel us-card" id="usOrder"></div>
       </div>
+    </div>
+    <!-- [v4.50] 모바일 하단 고정 주문바 — 좁은 화면에서는 주문 카드가 정보 탭 8개
+         아래로 밀려, 사고 싶을 때마다 화면 끝까지 스크롤해야 했다. -->
+    <div class="uz-cta" id="usCta" hidden>
+      <div class="uz-cta-px"><b id="usCtaPx">—</b><span id="usCtaRt"></span></div>
+      <button type="button" class="uz-cta-b sell" id="usCtaSell">매도</button>
+      <button type="button" class="uz-cta-b buy" id="usCtaBuy">매수</button>
     </div>
   </section>
 
@@ -1193,7 +1213,6 @@
     <!-- [v4.40] 계좌 선택 · 개설 안내 -->
     <div id="acctBar"></div>
     <div id="acctGuide"></div>
-    <div id="acctFxSec"></div>
     <div class="panel acct-hero" id="acctHeroPanel">
       <div class="ah-main">
         <div class="ah-k">내 총자산 · 실시간 평가</div>
@@ -1227,6 +1246,10 @@
           <div class="panel alloc-row"><canvas id="allocCv"></canvas><div class="al-list" id="allocLegend"></div></div>
         </div>
         <div id="moversCard" hidden></div>
+        <!-- [v4.51] 환전은 '보유 종목을 본 다음, 목표를 세우기 전'에 손대는 일이다.
+             화면 맨 위에 있으면 자산부터 확인하려는 흐름을 가로막았다. -->
+        <div id="acctFxSec"></div>
+        <div id="acctSendSec"></div>
         <div id="goalCard"></div>
         <div id="tstatCard"></div>
       </div>
@@ -1279,6 +1302,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=332"></script>
+<script type="module" src="/app.js?v=335"></script>
 </body>
 </html>

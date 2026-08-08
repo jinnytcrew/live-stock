@@ -4265,6 +4265,21 @@ async function verify(acc, pass, legacy) {
   if (acc.pass && (acc.pass === pass || acc.pass === legacy)) return { ok: true, upgraded: true };
   return { ok: false };
 }
+/* ══ [v4.50] 서버 측 자격증명 형식 검증 ═══════════════════════════════════════
+   [먼저 솔직히] 이 앱은 브라우저에서 SHA-256 으로 해시한 값만 서버로 보낸다.
+   평문이 기기 밖으로 안 나가는 건 좋은 성질이지만, 그 대가로 서버는 원래
+   비밀번호가 8자였는지 특수문자가 있었는지 '원리적으로' 알 수 없다.
+   → 복잡도 규칙의 집행 지점은 클라이언트일 수밖에 없다(pwCheck).
+   [그래도 서버가 막을 수 있는 것] 화면을 건너뛰고 /api 를 직접 두드려
+   pass:"1" 같은 값으로 계정을 심는 우회다. 정상 클라이언트는 언제나
+   's'+64자리 16진수(또는 구버전 숫자 해시)만 보내므로, 그 형태가 아니면 거절한다.
+   이것만으로 '규칙을 우회한 계정 생성' 경로가 닫힌다. */
+function credOk(v) {
+  const s = String(v == null ? "" : v);
+  if (/^s[0-9a-f]{64}$/i.test(s)) return true;      // 현행 SHA-256
+  if (/^-?\d{4,}$/.test(s)) return true;            // 구버전 legacyHash 폴백
+  return false;
+}
 async function setPassword(acc, pass) {
   acc.salt = newSalt();
   acc.hash = await derive(acc.salt, pass);
@@ -4350,6 +4365,8 @@ var accounts_default = async (req2) => {
   try {
     if (action === "signup") {
       if (!id || !pass) return json({ ok: false, err: "param" });
+      if (!credOk(pass)) return json({ ok: false, err: "weak" });     // [v4.50] 화면 우회 차단
+      if (body.acctPass && !credOk(body.acctPass)) return json({ ok: false, err: "weak" });
       if (db.accounts[id]) return json({ ok: false, err: "exists" });
       db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: Date.now() }, pass);
       db.users[id] = { watchlist: ["005930", "000660", "035420"], holdings: [], cash: Number(body.cash) || 0, ipoPlans: [], acctPass: body.acctPass || "" };
@@ -4358,6 +4375,7 @@ var accounts_default = async (req2) => {
     }
     if (action === "ensure") {
       if (!id || !pass) return json({ ok: false, err: "param" });
+      if (!credOk(pass)) return json({ ok: false, err: "weak" });     // [v4.50] 복구 경로도 같은 형식만
       if (!db.accounts[id]) {
         db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: body.created || Date.now() }, pass);
         db.users[id] = body.user || { watchlist: [], holdings: [], cash: 0, ipoPlans: [] };
@@ -4436,8 +4454,12 @@ var accounts_default = async (req2) => {
       clearTries(db, id);
       if (body.name != null) acc.name = body.name;
       if (body.email != null) acc.email = body.email;
-      if (body.newPass) await setPassword(acc, body.newPass);
+      if (body.newPass) {
+        if (!credOk(body.newPass)) return json({ ok: false, err: "weak" });   // [v4.50]
+        await setPassword(acc, body.newPass);
+      }
       if (body.acctPass) {
+        if (!credOk(body.acctPass)) return json({ ok: false, err: "weak" });  // [v4.50]
         acc.acctPass = body.acctPass;
         if (db.users[id]) db.users[id].acctPass = body.acctPass;
       }
@@ -8026,16 +8048,65 @@ async function yahooIndex2(sym) {
   if (history.length && history[history.length - 1] !== price) history.push(price);
   return { price, change: price - prev, rate: prev ? (price - prev) / prev * 100 : 0, history };
 }
+/* ══ [v4.48] 해외 지수·선물·코인 — 야후 하나만 보다가 429 로 함께 죽었다 ═════
+   현재가·등락은 CNBC(지수 ".SPX" / 선물 "@ND.1" 표기), 코인은 Coinbase 공개 API,
+   스파크라인 30일은 Stooq 일봉으로 채운다. 야후·네이버는 예비로 남긴다. */
+async function cnbcIndex(sym){
+  const j=await jget8("https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols="
+    +encodeURIComponent(sym)+"&requestMethod=itv&noform=1&partnerId=2&output=json",5e3,
+    { "User-Agent": UA20, "Accept": "application/json" });
+  let arr=j&&j.FormattedQuoteResult&&j.FormattedQuoteResult.FormattedQuote;
+  if(arr&&!Array.isArray(arr))arr=[arr];
+  const d=arr&&arr[0]; if(!d)return null;
+  const price=usSuffixNum(d.last); if(price==null)return null;
+  const chg=usSuffixNum(d.change);
+  let prev=usSuffixNum(d.previous_day_closing); if(prev==null&&chg!=null)prev=price-chg;
+  return { price, change:chg!=null?chg:(prev!=null?price-prev:0),
+           rate:(prev&&prev>0)?(price-prev)/prev*100:(usSuffixNum(d.change_pct)||0), history:[] };
+}
+async function stooqHist30(stooqSym){
+  try{
+    const t = await tget(`https://stooq.com/q/d/l/?s=${encodeURIComponent(stooqSym)}&i=d`, 3500);
+    const h = t.trim().split("\n").slice(1).map((l) => Number(l.split(",")[4])).filter((n) => !isNaN(n) && n > 0).slice(-30);
+    return h.length >= 2 ? h : null;
+  }catch{ return null; }
+}
+async function coinIndex(pair){ /* pair: "BTC-USD" — Coinbase 는 워커 IP 에도 열려 있다 */
+  try{
+    const cur=await jget8("https://api.coinbase.com/v2/prices/"+pair+"/spot",4e3,{ "User-Agent": UA20, "Accept":"application/json" });
+    const price=Number(cur&&cur.data&&cur.data.amount);
+    if(!(price>0))return null;
+    let hist=null,prev=null;
+    try{
+      const cd=await jget8("https://api.exchange.coinbase.com/products/"+pair+"/candles?granularity=86400",4500,{ "User-Agent": UA20, "Accept":"application/json" });
+      if(Array.isArray(cd)&&cd.length>2){
+        const closes=cd.slice(0,31).map((a)=>Number(a&&a[4])).filter((n)=>n>0).reverse(); /* 최신이 배열 앞에 온다 */
+        if(closes.length>=2){ hist=closes; prev=closes[closes.length-2]; }
+      }
+    }catch{}
+    if(prev==null)prev=price;
+    const h=(hist||[]).slice(-30); if(h.length&&h[h.length-1]!==price)h.push(price);
+    return { price, change:price-prev, rate:prev?(price-prev)/prev*100:0, history:h };
+  }catch{ return null; }
+}
+var CNBC_IDX={ "^IXIC":".IXIC","^GSPC":".SPX","^DJI":".DJI","^VIX":".VIX",
+  "^N225":".N225","^HSI":".HSI","NQ=F":"@ND.1","ES=F":"@SP.1","YM=F":"@DJ.1","CL=F":"@CL.1","GC=F":"@GC.1" };
+var STOOQ_IDX={ "^IXIC":"^ndq","^GSPC":"^spx","^DJI":"^dji","^N225":"^nkx","CL=F":"cl.f","GC=F":"gc.f","NQ=F":"nq.f","ES=F":"es.f","YM=F":"ym.f" };
 async function worldIndex(yahooSym, stooqSym, naverCode) {
+  const [cur, hist] = await Promise.all([
+    CNBC_IDX[yahooSym] ? settle2(cnbcIndex(CNBC_IDX[yahooSym])) : Promise.resolve(null),
+    settle2(stooqHist30(stooqSym))
+  ]);
+  if (cur && cur.price) {
+    const h = (hist || []).slice(-30);
+    if (h.length && h[h.length - 1] !== cur.price) h.push(cur.price);
+    cur.history = h; return cur;
+  }
+  if (hist && hist.length >= 2)
+    return { price: hist[hist.length - 1], change: hist[hist.length - 1] - hist[hist.length - 2], rate: (hist[hist.length - 1] - hist[hist.length - 2]) / hist[hist.length - 2] * 100, history: hist };
   try {
     const y = await yahooIndex2(yahooSym);
     if (y && y.price) return y;
-  } catch {
-  }
-  try {
-    const t = await tget(`https://stooq.com/q/d/l/?s=${encodeURIComponent(stooqSym)}&i=d`, 3500);
-    const h = t.trim().split("\n").slice(1).map((l) => Number(l.split(",")[4])).filter((n) => !isNaN(n) && n > 0).slice(-30);
-    if (h.length >= 2) return { price: h[h.length - 1], change: h[h.length - 1] - h[h.length - 2], rate: (h[h.length - 1] - h[h.length - 2]) / h[h.length - 2] * 100, history: h };
   } catch {
   }
   try {
@@ -8058,6 +8129,26 @@ async function fxSeries(from, mult = 1) {
   }
 }
 async function yahooOnly(sym) {
+  /* [v4.48] 이름과 달리 이제 야후만 보지 않는다 — 코인은 Coinbase,
+     지수·선물은 CNBC+Stooq 를 먼저 본다(야후 429 대비). 함수명은 호출부를
+     건드리지 않으려고 그대로 둔다. */
+  if (sym === "BTC-USD" || sym === "ETH-USD") {
+    const c = await settle2(coinIndex(sym));
+    if (c) return c;
+  }
+  if (CNBC_IDX[sym] || STOOQ_IDX[sym]) {
+    const [cur, hist] = await Promise.all([
+      CNBC_IDX[sym] ? settle2(cnbcIndex(CNBC_IDX[sym])) : Promise.resolve(null),
+      STOOQ_IDX[sym] ? settle2(stooqHist30(STOOQ_IDX[sym])) : Promise.resolve(null)
+    ]);
+    if (cur && cur.price) {
+      const h = (hist || []).slice(-30);
+      if (h.length && h[h.length - 1] !== cur.price) h.push(cur.price);
+      cur.history = h; return cur;
+    }
+    if (hist && hist.length >= 2)
+      return { price: hist[hist.length - 1], change: hist[hist.length - 1] - hist[hist.length - 2], rate: (hist[hist.length - 1] - hist[hist.length - 2]) / hist[hist.length - 2] * 100, history: hist };
+  }
   try {
     return await yahooIndex2(sym);
   } catch {
@@ -8462,8 +8553,8 @@ var market_default = async (req2) => {
       settle2(fxSeries("USD")),
       settle2(fxSeries("JPY", 100)),
       settle2(fxSeries("EUR")),
-      settle2(yahooIndex2("BTC-USD")),
-      settle2(yahooIndex2("ETH-USD")),
+      settle2(yahooOnly("BTC-USD")),
+      settle2(yahooOnly("ETH-USD")),
       // 선물·변동성·아시아 지수 — 국내 장 시작 전 방향을 가늠하는 데 가장 많이 보는 지표들
       settle2(yahooOnly("NQ=F")),
       settle2(yahooOnly("ES=F")),
@@ -10617,8 +10708,16 @@ function yahooParse(txt){
   const r=j&&j.chart&&j.chart.result&&j.chart.result[0];
   if(!r||!r.meta)return null;
   const m=r.meta;
-  const q={ price:usNum(m.regularMarketPrice), prev:usNum(m.chartPreviousClose!=null?m.chartPreviousClose:m.previousClose),
-    open:null, high:usNum(m.regularMarketDayHigh), low:usNum(m.regularMarketDayLow),
+  /* ══ [v4.50] 전일 종가 우선순위 수정 — 등락률이 통째로 틀어지던 회귀 ═══════════
+     v4.48 에서 시세용 요청을 range=2y → 5d 로 줄였다(속도·용량). 그런데 이 파서는
+     chartPreviousClose 를 1순위로 썼다. 이 값은 '요청한 구간이 시작되기 직전의 종가'
+     라서, 2y 일 때는 사실상 무의미했지만 5d 로 줄이자 '엿새 전 종가'가 되어 버린다.
+     → 어제 대비 등락률 자리에 '엿새 전 대비' 가 찍힌다. 화면은 멀쩡해 보이는데
+     숫자만 조용히 틀리는, 가장 나쁜 종류의 버그였다.
+     regularMarketPreviousClose(진짜 전일 종가) → previousClose → 캔들 → chart 순으로 바로잡는다. */
+  const q={ price:usNum(m.regularMarketPrice),
+    prev:usNum(m.regularMarketPreviousClose!=null?m.regularMarketPreviousClose:m.previousClose),
+    open:usNum(m.regularMarketOpen), high:usNum(m.regularMarketDayHigh), low:usNum(m.regularMarketDayLow),
     vol:usNum(m.regularMarketVolume), w52h:usNum(m.fiftyTwoWeekHigh), w52l:usNum(m.fiftyTwoWeekLow),
     name:m.shortName||m.symbol||"" };
   const ts=r.timestamp||[], qd=(r.indicators&&r.indicators.quote&&r.indicators.quote[0])||{};
@@ -10632,7 +10731,13 @@ function yahooParse(txt){
   }
   if(q.price==null&&cs.length)q.price=cs[cs.length-1].c;
   if(q.open==null&&cs.length)q.open=cs[cs.length-1].o;
+  if(q.high==null&&cs.length)q.high=cs[cs.length-1].h;
+  if(q.low==null&&cs.length)q.low=cs[cs.length-1].l;
   if(q.prev==null&&cs.length>1)q.prev=cs[cs.length-2].c;
+  if(q.prev==null)q.prev=usNum(m.chartPreviousClose);          // 여기까지 왔을 때만 쓴다
+  /* 전일 종가가 현재가와 40% 넘게 벌어지면 구간 경계값을 잘못 집은 것이다 — 캔들로 교정 */
+  if(q.prev!=null&&q.price!=null&&q.prev>0&&Math.abs(q.price-q.prev)/q.prev>0.4&&cs.length>1)
+    q.prev=cs[cs.length-2].c;
   if(q.price==null)return null;
   return { q, candles:cs.length?cs:null };
 }
@@ -10648,30 +10753,174 @@ function stooqParse(txt){
   const c=usNum(p[6]); if(c==null)return null;
   return { price:c, open:usNum(p[3]), high:usNum(p[4]), low:usNum(p[5]), vol:usNum(p[7]), prev:null };
 }
-async function usFetchOne(reu,diag){
+/* ══ [v4.48] 시세 원천 전면 교체 — '$—' 의 진짜 원인 ═══════════════════════
+   [무엇이 죽었나] 워커(클라우드플레어)의 나가는 IP 는 수천 앱이 공유한다.
+     · 야후: IP 단위 요청 제한 → 상시 429 "Edge: Too Many Requests"
+     · 네이버: 데이터센터 IP 차단 → 403 (샌드박스에서 봤던 403 과 같은 계열)
+     · Stooq: IP 하루 호출 한도 → 공유 IP 는 이미 소진, CSV 대신 안내문이 온다
+   1·2·3순위가 '동시에' 죽어 해외 화면 전체가 $— · '불러오는 중…' 으로 남았다.
+   [해법] 데이터센터 IP 에도 열려 있는 두 원천을 앞에 세운다.
+     · CNBC restQuote — 한 번에 여러 종목(배치) + 52주 고저·시가총액까지 준다.
+       외부 호출 1회로 18종목이 끝나 서브리퀘스트 한도(★11) 걱정도 사라진다.
+     · Cboe 지연시세(cdn.cboe.com) — 봇에 관대한 공개 CDN. 배치 누락분 보충.
+   야후·Stooq·네이버는 '되는 날의 보너스' 로 뒤에 남긴다(자가 호스팅 대비). */
+function usSuffixNum(v){                 /* "3.19T"·"52,164,057" → 숫자 */
+  if(v==null)return null;
+  const m=String(v).trim().replace(/[\s,$%]/g,"").match(/^([-+]?\d+(?:\.\d+)?)([TBMK])?$/i);
+  if(!m)return usNum(v);
+  const n=Number(m[1]); if(!isFinite(n))return null;
+  return n*({T:1e12,B:1e9,M:1e6,K:1e3}[(m[2]||"").toUpperCase()]||1);
+}
+function usSymDot(reu){ return usSym(reu).replace(/-/g,"."); }   /* BRK-B → BRK.B (CNBC·Cboe 표기) */
+function cnbcParse(txt){
+  let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
+  let arr=(j&&j.FormattedQuoteResult&&j.FormattedQuoteResult.FormattedQuote)
+        ||(j&&j.QuickQuoteResult&&j.QuickQuoteResult.QuickQuote)||null;
+  if(arr&&!Array.isArray(arr))arr=[arr];
+  if(!Array.isArray(arr)||!arr.length)return null;
+  const out={};
+  for(const d of arr){
+    if(!d||typeof d!=="object")continue;
+    const pk=(...ks)=>{ for(const k of ks){ if(d[k]!=null&&d[k]!==""){ const n=usSuffixNum(d[k]); if(n!=null)return n; } } return null; };
+    const regLast=pk("last","last_price","price");
+    let price=regLast;
+    /* 프리·애프터 시간에는 확장거래 체결가가 따로 온다 — 있으면 그걸 현재가로 */
+    const ext=d.ExtendedMktQuote||d.extendedMktQuote;
+    if(ext&&ext.last!=null&&String(d.curmktstatus||"").toUpperCase()!=="REG_MKT"){
+      const ep=usSuffixNum(ext.last); if(ep!=null)price=ep;
+    }
+    if(price==null)continue;
+    const sym=String(d.symbol||d.symbolName||d.code||"").toUpperCase().replace(/\./g,"-");
+    if(!sym)continue;
+    let prev=pk("previous_day_closing","prev_day_close","previousClose");
+    /* [v4.49] change 로 전일종가를 되계산할 때는 반드시 '정규장 종가' 기준이어야 한다.
+       확장거래가로 계산하면 프리·애프터 시간대의 등락률이 통째로 틀어진다. */
+    /* [v4.50] change 가 부호 없는 절대값으로 오는 응답이 섞여 있다. 그대로 빼면
+       내린 종목이 오른 것으로 뒤집혀 상승률 순위표까지 거짓말을 한다 —
+       changetype(UP/DOWN) 으로 방향을 먼저 확정한 뒤 되계산한다. */
+    if(prev==null&&regLast!=null){ let ch=pk("change");
+      if(ch!=null){ const dir=String(d.changetype||"").toUpperCase();
+        if(dir==="DOWN"&&ch>0)ch=-ch; else if(dir==="UP"&&ch<0)ch=-ch;
+        prev=+(regLast-ch).toFixed(4); } }
+    /* [v4.49] 시가총액 단위 방어 — 원천에 따라 '3.19T'(달러) 또는 '3371148'(백만달러)로 온다.
+       접미사 없이 작은 수로 오면 백만 단위로 보고 환산한다(억 단위 오표기 방지). */
+    let cap=pk("mktcapView","mktcap","market_cap");
+    if(cap!=null&&cap>0&&cap<1e8)cap=cap*1e6;
+    if(cap!=null&&!(cap>0))cap=null;
+    /* 고가·저가가 현재가와 모순되면(원천 지연 혼합) 버린다 — 화면에 거짓 숫자를 남기지 않는다 */
+    let hi=pk("high"), lo=pk("low");
+    if(hi!=null&&price!=null&&hi<price*0.5)hi=null;
+    if(lo!=null&&price!=null&&lo>price*1.5)lo=null;
+    out[sym]={ price, prev,
+      open:pk("open"), high:hi, low:lo,
+      vol:pk("fullVolume","volume"),
+      w52h:pk("yrhiprice","yrHiPrice"), w52l:pk("yrloprice","yrLoPrice"),
+      cap,
+      name:d.name||d.shortName||"" };
+  }
+  return Object.keys(out).length?out:null;
+}
+async function cnbcBatch(reus,diag,budget){
+  if(!reus.length||(budget&&budget.left<=0))return {};
+  try{
+    budget&&budget.left--;
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),6500);
+    const r=await fetch("https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols="
+      +encodeURIComponent(reus.map(usSymDot).join("|"))
+      +"&requestMethod=itv&noform=1&partnerId=2&fund=1&exthrs=1&output=json",
+      {headers:{ "User-Agent": UA20, Accept:"application/json", Referer:"https://www.cnbc.com/quotes/" },signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok){ diag&&diag.push("cnbc:"+r.status); return {}; }
+    const m=cnbcParse(await r.text());
+    if(!m){ diag&&diag.push("cnbc:parse"); return {}; }
+    const out={};
+    for(const reu of reus){ const q=m[usSym(reu).toUpperCase()]; if(q&&q.price!=null)out[reu]=q; }
+    diag&&diag.push("cnbc:"+Object.keys(out).length+"/"+reus.length);
+    return out;
+  }catch(e){ diag&&diag.push("cnbc:"+String(e).slice(0,10)); return {}; }
+}
+async function cboeFetchOne(reu,diag,budget){
+  if(budget&&budget.left<=0)return null;
+  const tk=usSymDot(reu);
+  try{
+    budget&&budget.left--;
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),4500);
+    const r=await fetch("https://cdn.cboe.com/api/global/delayed_quotes/quotes/"+encodeURIComponent(tk)+".json",
+      {headers:{ "User-Agent": UA20, Accept:"application/json" },signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok){ diag&&diag.push(tk+":cb"+r.status); return null; }
+    let j=null; try{ j=JSON.parse(await r.text()); }catch(e){ diag&&diag.push(tk+":cb-parse"); return null; }
+    const d=(j&&j.data)||j; if(!d||typeof d!=="object")return null;
+    const price=usNum(d.current_price!=null?d.current_price:d.close);
+    if(price==null){ diag&&diag.push(tk+":cb-empty"); return null; }
+    diag&&diag.push(tk+":cb");
+    return { price, prev:usNum(d.prev_day_close), open:usNum(d.open), high:usNum(d.high),
+             low:usNum(d.low), vol:usNum(d.volume), name:d.name||"" };
+  }catch(e){ diag&&diag.push(tk+":cb"+String(e).slice(0,8)); return null; }
+}
+/* 부분 성공을 합칠 때 이미 알던 값(52주·시총 등)을 지우지 않는다 */
+function usMergeQ(oldQ,newQ){
+  if(!oldQ)return newQ; if(!newQ)return oldQ;
+  const o={...oldQ};
+  for(const k of Object.keys(newQ))if(newQ[k]!=null)o[k]=newQ[k];
+  return o;
+}
+/* KV 는 무료 플랜에서 하루 쓰기 1,000회 — 종목당 4분에 1번만 쓴다.
+   한도를 넘으면 쓰기만 조용히 실패하고 읽기·메모리 캐시는 계속 동작한다. */
+var _KVW=/* @__PURE__ */ new Map();
+async function kvPutQuote(c,q){
+  try{ if(!KV)return; const last=_KVW.get(c);
+    if(last&&Date.now()-last<240e3)return;
+    _KVW.set(c,Date.now());
+    await KV.put("usq:"+c,JSON.stringify({at:Date.now(),q}),{expirationTtl:120});
+  }catch(e){}
+}
+async function usFetchOne(reu,diag,budget){
   const hit=USQ_MEM.get(reu);
   if(hit&&Date.now()-hit.at<25e3)return hit.q;
   const tk=usSym(reu);
+  /* ① Cboe — 데이터센터 IP 에도 열려 있는 CDN */
+  const cb=await cboeFetchOne(reu,diag,budget);
+  if(cb){ USQ_MEM.set(reu,{at:Date.now(),q:cb}); return cb; }
+  /* ② 야후 — 워커 IP 에선 대개 429 지만, 되는 날은 그대로 쓴다.
+     [v4.48] 매번 range=2y(종목당 수백 KB)를 받던 것을 5d 로 줄였다 — 시세에 2년치는 필요 없고,
+     큰 응답이 5초 타임아웃과 시간 예산을 갉아먹고 있었다. 차트는 uscandle 이 따로 맡는다. */
+  if(!budget||budget.left>0){ budget&&budget.left--;
   try{
     const yc=new AbortController(); const yt=setTimeout(()=>yc.abort(),5000);
-    const yr=await fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(tk)+"?range=2y&interval=1d",
+    const yr=await fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(tk)+"?range=5d&interval=1d",
       {headers:{ "User-Agent": UA20, Accept:"application/json" },signal:yc.signal});
     clearTimeout(yt);
     if(yr.ok){
       const yp=yahooParse(await yr.text());
-      if(yp&&yp.q){ USQ_MEM.set(reu,{at:Date.now(),q:yp.q});
-        if(yp.candles){ try{ if(KV)await KV.put("uscd:"+reu,JSON.stringify({at:Date.now(),candles:yp.candles}),{expirationTtl:3600}); }catch(e){} }
-        diag&&diag.push(tk+":yh"); return yp.q; }
+      if(yp&&yp.q){ USQ_MEM.set(reu,{at:Date.now(),q:yp.q}); diag&&diag.push(tk+":yh"); return yp.q; }
       diag&&diag.push(tk+":yh-parse");
     } else diag&&diag.push(tk+":yh"+yr.status);
   }catch(e){ diag&&diag.push(tk+":yh"+String(e).slice(0,8)); }
+  }
+  /* ③ Stooq — 공유 IP 일일 한도가 남아 있으면. 한도 소진 안내문은 파싱하지 말고 표시만 */
+  if(!budget||budget.left>0){ budget&&budget.left--;
+  try{
+    const sc=new AbortController(); const st=setTimeout(()=>sc.abort(),4500);
+    const sr=await fetch("https://stooq.com/q/l/?s="+encodeURIComponent(tk.toLowerCase())+".us&f=sd2t2ohlcv&h&e=csv",
+      {headers:{ "User-Agent": UA20 },signal:sc.signal});
+    clearTimeout(st);
+    if(sr.ok){ const body=await sr.text();
+      if(/exceeded/i.test(body))diag&&diag.push(tk+":sq-limit");
+      else{ const q=stooqParse(body);
+        if(q&&q.price){ USQ_MEM.set(reu,{at:Date.now(),q}); diag&&diag.push(tk+":sq"); return q; } } }
+  }catch(e){ diag&&diag.push(tk+":sq"+String(e).slice(0,8)); }
+  }
+  /* ④ 네이버 — 주거용 IP 로 자가 호스팅할 때를 위해 남긴다(워커 IP 에선 403) */
   const H={ "User-Agent": UA20, Accept: "application/json", Referer: "https://m.stock.naver.com/worldstock/stock/"+reu, "Accept-Language":"ko" };
   for(const u of [
     "https://polling.finance.naver.com/api/realtime/worldstock/stock/"+reu,
     "https://api.stock.naver.com/stock/"+reu+"/basic"
   ]){
+    if(budget&&budget.left<=0)break;
+    budget&&budget.left--;
     try{
-      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4500);
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4000);
       const r=await fetch(u,{headers:H,signal:c.signal}); clearTimeout(t);
       if(!r.ok){ diag&&diag.push(reu.split(".")[0]+":"+r.status); continue; }
       const q=usPickQuote(await r.text());
@@ -10679,14 +10928,6 @@ async function usFetchOne(reu,diag){
       diag&&diag.push(reu.split(".")[0]+":parse");
     }catch(e){ diag&&diag.push(reu.split(".")[0]+":"+String(e).slice(0,12)); }
   }
-  try{
-    const sc=new AbortController(); const st=setTimeout(()=>sc.abort(),4500);
-    const sr=await fetch("https://stooq.com/q/l/?s="+encodeURIComponent(tk.toLowerCase())+".us&f=sd2t2ohlcv&h&e=csv",
-      {headers:{ "User-Agent": UA20 },signal:sc.signal});
-    clearTimeout(st);
-    if(sr.ok){ const q=stooqParse(await sr.text());
-      if(q&&q.price){ USQ_MEM.set(reu,{at:Date.now(),q}); diag&&diag.push(tk+":sq"); return q; } }
-  }catch(e){ diag&&diag.push(tk+":sq"+String(e).slice(0,8)); }
   return null;
 }
 /* ══ [v4.35] 환율은 여러 곳에서 받는다 ═══════════════════════════════════
@@ -10713,12 +10954,14 @@ async function usFx(diag){
   try{ if(KV){ const c=await KV.get("usfx","json");
     if(c&&c.v&&Date.now()-c.at<30*60e3){ USFX_MEM={v:c.v,at:Date.now()}; return c.v; } }}catch(e){}
   const srcs=[
-    ["naver-poll","https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW","https://finance.naver.com/marketindex/"],
-    ["naver-api","https://api.stock.naver.com/marketindex/exchange/FX_USDKRW/basic","https://m.stock.naver.com/"],
-    ["naver-front","https://m.stock.naver.com/front-api/marketIndex/prices?category=exchange&reutersCode=FX_USDKRW&page=1&pageSize=1","https://m.stock.naver.com/"],
+    /* [v4.48] 워커에서 실제로 열리는 공개 환율을 앞으로 — 네이버 3형제는
+       데이터센터 IP 에 403 이라, 그동안 첫 환율 응답만 최대 12초씩 늦추고 있었다 */
     ["erapi","https://open.er-api.com/v6/latest/USD",null],
     ["frankfurter","https://api.frankfurter.app/latest?from=USD&to=KRW",null],
-    ["jsdelivr","https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",null]
+    ["jsdelivr","https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",null],
+    ["naver-poll","https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW","https://finance.naver.com/marketindex/"],
+    ["naver-api","https://api.stock.naver.com/marketindex/exchange/FX_USDKRW/basic","https://m.stock.naver.com/"],
+    ["naver-front","https://m.stock.naver.com/front-api/marketIndex/prices?category=exchange&reutersCode=FX_USDKRW&page=1&pageSize=1","https://m.stock.naver.com/"]
   ];
   for(const [name,url,ref] of srcs){
     try{
@@ -10808,20 +11051,22 @@ async function usfxdiag_default(){
   return new Response(JSON.stringify(out,null,2),{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
 }
 async function usquote_default(req2){
-  /* ══ [v4.39 · 주가가 '—' 로 뜨던 진짜 이유] ═══════════════════════════════
-     한 요청에 32종목을 받았는데 종목마다 원천을 최대 2곳 두드린다 → 최대 64회.
-     Cloudflare Worker 는 요청당 서브리퀘스트가 50회로 제한되므로 뒷부분 종목이
-     통째로 실패해 화면에 $— 로 남았다.
-     → ① 한 요청당 18종목으로 낮춰 한도 안에 확실히 들어가고
-       ② 성공한 시세는 KV 에 40초 캐시해 다음 요청은 호출 없이 즉시 응답하며
-       ③ 시간 예산을 넘기면 남은 종목은 캐시분만 돌려주고 정상 종료한다. */
+  /* ══ [v4.48 · '$—' 전면 수리] ═══════════════════════════════════════════
+     [원인] 야후 429 · 네이버 403 · Stooq 한도소진 — 세 원천이 워커 IP 에서
+       '동시에' 죽어 있었다(위 v4.48 원천 교체 주석). 게다가 야후 파서는
+       시가총액을 아예 안 뽑아서, 야후가 살아 있던 시절에도 '기업 규모' 는 '—' 였다.
+     [수리] ① CNBC 배치 1회로 남은 종목 전부(52주·시총 포함)
+            ② 빠진 종목만 Cboe→야후→Stooq→네이버 개별 체인
+            ③ 그래도 빈 52주 고저는 KV 에 저장된 일봉으로 직접 계산(외부 호출 아님)
+       외부 호출은 예산 카운터로 총 38회 아래에 묶는다(무료 플랜 50회 한도 ★11). */
   const T0=Date.now(), u=new URL(req2.url), diag=[];
+  const budget={left:38};
   const codes=[...new Set(String(u.searchParams.get("codes")||"").split(",").map(s=>s.trim()).filter(Boolean))].slice(0,18);
-  const out={}; const miss=[];
-  /* 1) KV 캐시 우선 */
+  const out={}; let miss=[];
+  /* 1) 메모리 → KV 캐시 우선 */
   for(const c of codes){
     const m=USQ_MEM.get(c);
-    if(m&&Date.now()-m.at<25e3){ out[c]=m.q; continue; }
+    if(m&&Date.now()-m.at<20e3){ out[c]=m.q; continue; }
     miss.push(c);
   }
   if(miss.length&&KV){
@@ -10831,22 +11076,75 @@ async function usquote_default(req2){
       miss.forEach((c,i)=>{ const v=got[i];
         if(v&&v.at&&Date.now()-v.at<40e3&&v.q){ out[c]=v.q; USQ_MEM.set(c,{at:Date.now(),q:v.q}); }
         else still.push(c); });
-      miss.length=0; still.forEach(c=>miss.push(c));
-      diag.push("cache:"+(codes.length-miss.length));
+      diag.push("cache:"+(codes.length-still.length));
+      miss=still;
     }catch(e){}
   }
-  /* 2) 남은 것만 원천 조회 — 6개씩 동시(최대 12 서브리퀘스트/라운드) */
+  /* 2) CNBC 배치 — 외부 호출 '1회' 로 남은 종목 전부 */
+  if(miss.length){
+    const got=await cnbcBatch(miss,diag,budget);
+    const still=[];
+    for(const c of miss){
+      if(got[c]){ out[c]=usMergeQ(out[c],got[c]); USQ_MEM.set(c,{at:Date.now(),q:out[c]}); await kvPutQuote(c,out[c]); }
+      else still.push(c);
+    }
+    miss=still;
+  }
+  /* 3) 그래도 빠진 것만 개별 체인 — 6개 동시, 시간·예산을 함께 감시 */
   for(let i=0;i<miss.length;i+=6){
-    if(Date.now()-T0>9000){ diag.push("budget"); break; }
+    if(Date.now()-T0>9000||budget.left<=2){ diag.push("budget"); break; }
     const part=miss.slice(i,i+6);
-    const rs=await Promise.all(part.map(c=>usFetchOne(c,diag)));
-    await Promise.all(part.map(async(c,k)=>{
-      if(!rs[k])return; out[c]=rs[k];
-      try{ if(KV)await KV.put("usq:"+c,JSON.stringify({at:Date.now(),q:rs[k]}),{expirationTtl:60}); }catch(e){}
-    }));
+    const rs=await Promise.all(part.map(c=>usFetchOne(c,diag,budget)));
+    for(let k=0;k<part.length;k++){
+      if(!rs[k])continue; const c=part[k];
+      out[c]=usMergeQ(out[c],rs[k]); await kvPutQuote(c,out[c]);
+    }
+  }
+  /* 4) 52주 고저가 빈 종목은 KV 일봉으로 계산 — KV 읽기는 외부 호출 예산을 안 쓴다 */
+  /* [v4.50 · 정밀감사에서 드러난 두 구멍]
+     ① Stooq CSV 에는 전일 종가 항목이 아예 없어 prev=null 로 온다. prev 가 없으면
+        등락률이 '—' 가 되고 상승률 순위에서도 통째로 빠진다 — 야후가 죽고 Stooq 만
+        살아난 날 '가격은 뜨는데 등락률만 전부 비는' 상태가 된다.
+     ② Cboe 는 52주·시가총액을 주지 않는다. Cboe 가 개별 체인 1순위이므로 CNBC 배치가
+        실패한 종목은 시가총액이 영원히 '—' 로 남는다.
+     둘 다 KV 로 메운다 — KV 읽기는 외부 호출 예산(★11)을 쓰지 않으므로 공짜다. */
+  const lack=Object.keys(out).filter(c=>out[c]&&(out[c].w52h==null||out[c].w52l==null||out[c].prev==null)).slice(0,18);
+  if(lack.length&&KV){
+    try{
+      const cds=await Promise.all(lack.map(c=>KV.get("uscd:"+c,"json").catch(()=>null)));
+      lack.forEach((c,i)=>{ const v=cds[i];
+        if(v&&Array.isArray(v.candles)&&v.candles.length>5){
+          const cs2=v.candles, y=cs2.slice(-252);
+          if(out[c].w52h==null)out[c].w52h=Math.max.apply(null,y.map(k=>k.h));
+          if(out[c].w52l==null)out[c].w52l=Math.min.apply(null,y.map(k=>k.l));
+          if(out[c].prev==null&&cs2.length>1){
+            /* 마지막 봉이 오늘 것이면 그 앞 봉이 전일 종가, 아니면 마지막 봉이 전일 종가 */
+            const last=cs2[cs2.length-1], px=out[c].price;
+            out[c].prev=(px!=null&&last&&Math.abs(last.c-px)<1e-9)?cs2[cs2.length-2].c:last.c;
+          }
+        }});
+    }catch(e){}
+  }
+  /* 시가총액 24~36시간 캐시 — 하루 안에 크게 변하지 않는 값이라 한 번 받아 두면 오래 쓴다.
+     CNBC 가 죽어도 '기업 규모'가 빈칸으로 남지 않게 하는 안전망. */
+  if(KV){
+    try{
+      const need=Object.keys(out).filter(c=>out[c]&&!(out[c].cap>0)).slice(0,18);
+      if(need.length){
+        const got=await Promise.all(need.map(c=>KV.get("uscap:"+c,"json").catch(()=>null)));
+        need.forEach((c,i)=>{ const v=got[i];
+          if(v&&v.cap>0&&Date.now()-v.at<36*3600e3){ out[c].cap=v.cap; out[c].capOld=1; } });
+      }
+      for(const c of Object.keys(out).filter(c=>out[c]&&out[c].cap>0&&!out[c].capOld).slice(0,8)){
+        const wk="capw:"+c, last=_KVW.get(wk);
+        if(last&&Date.now()-last<12*3600e3)continue;
+        _KVW.set(wk,Date.now());
+        await KV.put("uscap:"+c,JSON.stringify({at:Date.now(),cap:out[c].cap}),{expirationTtl:172800});
+      }
+    }catch(e){}
   }
   const body={ ok:Object.keys(out).length>0, n:Object.keys(out).length, asked:codes.length,
-               codes:out, diag:diag.slice(0,10) };
+               codes:out, diag:diag.slice(0,12) };
   if(u.searchParams.get("fx")==="1")body.fx=await usFx(diag);
   return new Response(JSON.stringify(body),{headers:{ "content-type":"application/json", "cache-control":"no-store", "access-control-allow-origin":"*" }});
 }
@@ -10872,6 +11170,59 @@ async function uscandle_default(req2){
     if(c&&c.at&&Date.now()-c.at<15*60*1000&&Array.isArray(c.candles))
       return new Response(JSON.stringify({ok:true,candles:c.candles,cached:1}),{headers:{"content-type":"application/json","access-control-allow-origin":"*"}});
   }catch(e){}
+  /* ══ [v4.48] 차트 원천도 교체 ═══════════════════════════════════════════
+     야후가 429 로 죽으면 차트는 KV 캐시 수명(1시간)만큼만 살다가 비었다 —
+     사용자 화면에서 52주 고저만 남고 시세가 '—' 였던 것도 이 캐시의 잔상이다.
+     워커 IP 에서 열리는 Cboe(약 1년)·Stooq(장기) 일봉을 앞에 세운다. */
+  try{
+    const tk=usSymDot(reu);
+    const cc=new AbortController(); const ct=setTimeout(()=>cc.abort(),6000);
+    const cr=await fetch("https://cdn.cboe.com/api/global/delayed_quotes/charts/historical/"+encodeURIComponent(tk)+".json",
+      {headers:{ "User-Agent": UA20, Accept:"application/json" },signal:cc.signal});
+    clearTimeout(ct);
+    if(cr.ok){
+      let j=null; try{ j=JSON.parse(await cr.text()); }catch(e){}
+      const arr=(j&&j.data)||[];
+      const cs=[];
+      for(const it of (Array.isArray(arr)?arr:[])){
+        const t8=String(it.date!=null?it.date:it.Date||"").replace(/[^0-9]/g,"").slice(0,8);
+        const c2=usNum(it.close!=null?it.close:it.Close);
+        if(t8.length!==8||c2==null)continue;
+        cs.push({t:+t8,
+          o:usNum(it.open!=null?it.open:it.Open)!=null?usNum(it.open!=null?it.open:it.Open):c2,
+          h:usNum(it.high!=null?it.high:it.High)!=null?usNum(it.high!=null?it.high:it.High):c2,
+          l:usNum(it.low!=null?it.low:it.Low)!=null?usNum(it.low!=null?it.low:it.Low):c2,
+          c:c2,v:usNum(it.volume!=null?it.volume:it.Volume)||0});
+      }
+      cs.sort((a,b)=>a.t-b.t);
+      if(cs.length>5){
+        try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),candles:cs}),{expirationTtl:3600}); }catch(e){}
+        return new Response(JSON.stringify({ok:true,candles:cs,diag:["cboe"]}),
+          {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+      }
+      diag.push("cb:empty");
+    } else diag.push("cb:"+cr.status);
+  }catch(e){ diag.push("cb:"+String(e).slice(0,10)); }
+  /* ② Stooq 전체 일봉 CSV — IP 한도만 남아 있으면 10년치도 준다 */
+  try{
+    const t2=await tget("https://stooq.com/q/d/l/?s="+encodeURIComponent(usSym(reu).toLowerCase())+".us&i=d",6000);
+    const lines=String(t2||"").trim().split(/\r?\n/);
+    if(/^date,open/i.test(lines[0]||"")&&lines.length>6){
+      const cs=[];
+      for(const ln of lines.slice(1)){
+        const p=ln.split(","); const d8=String(p[0]||"").replace(/-/g,""); const c2=usNum(p[4]);
+        if(d8.length!==8||c2==null)continue;
+        cs.push({t:+d8,o:usNum(p[1])!=null?usNum(p[1]):c2,h:usNum(p[2])!=null?usNum(p[2]):c2,
+                 l:usNum(p[3])!=null?usNum(p[3]):c2,c:c2,v:usNum(p[5])||0});
+      }
+      const cut=cs.slice(-520);
+      if(cut.length>5){
+        try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),candles:cut}),{expirationTtl:3600}); }catch(e){}
+        return new Response(JSON.stringify({ok:true,candles:cut,diag:["stooq"]}),
+          {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+      }
+    } else diag.push("sqd:"+(/exceeded/i.test(String(t2||""))?"limit":"fmt"));
+  }catch(e){ diag.push("sqd:"+String(e).slice(0,10)); }
   const H={ "User-Agent": UA20, Accept:"application/json", Referer:"https://m.stock.naver.com/worldstock/stock/"+reu, "Accept-Language":"ko" };
   /* [v4.42] 야후에서 2년치 일봉을 먼저 받는다 — 네이버가 막혀도 차트가 비지 않는다 */
   try{
@@ -10910,23 +11261,33 @@ async function uscandle_default(req2){
     {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
 }
 async function usdiag_default(){
-  const out={at:new Date().toISOString(),tried:[]};
-  const probe=async(label,url,ref)=>{
+  /* [v4.48] 원천 전면 교체에 맞춰 진단도 새 원천을 전부 두드린다.
+     parsed=true 인 원천이 실제로 쓸 수 있는 문이고, usable 이 그 요약이다.
+     usable 이 비어 있으면 그날은 정말 모든 문이 닫힌 것이다. */
+  const out={at:new Date().toISOString(),ver:APP_VER,tried:[]};
+  const probe=async(label,url,ref,parse)=>{
     const rec={label,url};
     try{
       const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
       const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"application/json", Referer:ref||"https://m.stock.naver.com/", "Accept-Language":"ko" },signal:c.signal});
       clearTimeout(t);
       rec.status=r.status;
-      const txt=await r.text(); rec.len=txt.length; rec.sample=txt.slice(0,260).replace(/\s+/g," ");
+      const txt=await r.text(); rec.len=txt.length;
+      try{ rec.parsed=!!(parse&&parse(txt)); }catch(e){ rec.parsed=false; }
+      rec.sample=txt.slice(0,200).replace(/\s+/g," ");
     }catch(e){ rec.err=String(e).slice(0,60); }
     out.tried.push(rec);
   };
-  await probe("polling-quote","https://polling.finance.naver.com/api/realtime/worldstock/stock/AAPL.O");
-  await probe("basic","https://api.stock.naver.com/stock/AAPL.O/basic");
-  await probe("candle-day","https://api.stock.naver.com/chart/foreign/item/AAPL.O/day");
-  await probe("candle-m","https://m.stock.naver.com/api/chart/foreign/item/AAPL.O/day");
-  await probe("fx","https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW","https://finance.naver.com/marketindex/");
+  await probe("cnbc-batch","https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=AAPL%7CMSFT&requestMethod=itv&noform=1&partnerId=2&fund=1&output=json","https://www.cnbc.com/quotes/",cnbcParse);
+  await probe("cboe-quote","https://cdn.cboe.com/api/global/delayed_quotes/quotes/AAPL.json",null,(t)=>{try{const j=JSON.parse(t);return !!(j&&j.data&&j.data.current_price!=null);}catch(e){return false;}});
+  await probe("cboe-candles","https://cdn.cboe.com/api/global/delayed_quotes/charts/historical/AAPL.json",null,(t)=>{try{const j=JSON.parse(t);return !!(j&&Array.isArray(j.data)&&j.data.length>5);}catch(e){return false;}});
+  await probe("yahoo","https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=5d&interval=1d",null,(t)=>!!yahooParse(t));
+  await probe("stooq-quote","https://stooq.com/q/l/?s=aapl.us&f=sd2t2ohlcv&h&e=csv",null,(t)=>!!stooqParse(t));
+  await probe("stooq-candles","https://stooq.com/q/d/l/?s=aapl.us&i=d",null,(t)=>/^date,open/i.test(String(t||"").trim()));
+  await probe("naver-poll","https://polling.finance.naver.com/api/realtime/worldstock/stock/AAPL.O","https://m.stock.naver.com/worldstock/stock/AAPL.O",(t)=>!!usPickQuote(t));
+  await probe("naver-basic","https://api.stock.naver.com/stock/AAPL.O/basic","https://m.stock.naver.com/worldstock/stock/AAPL.O",(t)=>!!usPickQuote(t));
+  await probe("fx-erapi","https://open.er-api.com/v6/latest/USD",null,(t)=>!!usFxPick(t));
+  out.usable=out.tried.filter(x=>x.parsed).map(x=>x.label);
   return new Response(JSON.stringify(out,null,2),{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
 }
 /* [v4.30] 해외 로고 중계 — 사용자 통신망에서 외부 CDN 이 막혀도 서버가 대신 받아 온다.
@@ -11123,7 +11484,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.47.0";
+var APP_VER = "4.51.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
