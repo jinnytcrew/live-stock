@@ -1785,7 +1785,8 @@ html.reduce-motion .info-tabs .lv{animation:none}
 #searchResults .sr .px{font-size:14.5px;font-weight:800}
 @media (min-width:1000px){
   #searchResults{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px;align-items:start}
-  #searchResults .rank-note,#searchResults .etf-more,#searchResults .srch-sentinel,#searchResults .empty{grid-column:1/-1}
+  #searchResults .rank-note,#searchResults .etf-more,#searchResults .srch-sentinel,#searchResults .empty,
+  #searchResults .us-searchblk{grid-column:1/-1}   /* [v4.35] 해외 블록은 전체 폭 */
 }
 .srch-short button{border-radius:99px}
 
@@ -3107,7 +3108,9 @@ html[data-theme="dark"] .etf-row .lgo.bd{background-color:var(--lgc) !important}
 .us-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
 .us-chip{border:1px solid var(--border);background:var(--panel);color:var(--sub);border-radius:99px;
   padding:6px 13px;font-size:12.5px;font-weight:800;cursor:pointer}
-.us-chip.on{background:var(--fg);color:var(--panel);border-color:var(--fg)}
+/* [v4.35] 선택된 칩이 다크모드에서 글자가 묻혔다 — 대비를 명시적으로 준다 */
+.us-chip.on{background:#3b7ef0;color:#fff;border-color:#3b7ef0}
+html[data-theme="dark"] .us-chip.on{background:#4f8cf5;color:#0b1120;border-color:#4f8cf5}
 /* 거래 화면 */
 .us-grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
 @media(max-width:900px){.us-grid{grid-template-columns:1fr}}
@@ -3183,9 +3186,9 @@ html[data-theme="dark"] .etf-row .lgo.bd{background-color:var(--lgc) !important}
    contain 으로 가로·세로 모두 상자 안에 맞추고, 여백을 줘 테두리에 닿지 않게 한다. */
 .us-tick{overflow:hidden;background-position:center;background-repeat:no-repeat;
   background-size:contain;transition:background-color .2s;box-sizing:border-box}
-.us-tick.on{background-color:#fff !important;color:transparent !important;
+.us-tick.on{color:transparent !important;
   box-shadow:inset 0 0 0 1px rgba(16,26,45,.12);
-  padding:5px;background-origin:content-box;background-clip:padding-box}
+  padding:4px;background-origin:content-box !important;background-clip:padding-box !important}
 html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa !important;
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
 .us-star .us-tick{width:38px;height:30px;font-size:10px}
@@ -3217,3 +3220,12 @@ html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa !important;
 .acct-chg{border:1px solid var(--border);background:var(--panel);border-radius:8px;padding:5px 11px;
   font-size:11.5px;font-weight:800;cursor:pointer;color:var(--sub);flex:none}
 html[data-theme="dark"] .acct-off,html[data-theme="dark"] .acct-pro{background:rgba(18,183,106,.16);color:#6ee7b7}
+
+/* ── [v4.35] 검색 결과 안의 해외 블록 — 국내 목록과 섞이지 않게 독립 배치 ── */
+.us-searchblk{display:block;width:100%;border:1px solid var(--border-soft);border-radius:14px;
+  padding:10px 12px;margin:2px 0 12px;background:linear-gradient(135deg,rgba(59,126,240,.05),transparent)}
+.us-searchblk .us-sec{margin:0 0 6px}
+.us-fxwrap{display:block}
+#usFxCard{padding:16px 18px}
+#usRank,#usEtfs{padding:16px 18px}
+.us-card{padding:16px 18px}

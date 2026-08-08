@@ -10630,20 +10630,73 @@ async function usFetchOne(reu,diag){
   }
   return null;
 }
+/* ══ [v4.35] 환율은 여러 곳에서 받는다 ═══════════════════════════════════
+   네이버 marketindex 한 곳만 보고 있었는데 그 경로가 막히자 환율이 영영 오지
+   않아 환전·주문이 전부 잠겼다(사용자 화면: '수신 대기'). 국내·해외 공개 소스를
+   순서대로 시도하고, 한 번 성공하면 KV 에 담아 다음 요청은 즉시 응답한다. */
+var USFX_MEM = null;
+function usFxPick(txt){
+  let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
+  const cand=[];
+  const dig=(o,d)=>{ if(o==null||d>5)return;
+    if(typeof o==="number"){cand.push(o);return;}
+    if(typeof o==="string"){const n=usNum(o); if(n!=null)cand.push(n); return;}
+    if(Array.isArray(o)){o.forEach(x=>dig(x,d+1));return;}
+    if(typeof o==="object")Object.keys(o).forEach(k=>{
+      if(/KRW|closePrice|basePrice|rate|value|price/i.test(k)||typeof o[k]==="object")dig(o[k],d+1);});
+  };
+  dig(j,0);
+  const ok=cand.filter(v=>v>800&&v<3000);
+  return ok.length?ok[0]:null;
+}
 async function usFx(diag){
-  try{
-    const c=new AbortController(); const t=setTimeout(()=>c.abort(),4000);
-    const r=await fetch("https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW",
-      {headers:{ "User-Agent": UA20, Accept:"application/json", Referer:"https://finance.naver.com/marketindex/" },signal:c.signal});
-    clearTimeout(t);
-    if(r.ok){
-      const j=JSON.parse(await r.text());
-      const d=(j&&j.datas&&j.datas[0])||{};
-      const v=usNum(d.closePrice);
-      if(v&&v>800&&v<3000)return v;
-    } else diag&&diag.push("fx:"+r.status);
-  }catch(e){ diag&&diag.push("fx:"+String(e).slice(0,12)); }
+  if(USFX_MEM&&Date.now()-USFX_MEM.at<60e3)return USFX_MEM.v;
+  try{ if(KV){ const c=await KV.get("usfx","json");
+    if(c&&c.v&&Date.now()-c.at<30*60e3){ USFX_MEM={v:c.v,at:Date.now()}; return c.v; } }}catch(e){}
+  const srcs=[
+    ["naver-poll","https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW","https://finance.naver.com/marketindex/"],
+    ["naver-api","https://api.stock.naver.com/marketindex/exchange/FX_USDKRW/basic","https://m.stock.naver.com/"],
+    ["naver-front","https://m.stock.naver.com/front-api/marketIndex/prices?category=exchange&reutersCode=FX_USDKRW&page=1&pageSize=1","https://m.stock.naver.com/"],
+    ["erapi","https://open.er-api.com/v6/latest/USD",null],
+    ["frankfurter","https://api.frankfurter.app/latest?from=USD&to=KRW",null],
+    ["jsdelivr","https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",null]
+  ];
+  for(const [name,url,ref] of srcs){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4000);
+      const h={ "User-Agent": UA20, Accept:"application/json" }; if(ref)h.Referer=ref;
+      const r=await fetch(url,{headers:h,signal:c.signal}); clearTimeout(t);
+      if(!r.ok){ diag&&diag.push("fx:"+name+":"+r.status); continue; }
+      const v=usFxPick(await r.text());
+      if(v){ USFX_MEM={v,at:Date.now()};
+        try{ if(KV)await KV.put("usfx",JSON.stringify({v,at:Date.now()}),{expirationTtl:3600}); }catch(e){}
+        diag&&diag.push("fx:"+name+":ok"); return v; }
+      diag&&diag.push("fx:"+name+":parse");
+    }catch(e){ diag&&diag.push("fx:"+name+":"+String(e).slice(0,10)); }
+  }
   return null;
+}
+async function usfxdiag_default(){
+  const out={at:new Date().toISOString(),tried:[]};
+  const srcs=[["naver-poll","https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW","https://finance.naver.com/marketindex/"],
+    ["naver-api","https://api.stock.naver.com/marketindex/exchange/FX_USDKRW/basic","https://m.stock.naver.com/"],
+    ["naver-front","https://m.stock.naver.com/front-api/marketIndex/prices?category=exchange&reutersCode=FX_USDKRW&page=1&pageSize=1","https://m.stock.naver.com/"],
+    ["erapi","https://open.er-api.com/v6/latest/USD",null],
+    ["frankfurter","https://api.frankfurter.app/latest?from=USD&to=KRW",null],
+    ["jsdelivr","https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",null]];
+  for(const [name,url,ref] of srcs){
+    const rec={name,url};
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const h={ "User-Agent": UA20, Accept:"application/json" }; if(ref)h.Referer=ref;
+      const r=await fetch(url,{headers:h,signal:c.signal}); clearTimeout(t);
+      rec.status=r.status; const txt=await r.text();
+      rec.len=txt.length; rec.parsed=usFxPick(txt); rec.sample=txt.slice(0,180).replace(/\s+/g," ");
+    }catch(e){ rec.err=String(e).slice(0,60); }
+    out.tried.push(rec);
+  }
+  out.usable=out.tried.filter(x=>x.parsed).map(x=>x.name+"="+x.parsed);
+  return new Response(JSON.stringify(out,null,2),{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
 }
 async function usquote_default(req2){
   const u=new URL(req2.url), diag=[];
@@ -10882,6 +10935,7 @@ async function ussearchdiag_default(){
 }
 ROUTES["ussearch"]=ussearch_default;
 ROUTES["ussearchdiag"]=ussearchdiag_default;
+ROUTES["usfxdiag"]=usfxdiag_default;
 ROUTES["usquote"]=usquote_default;
 ROUTES["uscandle"]=uscandle_default;
 ROUTES["usdiag"]=usdiag_default;
@@ -10914,7 +10968,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.34.0";
+var APP_VER = "4.35.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

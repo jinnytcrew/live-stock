@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=319';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=319';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=320';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=320';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -6902,7 +6902,10 @@ function renderSearch(){
   }
   if(all.length>shown.length)html+=`<button class="etf-more" id="srchMore">더보기 (${shown.length.toLocaleString()} / ${all.length.toLocaleString()})</button><div class="srch-sentinel" id="srchSentinel"></div>`;
   if(!all.length){html=loading?'<div class="empty">불러오는 중…</div>':'<div class="empty">검색 결과가 없습니다</div>';vsState=null;}
-    const usBlock=usHit.length?`<div class="us-sec" style="margin:4px 2px 6px"><b>🇺🇸 해외 주식</b><span>탭하면 해외 거래 화면이 열립니다</span></div>`+usHit.map(u=>usRow(u[0])).join('')+`<div style="height:10px"></div>`:'';
+    /* [v4.35] 해외 결과를 국내 목록과 같은 줄에 흘려 넣으면 배치가 깨진다(첨부 2번 사진).
+     자체 블록으로 감싸 세로로 쌓이게 한다. */
+  const usBlock=usHit.length?`<div class="us-searchblk"><div class="us-sec"><b>🇺🇸 해외 주식</b><span>탭하면 해외 거래 화면이 열립니다</span></div>`
+    +usHit.map(u=>usRow(u[0])).join('')+`</div>`:'';
   usHit.length&&usEnsureQuotes(usHit.map(u=>u[0]),true).then(()=>{if(currentView==='search')try{document.querySelectorAll('#searchResults .us-row').forEach(el=>{const t=el.dataset.us,q2=usQ[t];if(!q2)return;el.querySelector('.us-px').innerHTML='$'+USD2(q2.price)+`<small>${USDKR(q2.price)}</small>`;const r=el.querySelector('.us-rt');r.textContent=usRateTxt(q2);r.className='us-rt num '+usRateCls(q2);});}catch(e){}});
 $('searchResults').innerHTML=usBlock+html;
   safeRun('cmpbar',renderCmpUi);
@@ -10919,7 +10922,12 @@ function usLgProbe(t){
 function usLgPaint(t){
   const u=usLgUrl(t); if(!u)return;
   document.querySelectorAll('.us-tick[data-uslg="'+t+'"]').forEach(el=>{
-    el.classList.add('on'); el.style.backgroundImage="url('"+u+"')";
+    el.classList.add('on');
+    el.style.backgroundColor='#fff';
+    el.style.backgroundImage="url('"+u+"')";
+    el.style.backgroundSize='contain';
+    el.style.backgroundPosition='center';
+    el.style.backgroundRepeat='no-repeat';
   });
 }
 /* 로고 배지 — 로고를 알면 바로 이미지로, 모르면 색 배지 + 뒤에서 탐색 */
@@ -10928,9 +10936,16 @@ function usTick(t,size){
   const c=PAL[(t.charCodeAt(0)+t.charCodeAt(t.length-1))%PAL.length];
   let u=''; try{ u=usLgUrl(t); }catch(e){}
   if(!u)try{usLgWant(t);}catch(e){}
+  /* ══ [v4.35 · 로고가 잘리던 진짜 이유] ═══════════════════════════════════
+     인라인에 background 단축속성을 썼다. 단축속성은 background-size 를 auto 로
+     되돌리는데, 인라인이 스타일시트를 이기므로 CSS 의 background-size:contain 이
+     통째로 무효가 됐다. 그래서 로고가 원본 크기로 그려져 배지 밖으로 잘렸다.
+     → 색과 이미지를 각각 개별 속성으로 지정하고 크기도 인라인에 함께 박는다. */
   const cls='us-tick'+(size?' '+size:'')+(u?' on':'');
-  const bg=u?";background-image:url('"+u+"')":'';
-  return `<span class="${cls}" data-uslg="${t}" style="background:${c}${bg}">${t.length>5?t.slice(0,5):t}</span>`;
+  const st=u
+    ? `background-color:#fff;background-image:url('${u}');background-size:contain;background-position:center;background-repeat:no-repeat`
+    : `background-color:${c}`;
+  return `<span class="${cls}" data-uslg="${t}" style="${st}">${t.length>5?t.slice(0,5):t}</span>`;
 }
 /* 진단 — 콘솔에서 상태 확인 */
 try{
@@ -10957,29 +10972,25 @@ function usRow(t){
 var usRankTab='up', usThemeSel='ai';
 function renderUsLounge(){
   const ses=usSession(), fx=usFx();
+  const el=$('usCount'); if(el)el.textContent=`내장 ${US_UNI.length}종 + 검색으로 미국 전 종목`;
   $('usTop').innerHTML=`<div class="us-strip">
     <div class="us-sess ${ses.phase==='regular'?'on':ses.phase==='closed'?'off':'ext'}">
       <b>${ses.phase==='regular'?'🟢':'⏱'} 미국 증시 ${ses.label}</b>
       <span>정규장 ${ses.kst.open}~${ses.kst.close} (한국시간) · ${ses.dst?'서머타임 적용 중':'표준시'}<br>
       ${ses.phase==='closed'?'다음 개장 '+ses.next:ses.phase==='pre'?'정규장까지 프리마켓 시세로 표시됩니다':ses.phase==='after'?'애프터마켓 '+ses.kst.close+'~'+ses.kst.aft:'실시간 거래 중'}</span></div>
     <div class="us-fx"><small>환율 (USD/KRW)</small>
-      <b class="num">${fx?KRW(Math.round(fx))+'원':'수신 대기'}</b>
-      <i>${fx?'주문 시 이 환율로 원화 자동 환전됩니다':'환율 수신 후 주문할 수 있습니다'}</i></div></div>`;
-  $('usStars').innerHTML=`<div class="card us-card"><div class="us-sec"><b>⭐ 인기 미국 주식</b><span>한국인이 가장 많이 찾는 종목</span></div>
-    <div class="us-stars">${US_STARS.map(t=>{const m=usMeta[t],q=usQ[t];
+      <b class="num">${fx?KRW(Math.round(fx))+'원':'수신 중…'}</b>
+      <i>${fx?'주문 시 이 환율로 원화 자동 환전됩니다':'잠시 후 자동으로 표시됩니다'}</i></div></div>`;
+  $('usStars').innerHTML=`<div class="us-stars">${US_STARS.map(t=>{const m=usMeta[t],q=usQ[t];
       return `<div class="us-star" data-us="${t}"><div class="t">${usTick(t)}<b>${m.kr}</b></div>
         <div class="p num">$${q?USD2(q.price):'—'}</div>
-        <div class="r ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div></div>`;
-  $('usRank').innerHTML=`<div class="card us-card"><div class="us-sec"><b>📈 실시간 등락 TOP 10</b><span>전 유니버스 ${US_UNI.length}종목 기준</span></div>
-    <div class="us-chips">${[['up','상승률'],['down','하락률'],['val','거래대금']].map(([k,l])=>
+        <div class="r ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
+  $('usRank').innerHTML=`<div class="us-chips">${[['up','상승률'],['down','하락률'],['val','거래대금']].map(([k,l])=>
       `<button class="us-chip ${usRankTab===k?'on':''}" data-usrank="${k}">${l}</button>`).join('')}</div>
-    <div id="usRankBody"></div></div>`;
-  $('usThemes').innerHTML=`<div class="card us-card"><div class="us-sec"><b>🧭 테마 라운지</b></div>
-    <div class="us-chips">${US_THEMES.map(([k,l])=>`<button class="us-chip ${usThemeSel===k?'on':''}" data-ustheme="${k}">${l}</button>`).join('')}</div>
-    <div id="usThemeBody"></div></div>`;
-  $('usEtfs').innerHTML=`<div class="card us-card"><div class="us-sec"><b>🧺 미국 ETF 코너</b><span>지수 추종부터 3배 레버리지까지</span></div>
-    ${US_ETF_GROUPS.map(([k,l])=>{const list=US_UNI.filter(u=>u[4]===k).map(u=>u[0]);
-      return `<div class="us-sec" style="margin-top:12px"><b style="font-size:13px">${l}</b></div>`+list.map(usRow).join('');}).join('')}</div>`;
+    <div id="usRankBody"></div>`;
+  $('usThemeTabs').innerHTML=US_THEMES.map(([k,l])=>`<button class="us-chip ${usThemeSel===k?'on':''}" data-ustheme="${k}">${l}</button>`).join('');
+  $('usEtfs').innerHTML=US_ETF_GROUPS.map(([k,l])=>{const list=US_UNI.filter(u=>u[4]===k).map(u=>u[0]);
+      return `<div class="us-sec" style="margin-top:12px"><b style="font-size:13px">${l}</b></div>`+list.map(usRow).join('');}).join('');
   renderUsFxCard(); renderUsMine(); renderUsTax(); renderUsRules(); renderUsRankBody(); renderUsThemeBody();
   usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>renderUsLive());
   usPollStart(US_UNI.map(u=>u[0]));
@@ -10996,8 +11007,11 @@ function renderUsRankBody(){
     :`<div class="etf-empty">시세를 불러오는 중입니다…</div>`;
 }
 function renderUsThemeBody(){
+  const box=$('usThemeBody'); if(!box)return;
+  const q=($('usSearch')&&$('usSearch').value.trim())||'';
+  if(q){box.innerHTML='';return;}                      // 검색 중에는 테마 목록을 감춘다
   const list=US_UNI.filter(u=>u[4]===usThemeSel).map(u=>u[0]);
-  $('usThemeBody').innerHTML=list.map(usRow).join('');
+  box.innerHTML=list.map(usRow).join('');
 }
 var usFxDir='toUsd';
 function renderUsFxCard(){
@@ -11005,7 +11019,7 @@ function renderUsFxCard(){
   usSettle();
   const fx=usFx(), hold=usdSettling.reduce((a,x)=>a+x.amt,0), avail=usUsdAvailable();
   const toU=usFxDir==='toUsd';
-  box.innerHTML=`<div class="card us-card"><div class="us-sec"><b>💱 실시간 환전</b>
+  box.innerHTML=`<div class="us-fxwrap"><div class="us-sec"><b>💱 환전</b>
       <span>기준 스프레드 ${US_FX_SPREAD}원 · <b style="color:#b47207">우대 ${US_FX_PREF_OF()*100}%</b> 적용 → 실부담 ${usFxMargin().toFixed(1)}원/$</span></div>
     <div class="us-strip" style="margin-bottom:12px">
       <div class="us-fx"><small>원화 예수금</small><b class="num">${KRW(cash)}원</b></div>
@@ -11041,7 +11055,7 @@ function renderUsTax(){
   const box=$('usTax'); if(!box)return;
   const t=usTaxEstimate();
   if(!t.n){box.innerHTML='';return;}
-  box.innerHTML=`<div class="card us-card"><div class="us-sec"><b>🧾 해외주식 세금 도우미</b><span>${t.year}년 실현 기준 · 참고용</span></div>
+  box.innerHTML=`<div class="panel us-card"><div class="us-sec"><b>🧾 해외주식 세금 도우미</b><span>${t.year}년 실현 기준 · 참고용</span></div>
     <div class="us-stat-g">
       <div class="us-stat"><small>올해 매도 건수</small><b class="num">${t.n}건</b></div>
       <div class="us-stat"><small>실현손익 합산</small><b class="num ${dirOf(t.pnl)}">${signed(t.pnl)}원</b></div>
@@ -11051,19 +11065,21 @@ function renderUsTax(){
 }
 function renderUsMine(){
   const mine=holdings.filter(h=>h.us);
-  if(!mine.length&&usdCash<=0){$('usMine').innerHTML='';return;}
+  const sec=$('usMineSec');
+  if(!mine.length&&usdCash<=0){$('usMine').innerHTML=''; if(sec)sec.hidden=true; return;}
+  if(sec)sec.hidden=false;
   const fx=usFx()||0;
   let ev=0,cost=0;
   mine.forEach(h=>{const q=usQ[h.code]||byCode[h.code]||{};const px=q.price!=null?q.price:h.avg;
     ev+=px*h.qty*fx; cost+=h.avg*h.qty*fx;});
   const pnl=ev-cost;
-  $('usMine').innerHTML=`<div class="card us-card"><div class="us-sec"><b>💼 내 해외 보유</b>
+  $('usMine').innerHTML=`<div class="panel us-card"><div class="us-sec"><b>💼 내 해외 보유</b>
       <span>평가 ${KRW(Math.round(ev))}원 · <i class="num ${dirOf(pnl)}">${signed(Math.round(pnl))}</i></span></div>
     ${mine.map(h=>usRow(h.code)).join('')}</div>`;
 }
 function renderUsRules(){
   const ses=usSession();
-  $('usRules').innerHTML=`<div class="card us-card"><div class="us-sec"><b>ℹ️ 해외 거래 규칙</b><span>실제 제도를 그대로 반영했습니다</span></div>
+  $('usRules').innerHTML=`<div class="panel us-card"><div class="us-sec"><b>ℹ️ 해외 거래 규칙</b><span>실제 제도를 그대로 반영했습니다</span></div>
     <div class="us-rules-g">
       <div class="us-rule"><b>💱 두 가지 결제 방식</b><span><b>직접 환전</b>: 미리 달러로 바꿔 두면 추가 환전 비용 없이 결제됩니다.<br><b>원화 자동환전</b>: 원화로 바로 주문 — 매수환율(스프레드 포함)이 적용됩니다. 실제 브로커는 가환율로 결제 후 익일 정산하지만 모의에서는 정식 환율을 즉시 적용해요.</span></div>
       <div class="us-rule"><b>🧾 수수료 0.25% + SEC Fee</b><span>매수·매도 각 0.25%, 매도 시 미국 증권거래위원회 수수료 ${(US_SEC_FEE*100).toFixed(4)}%가 추가 차감됩니다. 거래세는 없습니다.</span></div>
@@ -11081,7 +11097,7 @@ function renderUsLive(){ if(currentView!=='us')return;
     const t=el.dataset.us,q=usQ[t]; if(!q)return;
     el.querySelector('.p').textContent='$'+USD2(q.price);
     const r=el.querySelector('.r'); r.textContent=usRateTxt(q); r.className='r num '+usRateCls(q);});
-  document.querySelectorAll('#usEtfs .us-row').forEach(el=>{
+  document.querySelectorAll('#usEtfs .us-row, #usThemeBody .us-row, #usSearchOut .us-row').forEach(el=>{
     const t=el.dataset.us,q=usQ[t]; if(!q)return;
     el.querySelector('.us-px').innerHTML='$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
     const r=el.querySelector('.us-rt'); r.textContent=usRateTxt(q); r.className='us-rt num '+usRateCls(q);});
@@ -11168,8 +11184,8 @@ function renderUsStats(){
       <div class="us-stat"><small>고가</small><b class="num" style="color:var(--up)">${fmt(q.high)}</b></div>
       <div class="us-stat"><small>저가</small><b class="num" style="color:var(--down)">${fmt(q.low)}</b></div>
       <div class="us-stat"><small>거래량</small><b class="num">${vol(q.vol)}</b></div>
-      <div class="us-stat"><small>52주 최고</small><b class="num">${fmt(q.w52h)}</b></div>
-      <div class="us-stat"><small>52주 최저</small><b class="num">${fmt(q.w52l)}</b></div>
+      <div class="us-stat"><small>52주 최고${q.w52n&&q.w52n<252?` <i style="font-style:normal">·${q.w52n}일</i>`:''}</small><b class="num">${fmt(q.w52h)}</b></div>
+      <div class="us-stat"><small>52주 최저${q.w52n&&q.w52n<252?` <i style="font-style:normal">·${q.w52n}일</i>`:''}</small><b class="num">${fmt(q.w52l)}</b></div>
       ${q.cap!=null?`<div class="us-stat"><small>시가총액</small><b class="num">${cap(q.cap)}</b></div>`:''}
       <div class="us-stat"><small>전일 종가</small><b class="num">${fmt(q.prev)}</b></div>
     </div>`;
@@ -11195,12 +11211,18 @@ async function loadUsCandles(){
     if(j&&j.ok&&Array.isArray(j.candles)&&j.candles.length){
       usCandles=j.candles; $('usChartNote').textContent='';
       /* 52주 고저를 캔들에서 직접 계산해 보강 — 시세 API 가 안 줄 때 대비 */
+      /* [v4.35] 52주 고저가 '—' 로 비던 문제 — 시세 API 가 안 주면 캔들에서 직접 계산한다.
+         기간이 짧으면 있는 만큼으로라도 채워 빈칸을 남기지 않는다. */
       try{
         const y=usCandles.slice(-252);
-        const w52h=Math.max(...y.map(c=>c.h)), w52l=Math.min(...y.map(c=>c.l));
-        usQ[usSel]=Object.assign(usQ[usSel]||{},{w52h:usQ[usSel]&&usQ[usSel].w52h||w52h,
-                                                 w52l:usQ[usSel]&&usQ[usSel].w52l||w52l});
-        renderUsStats();
+        if(y.length){
+          const w52h=Math.max(...y.map(c=>c.h)), w52l=Math.min(...y.map(c=>c.l));
+          const cur=usQ[usSel]||{};
+          usQ[usSel]=Object.assign(cur,{w52h:cur.w52h!=null?cur.w52h:w52h,
+                                        w52l:cur.w52l!=null?cur.w52l:w52l,
+                                        w52n:y.length});
+          renderUsStats();
+        }
       }catch(e){}
       drawUsChart(); renderUsSise(); return;
     }
@@ -11216,8 +11238,10 @@ function drawUsChart(){
   const W=box.width,H=box.height; x.clearRect(0,0,W,H);
   const all=usCandles||[];
   const cs=all.slice(-usRange);
-  if(!cs.length){x.fillStyle='#9aa5b5';x.font='12px Pretendard';x.textAlign='center';
-    x.fillText('차트 데이터가 없습니다',W/2,H/2);return;}
+  if(cs.length<3){x.fillStyle='#9aa5b5';x.font='12.5px Pretendard';x.textAlign='center';
+    x.fillText(cs.length?'차트 데이터가 '+cs.length+'일치만 확인됩니다':'차트 데이터를 불러오지 못했습니다',W/2,H/2-8);
+    x.font='11px Pretendard';
+    x.fillText('시장이 열리면 자동으로 채워집니다',W/2,H/2+12);x.textAlign='left';return;}
   const padL=8,padR=56,padT=10,volH=H*0.18,priceH=H-padT-volH-22;
   const lo=Math.min(...cs.map(c=>c.l)),hi=Math.max(...cs.map(c=>c.h));
   const vmax=Math.max(...cs.map(c=>c.v),1);
