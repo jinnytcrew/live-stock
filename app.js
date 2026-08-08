@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=320';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=320';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=321';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=321';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -5588,6 +5588,7 @@ function openPermGate(){
 }
 /* 하단 배너 — 알림이 꺼져 있으면 상시 안내(세션당 닫기 가능) */
 function paintPermBanner(){
+  if(_authOpen()){const b=document.getElementById('permBan'); if(b)b.remove(); return;}   // [v4.36]
   const st=notiState();
   const need=(st==='denied'||st==='default'||st==='unsupported')&&permDone();
   let b=$('permBanner');
@@ -5602,10 +5603,19 @@ function paintPermBanner(){
   $('pbGo').onclick=()=>openPermGate();
   $('pbX').onclick=()=>{try{sessionStorage.setItem('permBanHide','1');}catch(e){}b.remove();};
 }
-setTimeout(()=>{try{
-  if(!permDone())openPermGate();
-  else paintPermBanner();
-}catch(e){}},1400);
+/* ══ [v4.36 · 치명] 권한 안내창이 로그인창을 덮어 아무것도 못 누르던 문제 ══════
+   권한 오버레이는 z-index 9999, 로그인 오버레이는 200 이라 로그인 화면 위를
+   권한창이 완전히 가려 버렸다. 게다가 배경이 반투명이라 로그인창이 보이긴 해서
+   '버튼이 먹통'인 것처럼만 느껴졌다.
+   → 로그인/가입이 끝나기 전에는 권한창을 띄우지 않는다. 로그인 후에 물어본다. */
+function _authOpen(){ const g=document.getElementById('authGate'); return !!(g&&!g.hidden); }
+function permGateTry(){
+  try{
+    if(_authOpen()){ setTimeout(permGateTry,1200); return; }   // 로그인 끝날 때까지 대기
+    if(!permDone())openPermGate(); else paintPermBanner();
+  }catch(e){}
+}
+setTimeout(permGateTry,1400);
 setInterval(()=>{try{paintPermBanner();}catch(e){}},60e3);
 /* 앱 사용 중 권한이 허용으로 바뀌면 배너를 즉시 정리 */
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)try{paintPermBanner();}catch(e){}});
@@ -6907,7 +6917,9 @@ function renderSearch(){
   const usBlock=usHit.length?`<div class="us-searchblk"><div class="us-sec"><b>🇺🇸 해외 주식</b><span>탭하면 해외 거래 화면이 열립니다</span></div>`
     +usHit.map(u=>usRow(u[0])).join('')+`</div>`:'';
   usHit.length&&usEnsureQuotes(usHit.map(u=>u[0]),true).then(()=>{if(currentView==='search')try{document.querySelectorAll('#searchResults .us-row').forEach(el=>{const t=el.dataset.us,q2=usQ[t];if(!q2)return;el.querySelector('.us-px').innerHTML='$'+USD2(q2.price)+`<small>${USDKR(q2.price)}</small>`;const r=el.querySelector('.us-rt');r.textContent=usRateTxt(q2);r.className='us-rt num '+usRateCls(q2);});}catch(e){}});
-$('searchResults').innerHTML=usBlock+html;
+/* [v4.36] 해외만 국기 라벨이 붙어 있어 국내 결과가 무엇인지 모호했다 — 국내도 같은 방식으로 구분한다 */
+  const krHead=`<div class="kr-searchblk"><div class="us-sec"><b>🇰🇷 국내 주식</b><span>코스피·코스닥·NXT</span></div></div>`;
+  $('searchResults').innerHTML=usBlock+krHead+html;
   safeRun('cmpbar',renderCmpUi);
   if(vsState)vsPaint(true);
   bindStockClicks($('searchResults'));

@@ -2795,6 +2795,8 @@ tbody td .td-l .lgo{margin:1px 0}
 body.locked{overflow:hidden}
 body.locked .app-shell,body.locked main,body.locked .main-nav{filter:blur(3px);pointer-events:none;user-select:none}
 #authGate.auth-force{background:rgba(10,14,22,.72);backdrop-filter:blur(4px)}
+/* [v4.36] 로그인 창은 어떤 안내창보다 위에 있어야 한다 — 가려지면 앱에 들어갈 수 없다 */
+#authGate{z-index:2147483000 !important}
 .hr-sp{background:color-mix(in srgb,var(--amber) 16%,transparent);border-radius:10px;padding:9px 12px;margin:10px 0 0;font-size:12.5px;font-weight:700}
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3228,4 +3230,14 @@ html[data-theme="dark"] .acct-off,html[data-theme="dark"] .acct-pro{background:r
 .us-fxwrap{display:block}
 #usFxCard{padding:16px 18px}
 #usRank,#usEtfs{padding:16px 18px}
-.us-card{padding:16px 18px}
+/* [v4.36] 해외 거래 화면도 국내처럼 흰 패널 위에 올린다 — 배경이 없어 허전했다 */
+.us-card{padding:16px 18px;margin-bottom:14px}
+#view-ustrade .us-left>.panel,#view-ustrade .us-right>.panel{background:var(--panel);
+  border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 2px rgba(16,26,45,.04)}
+#view-ustrade .us-canvas-wrap{background:var(--panel);border-radius:12px}
+
+/* ── [v4.36] 검색 결과 국내 구분 헤더 ─────────────────────────────────── */
+.kr-searchblk{grid-column:1/-1;display:block;width:100%;padding:2px 2px 0;margin:2px 0 4px}
+.kr-searchblk .us-sec{margin:0}
+.kr-searchblk .us-sec b{font-size:15.5px;font-weight:900}
+.kr-searchblk .us-sec span{font-size:11.5px;color:var(--sub-2);font-weight:600}

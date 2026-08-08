@@ -10968,7 +10968,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.35.0";
+var APP_VER = "4.36.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
