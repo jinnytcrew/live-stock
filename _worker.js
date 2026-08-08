@@ -10397,7 +10397,9 @@ async function stockflags_default(req2, context) {
   try { if (KV) { const c = await KV.get(kvKey, "json");
     /* [v4.11] 배지·증거금을 하나도 못 얻은 '약한 결과'는 30분만 캐시 —
        예전엔 파싱 실패가 6시간 굳어 경고예고 종목이 계속 빈 칩으로 남았다. */
-    const _ttl = (c && (c.margin != null || (c.badges && c.badges.length))) ? 6 * 3600 * 1000 : 30 * 60 * 1000;
+    /* [v4.26] 배지가 있는 결과도 오래 굳히지 않는다 — 지정예고는 하루 만에 소멸할 수 있다 */
+    const _ttl = (c && (c.badges && c.badges.length)) ? 30 * 60 * 1000
+               : (c && c.margin != null) ? 3 * 3600 * 1000 : 30 * 60 * 1000;
     if (c && c.at && now - c.at < _ttl)
       return new Response(JSON.stringify({ ok: true, cached: true, ...c }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
   } } catch {}
@@ -10463,13 +10465,38 @@ async function stockflags_default(req2, context) {
       }
       rows.sort((a2, b2) => (a2.d < b2.d ? -1 : a2.d > b2.d ? 1 : 0));   // 오래된 → 최신
       const CATS = [["\uD22C\uC790\uC704\uD5D8", "\uD22C\uC790\uC704\uD5D8"], ["\uD22C\uC790\uACBD\uACE0", "\uD22C\uC790\uACBD\uACE0"], ["\uB2E8\uAE30\uACFC\uC5F4", "\uB2E8\uAE30\uACFC\uC5F4"], ["\uD22C\uC790\uC8FC\uC758", "\uD22C\uC790\uC8FC\uC758"]];
-      const state = {};
+      /* ══ [v4.26 · 진짜 원인] 지정예고는 '해제 공시'가 나오지 않는다 ══════════
+         거래소의 투자경고종목 지정예고는 다음 매매일에 요건을 다시 판정해
+         충족하면 '지정', 미충족이면 **아무 공시 없이 그대로 소멸**한다.
+         그런데 우리 상태기계는 '해제' 문구를 찾아야만 배지를 지웠다.
+         그래서 한 번 예고가 뜬 종목은 예고가 사라진 뒤에도 영원히 '경고예'가 붙어 있었다
+         (첨부: 로보티즈·티엑스알로보틱스).
+         → 예고에는 공시일을 함께 기록하고, 일정 기간이 지나면 스스로 만료시킨다.
+           지정예고의 효력은 통상 1매매일이므로, 휴장·연휴를 감안해 넉넉히 5일로 잡는다.
+           그 사이에 같은 등급의 '지정'이나 '해제'가 오면 당연히 그쪽이 우선한다. */
+      const state = {}, when = {};
       for (const row of rows) {
         for (const [key, label] of CATS) {
           if (row.t.indexOf(key) < 0) continue;
-          if (/\uD574\uC81C/.test(row.t)) state[key] = null;                      // 해제
-          else if (/\uC9C0\uC815\uC608\uACE0/.test(row.t)) state[key] = label + "\uC9C0\uC815\uC608\uACE0";
-          else if (/\uC9C0\uC815/.test(row.t)) state[key] = label;
+          if (/\uD574\uC81C/.test(row.t)) { state[key] = null; when[key] = row.d; }
+          else if (/\uC9C0\uC815\uC608\uACE0/.test(row.t)) { state[key] = label + "\uC9C0\uC815\uC608\uACE0"; when[key] = row.d; }
+          else if (/\uC9C0\uC815/.test(row.t)) { state[key] = label; when[key] = row.d; }
+        }
+      }
+      const PRE_TTL_DAYS = 5;
+      const todayKst = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10).replace(/-/g, "");
+      const daysBetween = (a2, b2) => {
+        if (!/^\d{8}$/.test(a2) || !/^\d{8}$/.test(b2)) return 0;
+        const D = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+        return Math.round((D(b2) - D(a2)) / 86400000);
+      };
+      for (const k of Object.keys(state)) {
+        const v = state[k];
+        if (!v || !/\uC9C0\uC815\uC608\uACE0$/.test(v)) continue;
+        const age = daysBetween(when[k] || "", todayKst);
+        if (!when[k] || age > PRE_TTL_DAYS) {
+          state[k] = null;                                   // 철 지난 예고는 소멸한 것으로 본다
+          noticeDiag.push("expire:" + v + "@" + (when[k] || "?") + "(" + age + "d)");
         }
       }
       /* [v4.20] 사다리 정리 — 상위 등급이 지정되면 하위 등급(및 그 예고)은 흡수된다.
@@ -10488,7 +10515,7 @@ async function stockflags_default(req2, context) {
         if (t && t === topTier && v !== base && TIER[v] !== topTier) continue;   // 같은 등급의 철 지난 예고
         if (!badges.includes(v)) badges.push(v);
       }
-      noticeDiag.push("rows:" + rows.length, "state:" + JSON.stringify(state));
+      noticeDiag.push("rows:" + rows.length, "today:" + todayKst, "state:" + JSON.stringify(state), "when:" + JSON.stringify(when));
     } else noticeDiag.push("http:" + rn.status);
   } catch (e) { noticeDiag.push("err:" + String(e).slice(0, 30)); }
 
@@ -10552,6 +10579,313 @@ async function nightdiag_default() {
   return new Response(JSON.stringify(out, null, 2), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 }
 ROUTES["nightdiag"] = nightdiag_default;
+/* ══ [v4.28] 해외(미국) 주식 — 시세·차트·진단 ═══════════════════════════════
+   코드 표기는 네이버 로이터형("AAPL.O" 나스닥 / ".N" NYSE / ".A" AMEX).
+   샌드박스에서 원천 검증이 불가하므로(403) /api/usdiag 로 실서버에서 확인한다. */
+function usNum(v){ if(v==null)return null; const n=Number(String(v).replace(/[",\s]/g,"")); return isFinite(n)?n:null; }
+function usPickQuote(txt){
+  /* polling·basic 응답 어느 쪽이든 관대하게 뽑는다 */
+  let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
+  const d=(j&&j.datas&&j.datas[0])||(j&&j.result&&j.result.datas&&j.result.datas[0])||j;
+  if(!d||typeof d!=="object")return null;
+  const close=usNum(d.closePrice!=null?d.closePrice:d.close);
+  if(close==null)return null;
+  const comp=usNum(d.compareToPreviousClosePrice!=null?d.compareToPreviousClosePrice:d.compareToPreviousPrice);
+  const rate=usNum(d.fluctuationsRatio);
+  let prev=null;
+  if(comp!=null)prev=+(close-comp).toFixed(4);
+  else if(rate!=null&&rate!==-100)prev=+(close/(1+rate/100)).toFixed(4);
+  const out={price:close,prev,open:usNum(d.openPrice),high:usNum(d.highPrice),low:usNum(d.lowPrice),
+    vol:usNum(d.accumulatedTradingVolume!=null?d.accumulatedTradingVolume:d.accumulatedTradingVol),
+    cap:usNum(d.marketValue),name:d.stockName||d.name||""};
+  /* basic 형 확장정보에서 52주·시총 보강 */
+  const infos=(j&&j.stockItemTotalInfos)||(d&&d.stockItemTotalInfos);
+  if(Array.isArray(infos))for(const it of infos){
+    const k=String(it.code||it.key||"")+String(it.name||"");
+    const v=usNum(it.value);
+    if(v==null)continue;
+    if(/52.*(고|high)/i.test(k))out.w52h=v;
+    else if(/52.*(저|low)/i.test(k))out.w52l=v;
+    else if(/marketValue|시가총액/i.test(k))out.cap=out.cap!=null?out.cap:v;
+  }
+  return out;
+}
+var USQ_MEM=/* @__PURE__ */ new Map();
+async function usFetchOne(reu,diag){
+  const hit=USQ_MEM.get(reu);
+  if(hit&&Date.now()-hit.at<25e3)return hit.q;
+  const H={ "User-Agent": UA20, Accept: "application/json", Referer: "https://m.stock.naver.com/worldstock/stock/"+reu, "Accept-Language":"ko" };
+  for(const u of [
+    "https://polling.finance.naver.com/api/realtime/worldstock/stock/"+reu,
+    "https://api.stock.naver.com/stock/"+reu+"/basic"
+  ]){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4500);
+      const r=await fetch(u,{headers:H,signal:c.signal}); clearTimeout(t);
+      if(!r.ok){ diag&&diag.push(reu.split(".")[0]+":"+r.status); continue; }
+      const q=usPickQuote(await r.text());
+      if(q){ USQ_MEM.set(reu,{at:Date.now(),q}); return q; }
+      diag&&diag.push(reu.split(".")[0]+":parse");
+    }catch(e){ diag&&diag.push(reu.split(".")[0]+":"+String(e).slice(0,12)); }
+  }
+  return null;
+}
+async function usFx(diag){
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),4000);
+    const r=await fetch("https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW",
+      {headers:{ "User-Agent": UA20, Accept:"application/json", Referer:"https://finance.naver.com/marketindex/" },signal:c.signal});
+    clearTimeout(t);
+    if(r.ok){
+      const j=JSON.parse(await r.text());
+      const d=(j&&j.datas&&j.datas[0])||{};
+      const v=usNum(d.closePrice);
+      if(v&&v>800&&v<3000)return v;
+    } else diag&&diag.push("fx:"+r.status);
+  }catch(e){ diag&&diag.push("fx:"+String(e).slice(0,12)); }
+  return null;
+}
+async function usquote_default(req2){
+  const u=new URL(req2.url), diag=[];
+  const codes=String(u.searchParams.get("codes")||"").split(",").map(s=>s.trim()).filter(Boolean).slice(0,32);
+  const out={};
+  /* 8개씩 동시에 — 워커 시간 한도 안에서 32종을 처리한다 */
+  for(let i=0;i<codes.length;i+=8){
+    const part=codes.slice(i,i+8);
+    const rs=await Promise.all(part.map(c=>usFetchOne(c,diag)));
+    part.forEach((c,k)=>{ if(rs[k])out[c]=rs[k]; });
+  }
+  const body={ ok:Object.keys(out).length>0, codes:out, diag:diag.slice(0,10) };
+  if(u.searchParams.get("fx")==="1")body.fx=await usFx(diag);
+  return new Response(JSON.stringify(body),{headers:{ "content-type":"application/json", "cache-control":"no-store", "access-control-allow-origin":"*" }});
+}
+function usPickCandles(txt){
+  let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
+  const arr=Array.isArray(j)?j:(j&&(j.priceInfos||j.result||j.datas))||null;
+  if(!Array.isArray(arr)||!arr.length)return null;
+  const out=[];
+  for(const it of arr){
+    const t=String(it.localDate||it.localDateTime||it.date||"").replace(/[^0-9]/g,"").slice(0,8);
+    const c=usNum(it.closePrice), o=usNum(it.openPrice), h=usNum(it.highPrice), l=usNum(it.lowPrice);
+    const v=usNum(it.accumulatedTradingVolume!=null?it.accumulatedTradingVolume:it.tradingVolume)||0;
+    if(t.length===8&&c!=null)out.push({t:+t,o:o!=null?o:c,h:h!=null?h:c,l:l!=null?l:c,c,v});
+  }
+  return out.length?out.sort((a,b)=>a.t-b.t):null;
+}
+async function uscandle_default(req2){
+  const u=new URL(req2.url), diag=[];
+  const reu=String(u.searchParams.get("code")||"").trim().slice(0,16);
+  if(!reu)return new Response(JSON.stringify({ok:false,err:"code"}),{headers:{"content-type":"application/json"}});
+  const CK="uscd:"+reu;
+  try{ const c=KV?await KV.get(CK,"json"):null;
+    if(c&&c.at&&Date.now()-c.at<15*60*1000&&Array.isArray(c.candles))
+      return new Response(JSON.stringify({ok:true,candles:c.candles,cached:1}),{headers:{"content-type":"application/json","access-control-allow-origin":"*"}});
+  }catch(e){}
+  const H={ "User-Agent": UA20, Accept:"application/json", Referer:"https://m.stock.naver.com/worldstock/stock/"+reu, "Accept-Language":"ko" };
+  let candles=null;
+  for(const url of [
+    "https://api.stock.naver.com/chart/foreign/item/"+reu+"/day",
+    "https://api.stock.naver.com/chart/foreign/item/"+reu+"/day?range=2y",
+    "https://m.stock.naver.com/api/chart/foreign/item/"+reu+"/day"
+  ]){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const r=await fetch(url,{headers:H,signal:c.signal}); clearTimeout(t);
+      if(!r.ok){ diag.push("cd:"+r.status); continue; }
+      candles=usPickCandles(await r.text());
+      if(candles){ diag.push("src:"+url.split("/")[2]); break; }
+      diag.push("cd:parse");
+    }catch(e){ diag.push("cd:"+String(e).slice(0,12)); }
+  }
+  if(candles){ try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),candles}),{expirationTtl:3600}); }catch(e){} }
+  return new Response(JSON.stringify({ok:!!candles,candles:candles||[],diag}),
+    {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+}
+async function usdiag_default(){
+  const out={at:new Date().toISOString(),tried:[]};
+  const probe=async(label,url,ref)=>{
+    const rec={label,url};
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"application/json", Referer:ref||"https://m.stock.naver.com/", "Accept-Language":"ko" },signal:c.signal});
+      clearTimeout(t);
+      rec.status=r.status;
+      const txt=await r.text(); rec.len=txt.length; rec.sample=txt.slice(0,260).replace(/\s+/g," ");
+    }catch(e){ rec.err=String(e).slice(0,60); }
+    out.tried.push(rec);
+  };
+  await probe("polling-quote","https://polling.finance.naver.com/api/realtime/worldstock/stock/AAPL.O");
+  await probe("basic","https://api.stock.naver.com/stock/AAPL.O/basic");
+  await probe("candle-day","https://api.stock.naver.com/chart/foreign/item/AAPL.O/day");
+  await probe("candle-m","https://m.stock.naver.com/api/chart/foreign/item/AAPL.O/day");
+  await probe("fx","https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW","https://finance.naver.com/marketindex/");
+  return new Response(JSON.stringify(out,null,2),{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
+}
+/* [v4.30] 해외 로고 중계 — 사용자 통신망에서 외부 CDN 이 막혀도 서버가 대신 받아 온다.
+   국내 로고에서 토스·네이버가 통째로 차단됐던 전례가 있어 같은 안전장치를 둔다. */
+async function uslogo_default(req2){
+  const u=new URL(req2.url);
+  const d=String(u.searchParams.get("d")||"").toLowerCase().replace(/[^a-z0-9.-]/g,"").slice(0,64);
+  const tk=String(u.searchParams.get("t")||"").toUpperCase().replace(/[^A-Z0-9.-]/g,"").slice(0,10);
+  if(!d&&tk){                                   /* [v4.31] 도메인 없는 종목: 티커 기반 소스 */
+    for(const url of ["https://financialmodelingprep.com/image-stock/"+tk.replace(".","-")+".png",
+                      "https://assets.parqet.com/logos/symbol/"+tk.replace(".","-")+"?format=png&size=128"]){
+      try{
+        const c=new AbortController(); const t2=setTimeout(()=>c.abort(),4500);
+        const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"image/*" },signal:c.signal});
+        clearTimeout(t2);
+        if(!r.ok)continue;
+        const ct=r.headers.get("content-type")||"image/png";
+        if(ct.indexOf("image")<0)continue;
+        const buf=new Uint8Array(await r.arrayBuffer());
+        if(buf.length<300)continue;
+        return new Response(buf,{headers:{"content-type":ct,"cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
+      }catch(e){}
+    }
+    return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
+  }
+  if(!d||d.indexOf(".")<0)return new Response("bad",{status:400});
+  const CK="uslg:"+d;
+  try{ if(KV){ const c=await KV.get(CK,"json");
+    if(c&&c.b64)return new Response(Uint8Array.from(atob(c.b64),ch=>ch.charCodeAt(0)),
+      {headers:{"content-type":c.ct||"image/png","cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
+    if(c&&c.no)return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
+  }}catch(e){}
+  const cands=["https://logo.clearbit.com/"+d,
+               "https://img.logo.dev/"+d+"?token=pk_X-1ZO13ESamOoEeKeLUTVA&size=128&format=png",
+               "https://www.google.com/s2/favicons?sz=128&domain="+d,
+               "https://icons.duckduckgo.com/ip3/"+d+".ico",
+               "https://"+d+"/favicon.ico"];
+  for(const url of cands){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4500);
+      const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"image/*" },signal:c.signal});
+      clearTimeout(t);
+      if(!r.ok)continue;
+      const ct=r.headers.get("content-type")||"image/png";
+      if(ct.indexOf("image")<0)continue;
+      const buf=new Uint8Array(await r.arrayBuffer());
+      if(buf.length<300)continue;                       // 빈 파비콘 방어
+      try{ if(KV){ let s=""; for(let i=0;i<buf.length;i++)s+=String.fromCharCode(buf[i]);
+        await KV.put(CK,JSON.stringify({b64:btoa(s),ct}),{expirationTtl:7*86400}); }}catch(e){}
+      return new Response(buf,{headers:{"content-type":ct,"cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
+    }catch(e){}
+  }
+  try{ if(KV)await KV.put(CK,JSON.stringify({no:1}),{expirationTtl:21600}); }catch(e){}
+  return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
+}
+/* [v4.30] 로고 소스 진단 — 어느 제공자가 이 서버에서 실제로 응답하는지 확인한다.
+   샌드박스에서는 외부망이 막혀 검증이 불가능하므로 배포 후 이 경로로 판정한다. */
+async function uslogodiag_default(){
+  const d="apple.com", out={at:new Date().toISOString(),domain:d,tried:[]};
+  const srcs=[["clearbit","https://logo.clearbit.com/"+d],
+              ["logo.dev","https://img.logo.dev/"+d+"?token=pk_X-1ZO13ESamOoEeKeLUTVA&size=128&format=png"],
+              ["google","https://www.google.com/s2/favicons?sz=128&domain="+d],
+              ["duckduckgo","https://icons.duckduckgo.com/ip3/"+d+".ico"],
+              ["site-favicon","https://"+d+"/favicon.ico"],
+              ["fmp","https://financialmodelingprep.com/image-stock/AAPL.png"]];
+  for(const [name,url] of srcs){
+    const rec={name,url};
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"image/*" },signal:c.signal});
+      clearTimeout(t);
+      rec.status=r.status; rec.type=r.headers.get("content-type")||"";
+      const b=new Uint8Array(await r.arrayBuffer()); rec.bytes=b.length;
+      rec.ok=r.ok&&rec.type.indexOf("image")>=0&&b.length>=300;
+    }catch(e){ rec.err=String(e).slice(0,60); }
+    out.tried.push(rec);
+  }
+  out.usable=out.tried.filter(x=>x.ok).map(x=>x.name);
+  return new Response(JSON.stringify(out,null,2),{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
+}
+ROUTES["uslogodiag"]=uslogodiag_default;
+ROUTES["uslogo"]=uslogo_default;
+/* ══ [v4.31] 해외 종목 통합 검색 — 내장 목록을 넘어 미국 전 상장 종목을 찾는다 ══
+   네이버 해외주식 검색을 중계한다. 응답 구조가 엔드포인트마다 달라 관대하게 파싱하고,
+   미국 상장(로이터코드 접미 .O/.N/.A)만 남긴다. */
+function usSearchPick(txt){
+  let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
+  const bags=[];
+  const dig=(o,d)=>{ if(!o||d>4)return;
+    if(Array.isArray(o)){ if(o.length&&typeof o[0]==="object")bags.push(o); o.forEach(x=>dig(x,d+1)); return; }
+    if(typeof o==="object")Object.keys(o).forEach(k=>dig(o[k],d+1)); };
+  dig(j,0);
+  const out=[], seen=new Set();
+  for(const arr of bags)for(const it of arr){
+    if(!it||typeof it!=="object")continue;
+    const reu=String(it.reutersCode||it.reuterCode||it.itemCode||it.code||it.symbolCode||"").trim();
+    const m=/^([A-Za-z0-9.\-]{1,8})\.([ONA])$/.exec(reu);
+    if(!m)continue;
+    const t=m[1].toUpperCase();
+    if(seen.has(t))continue; seen.add(t);
+    const kr=String(it.stockNameKor||it.nameKor||it.korName||it.stockName||it.name||"").trim();
+    const en=String(it.stockNameEng||it.nameEng||it.engName||it.stockName||"").trim();
+    out.push({t,sfx:m[2],reu,kr:kr||t,en:en||t,
+      etf:/ETF|ETN|상장지수/i.test(String(it.stockType||it.category||it.typeName||""))?1:0});
+    if(out.length>=25)break;
+  }
+  return out.length?out:null;
+}
+async function ussearch_default(req2){
+  const u=new URL(req2.url), diag=[];
+  const q=String(u.searchParams.get("q")||"").trim().slice(0,40);
+  if(q.length<1)return new Response(JSON.stringify({ok:false,items:[]}),{headers:{"content-type":"application/json"}});
+  const CK="usq:"+q.toLowerCase();
+  try{ const c=KV?await KV.get(CK,"json"):null;
+    if(c&&c.at&&Date.now()-c.at<6*3600e3)
+      return new Response(JSON.stringify({ok:true,items:c.items,cached:1}),
+        {headers:{"content-type":"application/json","access-control-allow-origin":"*"}});
+  }catch(e){}
+  const H={ "User-Agent": UA20, Accept:"application/json", Referer:"https://m.stock.naver.com/", "Accept-Language":"ko" };
+  const eq=encodeURIComponent(q);
+  let items=null;
+  for(const url of [
+    "https://m.stock.naver.com/front-api/search/autoComplete?query="+eq+"&target=stock%2Cworldstock",
+    "https://m.stock.naver.com/front-api/search/autoComplete?query="+eq+"&target=worldstock",
+    "https://api.stock.naver.com/stock/search?query="+eq,
+    "https://m.stock.naver.com/api/search/worldstock?query="+eq
+  ]){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),5000);
+      const r=await fetch(url,{headers:H,signal:c.signal}); clearTimeout(t);
+      if(!r.ok){ diag.push("s:"+r.status); continue; }
+      items=usSearchPick(await r.text());
+      if(items){ diag.push("hit:"+url.split("?")[0].split("/").pop()); break; }
+      diag.push("s:parse");
+    }catch(e){ diag.push("s:"+String(e).slice(0,12)); }
+  }
+  if(items){ try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),items}),{expirationTtl:21600}); }catch(e){} }
+  return new Response(JSON.stringify({ok:!!items,items:items||[],diag}),
+    {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+}
+async function ussearchdiag_default(){
+  const out={at:new Date().toISOString(),query:"apple",tried:[]};
+  const H={ "User-Agent": UA20, Accept:"application/json", Referer:"https://m.stock.naver.com/", "Accept-Language":"ko" };
+  for(const url of [
+    "https://m.stock.naver.com/front-api/search/autoComplete?query=apple&target=stock%2Cworldstock",
+    "https://m.stock.naver.com/front-api/search/autoComplete?query=apple&target=worldstock",
+    "https://api.stock.naver.com/stock/search?query=apple",
+    "https://m.stock.naver.com/api/search/worldstock?query=apple"
+  ]){
+    const rec={url};
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const r=await fetch(url,{headers:H,signal:c.signal}); clearTimeout(t);
+      rec.status=r.status;
+      const txt=await r.text(); rec.len=txt.length; rec.sample=txt.slice(0,300).replace(/\s+/g," ");
+      const p=usSearchPick(txt); rec.parsed=p?p.length:0; rec.first=p?p[0]:null;
+    }catch(e){ rec.err=String(e).slice(0,60); }
+    out.tried.push(rec);
+  }
+  return new Response(JSON.stringify(out,null,2),{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
+}
+ROUTES["ussearch"]=ussearch_default;
+ROUTES["ussearchdiag"]=ussearchdiag_default;
+ROUTES["usquote"]=usquote_default;
+ROUTES["uscandle"]=uscandle_default;
+ROUTES["usdiag"]=usdiag_default;
+
 
 async function onRequest(ctx) {
   const { request, env, waitUntil } = ctx;
@@ -10580,7 +10914,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.25.0";
+var APP_VER = "4.32.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -10619,7 +10953,7 @@ var worker_default = {
         lang: "ko-KR", dir: "ltr",
         categories: ["finance", "education"],
         version: APP_VER,
-        description: "\uC2E4\uC2DC\uAC04 \uC2DC\uC138\uB85C \uC5F0\uC2B5\uD558\uB294 \uD55C\uAD6D \uC8FC\uC2DD \uBAA8\uC758\uD22C\uC790 \u00B7 v" + APP_VER,
+        description: "\uC2E4\uC2DC\uAC04 \uC2DC\uC138\uB85C \uC5F0\uC2B5\uD558\uB294 \uAD6D\uB0B4\u00B7\uD574\uC678 \uC8FC\uC2DD \uBAA8\uC758\uD22C\uC790 \u00B7 v" + APP_VER,
         icons: [
           { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
           { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },

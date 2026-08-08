@@ -473,7 +473,7 @@
   .etf-card-v{font-size:16px;font-weight:800;margin-top:6px;letter-spacing:-.3px}
   .etf-hold{display:flex;flex-direction:column}
   .etf-hold-r{display:flex;align-items:center;gap:12px;padding:9px 2px;border-bottom:1px solid var(--border-soft)}
-  .etf-hold-n{flex:1;min-width:0;font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .etf-hold-n{flex:1;min-width:0;font-size:13.5px;font-weight:700}   /* [v4.26] 로고 수용 — 말줄임은 내부 b 로 옮김 */
   .etf-hold-w{display:flex;align-items:center;gap:8px;flex:0 0 168px}
   .etf-bar{flex:1;height:7px;border-radius:4px;background:var(--border-soft);overflow:hidden}
   .etf-bar i{display:block;height:100%;background:var(--amber);border-radius:4px}
@@ -2729,8 +2729,10 @@ tbody td .td-l .lgo{margin:1px 0}
 /* ☆ 버튼과 '관심' 글자가 별개 요소라 .d-name 의 gap(10px)에 버튼 여백까지 겹쳐 벌어져 보였다 */
 .d-name .star{padding:0;line-height:1}
 .d-name #starLab{margin-left:-7px}
+/* [v4.27] '⚙ 차트설정' 글자가 좁은 폭에서 잘렸다(첨부 4번 사진) — 아이콘 단독 + 고정 폭 */
 .cc-gear{border:1px solid var(--border);background:var(--panel);color:var(--sub);border-radius:8px;
-  padding:4px 10px;font-size:11.5px;font-weight:800;cursor:pointer;margin-right:8px;white-space:nowrap}
+  min-width:32px;height:26px;display:inline-grid;place-items:center;padding:0 8px;
+  font-size:13.5px;font-weight:800;cursor:pointer;margin-right:8px;flex:none}
 .cc-gear:hover{color:var(--text);border-color:var(--sub-2)}
 #ccOv{align-items:flex-start;justify-content:flex-end;overflow-y:auto;padding:0}
 .cc-box{background:var(--panel);width:min(360px,92vw);min-height:100%;box-shadow:-8px 0 32px rgba(10,14,22,.18);
@@ -2825,7 +2827,13 @@ html[data-theme="dark"] .ot-alert.info{background:rgba(59,130,246,.14);border-co
 .tg-open{background:#eafaf0;border-color:#b8ebcb;color:#0b7a3e}
 .tg-open i{color:#12b76a;font-size:10px;animation:tgPulse 1.8s ease-in-out infinite}
 @keyframes tgPulse{0%,100%{opacity:1}50%{opacity:.35}}
-.tg-free{background:var(--border-soft);border-color:transparent;color:var(--sub)}
+/* [v4.27] 휴장 안내 — 회색이라 눈에 안 들어와 파란 정보 박스로 강조(첨부 3번 사진) */
+.tg-free{background:linear-gradient(135deg,#eaf3ff,#f2f8ff);border:1px solid #bcd8ff;color:#1b4c9c;font-weight:800}
+.tg-free i{color:#2f7ae5}
+.tg-free b{color:#0f3f8f}
+html[data-theme="dark"] .tg-free{background:linear-gradient(135deg,rgba(47,122,229,.16),rgba(47,122,229,.08));
+  border-color:rgba(96,165,250,.4);color:#a8c8f5}
+html[data-theme="dark"] .tg-free b{color:#cfe2ff}
 .tg-shut{display:flex;gap:12px;align-items:flex-start;background:#fff1f1;border:1.5px solid #ffc9c9;
   color:#b42318;border-radius:14px;padding:14px 15px;margin-top:10px;
   box-shadow:0 2px 10px rgba(180,35,24,.10)}
@@ -3033,3 +3041,176 @@ html[data-theme="dark"] .pm-warn{background:rgba(239,68,68,.12);border-color:rgb
 html[data-theme="dark"] .pm-badge.on{border-color:rgba(245,179,15,.45)}
 #pmRestoreIn{width:100%;border:1px solid var(--border);border-radius:10px;padding:9px 11px;
   font-size:12px;font-family:inherit;background:var(--panel);color:var(--fg);resize:vertical}
+
+/* ── [v4.26] ETF 구성종목 로고 ─────────────────────────────────────────── */
+.etf-hold-n{display:flex;align-items:center;gap:8px;min-width:0}
+.etf-hold-n .ehr-i{flex:none;min-width:20px;color:var(--sub-2);font-size:12px;font-weight:800}
+.etf-hold-n .lgo{flex:none}
+.etf-hold-n b{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* ── [v4.26] ETF 목록 로고를 운용사 브랜드 배지로 ───────────────────────────
+   운용사 CI 이미지들이 하나같이 짙은 빨강 계열이라 KODEX·TIGER·ACE·KOSEF 가
+   한눈에 구분되지 않았다(첨부 4번 사진). ETF 목록에서는 이미지를 쓰지 않고
+   브랜드 고유색 배지로 그려 색만 봐도 운용사를 알 수 있게 한다. */
+.etf-row .lgo.bd{background-color:var(--lgc) !important;background-image:none !important;
+  box-shadow:none !important;border-radius:26%}
+.etf-row .lgo.bd>i{visibility:visible !important;color:#fff !important;font-weight:900;
+  font-size:12.5px;letter-spacing:-.5px}
+html[data-theme="dark"] .etf-row .lgo.bd{background-color:var(--lgc) !important}
+
+/* ══ [v4.28] 해외 주식 ═══════════════════════════════════════════════════ */
+.us-flag{font-size:14px;font-weight:800;color:var(--sub);margin-left:6px}
+.us-card{padding:16px 18px;margin-bottom:14px}
+.us-search{width:100%;border:1.5px solid var(--border);border-radius:12px;padding:11px 14px;font-size:14px;
+  font-weight:600;background:var(--panel);color:var(--fg)}
+.us-search:focus{outline:none;border-color:#3b7ef0}
+/* 상단: 장 상태 + 환율 */
+.us-strip{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+@media(max-width:640px){.us-strip{grid-template-columns:1fr}}
+.us-sess{border-radius:14px;padding:14px 16px;border:1px solid var(--border)}
+.us-sess b{font-size:15.5px;font-weight:900;display:block}
+.us-sess span{font-size:12px;color:var(--sub);font-weight:600;display:block;margin-top:4px;line-height:1.5}
+.us-sess.on{background:linear-gradient(135deg,rgba(18,183,106,.12),transparent);border-color:rgba(18,183,106,.4)}
+.us-sess.on b{color:#0b7a3e}
+.us-sess.ext{background:linear-gradient(135deg,rgba(245,163,13,.12),transparent);border-color:rgba(245,163,13,.4)}
+.us-sess.ext b{color:#b47207}
+.us-sess.off b{color:var(--sub)}
+.us-fx{border-radius:14px;padding:14px 16px;border:1px solid var(--border);display:flex;flex-direction:column;justify-content:center}
+.us-fx small{font-size:11.5px;font-weight:700;color:var(--sub-2)}
+.us-fx b{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums}
+.us-fx i{font-style:normal;font-size:11.5px;font-weight:700;color:var(--sub);margin-top:2px}
+/* 섹션 제목 */
+.us-sec{display:flex;align-items:baseline;gap:8px;margin:4px 0 10px}
+.us-sec b{font-size:15.5px;font-weight:900}
+.us-sec span{font-size:11.5px;color:var(--sub-2);font-weight:600}
+/* 종목 행 */
+.us-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:11px;align-items:center;
+  padding:9px 6px;border-radius:11px;cursor:pointer}
+.us-row:hover{background:var(--border-soft)}
+.us-tick{width:44px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;
+  font-weight:900;font-size:11px;letter-spacing:-.3px;flex:none}
+.us-nm{min-width:0}
+.us-nm b{font-size:13.8px;font-weight:800;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.us-nm span{font-size:11px;color:var(--sub-2);font-weight:600}
+.us-px{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+.us-px small{display:block;font-size:10.5px;color:var(--sub-2);font-weight:600}
+.us-rt{min-width:74px;text-align:right;font-weight:800;font-variant-numeric:tabular-nums;font-size:13px}
+/* 스타 그리드 */
+.us-stars{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px}
+.us-star{border:1px solid var(--border-soft);border-radius:13px;padding:11px 12px;cursor:pointer}
+.us-star:hover{border-color:var(--border);background:var(--border-soft)}
+.us-star .t{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.us-star .t b{font-size:12.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.us-star .p{font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+.us-star .r{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+/* 탭 칩 */
+.us-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
+.us-chip{border:1px solid var(--border);background:var(--panel);color:var(--sub);border-radius:99px;
+  padding:6px 13px;font-size:12.5px;font-weight:800;cursor:pointer}
+.us-chip.on{background:var(--fg);color:var(--panel);border-color:var(--fg)}
+/* 거래 화면 */
+.us-grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+@media(max-width:900px){.us-grid{grid-template-columns:1fr}}
+.us-head-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.us-head-l{display:flex;gap:11px;align-items:center;min-width:0}
+.us-head-l .us-tick{width:52px;height:40px;font-size:12.5px}
+.us-head-nm b{font-size:19px;font-weight:900;display:block}
+.us-head-nm span{font-size:12px;color:var(--sub-2);font-weight:700}
+.us-ex{display:inline-block;font-size:10px;font-weight:900;border:1px solid var(--border);border-radius:5px;
+  padding:1px 6px;margin-left:6px;color:var(--sub);vertical-align:2px}
+.us-head-px{text-align:right}
+.us-head-px .p{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.us-head-px .k{font-size:12px;color:var(--sub-2);font-weight:700}
+.us-head-px .d{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.us-sess-line{margin-top:10px;font-size:12px;font-weight:700;color:var(--sub);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.us-sess-dot{width:8px;height:8px;border-radius:50%;background:var(--sub-2)}
+.us-sess-line.on .us-sess-dot{background:#12b76a;animation:tgPulse 1.8s infinite}
+.us-sess-line.ext .us-sess-dot{background:#f5a30d}
+/* 차트 */
+.us-chart-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.us-chart-h b{font-size:14px;font-weight:900}
+.us-ranges{display:flex;gap:5px}
+.us-ranges button{border:1px solid var(--border);background:var(--panel);color:var(--sub);border-radius:8px;
+  padding:4px 10px;font-size:11.5px;font-weight:800;cursor:pointer}
+.us-ranges button.on{background:var(--fg);color:var(--panel);border-color:var(--fg)}
+.us-canvas-wrap{height:300px}
+#usCanvas{width:100%;height:100%}
+.us-chart-note{font-size:11.5px;color:var(--sub-2);font-weight:600;margin-top:6px;min-height:16px}
+/* 통계 그리드 */
+.us-stat-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--border-soft);
+  border-radius:12px;overflow:hidden}
+.us-stat{background:var(--panel);padding:11px 13px}
+.us-stat small{font-size:11px;color:var(--sub-2);font-weight:700;display:block}
+.us-stat b{font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums}
+/* 일별 시세 */
+.us-sise-h,.us-sise-r{display:grid;grid-template-columns:1fr 1fr 1fr 1.1fr;gap:8px;font-variant-numeric:tabular-nums}
+.us-sise-h{font-size:11px;font-weight:800;color:var(--sub-2);padding:4px 6px;border-bottom:1px solid var(--border-soft)}
+.us-sise-r{font-size:12.8px;font-weight:700;padding:7px 6px;border-bottom:1px solid var(--border-soft)}
+.us-sise-r span:nth-child(n+2),.us-sise-h span:nth-child(n+2){text-align:right}
+/* 주문 패널 */
+.us-ord-t{display:flex;border-bottom:2px solid var(--border-soft);margin:-4px -4px 12px}
+.us-ord-t button{flex:1;padding:10px;font-size:14.5px;font-weight:900;border:none;background:none;color:var(--sub-2);
+  cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-2px}
+.us-ord-t button.buy.on{color:#e5484d;border-color:#e5484d}
+.us-ord-t button.sell.on{color:#2f7ae5;border-color:#2f7ae5}
+.us-fld{margin-bottom:11px}
+.us-fld label{font-size:11.5px;font-weight:800;color:var(--sub);display:flex;justify-content:space-between;margin-bottom:5px}
+.us-inrow{display:flex;border:1.5px solid var(--border);border-radius:11px;overflow:hidden}
+.us-inrow button{width:44px;border:none;background:var(--border-soft);font-size:17px;font-weight:800;cursor:pointer;color:var(--fg)}
+.us-inrow input{flex:1;border:none;text-align:right;font-size:16px;font-weight:800;padding:10px 12px;
+  font-variant-numeric:tabular-nums;background:var(--panel);color:var(--fg);min-width:0}
+.us-inrow input:focus{outline:none}
+.us-qbtns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
+.us-qbtns button{border:1px solid var(--border);background:var(--panel);border-radius:9px;padding:7px 0;
+  font-size:12px;font-weight:800;color:var(--sub);cursor:pointer}
+.us-sum{display:flex;justify-content:space-between;font-size:13px;font-weight:800;margin:4px 0}
+.us-sum small{color:var(--sub-2);font-weight:700}
+.us-submit{width:100%;border:none;border-radius:13px;padding:14px;font-size:15.5px;font-weight:900;color:#fff;
+  cursor:pointer;margin-top:10px}
+.us-submit.buy{background:#e5484d}.us-submit.sell{background:#2f7ae5}
+.us-submit:disabled{opacity:.45;cursor:not-allowed}
+.us-ord-note{font-size:11px;color:var(--sub-2);font-weight:600;line-height:1.6;margin-top:10px}
+.us-pass{margin-top:10px}
+/* 안내 */
+.us-rules-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:9px}
+.us-rule{border:1px solid var(--border-soft);border-radius:12px;padding:11px 13px}
+.us-rule b{font-size:12.5px;font-weight:900;display:block;margin-bottom:3px}
+.us-rule span{font-size:11.5px;color:var(--sub);font-weight:600;line-height:1.55}
+
+/* ── [v4.30] 해외 로고 배지 ────────────────────────────────────────────────
+   로고를 찾기 전에는 색 배지(티커 글자), 찾으면 그 자리에서 이미지로 승격된다. */
+.us-tick{overflow:hidden;background-size:76%;background-position:center;background-repeat:no-repeat;
+  transition:background-color .2s}
+.us-tick.on{background-color:#fff !important;color:transparent !important;
+  box-shadow:inset 0 0 0 1px rgba(16,26,45,.12)}
+html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa !important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.us-star .us-tick{width:38px;height:30px;font-size:10px}
+
+/* ── [v4.32] 계좌 종류 ─────────────────────────────────────────────────── */
+.acct-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:7px;margin-bottom:9px}
+.acct-chip{display:flex;align-items:center;gap:7px;padding:9px 10px;border:1.5px solid var(--border);
+  background:var(--panel);border-radius:11px;cursor:pointer;text-align:left;color:var(--fg)}
+.acct-chip i{font-style:normal;font-size:17px;flex:none}
+.acct-chip b{font-size:12.3px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acct-chip.on{border-color:#3b7ef0;background:linear-gradient(135deg,rgba(59,126,240,.10),transparent)}
+.acct-d{border:1px solid var(--border-soft);border-radius:12px;padding:11px 13px;background:var(--border-soft)}
+.acct-d p{margin:0 0 9px;font-size:12.3px;line-height:1.6;color:var(--sub);font-weight:600}
+.acct-kv{display:flex;justify-content:space-between;font-size:12.3px;font-weight:700;padding:3.5px 0}
+.acct-kv span{color:var(--sub-2)}
+.acct-kv b{font-variant-numeric:tabular-nums}
+.acct-off{font-style:normal;font-size:10.5px;font-weight:800;color:#0b7a3e;background:#e7f8ee;
+  border-radius:5px;padding:1px 5px;margin-left:4px}
+.acct-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.acct-pro{font-size:11px;font-weight:700;color:#0b7a3e;background:#e7f8ee;border-radius:6px;padding:3px 7px}
+.acct-con{font-size:11px;font-weight:700;color:var(--sub);background:var(--border-soft);border-radius:6px;padding:3px 7px}
+.acct-card{border:1px solid var(--border);border-radius:13px;padding:12px 14px;
+  background:linear-gradient(135deg,rgba(59,126,240,.08),transparent)}
+.acct-card-h{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.acct-card-h i{font-style:normal;font-size:22px}
+.acct-card-h b{font-size:14.5px;font-weight:900;display:block}
+.acct-card-h span{font-size:11.5px;color:var(--sub-2);font-weight:600}
+.acct-card-h>div{flex:1;min-width:0}
+.acct-chg{border:1px solid var(--border);background:var(--panel);border-radius:8px;padding:5px 11px;
+  font-size:11.5px;font-weight:800;cursor:pointer;color:var(--sub);flex:none}
+html[data-theme="dark"] .acct-off,html[data-theme="dark"] .acct-pro{background:rgba(18,183,106,.16);color:#6ee7b7}
