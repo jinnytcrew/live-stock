@@ -14,8 +14,19 @@ var __export = (target, all) => {
 };
 
 // netlify/functions/_store.js
+/* ══ [v4.54] 해외 시세가 '한 번도' 나오지 않았던 진짜 이유 ═══════════════════
+   [증상] 해외 시세·차트·검색이 전부 빈다. 원천을 야후 → CNBC → Cboe → 네이버로
+     몇 번이나 갈아 끼워도 똑같았다.
+   [원인] 해외 코드는 전역 KV 를 31곳에서 쓰는데, 이 파일에 전역 KV 가 없었다.
+     KV 는 다른 세 함수 안의 지역 상수(const KV = context.env.APP_KV)로만 존재했다.
+     그래서 /api/usquote 는 첫 KV 접근에서 ReferenceError 로 즉사하고 500 을 뱉었다.
+     — 즉 바깥 서비스는 단 한 번도 호출된 적이 없다. 원천을 바꾼 게 소용없던 이유다.
+     국내가 멀쩡했던 건 국내 코드가 KV 를 안 쓰거나 지역 KV 가 있는 함수였기 때문이다.
+   [교훈] 바깥을 의심하기 전에 코드를 실제로 실행해 본다. 정적 분석만으로 세 번 틀렸다. */
+var KV = null;
 function setEnv(env) {
   if (env) _ENV = env;
+  try { if (env && env.APP_KV) KV = env.APP_KV; } catch (e) { }
 }
 function envGet(key, env) {
   if (!env) env = _ENV;
@@ -11134,7 +11145,8 @@ async function usquote_default(req2){
         if(!key||!q||q.price==null)continue;
         const c=miss.find(x=>x.toUpperCase()===key);
         if(!c)continue;
-        out[c]=usMergeQ(out[c],q); USQ_MEM.set(c,{at:Date.now(),q:out[c]}); hit++;
+        out[c]=usMergeQ(out[c],q); USQ_MEM.set(c,{at:Date.now(),q:out[c]});
+        await kvPutQuote(c,out[c]); hit++;
       }
       diag.push("nvbatch:"+hit+"/"+miss.length);
       miss=miss.filter(c=>!out[c]);
@@ -11550,7 +11562,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.53.0";
+var APP_VER = "4.54.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
