@@ -3179,10 +3179,13 @@ html[data-theme="dark"] .etf-row .lgo.bd{background-color:var(--lgc) !important}
 
 /* ── [v4.30] 해외 로고 배지 ────────────────────────────────────────────────
    로고를 찾기 전에는 색 배지(티커 글자), 찾으면 그 자리에서 이미지로 승격된다. */
-.us-tick{overflow:hidden;background-size:76%;background-position:center;background-repeat:no-repeat;
-  transition:background-color .2s}
+/* [v4.33] 로고가 배지를 넘쳐 잘리던 문제 — 세로 기준이 없어 정사각 로고가 잘렸다.
+   contain 으로 가로·세로 모두 상자 안에 맞추고, 여백을 줘 테두리에 닿지 않게 한다. */
+.us-tick{overflow:hidden;background-position:center;background-repeat:no-repeat;
+  background-size:contain;transition:background-color .2s;box-sizing:border-box}
 .us-tick.on{background-color:#fff !important;color:transparent !important;
-  box-shadow:inset 0 0 0 1px rgba(16,26,45,.12)}
+  box-shadow:inset 0 0 0 1px rgba(16,26,45,.12);
+  padding:5px;background-origin:content-box;background-clip:padding-box}
 html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa !important;
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
 .us-star .us-tick{width:38px;height:30px;font-size:10px}

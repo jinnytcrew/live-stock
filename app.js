@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=317';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=317';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=319';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=319';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -1964,14 +1964,14 @@ async function ensureNxt(code){
 
 /* ===== 계정/세션 상태 ===== */
 let currentUser=null, watchlist=[], holdings=[], cash=0, ipoPlans=[], tradeLog=[], tradeArchive={}, acctPassHash=legacyHash('0000');
-let usdCash=0, usdSettling=[];   // [v4.29] 달러 예수금 · T+1 미결제분
-let acctType='general';          // [v4.32] 계좌 종류
+var usdCash=0, usdSettling=[];   // [v4.29] 달러 예수금 · T+1 미결제분
+var acctType='general';          // [v4.32] 계좌 종류
 /* ══ [v4.32] 계좌 종류 ══════════════════════════════════════════════════════
    실제 증권사 계좌 체계를 모의로 옮긴다. 고르는 재미만이 아니라 수수료·세제가
    실제로 다르게 계산되도록 엔진에 연결한다(feeKr/feeUs/taxFree/limit).
      feeKr/feeUs : 수수료율 배수(1=기본)  · taxFree : 해외 양도세 면제 여부
      limit       : 연 납입한도(원, 0=없음) · usOk : 해외주식 거래 가능 여부 */
-const ACCT_TYPES={
+var ACCT_TYPES={
   general:{n:'종합위탁계좌',ic:'📗',d:'가장 기본이 되는 계좌입니다. 국내·해외 주식을 모두 거래할 수 있고 제약이 없습니다.',
     feeKr:1,feeUs:1,taxFree:0,limit:0,usOk:1,
     pros:['국내·해외 모두 거래','입출금·환전 자유','조건 없음'],cons:['별도 세제 혜택 없음']},
@@ -4931,13 +4931,16 @@ function drawAlloc(){
   const wrap=$('allocCard'),cv=$('allocCv'),lg=$('allocLegend');
   if(!wrap||!cv||!lg)return;
   const items=[];
-  holdings.forEach(h=>{const v=hEvalKRW(h);
-    if(v>0)items.push({name:(st&&st.name)||h.code,code:h.code,v});});
+  /* [v4.34] 평가액 계산을 헬퍼로 바꾸면서 st 를 없앴는데 아래에서 그대로 쓰고 있었다
+     → 'st is not defined' 로 자산 구성 그래프가 매번 죽었다. */
+  holdings.forEach(h=>{const st=byCode[h.code]||{}; const v=hEvalKRW(h);
+    if(v>0)items.push({name:st.name||(h.us&&usMeta[h.code]?usMeta[h.code].kr:h.code),code:h.code,v});});
   if(!items.length){wrap.hidden=true;return;}
   items.sort((a,b)=>b.v-a.v);
   const list=items.slice(0,6),rest=items.slice(6);
   if(rest.length)list.push({name:'기타 '+rest.length+'종목',v:rest.reduce((a,x)=>a+x.v,0)});
   if(cash>0)list.push({name:'예수금',v:cash,cash:1});
+  {const ud=Math.round((+usdCash||0)*(usFx()||0)); if(ud>0)list.push({name:'달러 예수금',v:ud,cash:1});}
   const total=list.reduce((a,x)=>a+x.v,0);
   if(!(total>0)){wrap.hidden=true;return;}
   wrap.hidden=false;
@@ -8898,9 +8901,13 @@ function renderHoldings(){
   if(currentView==='account')safeRun('acctx',renderAcctExtras);   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
 }
 /* ══ [v4.28] 보유 평가 헬퍼 — 국내(원·정수)와 해외(달러·소수·환율) 공용 ══ */
-function hEvalKRW(h){const s=byCode[h.code]||{};const px=s.price!=null?s.price:h.avg;
-  return h.us?Math.round((+px||0)*(h.qty||0)*(usFx()||0)):Math.round((+px||0)*(h.qty||0));}
-function hCostKRW(h){return h.us?Math.round((+h.avg||0)*(h.qty||0)*(usFx()||0)):Math.round((+h.avg||0)*(h.qty||0));}
+function hEvalKRW(h){
+  try{ const s=byCode[h.code]||{};const px=s.price!=null?s.price:h.avg;
+    return h.us?Math.round((+px||0)*(h.qty||0)*(usFx()||0)):Math.round((+px||0)*(h.qty||0));
+  }catch(e){ return 0; }}
+function hCostKRW(h){
+  try{ return h.us?Math.round((+h.avg||0)*(h.qty||0)*(usFx()||0)):Math.round((+h.avg||0)*(h.qty||0));
+  }catch(e){ return 0; }}
 function renderPortfolioNumbers(){
   /* [v4.5] 어떤 값이 깨져도 총자산이 NaN 으로 새지 않게 정수로 정규화한 뒤 계산한다. */
   let te=0,tc=0;(Array.isArray(holdings)?holdings:[]).forEach(h=>{
@@ -10131,7 +10138,16 @@ window.addEventListener('resize',()=>{drawChart();if(currentView==='home')render
   const x=$('thmClear'); if(x)x.onclick=()=>{i.value='';thmQuery='';thmLimit=40;thmOpen=null;renderThemes();i.focus();};
 })();
 
-(function boot(){
+/* ══ [v4.33 · 치명] 부팅이 해외 모듈보다 먼저 실행되고 있었다 ═══════════════
+   boot() 는 파일 중간(약 10,138행)에서 즉시 실행되는데, 해외 주식 모듈은 그보다
+   한참 뒤(10,491행~)에 선언된다. 그래서 boot → initApp → 보유 평가(hEvalKRW)
+   → usFx() 로 이어지는 순간 아직 초기화되지 않은 변수를 건드려
+   'Cannot access _usFx before initialization' 이 터졌고, 이 예외가 최상위 실행을
+   끊어 그 뒤의 해외 모듈 전체가 통째로 로드되지 않았다.
+   → 해외 화면이 전부 비어 있던 진짜 이유다.
+   [해결] 부팅을 함수로 감싸 두고, 파일의 모든 선언이 끝난 뒤에 호출한다.
+   (변수들은 var 로 바꿔 두 번째 안전장치도 걸어 두었다) */
+function __bootMain(){
   try{window.__boot&&__boot.step(4);}catch(e){}   // [v4.9] 입장화면: 계정·설정 동기화
   const sess=store.get('session');
   /* [v4.1] 세션이 없거나 계정이 사라졌으면 앱을 시작하지 않고 로그인만 띄운다 */
@@ -10142,7 +10158,7 @@ window.addEventListener('resize',()=>{drawChart();if(currentView==='home')render
   try{window.__boot&&__boot.step(6);}catch(e){}
   requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__boot&&__boot.done();}catch(e){}}));
   setTimeout(()=>{try{pingManifest();autoIconSync();}catch(e){}},4000);   // [v4.23] 아이콘 자동 동기화
-})();
+}
 
 
 /* ══ [v4.9] 매집 포착기 ═══════════════════════════════════════════════════
@@ -10484,7 +10500,7 @@ try{
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* ── 1. 유니버스: [티커, 거래소접미(O=나스닥 N=NYSE A=AMEX), 한글명, 영문명, 테마, ETF여부] ── */
-const US_UNI=[
+var US_UNI=[
 /* 빅테크 · M7 */
 ['AAPL','O','애플','Apple','big',0],['MSFT','O','마이크로소프트','Microsoft','big',0],
 ['GOOGL','O','알파벳 A','Alphabet A','big',0],['AMZN','O','아마존','Amazon','big',0],
@@ -10552,13 +10568,13 @@ const US_UNI=[
 ['TLT','O','미국 장기채 20Y','iShares 20Y Treasury','etfbond',1],['TMF','A','장기채 3배','Direxion TMF','etfbond',1],
 ['SGOV','A','초단기 국채','iShares 0-3M','etfbond',1],['GLD','A','금 ETF','SPDR Gold','etfbond',1],
 ];
-const usMeta={}; US_UNI.forEach(([t,sfx,kr,en,theme,etf])=>{usMeta[t]={t,sfx,kr,en,theme,etf,reu:t.replace('.','/')+'.'+sfx};});
+var usMeta={}; US_UNI.forEach(([t,sfx,kr,en,theme,etf])=>{usMeta[t]={t,sfx,kr,en,theme,etf,reu:t.replace('.','/')+'.'+sfx};});
 function isUS(code){return !!usMeta[code];}
 /* ══ [v4.31] 내장 목록 밖의 미국 종목도 다루기 ═══════════════════════════════
    US_UNI 는 큐레이션 113종이라 그 밖의 종목은 검색은커녕 열 수조차 없었다.
    검색 결과로 들어온 종목을 실행 중에 등록하면 시세·차트·주문이 모두 그대로 돌아간다.
    등록분은 localStorage 에 남겨 다음 접속에도 즉시 검색된다. */
-let usDyn={};
+var usDyn={};
 try{ const s=JSON.parse(localStorage.getItem('usDyn1')||'null');
   if(s&&typeof s==='object')usDyn=s; }catch(e){}
 function usRegister(it){
@@ -10577,7 +10593,7 @@ Object.keys(usDyn).forEach(t=>{ const d=usDyn[t];
     reu:t.replace('.','/')+'.'+(d.sfx||'O'),dyn:1}; });
 
 /* 통칭·줄임말 — 정식 명칭과 다르게 부르는 경우를 잡아 준다 */
-const US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT','마이크로':'MSFT',
+var US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT','마이크로':'MSFT',
  '페이스북':'META','페북':'META','인스타':'META','엔비':'NVDA','엔디비아':'NVDA','앤비디아':'NVDA',
  '테슬라주':'TSLA','테슬':'TSLA','애플주':'AAPL','아마존닷컴':'AMZN','넷플':'NFLX','넷플릭스':'NFLX',
  '버크셔':'BRK.B','버핏':'BRK.B','코스트코':'COST','스벅':'SBUX','스타벅':'SBUX',
@@ -10591,7 +10607,7 @@ const US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT'
  '보잉':'BA','록히드':'LMT','로켓랩':'RKLB','오클로':'OKLO','뉴스케일':'SMR'};
 
 /* 원격 검색 — 내장 목록에 없는 종목까지 찾는다 */
-let _usRemote={}, _usRemoteT=null;
+var _usRemote={}, _usRemoteT=null;
 function usSearchRemote(q,cb){
   const key=q.trim().toLowerCase();
   if(!key||key.length<1)return;
@@ -10617,33 +10633,49 @@ function usLocalMatch(q){
       ||String(m.en).toUpperCase().indexOf(qU)>=0)push(t); });
   return hit;
 }
-const US_THEMES=[['ai','🤖 AI·반도체'],['big','🏙 빅테크'],['ev','🚗 전기차·모빌리티'],['coin','🪙 코인·핀테크'],
+var US_THEMES=[['ai','🤖 AI·반도체'],['big','🏙 빅테크'],['ev','🚗 전기차·모빌리티'],['coin','🪙 코인·핀테크'],
  ['bio','🧬 바이오·헬스케어'],['fin','🏦 금융'],['cons','🛒 소비·미디어'],['ener','⚡ 에너지·원전'],
  ['space','🚀 우주·방산'],['indu','🏭 산업재']];
-const US_ETF_GROUPS=[['etfidx','📊 대표지수'],['etfdiv','💰 배당·인컴'],['etfsec','🧩 섹터·테마'],
+var US_ETF_GROUPS=[['etfidx','📊 대표지수'],['etfdiv','💰 배당·인컴'],['etfsec','🧩 섹터·테마'],
  ['etflev','⚡ 레버리지·인버스'],['etfbond','🏛 채권·금']];
-const US_STARS=['NVDA','TSLA','AAPL','MSFT','PLTR','AMD','GOOGL','AMZN','META','AVGO','MSTR','IONQ'];
+var US_STARS=['NVDA','TSLA','AAPL','MSFT','PLTR','AMD','GOOGL','AMZN','META','AVGO','MSTR','IONQ'];
 
 /* ── 2. 환율 (USD/KRW) — 라이브 우선, 마지막 값 보존 ── */
-let _usFx=null;
-function usFx(){ if(_usFx&&_usFx.v)return _usFx.v;
-  try{const j=JSON.parse(localStorage.getItem('usFxLast')||'null');
-    if(j&&j.v&&Date.now()-(j.at||0)<3*86400e3){_usFx=j;return j.v;}}catch(e){}
+var _usFx=null;
+/* [v4.33] 어떤 시점에 불려도 절대 예외를 던지지 않는다.
+   부팅 중 보유 평가가 이 함수를 부르는데, 여기서 한 번 터지면 app.js 최상위 실행이
+   중단되고 그 뒤에 있는 해외 모듈이 통째로 초기화되지 않는다(화면이 전부 빈 이유). */
+function usFx(){
+  try{
+    if(typeof _usFx!=='undefined'&&_usFx&&_usFx.v)return _usFx.v;
+    const j=JSON.parse(localStorage.getItem('usFxLast')||'null');
+    if(j&&j.v&&Date.now()-(j.at||0)<3*86400e3){_usFx=j;return j.v;}
+  }catch(e){}
   return null; }
 function usFxSet(v){ if(!(v>800&&v<3000))return;
+  /* ══ [v4.34] 환율이 '처음' 도착하면 화면을 다시 그린다 ═══════════════════
+     환전 카드와 주문 패널은 렌더 시점에 환율이 없으면 버튼을 비활성으로 만든다.
+     그런데 환율은 시세와 함께 조금 늦게 도착하는데, 도착해도 카드를 다시 그리지
+     않아 '환율 수신 대기' 상태로 영영 굳어 환전·주문을 아예 할 수 없었다. */
+  const had=!!(_usFx&&_usFx.v);
   _usFx={v,at:Date.now()};
-  try{localStorage.setItem('usFxLast',JSON.stringify(_usFx));}catch(e){} }
-const USD2=(v)=>v==null?'—':(+v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  try{localStorage.setItem('usFxLast',JSON.stringify(_usFx));}catch(e){}
+  if(!had){ setTimeout(()=>{ try{
+    if(currentView==='us'){ renderUsFxCard(); renderUsMine(); }
+    else if(currentView==='ustrade'){ renderUsOrder(); renderUsHead(); }
+  }catch(e){} },0); }
+}
+var USD2=(v)=>v==null?'—':(+v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 /* ══ [v4.29] 직접 환전 · T+1 정산 ══════════════════════════════════════════
    실제 증권사 구조를 그대로 옮긴다.
    · 환전 스프레드: 기준 10원/$ 에 우대 95% 적용 → 실부담 0.5원/$ (매수환율 +0.5 / 매도환율 -0.5)
    · T+1: 매도 대금(달러)은 즉시 재매수에 쓸 수 있지만, 원화로 되파는 환전은
      다음 영업일부터 가능하다(미국 T+1 결제). 주말은 건너뛴다(미국 휴장일은 근사). */
-const US_FX_SPREAD=10, US_FX_PREF_BASE=0.95;
+var US_FX_SPREAD=10, US_FX_PREF_BASE=0.95;
 /* [v4.32] 계좌 종류별 환전 우대 */
 function US_FX_PREF_OF(){const a=acctInfo();return a.fxPref!=null?a.fxPref:US_FX_PREF_BASE;}
-const US_FX_PREF=US_FX_PREF_BASE;
-const usFxMargin=()=>US_FX_SPREAD*(1-US_FX_PREF_OF());                 // 0.5원
+var US_FX_PREF=US_FX_PREF_BASE;
+var usFxMargin=()=>US_FX_SPREAD*(1-US_FX_PREF_OF());                 // 0.5원
 function usFxBuy(){const f=usFx();return f?+(f+usFxMargin()).toFixed(2):null;}   // 원→달러 살 때
 function usFxSell(){const f=usFx();return f?+(f-usFxMargin()).toFixed(2):null;}  // 달러→원 팔 때
 function usNextBiz(day){                                           // 'YYYY-MM-DD' 다음 영업일
@@ -10697,7 +10729,7 @@ function usTaxEstimate(){
   const taxable=Math.max(0,pnl-2500000);
   return {year:y,n:sells.length,pnl,taxable,tax:Math.round(taxable*0.22)};
 }
-const USDKR=(v)=>{const fx=usFx();return (v==null||!fx)?'':'≈ '+KRW(Math.round(v*fx))+'원';};
+var USDKR=(v)=>{const fx=usFx();return (v==null||!fx)?'':'≈ '+KRW(Math.round(v*fx))+'원';};
 
 /* ── 3. 미국 장 세션 — 서머타임(3월 둘째 일요일 ~ 11월 첫 일요일) 자동 반영 ── */
 function usSession(now){
@@ -10726,7 +10758,7 @@ function usSession(now){
 }
 
 /* ── 4. 시세 수집 ── */
-let usQ={}, _usLoadBusy=false, _usPollT=null, _usPollSet=[];
+var usQ={}, _usLoadBusy=false, _usPollT=null, _usPollSet=[];
 async function usEnsureQuotes(tickers,withFx){
   const need=[...new Set(tickers.filter(t=>usMeta[t]))];
   if(!need.length)return;
@@ -10759,7 +10791,7 @@ function usPollStart(list){
 }
 
 /* ── 5. 공용 조각 ── */
-const US_PAL=['#2563eb','#7c3aed','#0891b2','#059669','#d97706','#dc2626','#db2777','#4f46e5','#0d9488','#b45309'];
+var US_PAL=['#2563eb','#7c3aed','#0891b2','#059669','#d97706','#dc2626','#db2777','#4f46e5','#0d9488','#b45309'];
 /* ══════════════════════════════════════════════════════════════════════════
    [v4.30] 해외 종목 로고 — 국내와 별개의 전용 파이프라인
    ──────────────────────────────────────────────────────────────────────────
@@ -10771,7 +10803,7 @@ const US_PAL=['#2563eb','#7c3aed','#0891b2','#059669','#d97706','#dc2626','#db27
    가장 먼저 도착한 이미지를 채택한다. 전부 실패하면 기존 색 배지로 남는다
    (로고가 없다고 화면이 비지 않는다).
    ══════════════════════════════════════════════════════════════════════════ */
-const US_DOMAIN={
+var US_DOMAIN={
 /* 빅테크 · M7 */
 AAPL:'apple.com',MSFT:'microsoft.com',GOOGL:'abc.xyz',AMZN:'amazon.com',
 NVDA:'nvidia.com',META:'meta.com',TSLA:'tesla.com',
@@ -10811,11 +10843,11 @@ NVDL:'graniteshares.com',TLT:'ishares.com',TMF:'direxion.com',SGOV:'ishares.com'
 GLD:'ssga.com',
 };
 /* 상태: 1=성공(소스 인덱스), 0=실패 — 세션 간 유지 */
-let usLgOk={}, usLgNo={}, _usLgBusy=new Set(), _usLgQ=[], _usLgLive=0;
+var usLgOk={}, usLgNo={}, _usLgBusy=new Set(), _usLgQ=[], _usLgLive=0;
 /* [v4.30] 실패 기록은 짧게 — 통신 상태나 CDN 사정으로 한 번 실패했다고
    반나절 내내 배지로 남으면 안 된다. 그리고 '전부 실패'면 망 문제일 가능성이
    높으므로(사내망·특정 CDN 차단) 더 짧게 잡아 다음 방문에 곧바로 다시 시도한다. */
-const US_LG_MAX=6, US_LG_TTL=3*3600e3, US_LG_TTL_ALL=20*60e3;
+var US_LG_MAX=6, US_LG_TTL=3*3600e3, US_LG_TTL_ALL=20*60e3;
 function usLgTtl(){ return (Object.keys(usLgOk).length===0&&Object.keys(usLgNo).length>=8)?US_LG_TTL_ALL:US_LG_TTL; }
 try{
   const s=JSON.parse(localStorage.getItem('usLg3')||'null');
@@ -10892,9 +10924,10 @@ function usLgPaint(t){
 }
 /* 로고 배지 — 로고를 알면 바로 이미지로, 모르면 색 배지 + 뒤에서 탐색 */
 function usTick(t,size){
-  const c=US_PAL[(t.charCodeAt(0)+t.charCodeAt(t.length-1))%US_PAL.length];
-  const u=usLgUrl(t);
-  if(!u)usLgWant(t);
+  const PAL=(typeof US_PAL!=='undefined'&&US_PAL)?US_PAL:['#2563eb'];
+  const c=PAL[(t.charCodeAt(0)+t.charCodeAt(t.length-1))%PAL.length];
+  let u=''; try{ u=usLgUrl(t); }catch(e){}
+  if(!u)try{usLgWant(t);}catch(e){}
   const cls='us-tick'+(size?' '+size:'')+(u?' on':'');
   const bg=u?";background-image:url('"+u+"')":'';
   return `<span class="${cls}" data-uslg="${t}" style="background:${c}${bg}">${t.length>5?t.slice(0,5):t}</span>`;
@@ -10921,7 +10954,7 @@ function usRow(t){
 }
 
 /* ── 6. 라운지 ── */
-let usRankTab='up', usThemeSel='ai';
+var usRankTab='up', usThemeSel='ai';
 function renderUsLounge(){
   const ses=usSession(), fx=usFx();
   $('usTop').innerHTML=`<div class="us-strip">
@@ -10966,7 +10999,7 @@ function renderUsThemeBody(){
   const list=US_UNI.filter(u=>u[4]===usThemeSel).map(u=>u[0]);
   $('usThemeBody').innerHTML=list.map(usRow).join('');
 }
-let usFxDir='toUsd';
+var usFxDir='toUsd';
 function renderUsFxCard(){
   const box=$('usFxCard'); if(!box)return;
   usSettle();
@@ -10986,7 +11019,7 @@ function renderUsFxCard(){
       <div class="us-inrow"><input id="usFxAmt" inputmode="decimal" placeholder="${toU?'예: 1000000':'예: 500'}">
         <button id="usFxMax" style="width:64px;font-size:12px">전액</button></div></div>
     <div id="usFxPreview" class="us-ord-note" style="margin:6px 0 10px"></div>
-    <button class="us-submit buy" id="usFxGo" ${fx?'':'disabled'}>${fx?'환전 실행':'환율 수신 대기'}</button>
+    <button class="us-submit buy" id="usFxGo">${fx?'환전 실행':'환율 확인 중 · 눌러서 다시 시도'}</button>
     <div class="us-ord-note">※ 매도 대금(달러)은 즉시 재매수에 쓸 수 있지만, 원화 환전은 미국 T+1 결제가 끝나는 <b>다음 영업일부터</b> 가능합니다.</div></div>`;
   const amt=$('usFxAmt'), pv=$('usFxPreview');
   const prev=()=>{const v=parseFloat(amt.value)||0;
@@ -10997,6 +11030,8 @@ function renderUsFxCard(){
   $('usFxMax').onclick=()=>{amt.value=toU?cash:avail;prev();};
   document.querySelectorAll('[data-usfxdir]').forEach(b=>b.onclick=()=>{usFxDir=b.dataset.usfxdir;renderUsFxCard();});
   $('usFxGo').onclick=()=>{
+    if(!usFx()){ toast('warn','환율을 받는 중입니다','잠시 후 자동으로 반영됩니다');
+      usEnsureQuotes(['AAPL'],true).then(()=>renderUsFxCard()); return; }
     const r=usExchange(toU?'toUsd':'toKrw',parseFloat(amt.value)||0);
     toast(r.ok?'buy':'warn',r.ok?'환전 완료':'환전 실패',r.msg);
     if(r.ok){renderUsFxCard();try{renderPortfolioNumbers();}catch(e){}}
@@ -11050,8 +11085,9 @@ function renderUsLive(){ if(currentView!=='us')return;
     const t=el.dataset.us,q=usQ[t]; if(!q)return;
     el.querySelector('.us-px').innerHTML='$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
     const r=el.querySelector('.us-rt'); r.textContent=usRateTxt(q); r.className='us-rt num '+usRateCls(q);});
-  const fx=usFx(); const fxb=document.querySelector('.us-fx b');
-  if(fx&&fxb)fxb.textContent=KRW(Math.round(fx))+'원';
+  /* [v4.34] 환율 표시는 여러 곳에 있다 — 첫 요소만 갱신하면 환전 카드가 옛 값으로 남는다 */
+  const fx=usFx();
+  if(fx){const el=document.querySelector('#usTop .us-fx b'); if(el)el.textContent=KRW(Math.round(fx))+'원';}
 }
 function wireUsLounge(){
   document.querySelectorAll('[data-usrank]').forEach(b=>b.onclick=()=>{usRankTab=b.dataset.usrank;
@@ -11082,7 +11118,7 @@ document.addEventListener('click',(e)=>{const n=e.target.closest('[data-us]');
   if(n&&n.dataset.us){openUS(n.dataset.us);}});
 
 /* ── 7. 해외 거래 화면 ── */
-let usSel=null, usSide='buy', usRange=132, usCandles=null, usOrdPx=null, usOrdQty=1;
+var usSel=null, usSide='buy', usRange=132, usCandles=null, usOrdPx=null, usOrdQty=1;
 function openUS(t){ if(!usMeta[t])return;
   usSel=t; usSide='buy'; usOrdPx=null; usOrdQty=1; usCandles=null;
   showView('ustrade');
@@ -11222,10 +11258,10 @@ function drawUsChart(){
 }
 
 /* ── 8. 주문 ── */
-const US_FEE_BASE=0.0025, US_SEC_FEE=0.0000278;
+var US_FEE_BASE=0.0025, US_SEC_FEE=0.0000278;
 function US_FEE_OF(){return US_FEE_BASE*acctFeeUs();}
-const US_FEE=US_FEE_BASE;   // SEC Fee: 매도금액의 0.00278% (미국 증권거래위원회)
-const fmtQty=(q)=>{const n=+q||0;return Number.isInteger(n)?KRW(n):n.toFixed(2);};
+var US_FEE=US_FEE_BASE;   // SEC Fee: 매도금액의 0.00278% (미국 증권거래위원회)
+var fmtQty=(q)=>{const n=+q||0;return Number.isInteger(n)?KRW(n):n.toFixed(2);};
 /* [v4.29] 주문 원가 — 수수료·SEC 는 달러로 계산하고, 결제수단에 따라 지갑을 고른다.
    pay='usd' : 달러 예수금에서 그대로 차감(직접환전 방식 — 추가 환전 비용 없음)
    pay='krw' : 원화 자동환전(통합증거금) — 환전 스프레드가 포함된 매수환율 적용 */
@@ -11249,7 +11285,7 @@ function usMaxQty(px,pay){
   const f=usFxBuy(); if(!f)return 0;
   return Math.max(0,Math.floor(cash/(px*f*(1+US_FEE_OF()))*100)/100);
 }
-let usPay='auto';
+var usPay='auto';
 function renderUsOrder(){
   const q=usQ[usSel]||{},fx=usFx();
   if(usOrdPx==null&&q.price!=null)usOrdPx=+q.price.toFixed(2);
@@ -11289,7 +11325,7 @@ function renderUsOrder(){
     <div id="usSum"></div>
     <div class="us-pass us-fld" id="usPassWrap" hidden><label><span>계좌 비밀번호</span></label>
       <div class="us-inrow"><input id="usPassIn" type="password" inputmode="numeric" maxlength="4" placeholder="4자리" style="text-align:center"></div></div>
-    <button class="us-submit ${usSide}" id="usSubmit" ${fx?'':'disabled'}>${fx?(usSide==='buy'?'매수 주문':'매도 주문'):'환율 수신 대기 중'}</button>
+    <button class="us-submit ${usSide}" id="usSubmit">${fx?(usSide==='buy'?'매수 주문':'매도 주문'):'환율 확인 중 · 눌러서 다시 시도'}</button>
     <div class="us-ord-note">※ 수수료 ${(US_FEE*100).toFixed(2)}%${usSide==='sell'?' + SEC Fee '+(US_SEC_FEE*100).toFixed(4)+'%':''} · 거래세 없음 · 소수점(0.01주) 매매 지원<br>
     ※ 모의 체결 — 실제 브로커의 원화주문은 가환율로 결제 후 익일 정산되지만, 여기서는 정식 환율을 즉시 적용합니다.</div>`;
   updateUsSum(); wireUsOrder();
@@ -11335,6 +11371,8 @@ function wireUsOrder(){
     const base=usSide==='buy'?usMaxQty(px,pay):(held?held.qty:0);
     usOrdQty=Math.max(0,Math.floor(base*p)/100); qIn.value=usOrdQty; updateUsSum();});
   $('usSubmit').onclick=()=>{
+    if(!usFx()){ toast('warn','환율을 받는 중입니다','잠시 후 다시 눌러 주세요');
+      usEnsureQuotes([usSel],true).then(()=>renderUsOrder()); return; }
     const wrap=$('usPassWrap');
     if(wrap.hidden){wrap.hidden=false;$('usPassIn').focus();return;}
     const pw=$('usPassIn').value;
@@ -11402,3 +11440,9 @@ function usExecuteOrder(side,o){
   return true;
 }
 function renderUsMineSafe(){try{if(currentView==='us')renderUsMine();}catch(e){}}
+
+/* ══ [v4.33] 모든 선언이 끝난 뒤에 부팅한다 — 순서 문제를 구조적으로 없앤다 ══ */
+try{ __bootMain(); }
+catch(e){ try{ reportErr('boot',e); }catch(_){ }
+  try{ window.__boot&&__boot.done(); }catch(_){ }   // 오류가 나도 입장화면은 반드시 걷는다
+}
