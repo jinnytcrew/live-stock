@@ -18,9 +18,9 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
-<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=326">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=326">
+<link rel="stylesheet" href="/app.css?v=332">
 </head>
 <body>
 
@@ -176,7 +176,7 @@
   <div class="bg-mid">
     <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
     <div class="bg-tag">실시간 시세로 연습하는 국내·해외 주식 모의투자</div>
-      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=326" alt="" aria-hidden="true" decoding="async"></div>
+      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=332" alt="" aria-hidden="true" decoding="async"></div>
   </div>
   <div class="bg-low">
     <div class="bg-status">
@@ -253,6 +253,7 @@
         <div class="fld2"><label>비밀번호</label><input id="liPw" type="password" autocomplete="current-password" placeholder="비밀번호"></div>
         <div class="modal-msg" id="liMsg"></div>
         <button class="modal-btn" id="doLogin">로그인</button>
+
         <div class="restore-wrap">
           <button type="button" class="link-btn" id="showRestore">다른 주소·기기에서 쓰던 계정 복원 ▾</button>
           <div id="restoreBox" hidden>
@@ -271,6 +272,8 @@
           <div class="acct-pick" id="suAcctType"></div>
           <div class="acct-detail" id="suAcctDetail"></div></div>
         <div class="fld2"><label>초기 예수금 (원)</label><input id="suCash" class="num" inputmode="numeric" value="10,000,000"></div>
+        <div class="fld2"><label>계좌 비밀번호 <small style="font-weight:600;color:var(--sub-2)">— 주문할 때 입력합니다 (숫자 4자리)</small></label>
+          <input id="suAcctPw" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
         <div class="fld2 two"><div><label>계좌 비밀번호 (숫자 4자리)</label><input id="suAcct" type="password" inputmode="numeric" maxlength="4" placeholder="****"></div><div><label>계좌 비밀번호 확인</label><input id="suAcct2" type="password" inputmode="numeric" maxlength="4"></div></div>
         <div class="modal-msg" id="suMsg"></div>
         <button class="modal-btn" id="doSignup">가입하고 시작하기</button>
@@ -1190,6 +1193,7 @@
     <!-- [v4.40] 계좌 선택 · 개설 안내 -->
     <div id="acctBar"></div>
     <div id="acctGuide"></div>
+    <div id="acctFxSec"></div>
     <div class="panel acct-hero" id="acctHeroPanel">
       <div class="ah-main">
         <div class="ah-k">내 총자산 · 실시간 평가</div>
@@ -1275,6 +1279,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=326"></script>
+<script type="module" src="/app.js?v=332"></script>
 </body>
 </html>

@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=326';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=326';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=332';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -1987,8 +1987,10 @@ function acctNewId(){ return 'ac'+Date.now().toString(36)+Math.random().toString
 /* 현재 화면의 잔고·보유를 활성 계좌 장부에 담아 둔다 */
 function acctSnap(){
   if(!acctActive)return;
+  const prev=acctBooks[acctActive]||{};
   acctBooks[acctActive]={cash,usdCash,usdSettling:usdSettling.slice(),
-    holdings:holdings.slice(),tradeLog:tradeLog.slice(),tradeArchive,ipoPlans:ipoPlans.slice()};
+    holdings:holdings.slice(),tradeLog:tradeLog.slice(),tradeArchive,ipoPlans:ipoPlans.slice(),
+    fx:(fxLive&&Object.keys(fxLive).length)?fxLive:(prev.fx||{})};   // [v4.45] 통화 잔고 보존
 }
 /* 계좌 장부를 화면 상태로 펼친다 */
 function acctLoad(id){
@@ -1999,30 +2001,192 @@ function acctLoad(id){
   tradeLog=Array.isArray(bk.tradeLog)?bk.tradeLog.slice():[];
   tradeArchive=(bk.tradeArchive&&typeof bk.tradeArchive==='object')?bk.tradeArchive:{};
   ipoPlans=Array.isArray(bk.ipoPlans)?bk.ipoPlans.slice():[];
+  fxLive=(bk.fx&&typeof bk.fx==='object')?bk.fx:{};                  // [v4.45]
   acctActive=id;
   const a=acctCur(); acctType=(a&&ACCT_TYPES[a.type])?a.type:'general';
+  if(a&&a.pw)acctPassHash=a.pw;                    // [v4.46] 활성 계좌의 비밀번호로 전환
 }
 function acctSwitch(id){
   if(id===acctActive||!acctBooks[id]&&!acctList.some(a=>a.id===id))return;
   acctSnap(); acctLoad(id); saveState();
   try{sanitizeAccount(true);}catch(e){}
   try{renderPortfolioNumbers();}catch(e){}
-  try{if(currentView==='account')renderAccount();}catch(e){}
+  try{if(currentView==='account'){renderAcctFx();}}catch(e){}
   try{renderAcctBar();}catch(e){}
   const a=acctCur();
   toast('buy','계좌 전환',(a?ACCT_TYPES[a.type].n:'')+' · 예수금 '+KRW(cash)+'원');
 }
-function acctOpen(type,initCash){
+/* ══ [v4.46] 계좌 비밀번호를 계좌별로 ═══════════════════════════════════════
+   지금까지 계좌 비밀번호는 계정에 하나뿐이었다. 계좌를 여러 개 쓰는데 비밀번호가
+   공용이면 실제 증권사와 다르고, 계좌를 나눠 쓰는 의미도 줄어든다.
+   → 계좌마다 비밀번호를 두고, 활성 계좌의 것을 주문 확인에 쓴다.
+   기존 계정은 쓰던 비밀번호를 그대로 물려받아 아무것도 잃지 않는다. */
+function acctPwOf(id){
+  const a=acctList.find(x=>x.id===(id||acctActive));
+  return (a&&a.pw)?a.pw:acctPassHash;              // 계좌 비번이 없으면 계정 공용 비번
+}
+function acctPwSet(id,hashed){
+  const a=acctList.find(x=>x.id===(id||acctActive));
+  if(a&&hashed){ a.pw=hashed; if(id===acctActive||!id)acctPassHash=hashed; saveState(); return true; }
+  return false;
+}
+function acctOpen(type,initCash,pwHashed){
   const t=ACCT_TYPES[type]?type:'general';
   const id=acctNewId();
-  acctList.push({id,type:t,openedAt:Date.now()});
+  acctList.push({id,type:t,openedAt:Date.now(),pw:pwHashed||acctPassHash});
   acctBooks[id]={cash:intOf(initCash,0),usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]};
   acctSnap(); acctLoad(id); saveState();
   return id;
 }
 /* 예전 단일 계좌 사용자를 자동 이전한다 — 데이터를 잃지 않는다 */
+/* ══ [v4.45] 다통화 환전 코너 — 내 계좌 ═══════════════════════════════════
+   해외 라운지의 환전은 달러 전용이다. 실제 증권사처럼 여러 통화를 다루도록
+   통화별 잔고와 환전 화면을 만든다. 환율은 원화 기준으로 환산해 계산한다. */
+var CURRENCIES=[
+  {c:'USD',n:'미국 달러',f:'🇺🇸',sym:'$',dec:2,spread:10},
+  {c:'JPY',n:'일본 엔',   f:'🇯🇵',sym:'¥',dec:0,spread:9,per:100},
+  {c:'EUR',n:'유로',      f:'🇪🇺',sym:'€',dec:2,spread:14},
+  {c:'CNY',n:'중국 위안', f:'🇨🇳',sym:'¥',dec:2,spread:16},
+  {c:'HKD',n:'홍콩 달러', f:'🇭🇰',sym:'HK$',dec:2,spread:14},
+  {c:'GBP',n:'영국 파운드',f:'🇬🇧',sym:'£',dec:2,spread:16},
+  {c:'CHF',n:'스위스 프랑',f:'🇨🇭',sym:'Fr',dec:2,spread:16},
+  {c:'AUD',n:'호주 달러', f:'🇦🇺',sym:'A$',dec:2,spread:14},
+  {c:'CAD',n:'캐나다 달러',f:'🇨🇦',sym:'C$',dec:2,spread:14},
+  {c:'SGD',n:'싱가포르 달러',f:'🇸🇬',sym:'S$',dec:2,spread:14},
+  {c:'VND',n:'베트남 동', f:'🇻🇳',sym:'₫',dec:0,spread:20,per:100},
+];
+function curInfo(c){ return CURRENCIES.find(x=>x.c===c)||CURRENCIES[0]; }
+var fxRates=null, _fxAllAt=0;
+try{ const s=JSON.parse(localStorage.getItem('fxAll1')||'null');
+  if(s&&s.v&&Date.now()-s.at<6*3600e3){ fxRates=s.v; _fxAllAt=s.at; } }catch(e){}
+function fxLoadAll(cb){
+  if(fxRates&&Date.now()-_fxAllAt<10*60e3){ cb&&cb(fxRates); return; }
+  fetch('/api/fxall',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    if(j&&j.rates&&j.rates.KRW){ fxRates=j.rates; _fxAllAt=Date.now();
+      try{localStorage.setItem('fxAll1',JSON.stringify({v:fxRates,at:_fxAllAt}));}catch(e){}
+      if(fxRates.USD)usFxSet(fxRates.KRW);      // 달러 환율도 함께 갱신
+    }
+    cb&&cb(fxRates);
+  }).catch(()=>cb&&cb(fxRates));
+}
+/* 통화 1단위의 원화 값 (JPY·VND 는 100단위 관행) */
+function krwPer(c){
+  if(!fxRates||!fxRates.KRW)return null;
+  if(c==='KRW')return 1;
+  const r=fxRates[c]; if(!r||!(r>0))return null;
+  return fxRates.KRW/r;                          // USD 기준 → 원화 환산
+}
+/* 계좌별 통화 잔고 */
+/* [v4.45] 통화 잔고는 활성 계좌 장부에 담는다.
+   acctBooks[acctActive] 는 저장 시점에만 갱신되므로, 없으면 즉시 만들어 둔다. */
+var fxLive={};                                   // 화면에서 쓰는 현재 계좌의 통화 잔고
+function fxWallet(){
+  if(!acctActive)return fxLive;
+  if(!acctBooks[acctActive])acctBooks[acctActive]={};
+  const bk=acctBooks[acctActive];
+  if(!bk.fx||typeof bk.fx!=='object')bk.fx=(fxLive&&Object.keys(fxLive).length)?fxLive:{};
+  fxLive=bk.fx;
+  return bk.fx;
+}
+function fxBal(c){ if(c==='USD')return usdCash; const w=fxWallet(); return +(w[c]||0); }
+function fxSetBal(c,v){
+  const nv=Math.max(0,+v||0);
+  if(c==='USD'){ usdCash=+nv.toFixed(2); return; }
+  const w=fxWallet(); w[c]=+nv.toFixed(curInfo(c).dec===0?0:2);
+}
+/* 환전 실행 — 매수/매도 스프레드에 계좌 우대율 적용 */
+function fxExchange(dir,cur,amount){
+  if(!acctOpened())return {ok:false,msg:'계좌를 먼저 개설해 주세요'};
+  const base=krwPer(cur);
+  if(!base)return {ok:false,msg:'환율을 아직 받지 못했습니다. 잠시 후 다시 시도해 주세요'};
+  const info=curInfo(cur);
+  const pref=US_FX_PREF_OF();                    // 계좌 종류별 우대율
+  const mg=info.spread*(1-pref)*(base/1385);     // 통화 규모에 비례한 실부담
+  const buy=base+mg, sell=Math.max(0.0001,base-mg);
+  if(dir==='toCur'){
+    const krw=Math.floor(+amount||0);
+    if(krw<1000)return {ok:false,msg:'1,000원 이상부터 환전할 수 있습니다'};
+    if(krw>cash)return {ok:false,msg:'원화 예수금이 부족합니다 (보유 '+KRW(cash)+'원)'};
+    const p=Math.pow(10,info.dec);
+    const got=Math.floor(krw/buy*p)/p;
+    if(!(got>0))return {ok:false,msg:'금액이 너무 작습니다'};
+    cash=intOf(cash-Math.ceil(got*buy),0); fxSetBal(cur,fxBal(cur)+got);
+    saveState();
+    return {ok:true,msg:`${info.sym}${fmtCur(got,cur)} 환전 완료 · 적용환율 ${fmtRate(buy,cur)} (우대 ${Math.round(pref*100)}%)`};
+  }else{
+    const p=Math.pow(10,info.dec);
+    const amt=Math.floor((+amount||0)*p)/p;
+    let avail=fxBal(cur);
+    if(cur==='USD')avail=usUsdAvailable();       // 달러는 T+1 미결제분 제외
+    if(!(amt>0))return {ok:false,msg:'금액을 확인하세요'};
+    if(amt>avail)return {ok:false,msg:`환전 가능액 초과 · 가능 ${info.sym}${fmtCur(avail,cur)}`};
+    const krw=Math.floor(amt*sell);
+    fxSetBal(cur,fxBal(cur)-amt); cash=intOf(cash+krw,0);
+    saveState();
+    return {ok:true,msg:`${KRW(krw)}원 환전 완료 · 적용환율 ${fmtRate(sell,cur)} (우대 ${Math.round(pref*100)}%)`};
+  }
+}
+function fmtCur(v,c){ const d=curInfo(c).dec;
+  return (+v||0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function fmtRate(r,c){ const i=curInfo(c);
+  return i.per?KRW(Math.round(r*i.per))+'원/'+i.per+i.c : KRW(Math.round(r*100)/100)+'원'; }
 /* ══ [v4.40] 계좌 선택 바 + 미개설 안내 ═══════════════════════════════════ */
 var aeSel='general';
+var fxSel='USD', fxDir='toCur';
+/* 내 계좌 환전 코너 */
+function renderAcctFx(){
+  const sec=$('acctFxSec'); if(!sec)return;
+  if(!acctOpened()){ sec.innerHTML=''; return; }
+  const info=curInfo(fxSel), base=krwPer(fxSel);
+  const pref=US_FX_PREF_OF();
+  const mg=base?info.spread*(1-pref)*(base/1385):0;
+  const buy=base?base+mg:null, sell=base?Math.max(0.0001,base-mg):null;
+  const held=CURRENCIES.filter(c=>fxBal(c.c)>0);
+  const toCur=fxDir==='toCur';
+  const avail=fxSel==='USD'?usUsdAvailable():fxBal(fxSel);
+  sec.innerHTML=`<div class="sec"><div class="sec-title">환전 <span class="sec-sub">· 원화 ↔ ${CURRENCIES.length}개 통화 · 계좌 우대 ${Math.round(pref*100)}%</span></div>
+    <div class="panel afx">
+      <div class="afx-wallet">
+        <div class="afw-i"><small>원화 예수금</small><b class="num">${KRW(cash)}원</b></div>
+        ${held.length?held.map(c=>`<div class="afw-i"><small>${c.f} ${c.c}</small><b class="num">${c.sym}${fmtCur(fxBal(c.c),c.c)}</b>
+          <i class="num">${krwPer(c.c)?'≈ '+KRW(Math.round(fxBal(c.c)*krwPer(c.c)))+'원':''}</i></div>`).join('')
+          :`<div class="afw-i empty2"><small>보유 외화</small><b>아직 없습니다</b></div>`}
+      </div>
+      <div class="afx-cur" id="afxCur">${CURRENCIES.map(c=>
+        `<button class="afx-c ${fxSel===c.c?'on':''}" data-cur="${c.c}"><i>${c.f}</i><b>${c.c}</b>
+          <span class="num">${krwPer(c.c)?fmtRate(krwPer(c.c),c.c):'—'}</span></button>`).join('')}</div>
+      <div class="us-chips" style="margin:12px 0 8px">
+        <button class="us-chip ${toCur?'on':''}" data-fxdir="toCur">원화 → ${info.c} (살 때 ${buy?fmtRate(buy,fxSel):'—'})</button>
+        <button class="us-chip ${!toCur?'on':''}" data-fxdir="toKrw">${info.c} → 원화 (팔 때 ${sell?fmtRate(sell,fxSel):'—'})</button>
+      </div>
+      <div class="us-fld"><label><span>${toCur?'환전할 원화 금액':'환전할 '+info.n+' 금액'}</span>
+        <span class="num">${toCur?'보유 '+KRW(cash)+'원':'가능 '+info.sym+fmtCur(avail,fxSel)}</span></label>
+        <div class="us-inrow"><input id="afxAmt" inputmode="decimal" placeholder="${toCur?'예: 1000000':'예: 500'}">
+          <button id="afxMax" style="width:64px;font-size:12px">전액</button></div></div>
+      <div id="afxPrev" class="us-ord-note" style="margin:6px 0 10px"></div>
+      <button class="us-submit buy" id="afxGo">${base?'환전 실행':'환율 확인 중 · 눌러서 다시 시도'}</button>
+      <div class="us-ord-note">※ 환율은 실시간 기준가에 통화별 스프레드를 적용하며, 계좌 종류에 따라 우대율이 다릅니다.<br>
+      ※ 달러는 해외 주식 주문에 바로 쓰이고, 매도 대금은 T+1 정산 후 원화로 환전할 수 있습니다.</div>
+    </div></div>`;
+  const amt=$('afxAmt'), pv=$('afxPrev');
+  const prev=()=>{ const v=parseFloat(amt.value)||0;
+    if(!base||!(v>0)){pv.textContent='';return;}
+    if(toCur){ const p=Math.pow(10,info.dec);
+      pv.innerHTML=`받게 될 금액: <b class="num">${info.sym}${fmtCur(Math.floor(v/buy*p)/p,fxSel)}</b>`; }
+    else pv.innerHTML=`받게 될 원화: <b class="num">${KRW(Math.floor(Math.min(v,avail)*sell))}원</b>`; };
+  amt.oninput=prev;
+  $('afxMax').onclick=()=>{ amt.value=toCur?cash:avail; prev(); };
+  sec.querySelectorAll('[data-cur]').forEach(b2=>b2.onclick=()=>{fxSel=b2.dataset.cur;renderAcctFx();});
+  sec.querySelectorAll('[data-fxdir]').forEach(b2=>b2.onclick=()=>{fxDir=b2.dataset.fxdir;renderAcctFx();});
+  $('afxGo').onclick=()=>{
+    if(!krwPer(fxSel)){ toast('warn','환율을 받는 중입니다','잠시 후 자동으로 표시됩니다');
+      fxLoadAll(()=>renderAcctFx()); return; }
+    const r=fxExchange(fxDir,fxSel,parseFloat(amt.value)||0);
+    toast(r.ok?'buy':'warn',r.ok?'환전 완료':'환전 실패',r.msg);
+    if(r.ok){ renderAcctFx(); try{renderPortfolioNumbers();}catch(e){} }
+  };
+  if(!base)fxLoadAll(()=>{ if(currentView==='account')renderAcctFx(); });
+}
 function renderAcctBar(){
   const bar=$('acctBar'), guide=$('acctGuide'), hero=$('acctHeroPanel');
   if(!bar||!guide)return;
@@ -2037,6 +2201,8 @@ function renderAcctBar(){
       <div class="acct-detail" id="aeDetail"></div>
       <div class="fld2" style="margin-top:12px"><label>시작 예수금 (원)</label>
         <input id="aeCash" class="num" inputmode="numeric" value="10,000,000"></div>
+      <div class="fld2"><label>계좌 비밀번호 <small style="font-weight:600;color:var(--sub-2)">— 주문할 때 입력합니다 (숫자 4자리)</small></label>
+        <input id="aePw" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
       <div class="ae-msg" id="aeMsg"></div>
       <button class="modal-btn" id="aeGo">계좌 개설하기</button>
       <div class="ae-note">모의 계좌입니다 · 실제 금융거래가 아니며 개인정보를 요구하지 않습니다.</div>
@@ -2075,18 +2241,36 @@ function renderAeTypes(){
       ${a.cons.map(x=>`<span class="acct-con">· ${x}</span>`).join('')}</div></div>`;
   const go=$('aeGo'); if(go)go.onclick=()=>doAcctOpen();
 }
+function finishAcctOpen(t,v){
+  toast('buy','계좌 개설 완료',t.n+' · 예수금 '+KRW(v)+'원 · 비밀번호 설정 완료');
+  try{sanitizeAccount(true);}catch(e){}
+  try{closeLiteGate();}catch(e){}
+  renderAcctBar(); try{renderAcctFx();renderPortfolioNumbers();renderHoldings();}catch(e){}
+}
 function doAcctOpen(){
   const t=ACCT_TYPES[aeSel]||ACCT_TYPES.general;
   const v=parseInt((($('aeCash')||{}).value||'0').replace(/[^0-9]/g,''))||0;
   const msg=$('aeMsg');
-  if(v<10000){if(msg){msg.style.color='var(--down)';msg.textContent='시작 예수금은 10,000원 이상으로 설정해 주세요.';}return;}
-  if(t.limit&&v>t.limit){if(msg){msg.style.color='var(--down)';
-    msg.innerHTML=`<b>${t.n}</b>의 연 납입한도는 <b>${KRW(t.limit)}원</b>입니다. 금액을 낮추거나 다른 계좌를 선택해 주세요.`;}return;}
-  acctOpen(aeSel,v);
-  toast('buy','계좌 개설 완료',t.n+' · 예수금 '+KRW(v)+'원으로 시작합니다');
-  try{sanitizeAccount(true);}catch(e){}
-  try{$('liteGate').hidden=true;}catch(e){}
-  renderAcctBar(); try{renderPortfolioNumbers();renderHoldings();}catch(e){}
+  const say=(html)=>{ if(msg){msg.style.color='var(--down)'; msg.innerHTML=html;} };
+  /* ══ [v4.45] 개설 안전장치 ═══════════════════════════════════════════════
+     지금까지 개수 제한도, 같은 종류 중복 방지도 없었다. 실제 증권사도
+     ISA·연금저축은 1인 1계좌만 허용하므로 그 규칙을 반영한다. */
+  if(acctList.length>=6)return say('계좌는 최대 <b>6개</b>까지 개설할 수 있습니다.');
+  if(['isa','pension','irp'].includes(aeSel)&&acctList.some(a=>a.type===aeSel))
+    return say(`<b>${t.n}</b>는 1인 1계좌만 개설할 수 있습니다. 이미 보유 중이에요.`);
+  if(v<10000)return say('시작 예수금은 10,000원 이상으로 설정해 주세요.');
+  if(v>1000000000)return say('시작 예수금은 <b>10억원</b> 이하로 설정해 주세요.');
+  if(t.limit&&v>t.limit)
+    return say(`<b>${t.n}</b>의 연 납입한도는 <b>${KRW(t.limit)}원</b>입니다. 금액을 낮추거나 다른 계좌를 선택해 주세요.`);
+  const pwv=(($('aePw')||{}).value||'').trim();
+  if(!/^\d{4}$/.test(pwv))return say('계좌 비밀번호를 <b>숫자 4자리</b>로 설정해 주세요.');
+  if(/^(\d)\1{3}$/.test(pwv)||['0123','1234','2345','3456','4567','5678','6789','9876','4321'].includes(pwv))
+    return say('같은 숫자 반복이나 연속된 숫자는 사용할 수 없습니다.');
+  pwHash(pwv).then(hh=>{
+    acctOpen(aeSel,v,hh);
+    finishAcctOpen(t,v);
+  });
+  return;
 }
 function openAcctOpenSheet(){
   aeSel='general';
@@ -2095,6 +2279,8 @@ function openAcctOpenSheet(){
     <div class="acct-pick" id="aeTypes"></div><div class="acct-detail" id="aeDetail"></div>
     <div class="fld2" style="margin-top:12px"><label>시작 예수금 (원)</label>
       <input id="aeCash" class="num" inputmode="numeric" value="10,000,000"></div>
+    <div class="fld2"><label>계좌 비밀번호 <small style="font-weight:600;color:var(--sub-2)">— 숫자 4자리</small></label>
+      <input id="aePw" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
     <div class="ae-msg" id="aeMsg"></div>
     <button class="modal-btn" id="aeGo">계좌 개설하기</button></div>`);
   setTimeout(renderAeTypes,60);
@@ -2102,7 +2288,7 @@ function openAcctOpenSheet(){
 function acctMigrate(){
   if(acctOpened())return;
   const id=acctNewId();
-  acctList=[{id,type:(ACCT_TYPES[acctType]?acctType:'general'),openedAt:Date.now(),legacy:1}];
+  acctList=[{id,type:(ACCT_TYPES[acctType]?acctType:'general'),openedAt:Date.now(),legacy:1,pw:acctPassHash}];
   acctBooks={[id]:{cash,usdCash,usdSettling:usdSettling.slice(),holdings:holdings.slice(),
     tradeLog:tradeLog.slice(),tradeArchive,ipoPlans:ipoPlans.slice()}};
   acctActive=id;
@@ -2302,6 +2488,7 @@ $('tabSignup').onclick=()=>{$('tabSignup').classList.add('on');$('tabLogin').cla
 /* [v4.18] 아이디는 서버와 똑같은 규칙(소문자·공백제거)으로 정규화한다.
    기기마다 대소문자가 달라 '같은 아이디인데 다른 계정'이 되던 문제의 절반이 여기 있었다. */
 function normId(v){return String(v==null?'':v).trim().toLowerCase();}
+
 $('doLogin').onclick=async()=>{
   const raw=$('liId').value.trim();
   const id=normId(raw),pw=$('liPw').value,m=$('liMsg');
@@ -2400,6 +2587,12 @@ $('doSignup').onclick=async()=>{
   acctList=[]; acctBooks={}; acctActive='';                     // [v4.40] 가입 시 첫 계좌를 연다
   const name=$('suName').value.trim()||id,email=$('suEmail').value.trim();
   const cashV=parseInt(($('suCash').value||'0').replace(/[^0-9]/g,''))||0;
+  /* [v4.46] 가입 시 계좌 비밀번호 설정 — 비우면 기본 0000 */
+  {const apw=(($('suAcctPw')||{}).value||'').trim();
+   if(apw&&!/^\d{4}$/.test(apw)){$('suMsg').textContent='계좌 비밀번호는 숫자 4자리로 입력해 주세요.';return;}
+   if(apw&&(/^(\d)\1{3}$/.test(apw)||['0123','1234','4321','9876'].includes(apw))){
+     $('suMsg').textContent='계좌 비밀번호에 같은 숫자 반복이나 연속된 숫자는 쓸 수 없습니다.';return;}
+   if(apw)acctPassHash=await pwHash(apw);}
   /* [v4.32] 계좌 종류별 납입한도 검증 — 고르기만 하고 끝나지 않게 실제로 적용한다 */
   {const _a=ACCT_TYPES[acctType];
    if(_a&&_a.limit&&cashV>_a.limit){
@@ -2425,7 +2618,7 @@ $('doSignup').onclick=async()=>{
   const accs=accounts(); accs[id]={pass:passH,name,email,acctPass:acctH,created:Date.now()}; store.set('accounts',accs);
   store.set('user:'+id,{watchlist:['005930','000660','035420'],holdings:[],cash:cashV,ipoPlans:[],acctPass:acctH});
   applyUser(id); unlockApp(); initApp();
-  try{ acctOpen(acctType,cashV); }catch(e){}                    // [v4.40] 선택한 종류로 첫 계좌 개설
+  try{ acctOpen(acctType,cashV,acctPassHash); }catch(e){}       // [v4.46] 첫 계좌 + 계좌 비밀번호
   toast('buy','가입 완료 · '+name+'님','계정이 서버에 저장되어 어느 기기에서든 같은 아이디로 로그인할 수 있어요');
 };
 /* ===== 프로필 메뉴 ===== */
@@ -3445,7 +3638,7 @@ function _showView(name){
     safeRun('nxtStatus',loadNxtStatus);}
   if(name==='clan'){safeRun('clan',renderClan);}
   if(name==='friend'){safeRun('friend',renderFriend);}
-  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
+  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
     safeRun('equity',()=>{seedEquityFromTrades();recordEquity();requestAnimationFrame(drawEquity);});
     safeRun('bgList',refreshStockListSoon);
     if(currentView==='home')safeRun('heroeq',drawHeroEq);
@@ -7170,7 +7363,7 @@ function renderSearch(){
      자체 블록으로 감싸 세로로 쌓이게 한다. */
   const usBlock=usHit.length?`<div class="us-searchblk"><div class="us-sec"><b>🇺🇸 해외 주식</b><span>탭하면 해외 거래 화면이 열립니다</span></div>`
     +usHit.map(u=>usRow(u[0])).join('')+`</div>`:'';
-  usHit.length&&usEnsureQuotes(usHit.map(u=>u[0]),true).then(()=>{if(currentView==='search')try{document.querySelectorAll('#searchResults .us-row').forEach(el=>{const t=el.dataset.us,q2=usQ[t];if(!q2)return;el.querySelector('.us-px').innerHTML='$'+USD2(q2.price)+`<small>${USDKR(q2.price)}</small>`;const r=el.querySelector('.us-rt');r.textContent=usRateTxt(q2);r.className='us-rt num '+usRateCls(q2);});}catch(e){}});
+  usHit.length&&usEnsureQuotes(usHit.map(u=>u[0]),true).then(()=>{ if(currentView==='search')usPaintRows($('searchResults')); });
 /* [v4.36] 해외만 국기 라벨이 붙어 있어 국내 결과가 무엇인지 모호했다 — 국내도 같은 방식으로 구분한다 */
   const krHead=`<div class="kr-searchblk"><div class="us-sec"><b>🇰🇷 국내 주식</b><span>코스피·코스닥·NXT</span></div></div>`;
   $('searchResults').innerHTML=usBlock+krHead+html;
@@ -10450,7 +10643,7 @@ function renderPwDots(){$('pwDots').querySelectorAll('span').forEach((d,i)=>d.cl
 $('keypad').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const k=b.dataset.k;
   if(k==='C')pwBuf='';else if(k==='X')pwBuf=pwBuf.slice(0,-1);else if(pwBuf.length<4)pwBuf+=b.textContent;
   renderPwDots();
-  if(pwBuf.length===4){pwHash(pwBuf).then(h=>{if(h===acctPassHash||legacyHash(pwBuf)===acctPassHash){const o=pendingOrder;closePw();executeOrder(o);}else{$('pwMsg').textContent='비밀번호가 올바르지 않습니다';pwBuf='';setTimeout(renderPwDots,400);}});}});
+  if(pwBuf.length===4){pwHash(pwBuf).then(h=>{const AP=acctPwOf();if(h===AP||legacyHash(pwBuf)===AP){const o=pendingOrder;closePw();executeOrder(o);}else{$('pwMsg').textContent='비밀번호가 올바르지 않습니다';pwBuf='';setTimeout(renderPwDots,400);}});}});
 $('pwCancel').onclick=closePw;
 function executeOrder(o){return executeOrderCore(byCode[selected],o,'');}
 /* [v2.5] 코어 분리 — 예약·손절·익절 자동 체결이 '보고 있지 않은 종목'에도 안전하게 작동 */
@@ -10914,7 +11107,7 @@ var US_UNI=[
 ['F','N','포드','Ford','ev',0],['ALB','N','앨버말(리튬)','Albemarle','ev',0],
 /* 소비 · 리테일 · 미디어 */
 ['NFLX','O','넷플릭스','Netflix','cons',0],['DIS','N','디즈니','Disney','cons',0],
-['COST','O','코스트코','Costco','cons',0],['WMT','N','월마트','Walmart','cons',0],
+['COST','O','코스트코','Costco','cons',0],['WMT','O','월마트','Walmart','cons',0],
 ['MCD','N','맥도날드','McDonalds','cons',0],['SBUX','O','스타벅스','Starbucks','cons',0],
 ['NKE','N','나이키','Nike','cons',0],['KO','N','코카콜라','Coca-Cola','cons',0],
 ['PEP','O','펩시코','PepsiCo','cons',0],['PG','N','P&G','Procter & Gamble','cons',0],
@@ -10923,7 +11116,7 @@ var US_UNI=[
 ['JPM','N','JP모건','JPMorgan','fin',0],['BAC','N','뱅크오브아메리카','Bank of America','fin',0],
 ['V','N','비자','Visa','fin',0],['MA','N','마스터카드','Mastercard','fin',0],
 ['BRK.B','N','버크셔 해서웨이 B','Berkshire B','fin',0],['GS','N','골드만삭스','Goldman Sachs','fin',0],
-['COIN','O','코인베이스','Coinbase','coin',0],['MSTR','O','마이크로스트래티지','MicroStrategy','coin',0],
+['COIN','O','코인베이스','Coinbase','coin',0],['MSTR','O','스트래티지','Strategy Inc','coin',0],
 ['HOOD','O','로빈후드','Robinhood','coin',0],['SOFI','O','소파이','SoFi','coin',0],
 ['PYPL','O','페이팔','PayPal','coin',0],
 /* 헬스케어 · 바이오 */
@@ -10955,7 +11148,7 @@ var US_UNI=[
 ['UPRO','A','S&P500 3배','ProShares UPRO','etflev',1],['TSLL','O','테슬라 2배','Direxion TSLL','etflev',1],
 ['NVDL','O','엔비디아 2배','GraniteShares NVDL','etflev',1],
 ['TLT','O','미국 장기채 20Y','iShares 20Y Treasury','etfbond',1],['TMF','A','장기채 3배','Direxion TMF','etfbond',1],
-['SGOV','A','초단기 국채','iShares 0-3M','etfbond',1],['GLD','A','금 ETF','SPDR Gold','etfbond',1],
+['SGOV','N','초단기 국채','iShares 0-3M','etfbond',1],['GLD','A','금 ETF','SPDR Gold','etfbond',1],
 ];
 var usMeta={}; US_UNI.forEach(([t,sfx,kr,en,theme,etf])=>{usMeta[t]={t,sfx,kr,en,theme,etf,reu:t.replace('.','/')+'.'+sfx};});
 function isUS(code){return !!usMeta[code];}
@@ -10992,7 +11185,7 @@ var US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT','
  '나스닥':'QQQ','나스닥100':'QQQ','에스앤피':'SPY','SP500':'SPY','S&P500':'SPY','스파이':'SPY',
  '배당':'SCHD','슈드':'SCHD','제피':'JEPI','티큐':'TQQQ','삼배':'TQQQ',
  '리얼티':'O','월배당':'O','일라이':'LLY','릴리':'LLY','노보':'NVO','유나이티드헬스':'UNH',
- '코인베이스':'COIN','코베':'COIN','마이크로스트래티지':'MSTR','마스트':'MSTR','로빈후드':'HOOD',
+ '코인베이스':'COIN','코베':'COIN','마이크로스트래티지':'MSTR','마스트':'MSTR','스트래티지':'MSTR','마이크로':'MSTR','로빈후드':'HOOD',
  '보잉':'BA','록히드':'LMT','로켓랩':'RKLB','오클로':'OKLO','뉴스케일':'SMR'};
 
 /* 원격 검색 — 내장 목록에 없는 종목까지 찾는다 */
@@ -11507,7 +11700,24 @@ function renderUsRules(){
       <div class="us-rule"><b>🧾 세금 (참고)</b><span>연 실현손익 250만원까지 비과세, 초과분 22% 양도소득세 — 아래 세금 도우미에서 자동 계산됩니다. 배당은 미국 15% 원천징수(모의에서는 배당 미지급).</span></div>
     </div></div>`;
 }
-function renderUsLive(){ if(currentView!=='us')return;
+/* ══ [v4.42] 시세가 도착해도 목록이 안 바뀌던 진짜 이유 ═══════════════════
+   이 함수가 '해외 라운지'에서만 돌게 막혀 있었다. 그래서 종목검색·순위 화면에서는
+   시세를 받아도 화면을 다시 칠하지 않아 $— 가 영구히 남았다(첨부 2·5번 사진).
+   → 어느 화면이든 눈에 보이는 .us-row 를 갱신한다. */
+function usPaintRows(root){
+  (root||document).querySelectorAll('.us-row[data-us], .us-star[data-us]').forEach(el=>{
+    const t=el.dataset.us,q=usQ[t]; if(!q||q.price==null)return;
+    const px=el.querySelector('.us-px'), rt=el.querySelector('.us-rt');
+    if(px)px.innerHTML='$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
+    if(rt){rt.textContent=usRateTxt(q); rt.className='us-rt num '+usRateCls(q);}
+    const p=el.querySelector('.p'), r=el.querySelector('.r');
+    if(p)p.textContent='$'+USD2(q.price);
+    if(r){r.textContent=usRateTxt(q); r.className='r num '+usRateCls(q);}
+  });
+}
+function renderUsLive(){
+  usPaintRows();                                   // 화면 종류와 무관하게 먼저 칠한다
+  if(currentView!=='us')return;
   renderUsRankBody(); renderUsThemeBody(); renderUsMine();
   /* 스타 카드·행 시세만 부분 갱신 */
   document.querySelectorAll('#usStars .us-star').forEach(el=>{
@@ -11535,7 +11745,7 @@ function wireUsLounge(){
       if(!q){box.innerHTML='';return;}
       const draw=(list,note)=>{ box.innerHTML=(list.length?list.slice(0,12).map(usRow).join('')
         :`<div class="etf-empty">'${q}' 검색 결과가 없습니다</div>`)+(note?`<div class="us-ord-note" style="padding:6px 4px">${note}</div>`:'');
-        if(list.length)usEnsureQuotes(list.slice(0,12),true).then(()=>renderUsLive()); };
+        if(list.length)usEnsureQuotes(list.slice(0,12),true).then(()=>usPaintRows($('usSearchOut'))); };
       draw(local, local.length?'':'전 종목에서 찾는 중…');
       usSearchRemote(q,(items)=>{
         if(inp.value.trim()!==q)return;                       // 입력이 바뀌었으면 버린다
@@ -11552,6 +11762,26 @@ document.addEventListener('click',(e)=>{const n=e.target.closest('[data-us]');
 
 /* ── 7. 해외 거래 화면 ── */
 var usSel=null, usSide='buy', usRange=132, usCandles=null, usOrdPx=null, usOrdQty=1;
+var usTF='D';    // [v4.42] 봉 종류 — D 일봉 / W 주봉 / M 월봉
+/* 일봉을 주·월봉으로 묶는다 — 시가는 첫 봉, 종가는 마지막 봉, 고저는 구간 최대·최소 */
+function usAgg(cs,tf){
+  if(tf==='D'||!cs||!cs.length)return cs||[];
+  const key=(t)=>{
+    const s=String(t), y=+s.slice(0,4), m=+s.slice(4,6), d=+s.slice(6,8);
+    if(tf==='M')return y*100+m;
+    const dt=new Date(Date.UTC(y,m-1,d));
+    const th=new Date(dt); th.setUTCDate(dt.getUTCDate()-((dt.getUTCDay()+6)%7));   // 그 주 월요일
+    return +(th.getUTCFullYear()+String(th.getUTCMonth()+1).padStart(2,'0')+String(th.getUTCDate()).padStart(2,'0'));
+  };
+  const out=[]; let cur=null,k0=null;
+  cs.forEach(c=>{
+    const k=key(c.t);
+    if(k!==k0){ if(cur)out.push(cur); k0=k; cur={t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}; }
+    else { cur.h=Math.max(cur.h,c.h); cur.l=Math.min(cur.l,c.l); cur.c=c.c; cur.v+=c.v; cur.t=c.t; }
+  });
+  if(cur)out.push(cur);
+  return out;
+}
 function openUS(t){ if(!usMeta[t])return;
   usSel=t; usSide='buy'; usOrdPx=null; usOrdQty=1; usCandles=null;
   showView('ustrade');
@@ -11560,10 +11790,21 @@ var usInfoTab='summary';
 function renderUsTrade(){
   if(!usSel){showView('us');return;}
   renderUsHead(); renderUsOrder();
-  $('usRanges').innerHTML=[[66,'3개월'],[132,'6개월'],[260,'1년'],[520,'전체']].map(([n,l])=>
-    `<button class="${usRange===n?'on':''}" data-usrange="${n}">${l}</button>`).join('');
+  /* [v4.42] 국내 차트처럼 봉 종류(일/주/월)와 기간을 함께 고른다 */
+  $('usRanges').innerHTML=
+    `<span class="us-tf">${[['D','일봉'],['W','주봉'],['M','월봉']].map(([k,l])=>
+      `<button class="${usTF===k?'on':''}" data-ustf="${k}">${l}</button>`).join('')}</span>`
+   +`<span class="us-rg">${(usTF==='D'?[[66,'3개월'],[132,'6개월'],[260,'1년'],[520,'전체']]
+      :usTF==='W'?[[26,'6개월'],[52,'1년'],[104,'2년'],[520,'전체']]
+      :[[12,'1년'],[24,'2년'],[60,'5년'],[520,'전체']]).map(([n,l])=>
+      `<button class="${usRange===n?'on':''}" data-usrange="${n}">${l}</button>`).join('')}</span>`;
   document.querySelectorAll('[data-usrange]').forEach(b2=>b2.onclick=()=>{usRange=+b2.dataset.usrange;
     document.querySelectorAll('[data-usrange]').forEach(x=>x.classList.toggle('on',x===b2));drawUsChart();});
+  document.querySelectorAll('[data-ustf]').forEach(b2=>b2.onclick=()=>{
+    usTF=b2.dataset.ustf;
+    usRange=(usTF==='D')?132:(usTF==='W')?52:24;      // 봉을 바꾸면 기본 기간도 맞춘다
+    renderUsTrade();
+  });
   document.querySelectorAll('#usInfoTabs button').forEach(b2=>b2.onclick=()=>{
     usInfoTab=b2.dataset.uinfo;
     document.querySelectorAll('#usInfoTabs button').forEach(x=>x.classList.toggle('on',x===b2));
@@ -11670,8 +11911,10 @@ function renderUsAi(el){
 function renderUsSiseTab(el){
   const cs=usCandles;
   if(!cs||!cs.length){el.innerHTML=usNoData('일별 시세를 불러오는 중입니다','잠시만 기다려 주세요.');return;}
-  const rows=cs.slice(-30).reverse();
-  el.innerHTML=`<div class="us-sec2">일별 시세 <small>최근 ${rows.length}거래일</small></div>
+  const agg=usAgg(cs,usTF);
+  const rows=agg.slice(-30).reverse();
+  const unit=usTF==='D'?'거래일':usTF==='W'?'주':'개월';
+  el.innerHTML=`<div class="us-sec2">${usTF==='D'?'일별':usTF==='W'?'주별':'월별'} 시세 <small>최근 ${rows.length}${unit}</small></div>
     <div class="us-sise-h"><span>날짜</span><span>종가</span><span>등락</span><span>거래량</span></div>
     ${rows.map((c,i)=>{const pv=rows[i+1]?rows[i+1].c:null;const dd=pv!=null?c.c-pv:0;
       return `<div class="us-sise-r"><span class="num">${String(c.t).slice(4,6)}.${String(c.t).slice(6,8)}</span>
@@ -11798,7 +12041,7 @@ function drawUsChart(){
   cv.width=box.width*dpr; cv.height=box.height*dpr;
   const x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0);
   const W=box.width,H=box.height; x.clearRect(0,0,W,H);
-  const all=usCandles||[];
+  const all=usAgg(usCandles||[],usTF);
   const cs=all.slice(-usRange);
   if(cs.length<3){x.fillStyle='#9aa5b5';x.font='12.5px Pretendard';x.textAlign='center';
     x.fillText(cs.length?'차트 데이터가 '+cs.length+'일치만 확인됩니다':'차트 데이터를 불러오지 못했습니다',W/2,H/2-8);
@@ -11962,7 +12205,8 @@ function wireUsOrder(){
     const wrap=$('usPassWrap');
     if(wrap.hidden){wrap.hidden=false;$('usPassIn').focus();return;}
     const pw=$('usPassIn').value;
-    if(hash(pw)!==acctPassHash&&legacyHash(pw)!==acctPassHash){
+    const AP=acctPwOf();
+    if(hash(pw)!==AP&&legacyHash(pw)!==AP){
       toast('warn','비밀번호 오류','계좌 비밀번호 4자리를 확인하세요');return;}
     usExecuteOrder(usSide,{price:parseFloat(pxIn.value)||0,qty:Math.round((parseFloat(qIn.value)||0)*100)/100});
   };

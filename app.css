@@ -3387,3 +3387,33 @@ html[data-theme="dark"] .mkt-tabs button.on{background:linear-gradient(135deg,#4
 .hmu-dot.on{background:#12b76a}.hmu-dot.ext{background:#f5a30d}
 .hm-usi{display:flex;gap:10px}
 .hm-uswait{font-size:11px;color:rgba(255,255,255,.55);font-weight:700}
+
+/* ── [v4.42] 해외 차트 봉 종류 / 기간 ─────────────────────────────────── */
+.us-ranges{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.us-tf,.us-rg{display:flex;gap:5px}
+.us-tf{padding-right:10px;border-right:1px solid var(--border-soft)}
+.us-tf button{border:1px solid var(--border);background:var(--panel);color:var(--sub);border-radius:8px;
+  padding:4px 10px;font-size:11.5px;font-weight:800;cursor:pointer}
+.us-tf button.on{background:#3b7ef0;color:#fff;border-color:#3b7ef0}
+@media(max-width:640px){.us-chart-h{flex-direction:column;align-items:flex-start;gap:8px}}
+
+/* ── [v4.45] 내 계좌 환전 코너 ────────────────────────────────────────── */
+.afx{padding:18px}
+.afx-wallet{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1px;
+  background:var(--border-soft);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.afw-i{background:var(--panel);padding:11px 13px}
+.afw-i small{display:block;font-size:11px;font-weight:700;color:var(--sub-2);margin-bottom:2px}
+.afw-i b{font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+.afw-i i{display:block;font-style:normal;font-size:11px;color:var(--sub-2);font-weight:700;margin-top:2px}
+.afw-i.empty2 b{font-size:12.5px;font-weight:700;color:var(--sub-2)}
+.afx-cur{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:7px}
+.afx-c{display:flex;align-items:center;gap:6px;padding:9px 10px;border:1.5px solid var(--border);
+  background:var(--panel);border-radius:11px;cursor:pointer;color:var(--fg);text-align:left}
+.afx-c i{font-style:normal;font-size:15px;flex:none}
+.afx-c b{font-size:12.5px;font-weight:900;flex:none}
+.afx-c span{flex:1;min-width:0;font-size:10.5px;color:var(--sub-2);font-weight:700;text-align:right;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.afx-c.on{border-color:#3b7ef0;background:linear-gradient(135deg,rgba(59,126,240,.10),transparent)}
+.afx-c.on span{color:#3b7ef0}
+
+

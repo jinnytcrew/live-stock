@@ -10611,9 +10611,60 @@ function usPickQuote(txt){
   return out;
 }
 var USQ_MEM=/* @__PURE__ */ new Map();
+/* ══ [v4.42] 야후·Stooq 파서 — 네이버 해외 경로가 막혀도 시세·차트가 비지 않게 ══ */
+function yahooParse(txt){
+  let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
+  const r=j&&j.chart&&j.chart.result&&j.chart.result[0];
+  if(!r||!r.meta)return null;
+  const m=r.meta;
+  const q={ price:usNum(m.regularMarketPrice), prev:usNum(m.chartPreviousClose!=null?m.chartPreviousClose:m.previousClose),
+    open:null, high:usNum(m.regularMarketDayHigh), low:usNum(m.regularMarketDayLow),
+    vol:usNum(m.regularMarketVolume), w52h:usNum(m.fiftyTwoWeekHigh), w52l:usNum(m.fiftyTwoWeekLow),
+    name:m.shortName||m.symbol||"" };
+  const ts=r.timestamp||[], qd=(r.indicators&&r.indicators.quote&&r.indicators.quote[0])||{};
+  const cs=[];
+  for(let i2=0;i2<ts.length;i2++){
+    const c=usNum(qd.close&&qd.close[i2]); if(c==null)continue;
+    const d=new Date(ts[i2]*1000);
+    const t=+(d.getUTCFullYear()+String(d.getUTCMonth()+1).padStart(2,"0")+String(d.getUTCDate()).padStart(2,"0"));
+    cs.push({t,o:usNum(qd.open&&qd.open[i2])||c,h:usNum(qd.high&&qd.high[i2])||c,
+             l:usNum(qd.low&&qd.low[i2])||c,c,v:usNum(qd.volume&&qd.volume[i2])||0});
+  }
+  if(q.price==null&&cs.length)q.price=cs[cs.length-1].c;
+  if(q.open==null&&cs.length)q.open=cs[cs.length-1].o;
+  if(q.prev==null&&cs.length>1)q.prev=cs[cs.length-2].c;
+  if(q.price==null)return null;
+  return { q, candles:cs.length?cs:null };
+}
+/* ══ [v4.43] 원천마다 클래스주 표기법이 다르다 ═══════════════════════════
+   버크셔 B주는 네이버 로이터코드로 "BRK/B.N" 인데, 야후는 "BRK-B", Stooq 는
+   "brk-b.us" 를 쓴다. 그대로 잘라 보내면 "BRK/B" 가 되어 이 종목만 영구 실패한다. */
+function usSym(reu){ return String(reu||"").split(".")[0].replace(/\//g,"-"); }
+function stooqParse(txt){
+  const lines=String(txt||"").trim().split(/\r?\n/);
+  if(lines.length<2)return null;
+  const p=lines[1].split(",");
+  if(p.length<8)return null;
+  const c=usNum(p[6]); if(c==null)return null;
+  return { price:c, open:usNum(p[3]), high:usNum(p[4]), low:usNum(p[5]), vol:usNum(p[7]), prev:null };
+}
 async function usFetchOne(reu,diag){
   const hit=USQ_MEM.get(reu);
   if(hit&&Date.now()-hit.at<25e3)return hit.q;
+  const tk=usSym(reu);
+  try{
+    const yc=new AbortController(); const yt=setTimeout(()=>yc.abort(),5000);
+    const yr=await fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(tk)+"?range=2y&interval=1d",
+      {headers:{ "User-Agent": UA20, Accept:"application/json" },signal:yc.signal});
+    clearTimeout(yt);
+    if(yr.ok){
+      const yp=yahooParse(await yr.text());
+      if(yp&&yp.q){ USQ_MEM.set(reu,{at:Date.now(),q:yp.q});
+        if(yp.candles){ try{ if(KV)await KV.put("uscd:"+reu,JSON.stringify({at:Date.now(),candles:yp.candles}),{expirationTtl:3600}); }catch(e){} }
+        diag&&diag.push(tk+":yh"); return yp.q; }
+      diag&&diag.push(tk+":yh-parse");
+    } else diag&&diag.push(tk+":yh"+yr.status);
+  }catch(e){ diag&&diag.push(tk+":yh"+String(e).slice(0,8)); }
   const H={ "User-Agent": UA20, Accept: "application/json", Referer: "https://m.stock.naver.com/worldstock/stock/"+reu, "Accept-Language":"ko" };
   for(const u of [
     "https://polling.finance.naver.com/api/realtime/worldstock/stock/"+reu,
@@ -10628,6 +10679,14 @@ async function usFetchOne(reu,diag){
       diag&&diag.push(reu.split(".")[0]+":parse");
     }catch(e){ diag&&diag.push(reu.split(".")[0]+":"+String(e).slice(0,12)); }
   }
+  try{
+    const sc=new AbortController(); const st=setTimeout(()=>sc.abort(),4500);
+    const sr=await fetch("https://stooq.com/q/l/?s="+encodeURIComponent(tk.toLowerCase())+".us&f=sd2t2ohlcv&h&e=csv",
+      {headers:{ "User-Agent": UA20 },signal:sc.signal});
+    clearTimeout(st);
+    if(sr.ok){ const q=stooqParse(await sr.text());
+      if(q&&q.price){ USQ_MEM.set(reu,{at:Date.now(),q}); diag&&diag.push(tk+":sq"); return q; } }
+  }catch(e){ diag&&diag.push(tk+":sq"+String(e).slice(0,8)); }
   return null;
 }
 /* ══ [v4.35] 환율은 여러 곳에서 받는다 ═══════════════════════════════════
@@ -10667,7 +10726,10 @@ async function usFx(diag){
       const h={ "User-Agent": UA20, Accept:"application/json" }; if(ref)h.Referer=ref;
       const r=await fetch(url,{headers:h,signal:c.signal}); clearTimeout(t);
       if(!r.ok){ diag&&diag.push("fx:"+name+":"+r.status); continue; }
-      const v=usFxPick(await r.text());
+      const txt=await r.text();
+      let v=usFxPick(txt);
+      if(!v&&name==="stooq-fx"){ const s=stooqParse(txt); v=(s&&s.price>800&&s.price<3000)?s.price:null; }
+      if(!v&&name==="yahoo-fx"){ const y=yahooParse(txt); v=(y&&y.q&&y.q.price>800&&y.q.price<3000)?y.q.price:null; }
       if(v){ USFX_MEM={v,at:Date.now()};
         try{ if(KV)await KV.put("usfx",JSON.stringify({v,at:Date.now()}),{expirationTtl:3600}); }catch(e){}
         diag&&diag.push("fx:"+name+":ok"); return v; }
@@ -10676,6 +10738,53 @@ async function usFx(diag){
   }
   return null;
 }
+/* ══ [v4.45] 다통화 환율 — 원화 기준 여러 통화를 한 번에 받아 온다 ═══════════
+   기존 usFx 는 USD 하나만 다뤘다. 환전 코너에서 엔·유로·위안 등을 쓰려면
+   통화별 KRW 환율이 필요하다. 한 소스에서 전 통화를 받아 KV 에 담는다. */
+var USFXA_MEM=null;
+function fxAllPick(txt){
+  let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
+  /* er-api: {rates:{KRW:1385,JPY:150,...}} — USD 기준 */
+  const R=(j&&j.rates)||(j&&j.usd)||null;
+  if(!R||typeof R!=="object")return null;
+  const krw=usNum(R.KRW!=null?R.KRW:R.krw);
+  if(!krw||krw<800||krw>3000)return null;
+  const out={KRW:krw};
+  Object.keys(R).forEach(k=>{
+    const v=usNum(R[k]); if(v==null||!(v>0))return;
+    out[k.toUpperCase()]=v;                      // USD 1단위당 해당 통화
+  });
+  return out;
+}
+async function fxAll(diag){
+  if(USFXA_MEM&&Date.now()-USFXA_MEM.at<10*60e3)return USFXA_MEM.v;
+  try{ if(KV){ const c=await KV.get("usfxall","json");
+    if(c&&c.v&&Date.now()-c.at<60*60e3){ USFXA_MEM={v:c.v,at:Date.now()}; return c.v; } }}catch(e){}
+  for(const [name,url] of [
+    ["erapi","https://open.er-api.com/v6/latest/USD"],
+    ["jsdelivr","https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"],
+    ["frankfurter","https://api.frankfurter.app/latest?from=USD"]
+  ]){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),5000);
+      const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"application/json" },signal:c.signal});
+      clearTimeout(t);
+      if(!r.ok){ diag&&diag.push("fxa:"+name+":"+r.status); continue; }
+      const v=fxAllPick(await r.text());
+      if(v){ USFXA_MEM={v,at:Date.now()};
+        try{ if(KV)await KV.put("usfxall",JSON.stringify({v,at:Date.now()}),{expirationTtl:7200}); }catch(e){}
+        diag&&diag.push("fxa:"+name+":ok"); return v; }
+      diag&&diag.push("fxa:"+name+":parse");
+    }catch(e){ diag&&diag.push("fxa:"+name+":"+String(e).slice(0,10)); }
+  }
+  return null;
+}
+async function fxall_default(){
+  const diag=[]; const v=await fxAll(diag);
+  return new Response(JSON.stringify({ok:!!v,rates:v||null,diag}),
+    {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+}
+ROUTES["fxall"]=fxall_default;
 async function usfxdiag_default(){
   const out={at:new Date().toISOString(),tried:[]};
   const srcs=[["naver-poll","https://polling.finance.naver.com/api/realtime/marketindex/exchange/FX_USDKRW","https://finance.naver.com/marketindex/"],
@@ -10764,6 +10873,23 @@ async function uscandle_default(req2){
       return new Response(JSON.stringify({ok:true,candles:c.candles,cached:1}),{headers:{"content-type":"application/json","access-control-allow-origin":"*"}});
   }catch(e){}
   const H={ "User-Agent": UA20, Accept:"application/json", Referer:"https://m.stock.naver.com/worldstock/stock/"+reu, "Accept-Language":"ko" };
+  /* [v4.42] 야후에서 2년치 일봉을 먼저 받는다 — 네이버가 막혀도 차트가 비지 않는다 */
+  try{
+    const ytk=usSym(reu);
+    const yc=new AbortController(); const yt=setTimeout(()=>yc.abort(),6000);
+    const yr=await fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(ytk)+"?range=2y&interval=1d",
+      {headers:{ "User-Agent": UA20, Accept:"application/json" },signal:yc.signal});
+    clearTimeout(yt);
+    if(yr.ok){
+      const yp=yahooParse(await yr.text());
+      if(yp&&yp.candles&&yp.candles.length>5){
+        try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),candles:yp.candles}),{expirationTtl:3600}); }catch(e){}
+        return new Response(JSON.stringify({ok:true,candles:yp.candles,diag:["yahoo"]}),
+          {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+      }
+      diag.push("yh:parse");
+    } else diag.push("yh:"+yr.status);
+  }catch(e){ diag.push("yh:"+String(e).slice(0,12)); }
   let candles=null;
   for(const url of [
     "https://api.stock.naver.com/chart/foreign/item/"+reu+"/day",
@@ -10997,7 +11123,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.41.0";
+var APP_VER = "4.47.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
