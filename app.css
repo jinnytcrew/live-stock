@@ -21,24 +21,23 @@
   .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:-.4px;flex:0 0 auto}
   .brand .mark{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:linear-gradient(135deg,var(--amber),var(--amber-2));color:#0e1726;font-weight:900;font-size:17px}
   .brand b{color:var(--amber)}
-  /* ══ [v4.51] 헤더가 가로로 넘쳐 배경 밖으로 삐져나오던 문제 ═══════════════
-     메뉴 11개 + 장상태·연결 알약 2개 + 설정 + 사용자칩을 한 줄에 늘어놓으면
-     900~1300px 구간에서 폭이 모자란다. 그런데 배경(.site-header)은 자기 상자
-     너비만 칠하므로, 넘친 사용자칩만 흰 바탕 위에 덩그러니 남았다.
-     → ① 메뉴를 줄어들 수 있게(min-width:0) 만들고 넘치면 가로로 밀어 보게 한다
-        ② 사용자 영역은 절대 줄지 않게 고정한다
-        ③ 알약은 더 일찍 감춘다(1300px)
-     이렇게 하면 어떤 폭에서도 헤더 안에서 해결되어 밖으로 새지 않는다. */
-  .main-nav{display:flex;gap:2px;flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden;
-    scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch}
-  .main-nav::-webkit-scrollbar{display:none}
-  .main-nav button{padding:9px 13px;border-radius:9px;color:#a9b6ca;font-weight:700;font-size:14px;transition:.15s;white-space:nowrap;flex:0 0 auto}
+  /* ══ [v4.53] 메뉴가 넘치면 사용자가 밀지 말고 '두 줄'로 접힌다 ═══════════
+     v4.51 은 넘친 메뉴를 가로 스크롤로 처리했다. 배경 밖으로 새는 건 막았지만,
+     화면에 안 보이는 메뉴가 생겨 사용자가 직접 밀어야 했다 — 있는 줄도 모르는
+     메뉴는 없는 것과 같다. 이제 자리가 모자라면 아랫줄로 자연스레 넘어간다.
+     헤더 높이도 내용에 맞춰 늘어나므로 잘리는 항목이 없다. */
+  .main-nav{display:flex;flex-wrap:wrap;gap:2px 3px;flex:1 1 auto;min-width:0;
+    align-content:center;row-gap:3px}
+  .main-nav button{padding:9px 13px;border-radius:9px;color:#a9b6ca;font-weight:700;font-size:14px;
+    transition:.15s;white-space:nowrap;flex:0 0 auto}
   .main-nav button:hover{color:#fff;background:rgba(255,255,255,.06)}
   .main-nav button.on{color:#fff;background:rgba(255,255,255,.12)}
   .header-right{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:700;
     flex:0 0 auto;min-width:0}
-  @media (max-width:1300px){ .header-right .pill{display:none} }
-  @media (max-width:1080px){ .main-nav button{padding:9px 10px;font-size:13.5px} .header-inner{gap:10px} }
+  /* 높이를 고정하지 않는다 — 두 줄이 되면 헤더가 그만큼 자란다 */
+  .header-inner{height:auto;min-height:60px;padding:8px 20px;align-items:center;flex-wrap:nowrap}
+  @media (max-width:1400px){ .header-right .pill{display:none} }
+  @media (max-width:1150px){ .main-nav button{padding:8px 10px;font-size:13.5px} .header-inner{gap:10px} }
   .pill{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);padding:6px 10px;border-radius:20px;color:#c4cfdd;white-space:nowrap}
   .dot{width:7px;height:7px;border-radius:50%;background:#8a95a5}
   .dot.on{background:#2ec27e;animation:pulse 1.4s infinite}.dot.off{background:#f5384e}.dot.idle{background:#ffb020;animation:pulse 1.4s infinite}
@@ -429,8 +428,13 @@
     .ipo-form,.ipo-calc{grid-template-columns:1fr 1fr}
     .home-cols,.trade-grid{grid-template-columns:1fr}.acct-cards{grid-template-columns:1fr 1fr}
     .nav-toggle{display:block}
-    .main-nav{position:absolute;top:60px;left:0;right:0;background:var(--brand);flex-direction:column;padding:8px;gap:2px;display:none;box-shadow:0 10px 20px rgba(0,0,0,.25);
-      flex:none;overflow:visible;max-height:calc(100vh - 68px);overflow-y:auto}
+    /* [v4.53] 헤더 높이가 내용에 따라 달라지므로 드롭다운은 헤더 '아래'에 붙인다.
+       top:60px 로 못 박아 두면 두 줄일 때 메뉴가 헤더를 파고들거나 떠 버린다. */
+    .site-header{position:sticky;top:0}
+    .header-inner{position:relative}
+    .main-nav{position:absolute;top:100%;left:0;right:0;background:var(--brand);flex-direction:column;
+      padding:8px;gap:2px;display:none;box-shadow:0 10px 20px rgba(0,0,0,.25);
+      flex:none;flex-wrap:nowrap;overflow:visible;max-height:70vh;overflow-y:auto;z-index:60}
     .main-nav.open{display:flex}.main-nav button{text-align:left;padding:13px 16px;border-radius:8px}
     .header-right .pill{display:none}.header-inner{gap:10px}
   }
@@ -3811,3 +3815,24 @@ html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
   .ae-tbox,.ae-tmore{margin-left:13px}
   .aed-no b{font-size:17px;letter-spacing:.3px}
 }
+
+/* ══ [v4.53] 시세 진단 화면 ═══════════════════════════════════════════════ */
+.uz-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.uz-retry.ghost{background:var(--border-soft);color:var(--text)}
+.usdg-wait{padding:26px 12px;text-align:center;font-size:13px;font-weight:700;color:var(--sub)}
+.usdg-bad{padding:20px 12px;text-align:center;font-size:13px;font-weight:700;color:var(--down);line-height:1.7}
+.usdg-sum{padding:13px 14px;border-radius:13px;font-size:12.5px;font-weight:700;line-height:1.65;margin-bottom:12px}
+.usdg-sum.ok{background:rgba(47,122,229,.09);color:var(--text);border:1px solid rgba(47,122,229,.24)}
+.usdg-sum.no{background:rgba(229,72,77,.09);color:var(--text);border:1px solid rgba(229,72,77,.26)}
+.usdg-list{border:1px solid var(--border);border-radius:13px;overflow:hidden;background:var(--panel)}
+.usdg-r{display:flex;align-items:center;gap:9px;padding:10px 12px;font-size:12px;
+  border-bottom:1px solid var(--border-soft)}
+.usdg-r:last-child{border-bottom:0}
+.usdg-b{flex-shrink:0;width:38px;text-align:center;padding:3px 0;border-radius:6px;
+  font-size:10.5px;font-weight:900}
+.usdg-r.ok .usdg-b{background:rgba(18,183,106,.14);color:#0d8a52}
+.usdg-r.no .usdg-b{background:rgba(229,72,77,.12);color:var(--up)}
+.usdg-n{flex:1;min-width:0;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.usdg-s{flex-shrink:0;font-weight:800;color:var(--sub);font-variant-numeric:tabular-nums}
+.usdg-l{flex-shrink:0;width:56px;text-align:right;font-size:11px;font-weight:700;color:var(--sub-2)}
+.usdg-note{margin:11px 0 13px;font-size:11px;font-weight:600;color:var(--sub-2);text-align:center}

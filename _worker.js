@@ -10875,11 +10875,48 @@ async function kvPutQuote(c,q){
     await KV.put("usq:"+c,JSON.stringify({at:Date.now(),q}),{expirationTtl:120});
   }catch(e){}
 }
+/* ══ [v4.53] 해외 시세가 계속 비던 진짜 이유 ═══════════════════════════════
+   [어디서 틀렸나] 앞선 버전들은 '워커 IP 에서 네이버가 403 으로 막혔다'고 진단하고
+   원천을 CNBC·Cboe 로 갈아 끼웠다. 그런데 그 진단이 애초에 틀렸다 —
+   국내 시세는 지금도 멀쩡히 나온다. 국내가 쓰는 호스트가 바로 네이버다.
+   즉 네이버는 막힌 적이 없고, '해외 코드만 다른 호스트를 두드리고 있었다'.
+     · 작동함(국내 전역) : m.stock.naver.com/api/...      ← 앱 전체가 이 호스트로 산다
+     · 실패함(해외 전용) : api.stock.naver.com/stock/...   ← 코드 어디에도 성공 사례 없음
+                          polling.../realtime/worldstock/  ← 마찬가지
+   국내 단건 조회가 m.stock.naver.com/api/stock/{코드}/basic 으로 확실히 되므로,
+   해외도 같은 경로에 로이터코드(AAPL.O)를 넣어 부른다. 헤더도 국내와 똑같이(HDRS)
+   맞춘다 — Referer 를 worldstock 경로로 바꿔 보내던 것도 굳이 다르게 굴던 부분이다.
+   [교훈] 바깥 서비스를 의심하기 전에, 같은 앱 안에서 '되는 코드'와 '안 되는 코드'가
+   무엇이 다른지부터 맞춰 본다. */
+async function naverMOne(reu,diag,budget){
+  if(budget&&budget.left<=0)return null;
+  const tag=usSym(reu);
+  for(const [nm,u] of [
+    ["mbasic","https://m.stock.naver.com/api/stock/"+encodeURIComponent(reu)+"/basic"],
+    ["mintg", "https://m.stock.naver.com/api/stock/"+encodeURIComponent(reu)+"/integration"]
+  ]){
+    if(budget&&budget.left<=0)break;
+    budget&&budget.left--;
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4500);
+      /* 국내에서 실제로 통하는 헤더 그대로 쓴다(HDRS) */
+      const r=await fetch(u,{headers:HDRS,signal:c.signal}); clearTimeout(t);
+      if(!r.ok){ diag&&diag.push(tag+":"+nm+r.status); continue; }
+      const q=usPickQuote(await r.text());
+      if(q&&q.price!=null){ diag&&diag.push(tag+":"+nm); return q; }
+      diag&&diag.push(tag+":"+nm+"-parse");
+    }catch(e){ diag&&diag.push(tag+":"+nm+String(e).slice(0,8)); }
+  }
+  return null;
+}
 async function usFetchOne(reu,diag,budget){
   const hit=USQ_MEM.get(reu);
   if(hit&&Date.now()-hit.at<25e3)return hit.q;
   const tk=usSym(reu);
-  /* ① Cboe — 데이터센터 IP 에도 열려 있는 CDN */
+  /* ① 네이버 m.stock — 이 앱에서 유일하게 '작동이 확인된' 호스트다. 맨 앞에 세운다. */
+  const nv=await naverMOne(reu,diag,budget);
+  if(nv){ USQ_MEM.set(reu,{at:Date.now(),q:nv}); return nv; }
+  /* ② Cboe — 데이터센터 IP 에도 열려 있는 CDN */
   const cb=await cboeFetchOne(reu,diag,budget);
   if(cb){ USQ_MEM.set(reu,{at:Date.now(),q:cb}); return cb; }
   /* ② 야후 — 워커 IP 에선 대개 429 지만, 되는 날은 그대로 쓴다.
@@ -11080,7 +11117,30 @@ async function usquote_default(req2){
       miss=still;
     }catch(e){}
   }
-  /* 2) CNBC 배치 — 외부 호출 '1회' 로 남은 종목 전부 */
+  /* 2-A) 네이버 배치 — 국내 시세가 쓰는 것과 똑같은 방식(콤마로 이어 한 번에).
+     [v4.53] 국내는 polling.finance.naver.com/api/realtime/domestic/stock/{코드들} 로
+     40종목을 1회에 받아 오고 그게 지금도 잘 된다. 해외도 같은 서버의 worldstock
+     갈래를 같은 헤더(HDRS)로 부른다 — 전에는 종목마다 따로, 다른 헤더로 불렀다. */
+  if(miss.length){
+    budget.left--;
+    try{
+      const j=await jget10("https://polling.finance.naver.com/api/realtime/worldstock/stock/"
+        +miss.map(encodeURIComponent).join(","),5000);
+      const arr=(j&&j.datas)||(j&&j.result&&j.result.areas||[]).flatMap(a=>a.datas||[])||[];
+      let hit=0;
+      for(const d of (Array.isArray(arr)?arr:[])){
+        const key=String(d.reutersCode||d.cd||d.itemCode||"").toUpperCase();
+        const q=usPickQuote(JSON.stringify(d));
+        if(!key||!q||q.price==null)continue;
+        const c=miss.find(x=>x.toUpperCase()===key);
+        if(!c)continue;
+        out[c]=usMergeQ(out[c],q); USQ_MEM.set(c,{at:Date.now(),q:out[c]}); hit++;
+      }
+      diag.push("nvbatch:"+hit+"/"+miss.length);
+      miss=miss.filter(c=>!out[c]);
+    }catch(e){ diag.push("nvbatch:"+String(e).slice(0,14)); }
+  }
+  /* 2-B) 그래도 남으면 CNBC 배치 — 외부 호출 '1회' 로 나머지 전부 */
   if(miss.length){
     const got=await cnbcBatch(miss,diag,budget);
     const still=[];
@@ -11242,14 +11302,16 @@ async function uscandle_default(req2){
     } else diag.push("yh:"+yr.status);
   }catch(e){ diag.push("yh:"+String(e).slice(0,12)); }
   let candles=null;
+  /* [v4.53] 시세와 같은 이유로 순서를 뒤집는다 — 이 앱에서 실제로 응답이 오는 호스트는
+     m.stock.naver.com 이다. 검증 안 된 api.stock 을 앞에 두면 매번 헛돌다 시간만 쓴다. */
   for(const url of [
-    "https://api.stock.naver.com/chart/foreign/item/"+reu+"/day",
-    "https://api.stock.naver.com/chart/foreign/item/"+reu+"/day?range=2y",
-    "https://m.stock.naver.com/api/chart/foreign/item/"+reu+"/day"
+    "https://m.stock.naver.com/api/chart/foreign/item/"+reu+"/day",
+    "https://m.stock.naver.com/api/chart/foreign/item/"+reu+"/day?range=2y",
+    "https://api.stock.naver.com/chart/foreign/item/"+reu+"/day"
   ]){
     try{
       const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
-      const r=await fetch(url,{headers:H,signal:c.signal}); clearTimeout(t);
+      const r=await fetch(url,{headers:HDRS,signal:c.signal}); clearTimeout(t);
       if(!r.ok){ diag.push("cd:"+r.status); continue; }
       candles=usPickCandles(await r.text());
       if(candles){ diag.push("src:"+url.split("/")[2]); break; }
@@ -11285,6 +11347,10 @@ async function usdiag_default(){
   await probe("stooq-quote","https://stooq.com/q/l/?s=aapl.us&f=sd2t2ohlcv&h&e=csv",null,(t)=>!!stooqParse(t));
   await probe("stooq-candles","https://stooq.com/q/d/l/?s=aapl.us&i=d",null,(t)=>/^date,open/i.test(String(t||"").trim()));
   await probe("naver-poll","https://polling.finance.naver.com/api/realtime/worldstock/stock/AAPL.O","https://m.stock.naver.com/worldstock/stock/AAPL.O",(t)=>!!usPickQuote(t));
+  await probe("naver-mbasic","https://m.stock.naver.com/api/stock/AAPL.O/basic","https://finance.naver.com/",(t)=>!!usPickQuote(t));
+  await probe("naver-mintg","https://m.stock.naver.com/api/stock/AAPL.O/integration","https://finance.naver.com/",(t)=>!!usPickQuote(t));
+  await probe("naver-mcandle","https://m.stock.naver.com/api/chart/foreign/item/AAPL.O/day","https://finance.naver.com/",(t)=>!!usPickCandles(t));
+  await probe("naver-batch","https://polling.finance.naver.com/api/realtime/worldstock/stock/AAPL.O,NVDA.O","https://finance.naver.com/",(t)=>{try{const j=JSON.parse(t);const a=j.datas||[];return Array.isArray(a)&&a.length>0;}catch(e){return false;}});
   await probe("naver-basic","https://api.stock.naver.com/stock/AAPL.O/basic","https://m.stock.naver.com/worldstock/stock/AAPL.O",(t)=>!!usPickQuote(t));
   await probe("fx-erapi","https://open.er-api.com/v6/latest/USD",null,(t)=>!!usFxPick(t));
   out.usable=out.tried.filter(x=>x.parsed).map(x=>x.label);
@@ -11484,7 +11550,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.51.0";
+var APP_VER = "4.53.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

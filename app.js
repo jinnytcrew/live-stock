@@ -2512,9 +2512,11 @@ function finishAcctOpen(t,v,a){
    [계좌번호] 개설 즉시 발급한다. 증권사 실계좌와 헷갈리지 않도록 모의 전용
    기관코드(900)를 앞에 두고, 같은 계정 안에서 중복되지 않게 검사한다. */
 var AE_STEP=1, aeForm=null;
-var AE_JOBS=['회사원','공무원','자영업','전문직','학생','주부','프리랜서','무직','기타'];
-var AE_PURPOSE=['자산 증식','노후 준비','목돈 마련','학자금 마련','주택 마련','기타'];
-var AE_SOURCE=['근로소득','사업소득','금융소득','상속·증여','퇴직금','부모 지원','기타'];
+/* [v4.52] 선택지를 청소년까지 아우르게 넓혔다 — '학생'을 고르고 나서 자금 출처에
+   근로소득밖에 없으면 억지로 사실이 아닌 항목을 고르게 된다. */
+var AE_JOBS=['학생','회사원','공무원','자영업','전문직','주부','프리랜서','무직','기타'];
+var AE_PURPOSE=['투자 공부','자산 증식','목돈 마련','학자금 마련','노후 준비','주택 마련','기타'];
+var AE_SOURCE=['용돈','아르바이트 소득','근로소득','사업소득','금융소득','상속·증여','퇴직금','부모 지원','기타'];
 var AE_RISK=[
   ['stable','안정형','원금 손실을 원하지 않습니다. 예금 수준의 변동만 감내합니다.'],
   ['safe','안정추구형','원금 보전을 우선하되 약간의 손실은 감수할 수 있습니다.'],
@@ -2525,7 +2527,7 @@ var AE_RISK=[
 var AE_TERMS=[
   ['t1',1,'계좌 개설 및 금융거래 약관','이 서비스는 학습용 모의투자입니다. 실제 매매·실제 자금 이동이 발생하지 않으며, 화면의 모든 손익은 가상입니다. 모의 계좌는 언제든 해지할 수 있습니다.'],
   ['t2',1,'개인정보 수집·이용 동의','수집 항목: 이름, 생년월일, 연락처, 이메일, 직업, 투자목적, 자금출처, 투자성향. 이용 목적: 모의 계좌 개설과 화면 표시. 보관 기간: 계좌 해지 시까지. 이 정보는 이 기기와 회원 계정에만 저장되며 외부에 제공되지 않습니다. 동의를 거부할 수 있으나 그 경우 계좌를 개설할 수 없습니다.'],
-  ['t3',1,'고유식별정보 처리 동의','실제 증권사는 주민등록번호로 실명을 확인합니다. 이 모의 서비스는 주민등록번호를 받지 않으며, 생년월일만으로 성인 여부만 확인합니다.'],
+  ['t3',1,'고유식별정보 처리 동의','실제 증권사는 주민등록번호로 실명을 확인하고 성인 여부를 따집니다. 이 모의 서비스는 실제 자금이 오가지 않는 학습용이므로 주민등록번호를 받지 않고, 나이로 가입을 제한하지도 않습니다. 생년월일은 화면 표시와 입력 확인에만 쓰입니다.'],
   ['t4',1,'투자위험 고지 확인','주식 투자는 원금 손실이 발생할 수 있고 예금자보호를 받지 않습니다. 해외 주식은 환율 변동에 따라 추가 손익이 생깁니다. 과거 수익률이 미래 수익을 보장하지 않습니다.'],
   ['t5',0,'마케팅 정보 수신 동의 (선택)','새 기능과 학습 콘텐츠 안내를 앱 알림으로 받습니다. 동의하지 않아도 계좌 개설과 모든 기능 이용에 제한이 없습니다.'],
   ['t6',0,'제3자 정보 제공 동의 (선택)','이 모의 서비스는 실제로 제3자에게 정보를 제공하지 않습니다. 실제 증권사 개설 절차를 그대로 보여 주기 위한 항목입니다.']
@@ -2563,7 +2565,7 @@ function aeSay(html,ok){
   const m=$('aeMsg'); if(!m)return;
   m.style.color=ok?'var(--up)':'var(--down)'; m.innerHTML=html;
 }
-/* 만 나이 — 생년월일로 성인 여부를 판단한다 */
+/* 만 나이 — 입력한 생년월일이 실제로 있을 수 있는 날짜인지 가려내는 데 쓴다 */
 function aeAge(b){
   const m=String(b||'').match(/^(\d{4})-?(\d{2})-?(\d{2})$/); if(!m)return null;
   const y=+m[1],mo=+m[2],d=+m[3];
@@ -2580,10 +2582,13 @@ function aeValidStep2(){
   aeSave();
   if(aeForm.name.length<2)return '이름을 2자 이상 입력해 주세요.';
   if(!/^[가-힣A-Za-z ·]+$/.test(aeForm.name))return '이름에는 한글 또는 영문만 쓸 수 있습니다.';
+  /* [v4.52] 나이로 막지 않는다 — 실제 자금이 오가지 않는 학습용 모의투자이므로
+     성인 기준을 강제할 이유가 없다. 생년월일은 '있을 수 있는 날짜인지'만 확인한다
+     (미래 날짜·2월 30일 같은 입력을 걸러내는 용도이지 연령 제한이 아니다). */
   const age=aeAge(aeForm.birth);
   if(age==null)return '생년월일을 <b>YYYY-MM-DD</b> 형식으로 정확히 입력해 주세요.';
-  if(age<0||age>120)return '생년월일을 다시 확인해 주세요.';
-  if(age<19)return `만 <b>${age}세</b>로 확인됩니다. 실제 증권 계좌는 만 19세부터 단독 개설할 수 있어, 이 모의 절차도 같은 기준을 따릅니다.`;
+  if(age<0)return '생년월일이 오늘보다 뒤입니다. 다시 확인해 주세요.';
+  if(age>120)return '생년월일을 다시 확인해 주세요.';
   if(!/^01[016789]-?\d{3,4}-?\d{4}$/.test(aeForm.phone.replace(/\s/g,'')))
     return '휴대전화 번호를 <b>010-1234-5678</b> 형식으로 입력해 주세요.';
   if(!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(aeForm.email))return '이메일 주소를 정확히 입력해 주세요.';
@@ -2792,9 +2797,9 @@ var ACCT_TYPES={
   overseas:{n:'해외주식 전용계좌',ic:'🌎',d:'해외 거래에 특화된 계좌입니다. 환전 우대와 해외 수수료 인하가 적용됩니다.',
     feeKr:1,feeUs:0.4,taxFree:0,limit:0,usOk:1,fxPref:0.98,
     pros:['해외 수수료 60% 인하 (0.10%)','환전 우대 98%','달러 예수금 관리'],cons:['국내 수수료 우대 없음']},
-  youth:{n:'청년 우대계좌',ic:'🌱',d:'만 19~34세를 위한 계좌입니다. 수수료가 가장 저렴하지만 예수금 한도가 있습니다.',
+  youth:{n:'첫걸음 우대계좌',ic:'🌱',d:'처음 투자를 배우는 사람을 위한 계좌입니다. 수수료가 가장 저렴한 대신 예수금 한도가 있습니다.',
     feeKr:0.5,feeUs:0.6,taxFree:0,limit:50000000,usOk:1,
-    pros:['국내 수수료 50% 인하','해외 수수료 40% 인하','환전 우대 96%'],cons:['만 19~34세만','예수금 5,000만원 한도'],fxPref:0.96},
+    pros:['국내 수수료 50% 인하','해외 수수료 40% 인하','환전 우대 96%'],cons:['예수금 5,000만원 한도'],fxPref:0.96},
 };
 function acctInfo(){return ACCT_TYPES[acctType]||ACCT_TYPES.general;}
 function acctFeeKr(){return acctInfo().feeKr!=null?acctInfo().feeKr:1;}
@@ -12252,6 +12257,37 @@ function renderUsRankTabs(){
   el.querySelectorAll('[data-usrank]').forEach(b=>b.onclick=()=>{
     usRankTab=b.dataset.usrank; renderUsRankTabs(); renderUsRankBody();});
 }
+/* ══ [v4.53] 화면에서 바로 여는 시세 진단 ═══════════════════════════════════
+   [왜 넣었나] 해외 시세가 비었을 때, 지금까지는 어느 원천이 죽었는지 알 방법이
+   개발자에게 없었다. 그래서 바깥 서비스를 추측으로 갈아 끼우기를 반복했고
+   그때마다 사용자만 헛걸음했다. 이제 화면에서 눌러 실제 응답을 확인한다 —
+   어떤 원천이 몇 번을 돌려주고 파싱까지 됐는지 한 화면에 나온다. */
+async function openUsDiag(){
+  openLiteGate('해외 시세 진단','<div class="usdg"><div class="usdg-wait">서버가 원천을 하나씩 두드리는 중… 최대 30초</div></div>');
+  let j=null, err='';
+  try{ const r=await fetch('/api/usdiag',{cache:'no-store'}); j=await r.json(); }
+  catch(e){ err=String(e).slice(0,80); }
+  const body=$('liteBody'); if(!body)return;
+  if(!j){ body.innerHTML=`<div class="usdg"><div class="usdg-bad">진단 서버에 연결하지 못했습니다<br><small>${htmlEsc(err)}</small></div></div>`; return; }
+  const rows=(j.tried||[]).map(t=>{
+    const ok=!!t.parsed, st=t.err?'ERR':(t.status!=null?t.status:'—');
+    return `<div class="usdg-r ${ok?'ok':'no'}">
+      <span class="usdg-b">${ok?'정상':'실패'}</span>
+      <span class="usdg-n">${htmlEsc(t.label||'')}</span>
+      <span class="usdg-s">${htmlEsc(String(st))}</span>
+      <span class="usdg-l">${t.len!=null?t.len+'B':''}</span></div>`;}).join('');
+  const usable=(j.usable&&j.usable.length)?j.usable:(j.tried||[]).filter(t=>t.parsed).map(t=>t.label);
+  body.innerHTML=`<div class="usdg">
+    <div class="usdg-sum ${usable.length?'ok':'no'}">
+      ${usable.length?`쓸 수 있는 원천 <b>${usable.length}곳</b> — ${htmlEsc(usable.join(', '))}`
+        :'쓸 수 있는 원천이 <b>하나도 없습니다</b>. 아래 응답 코드를 개발자에게 보여 주세요.'}</div>
+    <div class="usdg-list">${rows||'<div class="usdg-bad">응답이 비었습니다</div>'}</div>
+    <div class="usdg-note">앱 버전 ${htmlEsc(j.ver||'—')} · 검사 시각 ${htmlEsc(String(j.at||'').slice(0,19))}</div>
+    <button class="modal-btn" id="usdgCopy">진단 결과 복사</button></div>`;
+  const cp=$('usdgCopy');
+  if(cp)cp.onclick=()=>{ try{ navigator.clipboard.writeText(JSON.stringify(j,null,1).slice(0,4000));
+    cp.textContent='복사됨'; }catch(e){} };
+}
 function renderUsRankBody(){
   const box=$('usRankBody'); if(!box)return;
   const bd=$('usBreadth');
@@ -12260,11 +12296,13 @@ function renderUsRankBody(){
     if(bd)bd.innerHTML='';
     box.innerHTML=_usQFail>=2
       ? `<div class="uz-empty"><b>해외 시세 서버가 지금 응답하지 않습니다</b>
-           <span>잠시 뒤 다시 시도하거나, 주소창에 /api/usdiag 를 열어 어느 원천이 살아 있는지 확인할 수 있어요.</span>
-           <button type="button" class="uz-retry" id="usRankRetry">다시 시도</button></div>`
+           <span>어느 원천이 막혔는지 바로 확인할 수 있어요.</span>
+           <div class="uz-btns"><button type="button" class="uz-retry" id="usRankRetry">다시 시도</button>
+             <button type="button" class="uz-retry ghost" id="usRankDiag">시세 진단</button></div></div>`
       : `<div class="uz-empty"><b>시세를 받는 중입니다</b><span>내장 ${US_UNI.length}종을 동시에 조회하고 있어요.</span></div>`;
     const r=$('usRankRetry'); if(r)r.onclick=()=>{_usQFail=0;renderUsRankBody();
       usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>renderUsLive());};
+    const dg=$('usRankDiag'); if(dg)dg.onclick=()=>openUsDiag();
     return;
   }
   const rate=t=>{const q=usQ[t];return q.prev?(q.price-q.prev)/q.prev*100:0;};
