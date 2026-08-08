@@ -1664,8 +1664,8 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=321';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=321';                                  // [v2.6] 종목 로고
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=326';   // [v2.2] 실행 중 번들의 진짜 버전
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=326';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -1965,7 +1965,148 @@ async function ensureNxt(code){
 /* ===== 계정/세션 상태 ===== */
 let currentUser=null, watchlist=[], holdings=[], cash=0, ipoPlans=[], tradeLog=[], tradeArchive={}, acctPassHash=legacyHash('0000');
 var usdCash=0, usdSettling=[];   // [v4.29] 달러 예수금 · T+1 미결제분
-var acctType='general';          // [v4.32] 계좌 종류
+var acctType='general';          // [v4.32] 활성 계좌의 종류(호환 유지)
+/* ══ [v4.40] 다계좌 시스템 ═══════════════════════════════════════════════════
+   지금까지는 계좌가 하나로 고정돼 '선택'도 '미개설'도 없었다. 실제 증권사처럼
+   여러 계좌를 열고 고를 수 있게 하고, 계좌별로 예수금·보유·매매일지를 분리한다.
+     acctList  : 개설된 계좌 목록 [{id,type,openedAt}]
+     acctBooks : 계좌별 잔고·보유·일지
+     acctActive: 지금 보고 있는 계좌 id
+   계좌가 하나도 없으면 거래·환전이 모두 막히고 개설 안내가 뜬다. */
+var acctList=[], acctBooks={}, acctActive='';
+function acctOpened(){ return Array.isArray(acctList)&&acctList.length>0; }
+/* 계좌가 없으면 어떤 주문·환전도 진행하지 않는다 — 실제 증권사와 같은 원칙 */
+function acctRequire(what){
+  if(acctOpened())return true;
+  toast('warn','계좌를 먼저 개설해 주세요','계좌를 개설해야 '+(what||'거래')+'을(를) 이용할 수 있습니다. 내 계좌 화면에서 1분이면 끝나요.');
+  try{ showView('account'); }catch(e){}
+  return false;
+}
+function acctCur(){ return acctList.find(a=>a.id===acctActive)||acctList[0]||null; }
+function acctNewId(){ return 'ac'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
+/* 현재 화면의 잔고·보유를 활성 계좌 장부에 담아 둔다 */
+function acctSnap(){
+  if(!acctActive)return;
+  acctBooks[acctActive]={cash,usdCash,usdSettling:usdSettling.slice(),
+    holdings:holdings.slice(),tradeLog:tradeLog.slice(),tradeArchive,ipoPlans:ipoPlans.slice()};
+}
+/* 계좌 장부를 화면 상태로 펼친다 */
+function acctLoad(id){
+  const bk=acctBooks[id]||{};
+  cash=intOf(bk.cash,0); usdCash=+(bk.usdCash||0);
+  usdSettling=Array.isArray(bk.usdSettling)?bk.usdSettling.slice():[];
+  holdings=Array.isArray(bk.holdings)?bk.holdings.slice():[];
+  tradeLog=Array.isArray(bk.tradeLog)?bk.tradeLog.slice():[];
+  tradeArchive=(bk.tradeArchive&&typeof bk.tradeArchive==='object')?bk.tradeArchive:{};
+  ipoPlans=Array.isArray(bk.ipoPlans)?bk.ipoPlans.slice():[];
+  acctActive=id;
+  const a=acctCur(); acctType=(a&&ACCT_TYPES[a.type])?a.type:'general';
+}
+function acctSwitch(id){
+  if(id===acctActive||!acctBooks[id]&&!acctList.some(a=>a.id===id))return;
+  acctSnap(); acctLoad(id); saveState();
+  try{sanitizeAccount(true);}catch(e){}
+  try{renderPortfolioNumbers();}catch(e){}
+  try{if(currentView==='account')renderAccount();}catch(e){}
+  try{renderAcctBar();}catch(e){}
+  const a=acctCur();
+  toast('buy','계좌 전환',(a?ACCT_TYPES[a.type].n:'')+' · 예수금 '+KRW(cash)+'원');
+}
+function acctOpen(type,initCash){
+  const t=ACCT_TYPES[type]?type:'general';
+  const id=acctNewId();
+  acctList.push({id,type:t,openedAt:Date.now()});
+  acctBooks[id]={cash:intOf(initCash,0),usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]};
+  acctSnap(); acctLoad(id); saveState();
+  return id;
+}
+/* 예전 단일 계좌 사용자를 자동 이전한다 — 데이터를 잃지 않는다 */
+/* ══ [v4.40] 계좌 선택 바 + 미개설 안내 ═══════════════════════════════════ */
+var aeSel='general';
+function renderAcctBar(){
+  const bar=$('acctBar'), guide=$('acctGuide'), hero=$('acctHeroPanel');
+  if(!bar||!guide)return;
+  if(!acctOpened()){
+    bar.innerHTML=''; if(hero)hero.hidden=true;
+    guide.innerHTML=`<div class="panel acct-empty">
+      <div class="ae-ic">🏦</div>
+      <div class="ae-t">아직 개설된 계좌가 없습니다</div>
+      <div class="ae-d">주식을 사고팔려면 먼저 계좌를 개설해야 합니다. 종류에 따라 <b>수수료와 환전 우대, 납입한도</b>가 달라요.<br>
+        개설은 1분이면 끝나고, 계좌는 <b>여러 개</b> 만들어 목적별로 나눠 쓸 수 있습니다.</div>
+      <div class="acct-pick" id="aeTypes"></div>
+      <div class="acct-detail" id="aeDetail"></div>
+      <div class="fld2" style="margin-top:12px"><label>시작 예수금 (원)</label>
+        <input id="aeCash" class="num" inputmode="numeric" value="10,000,000"></div>
+      <div class="ae-msg" id="aeMsg"></div>
+      <button class="modal-btn" id="aeGo">계좌 개설하기</button>
+      <div class="ae-note">모의 계좌입니다 · 실제 금융거래가 아니며 개인정보를 요구하지 않습니다.</div>
+    </div>`;
+    renderAeTypes(); return;
+  }
+  guide.innerHTML=''; if(hero)hero.hidden=false;
+  const cur=acctCur(), t=ACCT_TYPES[cur.type]||ACCT_TYPES.general;
+  bar.innerHTML=`<div class="panel acct-bar">
+    <div class="ab-l"><span class="ab-ic">${t.ic}</span>
+      <div class="ab-sel"><label for="acctSelect">거래 계좌</label>
+        <select id="acctSelect">${acctList.map(a=>{const ty=ACCT_TYPES[a.type]||ACCT_TYPES.general;
+          const bk=(a.id===acctActive)?{cash}:(acctBooks[a.id]||{});
+          return `<option value="${a.id}" ${a.id===acctActive?'selected':''}>${ty.ic} ${ty.n} · ${KRW(intOf(bk.cash,0))}원</option>`;}).join('')}</select>
+      </div></div>
+    <div class="ab-r">
+      <div class="ab-kv"><span>국내</span><b>${(FEE_RATE_BASE*t.feeKr*100).toFixed(4)}%</b></div>
+      <div class="ab-kv"><span>해외</span><b>${(US_FEE_BASE*t.feeUs*100).toFixed(2)}%</b></div>
+      <div class="ab-kv"><span>환전우대</span><b>${Math.round((t.fxPref!=null?t.fxPref:0.95)*100)}%</b></div>
+      <button class="ab-add" id="acctAddBtn">+ 계좌 개설</button></div></div>`;
+  $('acctSelect').onchange=(e)=>acctSwitch(e.target.value);
+  $('acctAddBtn').onclick=()=>openAcctOpenSheet();
+}
+function renderAeTypes(){
+  const box=$('aeTypes'); if(!box)return;
+  box.innerHTML=Object.keys(ACCT_TYPES).map(k=>{const a=ACCT_TYPES[k];
+    return `<button type="button" class="acct-chip ${aeSel===k?'on':''}" data-ae="${k}"><i>${a.ic}</i><b>${a.n}</b></button>`;}).join('');
+  box.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>{aeSel=b.dataset.ae;renderAeTypes();});
+  const a=ACCT_TYPES[aeSel], dt=$('aeDetail');
+  if(dt)dt.innerHTML=`<div class="acct-d"><p>${a.d}</p>
+    <div class="acct-kv"><span>국내 수수료</span><b>${(FEE_RATE_BASE*a.feeKr*100).toFixed(4)}%</b></div>
+    <div class="acct-kv"><span>해외 수수료</span><b>${(US_FEE_BASE*a.feeUs*100).toFixed(2)}%</b></div>
+    <div class="acct-kv"><span>환전 우대</span><b>${Math.round((a.fxPref!=null?a.fxPref:0.95)*100)}%</b></div>
+    <div class="acct-kv"><span>연 납입한도</span><b>${a.limit?KRW(a.limit)+'원':'없음'}</b></div>
+    <div class="acct-tags">${a.pros.map(x=>`<span class="acct-pro">✓ ${x}</span>`).join('')}
+      ${a.cons.map(x=>`<span class="acct-con">· ${x}</span>`).join('')}</div></div>`;
+  const go=$('aeGo'); if(go)go.onclick=()=>doAcctOpen();
+}
+function doAcctOpen(){
+  const t=ACCT_TYPES[aeSel]||ACCT_TYPES.general;
+  const v=parseInt((($('aeCash')||{}).value||'0').replace(/[^0-9]/g,''))||0;
+  const msg=$('aeMsg');
+  if(v<10000){if(msg){msg.style.color='var(--down)';msg.textContent='시작 예수금은 10,000원 이상으로 설정해 주세요.';}return;}
+  if(t.limit&&v>t.limit){if(msg){msg.style.color='var(--down)';
+    msg.innerHTML=`<b>${t.n}</b>의 연 납입한도는 <b>${KRW(t.limit)}원</b>입니다. 금액을 낮추거나 다른 계좌를 선택해 주세요.`;}return;}
+  acctOpen(aeSel,v);
+  toast('buy','계좌 개설 완료',t.n+' · 예수금 '+KRW(v)+'원으로 시작합니다');
+  try{sanitizeAccount(true);}catch(e){}
+  try{$('liteGate').hidden=true;}catch(e){}
+  renderAcctBar(); try{renderPortfolioNumbers();renderHoldings();}catch(e){}
+}
+function openAcctOpenSheet(){
+  aeSel='general';
+  openLiteGate('계좌 개설',`<div class="ae-sheet">
+    <p class="ae-d">목적에 맞는 계좌를 하나 더 열 수 있습니다. 계좌마다 예수금·보유·매매일지가 따로 관리됩니다.</p>
+    <div class="acct-pick" id="aeTypes"></div><div class="acct-detail" id="aeDetail"></div>
+    <div class="fld2" style="margin-top:12px"><label>시작 예수금 (원)</label>
+      <input id="aeCash" class="num" inputmode="numeric" value="10,000,000"></div>
+    <div class="ae-msg" id="aeMsg"></div>
+    <button class="modal-btn" id="aeGo">계좌 개설하기</button></div>`);
+  setTimeout(renderAeTypes,60);
+}
+function acctMigrate(){
+  if(acctOpened())return;
+  const id=acctNewId();
+  acctList=[{id,type:(ACCT_TYPES[acctType]?acctType:'general'),openedAt:Date.now(),legacy:1}];
+  acctBooks={[id]:{cash,usdCash,usdSettling:usdSettling.slice(),holdings:holdings.slice(),
+    tradeLog:tradeLog.slice(),tradeArchive,ipoPlans:ipoPlans.slice()}};
+  acctActive=id;
+}
 /* ══ [v4.32] 계좌 종류 ══════════════════════════════════════════════════════
    실제 증권사 계좌 체계를 모의로 옮긴다. 고르는 재미만이 아니라 수수료·세제가
    실제로 다르게 계산되도록 엔진에 연결한다(feeKr/feeUs/taxFree/limit).
@@ -2040,9 +2181,10 @@ function cloudSync(){
   clearTimeout(syncT);
   syncT=setTimeout(()=>cloudCall({action:'sync',id:currentUser,pass:acc.pass,
     /* 폴더·종목메모·개인설정까지 자동 저장 — 기기를 바꿔 로그인해도 그대로 복원된다(수동 내보내기 불필요) */
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}),800);
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}),800);
 }
-function saveState(){ if(!currentUser)return; store.set('user:'+currentUser,{watchlist,holdings,cash,usdCash,usdSettling,acctType,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash}); cloudSync(); }
+function saveState(){ if(!currentUser)return; try{acctSnap();}catch(e){}   // [v4.40] 활성 계좌 장부 반영
+  store.set('user:'+currentUser,{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash}); cloudSync(); }
 /* [폴더] 관심종목 폴더 상태 */
 let watchFolders=[]; let watchTab='all';
 /* [v1.99] 관심종목 = 폴더 소속 종목. '전체' 가상 폴더 폐지.
@@ -2084,6 +2226,15 @@ function applyUser(u){
   cash=(d.cash!=null)?d.cash:10000000;
   usdCash=(d.usdCash!=null)?+d.usdCash:0;                       // [v4.29]
   acctType=(d.acctType&&ACCT_TYPES[d.acctType])?d.acctType:'general';   // [v4.32]
+  /* [v4.40] 계좌 목록 복원. acctList 키 자체가 없는 예전 사용자만 자동 이전하고,
+     키가 있는데 비어 있으면 '아직 개설하지 않은 상태'로 그대로 둔다(그래야 안내가 뜬다). */
+  const hasNewFmt=Object.prototype.hasOwnProperty.call(d,'acctList');
+  acctList=Array.isArray(d.acctList)?d.acctList.filter(a=>a&&a.id&&ACCT_TYPES[a.type]):[];
+  acctBooks=(d.acctBooks&&typeof d.acctBooks==='object')?d.acctBooks:{};
+  acctActive=(d.acctActive&&acctList.some(a=>a.id===d.acctActive))?d.acctActive:(acctList[0]?acctList[0].id:'');
+  if(acctOpened()&&acctActive)acctLoad(acctActive);
+  else if(!hasNewFmt)acctMigrate();                      // 예전 사용자 → 계좌 하나로 이전
+  else { cash=0; usdCash=0; usdSettling=[]; holdings=[]; }   // 미개설 → 빈 상태
   usdSettling=Array.isArray(d.usdSettling)?d.usdSettling:[];
   ipoPlans=d.ipoPlans||[];
   tradeLog=d.tradeLog||[]; tradeArchive=d.tradeArchive||{};
@@ -2246,6 +2397,7 @@ function renderAcctPick(){
 $('doSignup').onclick=async()=>{
   const id=normId($('suId').value),pw=$('suPw').value,pw2=$('suPw2').value;
   acctType=ACCT_TYPES[suAcctSel]?suAcctSel:'general';           // [v4.32] 선택한 계좌 종류
+  acctList=[]; acctBooks={}; acctActive='';                     // [v4.40] 가입 시 첫 계좌를 연다
   const name=$('suName').value.trim()||id,email=$('suEmail').value.trim();
   const cashV=parseInt(($('suCash').value||'0').replace(/[^0-9]/g,''))||0;
   /* [v4.32] 계좌 종류별 납입한도 검증 — 고르기만 하고 끝나지 않게 실제로 적용한다 */
@@ -2273,6 +2425,7 @@ $('doSignup').onclick=async()=>{
   const accs=accounts(); accs[id]={pass:passH,name,email,acctPass:acctH,created:Date.now()}; store.set('accounts',accs);
   store.set('user:'+id,{watchlist:['005930','000660','035420'],holdings:[],cash:cashV,ipoPlans:[],acctPass:acctH});
   applyUser(id); unlockApp(); initApp();
+  try{ acctOpen(acctType,cashV); }catch(e){}                    // [v4.40] 선택한 종류로 첫 계좌 개설
   toast('buy','가입 완료 · '+name+'님','계정이 서버에 저장되어 어느 기기에서든 같은 아이디로 로그인할 수 있어요');
 };
 /* ===== 프로필 메뉴 ===== */
@@ -3276,7 +3429,7 @@ function _showView(name){
   // [수정] 화면별 렌더러가 예외를 던져도 탭 전환 자체는 성공하도록 격리
   if(name==='home'){safeRun('home',renderHome);safeRun('market',renderMarket);safeRun('aiBrief',()=>{renderAiBrief();aiSchedule();});}
   if(name==='watch')safeRun('watch',renderWatch);
-  if(name==='sector')safeRun('sector',()=>setSecTab(secTab));
+  if(name==='sector')safeRun('sector',()=>{setSecTab(secTab);applySectorMkt();});   // [v4.40]
   if(name==='etf'){safeRun('etfLounge',renderEtfLounge);safeRun('etfLoad',loadEtfList);}
   if(name==='us')safeRun('usLounge',renderUsLounge);
   if(name==='ustrade')safeRun('usTrade',renderUsTrade);
@@ -3292,7 +3445,7 @@ function _showView(name){
     safeRun('nxtStatus',loadNxtStatus);}
   if(name==='clan'){safeRun('clan',renderClan);}
   if(name==='friend'){safeRun('friend',renderFriend);}
-  if(name==='account'){safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
+  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
     safeRun('equity',()=>{seedEquityFromTrades();recordEquity();requestAnimationFrame(drawEquity);});
     safeRun('bgList',refreshStockListSoon);
     if(currentView==='home')safeRun('heroeq',drawHeroEq);
@@ -3307,6 +3460,7 @@ $('navToggle').onclick=(e)=>{e.stopPropagation();$('mainNav').classList.toggle('
    그중 하나라도 예외를 던지면 "종목을 눌러도 화면이 안 넘어가는" 증상이 났다.
    → 화면 전환을 가장 먼저 수행하고, 나머지 단계는 전부 개별 격리한다. */
 function openTrade(code){
+  if(usMeta&&usMeta[code]){ try{openUS(code);}catch(e){} return; }   // [v4.41] 해외는 전용 화면으로
   if(!code)return;
   selected=code;userPrice=null;invExpanded=false;
   safeRun('openTrade:view',()=>showView('trade'));          // ① 무조건 먼저 이동
@@ -3565,6 +3719,9 @@ async function primeNxtQuotes(codes){
 function dispQuote(code){
   const st=byCode[code];
   if(!st)return null;
+  /* [v4.41] 해외 종목은 NXT·정규장 판정 대상이 아니다 — 달러 시세를 그대로 돌려준다.
+     이 한 줄로 관심종목·홈 요약·검색 등 dispQuote 를 쓰는 모든 화면이 해외를 지원한다. */
+  if(st.us||usMeta[code])return {price:st.price,prevClose:st.prevClose,src:'US',us:1};
   const base={price:st.price,prevClose:st.prevClose,src:'KRX'};
   const cap=nxtCapability(code);
   if(cap===false)return {...base,src:'KRXONLY'};
@@ -4903,6 +5060,26 @@ function renderMySum(){const el=$('myWatchSum'); if(!el)return;
 /* [v3.2] 지수 자가진단 보관소 — 콘솔에서 __idxCheck() 로 확인 */
 let idxHealth=null;
 try{ window.__idxCheck=()=>idxHealth||'아직 지수를 받지 않았습니다. 홈 화면을 한 번 열어 주세요.'; }catch(e){}
+/* ══ [v4.41] '오늘의 시장'에 미국 시장을 함께 담는다 ═════════════════════════
+   국내 지수만 보여 주던 카드에, 미국 장 상태와 대표 지수 ETF(S&P500·나스닥100)
+   등락을 붙여 하루의 흐름을 한 카드에서 이어 볼 수 있게 한다. */
+function usMoodHtml(){
+  try{
+    const ses=usSession();
+    const pick=(t,nm)=>{const q=usQ[t]; if(!q||q.price==null||!q.prev)return '';
+      const r=(q.price-q.prev)/q.prev*100;
+      return `<span class="hm-i"><i>${nm}</i><b class="num ${r>=0?'up':'down'}">${pctS(r)}</b></span>`;};
+    const rows=pick('SPY','S&P500')+pick('QQQ','나스닥100');
+    const dot=ses.phase==='regular'?'on':ses.phase==='closed'?'off':'ext';
+    if(!rows){
+      usEnsureQuotes(['SPY','QQQ'],true).then(()=>{if(currentView==='home')renderHeroMarket();});
+      return `<div class="hm-us"><span class="hm-usl"><i class="hmu-dot ${dot}"></i>🇺🇸 ${ses.label}</span>
+        <span class="hm-uswait">지수 수신 중…</span></div>`;
+    }
+    return `<div class="hm-us"><span class="hm-usl"><i class="hmu-dot ${dot}"></i>🇺🇸 ${ses.label}</span>
+      <span class="hm-usi">${rows}</span></div>`;
+  }catch(e){ return ''; }
+}
 function renderHeroMarket(){
   const el=$('heroMarket');if(!el)return;
   try{
@@ -4914,6 +5091,7 @@ function renderHeroMarket(){
       <div class="hm-score"><b class="num">${m.score}</b><span>/100</span></div>
       <div class="hm-gauge"><i style="width:${m.score}%"></i></div>
       <div class="hm-idx">${idx(ks,'코스피')}${idx(kq,'코스닥')}</div>
+      ${usMoodHtml()}
       ${drv?`<div class="hm-drv">${drv}</div>`:''}
       ${invCache?`<div class="hm-invrow">${invLineHtml(invCache)}</div>`:''}
       <div class="hm-go">AI 브리핑 자세히 →</div>`;
@@ -6105,13 +6283,23 @@ function drawHeroEq(){
 }
 /* [v2.3.2] 점프바 우측 — 실시간 인기 종목 티커(조회수 랭킹 상위 5) */
 let _hhTry=0;
+var homeHotMkt='kr';
 async function renderHomeHot(){
-  const el=$('homeHot');if(!el)return;
+  const el=$('homeHot'), wrap=$('homeHotWrap'); if(!el)return;
+  /* [v4.41] 시장 탭 배선 — 한 번만 건다 */
+  const mt=$('homeHotMkt');
+  if(mt&&!mt._w){mt._w=1;
+    mt.querySelectorAll('[data-hmkt]').forEach(b=>b.onclick=()=>{
+      homeHotMkt=b.dataset.hmkt;
+      mt.querySelectorAll('[data-hmkt]').forEach(x=>x.classList.toggle('on',x===b));
+      renderHomeHot();});}
+  if(homeHotMkt==='us'){ renderHomeHotUs(); return; }
   try{
     const items=(await loadRank('조회수'))||[];
     const top=items.slice(0,5).filter(x=>x&&x.code);
-    if(!top.length){el.hidden=true;return;}
-    el.hidden=false;
+    /* [v4.41] 국내 목록이 비어도 묶음을 감추지 않는다 — 감추면 해외 탭까지 사라져 전환할 수 없다 */
+    if(wrap)wrap.hidden=false;
+    if(!top.length){ el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">국내 순위를 불러오지 못했습니다</span>`; return; }
     el.innerHTML=`<span class="hh-t">🔥 인기</span>`+top.map((x,i)=>{
       const st=byCode[x.code],q=st?dispQuote(x.code):null;
       const p=(q&&q.price!=null&&q.prevClose)?(q.price-q.prevClose)/q.prevClose*100:null;
@@ -6127,7 +6315,28 @@ async function renderHomeHot(){
     if(!_need)_hhTry=0;
     else if(_hhTry<2){ _hhTry++;
       primeQuotes(top.map(x=>x.code)).then(()=>{if(currentView==='home')safeRun('homehot2',()=>renderHomeHot());}); }
-  }catch(e){el.hidden=true;}
+  }catch(e){ const w2=$('homeHotWrap'); if(w2)w2.hidden=false;
+    if(el)el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">국내 순위를 불러오지 못했습니다</span>`; }
+}
+/* [v4.41] 홈 인기 — 해외(거래대금 상위 5) */
+function renderHomeHotUs(){
+  const el=$('homeHot'), wrap=$('homeHotWrap'); if(!el)return;
+  const ready=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
+  if(ready.length<5){
+    if(wrap)wrap.hidden=false;
+    el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">해외 시세를 불러오는 중…</span>`;
+    usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{ if(currentView==='home'&&homeHotMkt==='us')renderHomeHotUs(); });
+    return;
+  }
+  const val=t=>(usQ[t].price||0)*(usQ[t].vol||0);
+  const top=ready.slice().sort((a,b)=>val(b)-val(a)).slice(0,5);
+  if(wrap)wrap.hidden=false;
+  el.innerHTML=`<span class="hh-t">🔥 인기</span>`+top.map((t,i)=>{
+    const q=usQ[t],m=usMeta[t];
+    const p=(q.prev)?(q.price-q.prev)/q.prev*100:null;
+    return `<button class="hh-c" data-ushot="${t}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${usTick(t)}${m.kr}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
+  }).join('');
+  el.querySelectorAll('[data-ushot]').forEach(b=>b.onclick=()=>openUS(b.dataset.ushot));
 }
 /* [v2.5.1] 내용이 비어 있는 관심 요약 카드가 빈 흰 상자로 남던 문제 */
 function tidyMySum(){const el=$('myWatchSum');if(el&&!el.hidden&&!String(el.textContent||'').trim())el.hidden=true;}
@@ -6154,6 +6363,16 @@ function renderHome(){
   safeRun('heroeq',()=>{seedEquityFromTrades();recordEquity();drawHeroEq();});
   safeRun('bgList',refreshStockListSoon);
   safeRun('homehot',renderHomeHot);
+  /* [v4.41] 홈에서도 해외 시세가 필요하다 — 보유 해외 종목과 대표 지수 ETF를 받아 둔다 */
+  safeRun('homeus',()=>{
+    const need=['SPY','QQQ'].concat((holdings||[]).filter(x=>x&&x.us).map(x=>x.code));
+    if(need.length)usEnsureQuotes([...new Set(need)],true).then(()=>{
+      if(currentView!=='home')return;
+      try{renderHeroMarket();}catch(e){}
+      try{renderPortfolioNumbers();}catch(e){}
+      try{renderMySum();}catch(e){}
+    });
+  });
   safeRun('homenews',renderHomeNews);
 }
 
@@ -6480,6 +6699,7 @@ $('jGate').addEventListener('click',e=>{if(e.target===$('jGate'))$('jGate').hidd
 
 /* 검색 */
 let searchToken=0,searchTimer=null,searchRankTab='조회수';const remoteCache={};
+let searchMkt='kr';   // [v4.38] 순위 시장 선택 (kr | us)
 const rankCache={},rankError={},rankType={'조회수':'search','상승률':'rise','하락률':'fall'};
 let nxtBatchTimer=null,nxtBatchQ=new Set();
 async function primeQuotes(codes){
@@ -6803,7 +7023,39 @@ function bindRankRetry(){
   const b=$('rankRetryBtn');
   if(b)b.addEventListener('click',(e)=>{e.stopPropagation();rankRetry(b.dataset.tab||searchRankTab);});
 }
+/* ══ [v4.38] 해외 순위 — 국내와 같은 세 가지 기준으로 정렬한다 ═══════════════
+   조회수는 미국 종목에 공개 지표가 없어, 거래대금(가격×거래량)으로 대신한다.
+   실제 증권사도 해외는 '거래대금 상위'를 인기 지표로 쓴다. */
+function usRankSection(){
+  const tab=searchRankTab;
+  const pool=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
+  if(!pool.length){
+    usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{
+      if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
+        $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();
+      }});
+    return '<div class="empty">해외 시세를 불러오는 중…</div>';
+  }
+  const rate=t=>{const q=usQ[t];return (q.prev)?(q.price-q.prev)/q.prev*100:0;};
+  const val=t=>{const q=usQ[t];return (q.price||0)*(q.vol||0);};
+  let list;
+  if(tab==='상승률')list=pool.slice().sort((a,b)=>rate(b)-rate(a));
+  else if(tab==='하락률')list=pool.slice().sort((a,b)=>rate(a)-rate(b));
+  else list=pool.slice().sort((a,b)=>val(b)-val(a));
+  list=list.slice(0,50);
+  const ses=usSession();
+  const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
+    · ${tab==='조회수'?`거래대금 상위 <b>${list.length}종</b> (미국은 조회수 지표를 공개하지 않아 거래대금으로 대신합니다)`
+      :`${tab} 상위 <b>${list.length}종</b>`} · 유니버스 ${US_UNI.length}종 기준</div>`;
+  return note+`<div class="us-ranklist">${list.map((t,i)=>{
+    const m=usMeta[t],q=usQ[t];
+    return `<div class="us-row" data-us="${t}"><span class="us-rk num">${i+1}</span>${usTick(t)}
+      <div class="us-nm"><b>${m.kr}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en}</span></div>
+      <div class="us-px">$${USD2(q.price)}<small>${USDKR(q.price)}</small></div>
+      <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
+}
 function rankSection(){
+  if(searchMkt==='us')return usRankSection();      // [v4.38] 해외 순위
   const tab=searchRankTab,items=rankCache[tab]||[];
   if(!items.length){
     /* [v2.8 · 치명] 무한 재호출 차단
@@ -6854,6 +7106,8 @@ function rankSection(){
 function renderSearch(){
   const q=($('searchInput').value||'').trim();
   const ql=q.toLowerCase().replace(/\s+/g,'');
+  /* [v4.38] 시장 탭은 '순위'를 나누는 장치다. 검색어를 넣으면 국내·해외를 함께 보여 주므로 감춘다. */
+  {const mt=$('searchMktTabs'); if(mt)mt.hidden=!!q;}
   if(!q){ $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); return; }
   /* [v4.28] 해외(미국) 매치 — 티커·한글·영문 어느 쪽으로든 걸리면 국내 결과 위에 얹는다 */
   const usHit=usLocalMatch(q).slice(0,6).map(t=>[t]);
@@ -6986,6 +7240,59 @@ $('searchInput').addEventListener('input',()=>{srchPage=1;if(!etfList)loadEtfLis
 function syncSearchClear(){const b=$('searchClear'),i=$('searchInput');if(b&&i)b.hidden=!((i.value||'').length);}
 {const b=$('searchClear');if(b)b.onclick=()=>{const i=$('searchInput');i.value='';i.focus();renderSearch();renderHist();syncSearchClear();};}
 document.querySelectorAll('#secTabs button').forEach(b=>b.onclick=()=>setSecTab(b.dataset.st));
+/* ══ [v4.40] 주도 섹터 국내/해외 전환 ══════════════════════════════════════ */
+var sectorMkt='kr';
+document.querySelectorAll('#sectorMktTabs button').forEach(b=>b.onclick=()=>{
+  sectorMkt=b.dataset.smkt;
+  document.querySelectorAll('#sectorMktTabs button').forEach(x=>x.classList.toggle('on',x===b));
+  applySectorMkt();
+});
+function applySectorMkt(){
+  /* [v4.40] 국내 영역은 '해외 전용 박스와 시장 탭'을 뺀 나머지 직계 자식 전부.
+     개별 id 를 열거하면 하나만 빠져도 복귀가 안 되므로 형제 순회로 처리한다. */
+  const us=(sectorMkt==='us');
+  const sec=document.getElementById('view-sector'); if(!sec)return;
+  [...sec.children].forEach(el=>{
+    if(el.id==='sectorMktTabs'||el.id==='secUsBody')return;
+    if(el.classList.contains('page-title')||el.classList.contains('page-sub'))return;
+    el.hidden=us;
+  });
+  const box=$('secUsBody'); if(!box)return;
+  box.hidden=!us;
+  if(us)renderUsSector();
+}
+/* 해외 주도 섹터 — 테마별 평균 등락률로 강도를 매긴다 */
+function renderUsSector(){
+  const box=$('secUsBody'); if(!box)return;
+  const ready=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null&&usQ[t].prev);
+  if(ready.length<5){
+    box.innerHTML='<div class="empty">해외 시세를 불러오는 중…</div>';
+    usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{ if(currentView==='sector'&&sectorMkt==='us')renderUsSector(); });
+    usPollStart(US_UNI.map(u=>u[0]));
+    return;
+  }
+  const rate=t=>(usQ[t].price-usQ[t].prev)/usQ[t].prev*100;
+  const rows=US_THEMES.map(([k,label])=>{
+    const list=US_UNI.filter(u=>u[4]===k).map(u=>u[0]).filter(t=>ready.includes(t));
+    if(!list.length)return null;
+    const avg=list.reduce((a,t)=>a+rate(t),0)/list.length;
+    const up=list.filter(t=>rate(t)>0).length;
+    const top=list.slice().sort((a,b)=>rate(b)-rate(a)).slice(0,3);
+    return {k,label,avg,n:list.length,up,top};
+  }).filter(Boolean).sort((a,b)=>b.avg-a.avg);
+  const mx=Math.max(...rows.map(r=>Math.abs(r.avg)),0.1);
+  const ses=usSession();
+  box.innerHTML=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
+      · 테마 ${rows.length}개 · 유니버스 ${US_UNI.length}종 평균 등락 기준</div>
+    <div class="us-sect-list">${rows.map((r,i)=>`
+      <div class="us-sect" data-ustheme2="${r.k}">
+        <div class="uss-h"><span class="uss-rk num">${i+1}</span><b>${r.label}</b>
+          <span class="uss-avg num ${dirOf(r.avg)}">${pctS(r.avg)}</span></div>
+        <div class="uss-bar"><i class="${r.avg>=0?'up':'down'}" style="width:${Math.min(100,Math.abs(r.avg)/mx*100)}%"></i></div>
+        <div class="uss-m">${r.n}종 중 <b class="up">${r.up}</b> 상승 · 
+          ${r.top.map(t=>`<span class="uss-t" data-us="${t}">${usMeta[t].kr} <i class="num ${dirOf(rate(t))}">${pctS(rate(t))}</i></span>`).join('')}</div>
+      </div>`).join('')}</div>`;
+}
 document.querySelectorAll('#proTabs button').forEach(b=>b.onclick=()=>setProTab(b.dataset.pt));
 if($('picksRun'))$('picksRun').onclick=()=>loadPicks(!!picksCache);
 if($('nhRun'))$('nhRun').onclick=loadNxtHist;
@@ -7090,6 +7397,17 @@ bindClick('eaStart',()=>runEtfAudit());
 bindClick('eaStop',()=>{eaRun=false;});
 bindClick('eaProbe',()=>runEtfProbe());
 document.querySelectorAll('#searchTabs button').forEach(b=>b.onclick=()=>{searchRankTab=b.dataset.rt;document.querySelectorAll('#searchTabs button').forEach(x=>x.classList.toggle('on',x===b));renderSearch();});
+/* [v4.38] 국내/해외 전환 — 해외를 고르면 시세를 먼저 받아 온 뒤 순위를 그린다 */
+document.querySelectorAll('#searchMktTabs button').forEach(b=>b.onclick=()=>{
+  searchMkt=b.dataset.mkt;
+  document.querySelectorAll('#searchMktTabs button').forEach(x=>x.classList.toggle('on',x===b));
+  renderSearch();
+  if(searchMkt==='us')usPollStart(US_UNI.map(u=>u[0]));
+  if(searchMkt==='us')usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{
+    if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
+      $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();
+    }});
+});
 
 /* 관심종목 */
 /* ===== 관심종목 + 사용자 폴더 =====
@@ -7390,7 +7708,14 @@ function updateWatchRow(code){
   if(lastPx[code]!==undefined&&lastPx[code]!==w.price){px.classList.remove('fl-up','fl-down');void px.offsetWidth;px.classList.add(w.price>lastPx[code]?'fl-up':'fl-down');}
   lastPx[code]=w.price;
 }
-function bindStockClicks(root){root.querySelectorAll('[data-code]').forEach(n=>n.onclick=()=>{const c=n.dataset.code;if(n.dataset.name)ensureStock(c,n.dataset.name,n.dataset.market);openTrade(c);});}
+/* [v4.41] 목록 클릭을 한 곳에서 갈라 준다 — 해외 티커면 해외 거래 화면으로.
+   이 함수는 검색·관심·순위·보유 등 거의 모든 목록이 함께 쓰므로, 여기만 고치면 전 화면이 통일된다. */
+function bindStockClicks(root){root.querySelectorAll('[data-code]').forEach(n=>n.onclick=()=>{
+  const c=n.dataset.code;
+  if(usMeta&&usMeta[c]){ openUS(c); return; }
+  if(n.dataset.name)ensureStock(c,n.dataset.name,n.dataset.market);
+  openTrade(c);
+});}
 
 /* ⭐ 관심종목 — [v1.99] 별을 누르면 '어느 폴더에 담을지' 선택한다.
    폴더가 하나도 없으면 먼저 폴더 생성 플로우가 열린다(폴더 없이 관심 등록 불가). */
@@ -8936,7 +9261,55 @@ function renderPortfolioNumbers(){
   const usdKrw=Math.round(((+usdCash)||0)*(usFx()||0));            // [v4.29] 달러 예수금 원화 환산
   const pnl=te-tc,assets=te+cash+usdKrw,rate=tc?pnl/tc*100:0,dir=dirOf(pnl);
   const set=(id,txt,cls)=>{const e=$(id);if(!e)return;e.textContent=txt;if(cls!==undefined)e.className='num '+cls;};
-  set('homeAssets',KRW(assets)+'원');set('homePnl',signed(pnl),dir);set('homeRate',pctS(rate),dir);set('homeCash',KRW(cash)+(usdCash>0?' +$'+USD2(usdCash):''));
+  set('homeAssets',KRW(assets)+'원');set('homePnl',signed(pnl),dir);set('homeRate',pctS(rate),dir);set('homeCash',KRW(cash)+'원');
+  /* ══ [v4.41] 홈 총자산을 국내·해외로 나눠 보여 준다 ═══════════════════════
+     해외 종목과 달러 예수금이 생겼는데 화면은 합계 하나만 보여 줘서
+     어디에 얼마가 들어가 있는지 알 수 없었다. 달러 예수금을 따로 띄우고,
+     자산을 국내/해외로 갈라 비중 막대로 보여 준다. */
+  {const uw=$('homeUsdWrap');
+   if(uw){ uw.hidden=!(usdCash>0);
+     if(usdCash>0)set('homeUsd','$'+USD2(usdCash)); }}
+  try{
+    const sp=$('assetSplit');
+    if(sp){
+      let krE=0,usE=0;
+      (holdings||[]).forEach(hh=>{ if(!hh)return; if(hh.us)usE+=hEvalKRW(hh); else krE+=hEvalKRW(hh); });
+      const usTot=usE+usdKrw, krTot=krE+cash, all=usTot+krTot;
+      if(all>0&&(usTot>0)){
+        sp.hidden=false;
+        const kp=Math.max(0,Math.min(100,krTot/all*100)), up=100-kp;
+        sp.innerHTML=`<div class="as-bar"><i class="kr" style="width:${kp}%"></i><i class="us" style="width:${up}%"></i></div>
+          <div class="as-lb">
+            <span><b>🇰🇷 국내</b> ${KRW(krTot)}원 <i>${kp.toFixed(0)}%</i></span>
+            <span><b>🇺🇸 해외</b> ${KRW(usTot)}원 <i>${up.toFixed(0)}%</i></span>
+          </div>`;
+      } else sp.hidden=true;
+    }
+  }catch(e){}
+  /* ══ [v4.41] 홈 총자산을 국내·해외로 나눠 보여 준다 ═══════════════════════
+     해외 종목과 달러 예수금이 생겼는데 화면은 합계 하나만 보여 줘서
+     어디에 얼마가 들어가 있는지 알 수 없었다. 달러 예수금을 따로 띄우고,
+     보유 평가액을 국내/해외로 갈라 비중 막대로 보여 준다. */
+  {const uw=$('homeUsdWrap');
+   if(uw){ uw.hidden=!(usdCash>0);
+     if(usdCash>0)set('homeUsd','$'+USD2(usdCash)+' · '+KRW(usdKrw)+'원'); }}
+  try{
+    const sp=$('assetSplit');
+    if(sp){
+      let krE=0,usE=0;
+      (holdings||[]).forEach(hh=>{ if(!hh)return; (hh.us?(usE+=hEvalKRW(hh)):(krE+=hEvalKRW(hh))); });
+      const usTot=usE+usdKrw, krTot=krE+cash, all=usTot+krTot;
+      if(all>0&&(usTot>0||holdings.some(x=>x&&x.us))){
+        sp.hidden=false;
+        const kp=krTot/all*100, up=100-kp;
+        sp.innerHTML=`<div class="as-bar"><i class="kr" style="width:${kp}%"></i><i class="us" style="width:${up}%"></i></div>
+          <div class="as-lb">
+            <span><b>🇰🇷 국내</b> ${KRW(krTot)}원 <i>${kp.toFixed(0)}%</i></span>
+            <span><b>🇺🇸 해외</b> ${KRW(usTot)}원 <i>${up.toFixed(0)}%</i></span>
+          </div>`;
+      } else sp.hidden=true;
+    }
+  }catch(e){}
   set('acctAssets',KRW(assets)+'원');set('acctPnl',signed(pnl),dir);set('acctRate',pctS(rate),dir);set('acctCash',KRW(cash)+'원'+(usdCash>0?' + $'+USD2(usdCash):''));
 }
 /* 예수금 설정 */
@@ -10087,6 +10460,7 @@ function executeOrderCore(s,o,tag){
      비밀번호 입력 중 시세·보유가 바뀌었거나 호출 경로가 늘어나도 잔고가 깨지지 않게 한다.
      [v4.5] 성공 여부를 boolean 으로 돌려준다 — 예약주문이 실패를 알아채야 하기 때문. */
   if(_settling)return false;
+  if(!acctRequire('주문'))return false;                 // [v4.40] 미개설 차단
   const price=intOf(o&&o.price,0), qty=intOf(o&&o.qty,0);
   if(!s||!s.code||!o||qty<=0||price<=0){toast('warn','주문 실패','주문 정보를 확인하세요');return false;}
   const c=orderCost(o.side,price,qty);
@@ -10711,6 +11085,7 @@ function usUsdAvailable(){                                         // 환전(달
   return Math.max(0,Math.round((usdCash-hold)*100)/100);
 }
 function usExchange(dir,amount){                                   // dir:'toUsd'|'toKrw'
+  if(!acctOpened())return {ok:false,msg:'계좌를 먼저 개설해 주세요 — 내 계좌 화면에서 개설할 수 있습니다'};
   const f=usFx();
   if(!f)return {ok:false,msg:'환율을 아직 받지 못했습니다'};
   if(dir==='toUsd'){
@@ -10777,13 +11152,17 @@ var usQ={}, _usLoadBusy=false, _usPollT=null, _usPollSet=[];
 async function usEnsureQuotes(tickers,withFx){
   const need=[...new Set(tickers.filter(t=>usMeta[t]))];
   if(!need.length)return;
-  for(let i=0;i<need.length;i+=28){
-    const batch=need.slice(i,i+28);
+  /* [v4.39] 서버 한도에 맞춰 18종목씩 나눠 보내고, 빠진 종목은 한 번 더 시도한다 */
+  const missed=[];
+  for(let i=0;i<need.length;i+=18){
+    const batch=need.slice(i,i+18);
     try{
       const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(','))+(withFx?'&fx=1':''),
         {cache:'no-store'});
       const j=await r.json();
       if(j&&j.fx)usFxSet(j.fx);
+      const got=new Set(Object.keys((j&&j.codes)||{}));
+      batch.forEach(t=>{ if(!got.has(usMeta[t].reu))missed.push(t); });
       if(j&&j.codes)Object.keys(j.codes).forEach(reu=>{
         const t=Object.keys(usMeta).find(k=>usMeta[k].reu===reu); if(!t)return;
         const q=j.codes[reu]; if(!q||q.price==null)return;
@@ -10791,17 +11170,40 @@ async function usEnsureQuotes(tickers,withFx){
         byCode[t]={code:t,name:usMeta[t].kr,us:1,price:q.price,prevClose:q.prev,
           open:q.open,high:q.high,low:q.low,vol:q.vol,cap:q.cap,w52h:q.w52h,w52l:q.w52l,ex:usMeta[t].sfx};
       });
+    }catch(e){ batch.forEach(t=>missed.push(t)); }
+  }
+  /* 빠진 종목 재시도 — 첫 판에 실패해도 두 번째에는 캐시가 채워져 대부분 성공한다 */
+  if(missed.length&&!_usRetry){
+    _usRetry=true;
+    try{
+      for(let i=0;i<missed.length;i+=18){
+        const batch=missed.slice(i,i+18);
+        const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(',')),{cache:'no-store'});
+        const j=await r.json();
+        if(j&&j.codes)Object.keys(j.codes).forEach(reu=>{
+          const t=Object.keys(usMeta).find(k=>usMeta[k].reu===reu); if(!t)return;
+          const q=j.codes[reu]; if(!q||q.price==null)return;
+          usQ[t]={...q,t,at:Date.now()};
+          byCode[t]={code:t,name:usMeta[t].kr,us:1,price:q.price,prevClose:q.prev,
+            open:q.open,high:q.high,low:q.low,vol:q.vol,cap:q.cap,w52h:q.w52h,w52l:q.w52l,ex:usMeta[t].sfx};
+        });
+      }
     }catch(e){}
+    _usRetry=false;
   }
 }
+var _usRetry=false;
 function usPollStart(list){
   _usPollSet=[...new Set(list)];
   if(_usPollT)clearInterval(_usPollT);
   const iv=usSession().phase==='regular'?20000:60000;
-  _usPollT=setInterval(()=>{ if(currentView!=='us'&&currentView!=='ustrade'){clearInterval(_usPollT);_usPollT=null;return;}
+  _usPollT=setInterval(()=>{ if(currentView!=='us'&&currentView!=='ustrade'&&!(currentView==='search'&&searchMkt==='us')){clearInterval(_usPollT);_usPollT=null;return;}
     usEnsureQuotes(_usPollSet.concat(holdings.filter(h=>h.us).map(h=>h.code)),true).then(()=>{
       if(currentView==='us')renderUsLive();
       if(currentView==='ustrade')renderUsTradeLive();
+      if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
+        $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults'));
+      }
     }); },iv);
 }
 
@@ -11065,8 +11467,11 @@ function renderUsFxCard(){
 }
 function renderUsTax(){
   const box=$('usTax'); if(!box)return;
+  const sec=$('usTaxSec');
   const t=usTaxEstimate();
-  if(!t.n){box.innerHTML='';return;}
+  /* [v4.39] 올해 매도 기록이 없으면 제목만 남아 빈 자리로 보였다 — 섹션째 숨긴다 */
+  if(!t.n){box.innerHTML=''; if(sec)sec.hidden=true; return;}
+  if(sec)sec.hidden=false;
   box.innerHTML=`<div class="panel us-card"><div class="us-sec"><b>🧾 해외주식 세금 도우미</b><span>${t.year}년 실현 기준 · 참고용</span></div>
     <div class="us-stat-g">
       <div class="us-stat"><small>올해 매도 건수</small><b class="num">${t.n}건</b></div>
@@ -11109,7 +11514,7 @@ function renderUsLive(){ if(currentView!=='us')return;
     const t=el.dataset.us,q=usQ[t]; if(!q)return;
     el.querySelector('.p').textContent='$'+USD2(q.price);
     const r=el.querySelector('.r'); r.textContent=usRateTxt(q); r.className='r num '+usRateCls(q);});
-  document.querySelectorAll('#usEtfs .us-row, #usThemeBody .us-row, #usSearchOut .us-row').forEach(el=>{
+  document.querySelectorAll('#usEtfs .us-row, #usThemeBody .us-row, #usSearchOut .us-row, #searchResults .us-row').forEach(el=>{
     const t=el.dataset.us,q=usQ[t]; if(!q)return;
     el.querySelector('.us-px').innerHTML='$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
     const r=el.querySelector('.us-rt'); r.textContent=usRateTxt(q); r.className='us-rt num '+usRateCls(q);});
@@ -11151,20 +11556,196 @@ function openUS(t){ if(!usMeta[t])return;
   usSel=t; usSide='buy'; usOrdPx=null; usOrdQty=1; usCandles=null;
   showView('ustrade');
 }
+var usInfoTab='summary';
 function renderUsTrade(){
   if(!usSel){showView('us');return;}
-  const m=usMeta[usSel];
-  renderUsHead(); renderUsOrder(); renderUsStats(); 
+  renderUsHead(); renderUsOrder();
   $('usRanges').innerHTML=[[66,'3개월'],[132,'6개월'],[260,'1년'],[520,'전체']].map(([n,l])=>
     `<button class="${usRange===n?'on':''}" data-usrange="${n}">${l}</button>`).join('');
-  document.querySelectorAll('[data-usrange]').forEach(b=>b.onclick=()=>{usRange=+b.dataset.usrange;
-    document.querySelectorAll('[data-usrange]').forEach(x=>x.classList.toggle('on',x===b));drawUsChart();});
-  usEnsureQuotes([usSel],true).then(()=>{renderUsHead();renderUsOrder();renderUsStats();});
+  document.querySelectorAll('[data-usrange]').forEach(b2=>b2.onclick=()=>{usRange=+b2.dataset.usrange;
+    document.querySelectorAll('[data-usrange]').forEach(x=>x.classList.toggle('on',x===b2));drawUsChart();});
+  document.querySelectorAll('#usInfoTabs button').forEach(b2=>b2.onclick=()=>{
+    usInfoTab=b2.dataset.uinfo;
+    document.querySelectorAll('#usInfoTabs button').forEach(x=>x.classList.toggle('on',x===b2));
+    renderUsInfo();});
+  document.querySelectorAll('#usInfoTabs button').forEach(x=>x.classList.toggle('on',x.dataset.uinfo===usInfoTab));
+  renderUsInfo();
+  usEnsureQuotes([usSel],true).then(()=>{renderUsHead();renderUsOrder();renderUsInfo();});
   usPollStart([usSel]);
   loadUsCandles();
 }
+/* ══ [v4.37] 해외 종목정보 — 국내와 같은 8개 코너 ═══════════════════════════ */
+function renderUsInfo(){
+  const el=$('usInfoBody'), cc=$('usChartCard');
+  if(usInfoTab==='chart'){ if(cc)cc.hidden=false; el.style.display='none';
+    requestAnimationFrame(()=>requestAnimationFrame(()=>drawUsChart())); return; }
+  if(cc)cc.hidden=true; el.style.display='';
+  const f={summary:renderUsSummary,ai:renderUsAi,sise:renderUsSiseTab,news:renderUsNews,
+           holders:renderUsHolders,consensus:renderUsConsensus,finance:renderUsFinance}[usInfoTab];
+  (f||renderUsSummary)(el);
+}
+function usNoData(t,d){return `<div class="us-nodata"><b>${t}</b><span>${d}</span></div>`;}
+/* ① 종목요약 — 시세·통계·회사 소개 */
+function renderUsSummary(el){
+  const m=usMeta[usSel]||{}, q=usQ[usSel]||{};
+  const d=(q.price!=null&&q.prev)?q.price-q.prev:null;
+  const fmt=(v)=>v==null?'—':'$'+USD2(v);
+  const vol=(v)=>v==null?'—':(v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':KRW(v));
+  const capS=(v)=>{if(v==null)return '—';const fx=usFx();
+    if(v>=1e12)return '$'+(v/1e12).toFixed(2)+'T'+(fx?` <small>≈${Math.round(v*fx/1e12)}조원</small>`:'');
+    if(v>=1e9)return '$'+(v/1e9).toFixed(1)+'B';return '$'+(v/1e6).toFixed(0)+'M';};
+  /* 52주 위치 막대 — 국내 '연간 가격 변화'와 같은 형태 */
+  let band='';
+  if(q.w52h!=null&&q.w52l!=null&&q.price!=null&&q.w52h>q.w52l){
+    const pos=Math.max(0,Math.min(100,(q.price-q.w52l)/(q.w52h-q.w52l)*100));
+    band=`<div class="us-sec2">52주 가격 위치</div>
+      <div class="us-band"><i style="left:${pos}%"></i></div>
+      <div class="us-band-lb"><span>최저 ${fmt(q.w52l)}<b class="up">+${((q.price-q.w52l)/q.w52l*100).toFixed(0)}%</b></span>
+        <span>최고 ${fmt(q.w52h)}<b class="down">${((q.price-q.w52h)/q.w52h*100).toFixed(0)}%</b></span></div>`;
+  }
+  const th=(US_THEMES.find(x=>x[0]===m.theme)||[,''])[1];
+  el.innerHTML=`<div class="us-px-big"><b class="num ${dirOf(d||0)}">$${USD2(q.price)}</b>
+      <span class="num ${dirOf(d||0)}">${d==null?'':(d>=0?'+':'')+USD2(d)+' ('+usRateTxt(q)+')'}</span>
+      <i class="num">${USDKR(q.price)}</i></div>
+    <div class="us-sum-card"><div class="us-sum-h">기업 개요 <span class="ai-badge">AI</span></div>
+      <p>${usCompanyBrief(usSel)}</p>
+      <div class="us-tagrow">${th?`<span class="us-tag">${th}</span>`:''}${m.etf?'<span class="us-tag">ETF</span>':''}
+        <span class="us-tag">${{O:'NASDAQ',N:'NYSE',A:'AMEX'}[m.sfx]||''}</span></div>
+      <div class="us-sum-note">실시간 시세와 거래소 공개 정보를 결합한 요약입니다.</div></div>
+    <div class="us-sec2">종목 정보 <small>미국 주식은 상·하한가 제도가 없습니다</small></div>
+    <div class="us-stat-g">
+      <div class="us-stat"><small>시가</small><b class="num">${fmt(q.open)}</b></div>
+      <div class="us-stat"><small>고가</small><b class="num" style="color:var(--up)">${fmt(q.high)}</b></div>
+      <div class="us-stat"><small>저가</small><b class="num" style="color:var(--down)">${fmt(q.low)}</b></div>
+      <div class="us-stat"><small>거래량</small><b class="num">${vol(q.vol)}</b></div>
+      <div class="us-stat"><small>52주 최고</small><b class="num">${fmt(q.w52h)}</b></div>
+      <div class="us-stat"><small>52주 최저</small><b class="num">${fmt(q.w52l)}</b></div>
+      <div class="us-stat"><small>시가총액</small><b class="num">${capS(q.cap)}</b></div>
+      <div class="us-stat"><small>전일 종가</small><b class="num">${fmt(q.prev)}</b></div>
+    </div>${band}`;
+}
+/* 회사 한 줄 소개 — 유니버스 정보로 구성 */
+function usCompanyBrief(t){
+  const m=usMeta[t]||{};
+  const TH={ai:'AI·반도체',big:'빅테크 플랫폼',ev:'전기차·모빌리티',coin:'디지털자산·핀테크',
+    bio:'바이오·헬스케어',fin:'금융',cons:'소비·미디어',ener:'에너지·전력',space:'우주·방산',indu:'산업재'};
+  const kind=m.etf?'상장지수펀드(ETF)':'상장 기업';
+  const ex={O:'나스닥',N:'뉴욕증권거래소',A:'아멕스'}[m.sfx]||'미국 증시';
+  const th=TH[m.theme];
+  return `${m.kr}(${t})은 ${ex}에 상장된 ${kind}입니다.`
+    +(th?` ${th} 분야에 속하며, 영문명은 ${m.en}입니다.`:` 영문명은 ${m.en}입니다.`)
+    +(m.etf?' 개별 종목이 아닌 지수·자산군을 추종하는 상품이라 분산 효과가 있습니다.':'');
+}
+/* ② AI 종목 분석 */
+function renderUsAi(el){
+  const q=usQ[usSel]||{}, m=usMeta[usSel]||{};
+  if(q.price==null){el.innerHTML=usNoData('시세를 기다리는 중입니다','시세가 도착하면 분석을 시작합니다.');return;}
+  const d=(q.prev)?(q.price-q.prev)/q.prev*100:0;
+  let pos=null;
+  if(q.w52h!=null&&q.w52l!=null&&q.w52h>q.w52l)pos=(q.price-q.w52l)/(q.w52h-q.w52l)*100;
+  const trend=d>=2?'강한 상승':d>=0.5?'상승':d<=-2?'강한 하락':d<=-0.5?'하락':'보합';
+  const zone=pos==null?null:pos>=80?'52주 고점 부근':pos>=55?'상단':pos>=45?'중간':pos>=20?'하단':'52주 저점 부근';
+  const sess=usSession();
+  const cs=usCandles||[];
+  let ma20=null,vola=null;
+  if(cs.length>=20){ let s=0; for(let i=cs.length-20;i<cs.length;i++)s+=cs[i].c; ma20=s/20;
+    const rs=[]; for(let i=cs.length-20;i<cs.length-1;i++)rs.push((cs[i+1].c-cs[i].c)/cs[i].c*100);
+    vola=Math.sqrt(rs.reduce((a,x)=>a+x*x,0)/rs.length); }
+  el.innerHTML=`<div class="us-ai-h"><b>AI 종목 분석</b><span class="lv">LIVE</span></div>
+    <div class="us-ai-grid">
+      <div class="us-ai-c"><small>오늘 흐름</small><b class="${dirOf(d)}">${trend} ${pctS(d)}</b></div>
+      <div class="us-ai-c"><small>52주 위치</small><b>${zone||'—'}${pos!=null?` (${pos.toFixed(0)}%)`:''}</b></div>
+      <div class="us-ai-c"><small>20일 평균</small><b class="num">${ma20?'$'+USD2(ma20):'—'}</b></div>
+      <div class="us-ai-c"><small>20일 변동성</small><b class="num">${vola?vola.toFixed(2)+'%':'—'}</b></div>
+    </div>
+    <div class="us-ai-txt">
+      <p><b>${m.kr}</b>는 현재 <b class="${dirOf(d)}">${trend}</b> 흐름입니다${ma20?`, 주가는 20일 평균선 ${q.price>=ma20?'위':'아래'}에 있습니다`:''}.</p>
+      ${zone?`<p>52주 범위에서 <b>${zone}</b>에 자리합니다. 고점 부근에서는 추격 매수 부담을, 저점 부근에서는 하락 지속 여부를 함께 살펴야 합니다.</p>`:''}
+      ${vola?`<p>최근 20일 하루 변동성은 <b>${vola.toFixed(2)}%</b>입니다. ${vola>=3?'변동이 큰 편이라 분할 매수가 안전합니다.':vola>=1.5?'평이한 수준입니다.':'비교적 안정적입니다.'}</p>`:''}
+      <p>미국 주식은 <b>상·하한가가 없어</b> 하루에도 큰 폭으로 움직일 수 있고, 원화 기준 손익은 <b>환율</b>에 함께 좌우됩니다. 현재 ${sess.label}입니다.</p>
+    </div>
+    <div class="us-sum-note">공개 시세를 규칙에 따라 요약한 참고 정보이며 투자 권유가 아닙니다.</div>`;
+}
+/* ③ 시세 — 일별 표 */
+function renderUsSiseTab(el){
+  const cs=usCandles;
+  if(!cs||!cs.length){el.innerHTML=usNoData('일별 시세를 불러오는 중입니다','잠시만 기다려 주세요.');return;}
+  const rows=cs.slice(-30).reverse();
+  el.innerHTML=`<div class="us-sec2">일별 시세 <small>최근 ${rows.length}거래일</small></div>
+    <div class="us-sise-h"><span>날짜</span><span>종가</span><span>등락</span><span>거래량</span></div>
+    ${rows.map((c,i)=>{const pv=rows[i+1]?rows[i+1].c:null;const dd=pv!=null?c.c-pv:0;
+      return `<div class="us-sise-r"><span class="num">${String(c.t).slice(4,6)}.${String(c.t).slice(6,8)}</span>
+        <span class="num">$${USD2(c.c)}</span>
+        <span class="num ${dirOf(dd)}">${pv!=null?pctS(dd/pv*100):'—'}</span>
+        <span class="num">${c.v>=1e6?(c.v/1e6).toFixed(1)+'M':(c.v/1e3).toFixed(0)+'K'}</span></div>`;}).join('')}`;
+}
+/* ④ 뉴스 */
+function renderUsNews(el){
+  const m=usMeta[usSel]||{};
+  el.innerHTML=`<div class="us-sec2">관련 뉴스</div>
+    <div class="us-news-list">
+      ${[['Yahoo Finance','https://finance.yahoo.com/quote/'+usSel],
+         ['Google Finance','https://www.google.com/finance/quote/'+usSel+':'+({O:'NASDAQ',N:'NYSE',A:'NYSEAMERICAN'}[m.sfx]||'NASDAQ')],
+         ['네이버 해외증시','https://m.stock.naver.com/worldstock/stock/'+(m.reu||usSel)],
+         ['SEC 공시(EDGAR)','https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker='+usSel]
+        ].map(([n,u])=>`<a class="us-news-a" href="${u}" target="_blank" rel="noopener">
+          <b>${n}</b><span>${m.kr} (${usSel}) 소식 보기</span><i>↗</i></a>`).join('')}
+    </div>
+    <div class="us-sum-note">해외 종목 뉴스는 원문 매체에서 직접 확인하는 편이 정확합니다. 새 탭으로 열립니다.</div>`;
+}
+/* ⑤ 투자자별 — 미국은 기관 보유 공시 개념 */
+function renderUsHolders(el){
+  const m=usMeta[usSel]||{};
+  el.innerHTML=`<div class="us-sec2">투자자 구성</div>
+    <div class="us-note-box"><b>미국 시장은 국내와 공시 방식이 다릅니다</b>
+      <p>한국거래소처럼 <b>일별 기관·외국인 순매수</b>를 공개하지 않습니다. 대신 기관투자자가 분기마다
+      보유 현황을 <b>13F</b> 보고서로 제출하고, 임원·대주주 매매는 <b>Form 4</b>로 공시합니다.</p>
+      <p>따라서 이 앱에서는 일별 수급 대신 아래 원문 공시로 연결합니다.</p></div>
+    <div class="us-news-list">
+      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=13F" target="_blank" rel="noopener"><b>13F · 기관 보유</b><span>분기별 기관투자자 보유 현황</span><i>↗</i></a>
+      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=4" target="_blank" rel="noopener"><b>Form 4 · 내부자 거래</b><span>임원·대주주 매매 신고</span><i>↗</i></a>
+      <a class="us-news-a" href="https://finance.yahoo.com/quote/${usSel}/holders" target="_blank" rel="noopener"><b>보유자 요약</b><span>기관·내부자 지분 비율</span><i>↗</i></a>
+    </div>`;
+}
+/* ⑥ 컨센서스 */
+function renderUsConsensus(el){
+  const m=usMeta[usSel]||{}, q=usQ[usSel]||{};
+  el.innerHTML=`<div class="us-sec2">애널리스트 컨센서스</div>
+    <div class="us-note-box"><b>목표주가·투자의견은 유료 데이터입니다</b>
+      <p>국내 종목은 증권사 리포트가 공개 집계되지만, 미국 종목의 컨센서스는 대부분 유료로 제공되어
+      이 앱에서는 직접 표시하지 않습니다. 아래에서 무료 공개 범위로 확인할 수 있습니다.</p></div>
+    <div class="us-stat-g">
+      <div class="us-stat"><small>현재가</small><b class="num">$${USD2(q.price)}</b></div>
+      <div class="us-stat"><small>52주 최고 대비</small><b class="num">${q.w52h&&q.price?((q.price-q.w52h)/q.w52h*100).toFixed(1)+'%':'—'}</b></div>
+      <div class="us-stat"><small>52주 최저 대비</small><b class="num">${q.w52l&&q.price?'+'+((q.price-q.w52l)/q.w52l*100).toFixed(1)+'%':'—'}</b></div>
+    </div>
+    <div class="us-news-list">
+      <a class="us-news-a" href="https://finance.yahoo.com/quote/${usSel}/analysis" target="_blank" rel="noopener"><b>애널리스트 전망</b><span>실적 추정·목표주가 요약</span><i>↗</i></a>
+    </div>`;
+}
+/* ⑦ 재무 정보 */
+function renderUsFinance(el){
+  const m=usMeta[usSel]||{}, q=usQ[usSel]||{};
+  const capS=q.cap==null?'—':(q.cap>=1e12?'$'+(q.cap/1e12).toFixed(2)+'T':q.cap>=1e9?'$'+(q.cap/1e9).toFixed(1)+'B':'$'+(q.cap/1e6).toFixed(0)+'M');
+  const fx=usFx();
+  el.innerHTML=`<div class="us-sec2">기업 규모</div>
+    <div class="us-stat-g">
+      <div class="us-stat"><small>시가총액</small><b class="num">${capS}</b></div>
+      <div class="us-stat"><small>원화 환산</small><b class="num">${(q.cap&&fx)?KRW(Math.round(q.cap*fx/1e8))+'억원':'—'}</b></div>
+      <div class="us-stat"><small>거래소</small><b>${{O:'NASDAQ',N:'NYSE',A:'AMEX'}[m.sfx]||'—'}</b></div>
+      <div class="us-stat"><small>구분</small><b>${m.etf?'ETF':'개별 종목'}</b></div>
+    </div>
+    <div class="us-note-box"><b>상세 재무제표는 원문 공시가 정확합니다</b>
+      <p>미국 상장사는 분기마다 <b>10-Q</b>, 연간 <b>10-K</b> 보고서를 SEC에 제출합니다.
+      매출·영업이익·현금흐름을 원문에서 바로 확인할 수 있습니다.</p></div>
+    <div class="us-news-list">
+      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=10-K" target="_blank" rel="noopener"><b>10-K · 연간 보고서</b><span>연간 실적·사업 현황</span><i>↗</i></a>
+      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=10-Q" target="_blank" rel="noopener"><b>10-Q · 분기 보고서</b><span>분기 실적</span><i>↗</i></a>
+      <a class="us-news-a" href="https://finance.yahoo.com/quote/${usSel}/financials" target="_blank" rel="noopener"><b>재무 요약</b><span>손익·재무상태 표</span><i>↗</i></a>
+    </div>`;
+}
 function renderUsTradeLive(){ if(currentView!=='ustrade')return;
-  renderUsHead(); renderUsStats();
+  renderUsHead(); if(usInfoTab==='summary'||usInfoTab==='ai')renderUsInfo();
   const pxIn=$('usPxIn'); if(pxIn&&document.activeElement!==pxIn&&usOrdPx==null)renderUsOrder();
   else updateUsSum();
 }
@@ -11183,38 +11764,7 @@ function renderUsHead(){
     ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next+' (한국시간)':' · 정규장 '+ses.kst.open+'~'+ses.kst.close+' KST'+(ses.dst?' · 서머타임':'')}
     ${q.at?` · <span class="num">${new Date(q.at).toTimeString().slice(0,5)} 수신</span>`:''}</div>`;
 }
-function renderUsStats(){
-  const q=usQ[usSel]||{};
-  const fmt=(v)=>v==null?'—':'$'+USD2(v);
-  const vol=(v)=>v==null?'—':(v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':KRW(v));
-  const cap=(v)=>{if(v==null)return '—';const fx=usFx();
-    if(v>=1e12)return '$'+(v/1e12).toFixed(2)+'T'+(fx?` <small style="font-weight:600;color:var(--sub-2)">≈${(v*fx/1e12).toFixed(0)}조원</small>`:'');
-    if(v>=1e9)return '$'+(v/1e9).toFixed(1)+'B';return '$'+(v/1e6).toFixed(0)+'M';};
-  $('usStats').innerHTML=`<div class="us-sec"><b>종목 정보</b><span>미국 주식은 상·하한가 제도가 없습니다</span></div>
-    <div class="us-stat-g">
-      <div class="us-stat"><small>시가</small><b class="num">${fmt(q.open)}</b></div>
-      <div class="us-stat"><small>고가</small><b class="num" style="color:var(--up)">${fmt(q.high)}</b></div>
-      <div class="us-stat"><small>저가</small><b class="num" style="color:var(--down)">${fmt(q.low)}</b></div>
-      <div class="us-stat"><small>거래량</small><b class="num">${vol(q.vol)}</b></div>
-      <div class="us-stat"><small>52주 최고${q.w52n&&q.w52n<252?` <i style="font-style:normal">·${q.w52n}일</i>`:''}</small><b class="num">${fmt(q.w52h)}</b></div>
-      <div class="us-stat"><small>52주 최저${q.w52n&&q.w52n<252?` <i style="font-style:normal">·${q.w52n}일</i>`:''}</small><b class="num">${fmt(q.w52l)}</b></div>
-      ${q.cap!=null?`<div class="us-stat"><small>시가총액</small><b class="num">${cap(q.cap)}</b></div>`:''}
-      <div class="us-stat"><small>전일 종가</small><b class="num">${fmt(q.prev)}</b></div>
-    </div>`;
-  renderUsSise();
-}
-function renderUsSise(){
-  const cs=usCandles;
-  if(!cs||!cs.length){$('usSise').innerHTML='';return;}
-  const rows=cs.slice(-11).reverse();
-  $('usSise').innerHTML=`<div class="us-sec"><b>일별 시세</b></div>
-    <div class="us-sise-h"><span>날짜</span><span>종가</span><span>등락</span><span>거래량</span></div>
-    ${rows.map((c,i)=>{const pv=rows[i+1]?rows[i+1].c:null;const d=pv!=null?c.c-pv:0;
-      return `<div class="us-sise-r"><span class="num">${String(c.t).slice(4,6)}.${String(c.t).slice(6,8)}</span>
-        <span class="num">$${USD2(c.c)}</span>
-        <span class="num ${dirOf(d)}">${pv!=null?pctS(d/pv*100):'—'}</span>
-        <span class="num">${c.v>=1e6?(c.v/1e6).toFixed(1)+'M':(c.v/1e3).toFixed(0)+'K'}</span></div>`;}).join('')}`;
-}
+/* [v4.37] renderUsStats / renderUsSise 는 종목요약·시세 탭으로 대체되어 제거했습니다 */
 async function loadUsCandles(){
   $('usChartNote').textContent='차트 데이터를 불러오는 중…';
   try{
@@ -11233,10 +11783,10 @@ async function loadUsCandles(){
           usQ[usSel]=Object.assign(cur,{w52h:cur.w52h!=null?cur.w52h:w52h,
                                         w52l:cur.w52l!=null?cur.w52l:w52l,
                                         w52n:y.length});
-          renderUsStats();
+          if(usInfoTab==='summary')renderUsInfo();
         }
       }catch(e){}
-      drawUsChart(); renderUsSise(); return;
+      drawUsChart(); if(usInfoTab==='sise')renderUsInfo(); return;
     }
     $('usChartNote').textContent='차트 데이터를 받지 못했습니다'+(j&&j.diag?' · '+j.diag.slice(0,2).join(' / '):'');
   }catch(e){$('usChartNote').textContent='차트 서버에 연결하지 못했습니다';}
@@ -11419,6 +11969,7 @@ function wireUsOrder(){
 }
 function usExecuteOrder(side,o){
   const m=usMeta[usSel]; if(!m)return false;
+  if(!acctRequire('해외 주문'))return false;            // [v4.40]
   const px=Math.round((+o.price||0)*100)/100, qty=Math.round((+o.qty||0)*100)/100;
   if(!(px>0)||!(qty>=0.01)){toast('warn','주문 실패','가격과 수량(0.01주 이상)을 확인하세요');return false;}
   const fx=usFx();

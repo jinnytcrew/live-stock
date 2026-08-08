@@ -10699,16 +10699,45 @@ async function usfxdiag_default(){
   return new Response(JSON.stringify(out,null,2),{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
 }
 async function usquote_default(req2){
-  const u=new URL(req2.url), diag=[];
-  const codes=String(u.searchParams.get("codes")||"").split(",").map(s=>s.trim()).filter(Boolean).slice(0,32);
-  const out={};
-  /* 8개씩 동시에 — 워커 시간 한도 안에서 32종을 처리한다 */
-  for(let i=0;i<codes.length;i+=8){
-    const part=codes.slice(i,i+8);
-    const rs=await Promise.all(part.map(c=>usFetchOne(c,diag)));
-    part.forEach((c,k)=>{ if(rs[k])out[c]=rs[k]; });
+  /* ══ [v4.39 · 주가가 '—' 로 뜨던 진짜 이유] ═══════════════════════════════
+     한 요청에 32종목을 받았는데 종목마다 원천을 최대 2곳 두드린다 → 최대 64회.
+     Cloudflare Worker 는 요청당 서브리퀘스트가 50회로 제한되므로 뒷부분 종목이
+     통째로 실패해 화면에 $— 로 남았다.
+     → ① 한 요청당 18종목으로 낮춰 한도 안에 확실히 들어가고
+       ② 성공한 시세는 KV 에 40초 캐시해 다음 요청은 호출 없이 즉시 응답하며
+       ③ 시간 예산을 넘기면 남은 종목은 캐시분만 돌려주고 정상 종료한다. */
+  const T0=Date.now(), u=new URL(req2.url), diag=[];
+  const codes=[...new Set(String(u.searchParams.get("codes")||"").split(",").map(s=>s.trim()).filter(Boolean))].slice(0,18);
+  const out={}; const miss=[];
+  /* 1) KV 캐시 우선 */
+  for(const c of codes){
+    const m=USQ_MEM.get(c);
+    if(m&&Date.now()-m.at<25e3){ out[c]=m.q; continue; }
+    miss.push(c);
   }
-  const body={ ok:Object.keys(out).length>0, codes:out, diag:diag.slice(0,10) };
+  if(miss.length&&KV){
+    try{
+      const got=await Promise.all(miss.map(c=>KV.get("usq:"+c,"json").catch(()=>null)));
+      const still=[];
+      miss.forEach((c,i)=>{ const v=got[i];
+        if(v&&v.at&&Date.now()-v.at<40e3&&v.q){ out[c]=v.q; USQ_MEM.set(c,{at:Date.now(),q:v.q}); }
+        else still.push(c); });
+      miss.length=0; still.forEach(c=>miss.push(c));
+      diag.push("cache:"+(codes.length-miss.length));
+    }catch(e){}
+  }
+  /* 2) 남은 것만 원천 조회 — 6개씩 동시(최대 12 서브리퀘스트/라운드) */
+  for(let i=0;i<miss.length;i+=6){
+    if(Date.now()-T0>9000){ diag.push("budget"); break; }
+    const part=miss.slice(i,i+6);
+    const rs=await Promise.all(part.map(c=>usFetchOne(c,diag)));
+    await Promise.all(part.map(async(c,k)=>{
+      if(!rs[k])return; out[c]=rs[k];
+      try{ if(KV)await KV.put("usq:"+c,JSON.stringify({at:Date.now(),q:rs[k]}),{expirationTtl:60}); }catch(e){}
+    }));
+  }
+  const body={ ok:Object.keys(out).length>0, n:Object.keys(out).length, asked:codes.length,
+               codes:out, diag:diag.slice(0,10) };
   if(u.searchParams.get("fx")==="1")body.fx=await usFx(diag);
   return new Response(JSON.stringify(body),{headers:{ "content-type":"application/json", "cache-control":"no-store", "access-control-allow-origin":"*" }});
 }
@@ -10968,7 +10997,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.36.0";
+var APP_VER = "4.41.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -8,7 +8,8 @@
     --tnum:"tnum" 1,"lnum" 1;font-family:'Pretendard',system-ui,-apple-system,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  body{background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+    overflow-x:hidden;max-width:100vw}   /* [v4.37] 가로 넘침으로 글자가 잘리지 않게 */
   .num{font-feature-settings:var(--tnum);font-variant-numeric:tabular-nums}
   button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
   a{color:inherit;text-decoration:none}input{font-family:inherit}
@@ -1786,7 +1787,7 @@ html.reduce-motion .info-tabs .lv{animation:none}
 @media (min-width:1000px){
   #searchResults{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px;align-items:start}
   #searchResults .rank-note,#searchResults .etf-more,#searchResults .srch-sentinel,#searchResults .empty,
-  #searchResults .us-searchblk{grid-column:1/-1}   /* [v4.35] 해외 블록은 전체 폭 */
+  #searchResults .us-searchblk,#searchResults .us-ranklist{grid-column:1/-1}   /* [v4.38] 해외 블록·순위는 전체 폭 */
 }
 .srch-short button{border-radius:99px}
 
@@ -3237,7 +3238,152 @@ html[data-theme="dark"] .acct-off,html[data-theme="dark"] .acct-pro{background:r
 #view-ustrade .us-canvas-wrap{background:var(--panel);border-radius:12px}
 
 /* ── [v4.36] 검색 결과 국내 구분 헤더 ─────────────────────────────────── */
-.kr-searchblk{grid-column:1/-1;display:block;width:100%;padding:2px 2px 0;margin:2px 0 4px}
+/* [v4.37] 국내 머리말이 해외 블록보다 왼쪽으로 치우쳐 보였다 —
+   해외 블록(.us-searchblk)의 좌우 여백(1px 테두리 + 12px 패딩)과 눈높이를 맞춘다. */
+.kr-searchblk{grid-column:1/-1;display:block;width:100%;
+  padding:2px 13px 0;margin:6px 0 4px;box-sizing:border-box}
 .kr-searchblk .us-sec{margin:0}
 .kr-searchblk .us-sec b{font-size:15.5px;font-weight:900}
 .kr-searchblk .us-sec span{font-size:11.5px;color:var(--sub-2);font-weight:600}
+
+/* ── [v4.37] 해외 종목정보 탭 ─────────────────────────────────────────── */
+.us-info{padding:0;overflow:hidden}
+.us-info .info-tabs{padding:0 8px}
+.us-info .info-body{padding:18px}
+#usChartCard{padding:14px 16px 4px}
+.us-px-big{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.us-px-big b{font-size:30px;font-weight:900;letter-spacing:-.8px;font-variant-numeric:tabular-nums}
+.us-px-big span{font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.us-px-big i{font-style:normal;font-size:12.5px;color:var(--sub-2);font-weight:700}
+.us-sum-card{border:1px solid var(--border-soft);border-radius:14px;padding:14px 16px;
+  background:linear-gradient(135deg,rgba(124,58,237,.05),transparent);margin-bottom:6px}
+.us-sum-h{font-size:14px;font-weight:900;display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.ai-badge{font-size:10px;font-weight:900;color:#fff;background:linear-gradient(135deg,#8b5cf6,#6366f1);
+  border-radius:6px;padding:2px 6px}
+.us-sum-card p{margin:0 0 10px;font-size:13.2px;line-height:1.7;color:var(--sub)}
+.us-tagrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.us-tag{font-size:11px;font-weight:800;color:#5b21b6;background:#f3f0ff;border-radius:7px;padding:3px 8px}
+html[data-theme="dark"] .us-tag{background:rgba(139,92,246,.18);color:#c4b5fd}
+.us-sum-note{font-size:11px;color:var(--sub-2);font-weight:600;line-height:1.55}
+.us-sec2{font-size:13.5px;font-weight:900;margin:18px 0 9px;display:flex;align-items:baseline;gap:7px}
+.us-sec2 small{font-size:11px;color:var(--sub-2);font-weight:600}
+.us-band{position:relative;height:8px;border-radius:99px;margin:4px 0 8px;
+  background:linear-gradient(90deg,#2f7ae5,#c7d2e5 50%,#e5484d)}
+.us-band i{position:absolute;top:50%;width:15px;height:15px;border-radius:50%;background:#f5a30d;
+  border:2.5px solid var(--panel);transform:translate(-50%,-50%);box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.us-band-lb{display:flex;justify-content:space-between;font-size:11.5px;font-weight:700;color:var(--sub-2)}
+.us-band-lb b{display:block;font-weight:800;font-size:12px}
+.us-ai-h{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.us-ai-h b{font-size:15.5px;font-weight:900}
+.us-ai-h .lv{font-size:9.5px;font-weight:900;color:#fff;background:#e5484d;border-radius:5px;padding:2px 6px;font-style:normal}
+.us-ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;
+  background:var(--border-soft);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.us-ai-c{background:var(--panel);padding:11px 13px}
+.us-ai-c small{font-size:11px;color:var(--sub-2);font-weight:700;display:block;margin-bottom:2px}
+.us-ai-c b{font-size:14px;font-weight:800}
+.us-ai-txt p{margin:0 0 10px;font-size:13.2px;line-height:1.75;color:var(--sub)}
+.us-note-box{border:1px solid var(--border-soft);border-radius:13px;padding:13px 15px;
+  background:var(--border-soft);margin-bottom:12px}
+.us-note-box b{display:block;font-size:13px;font-weight:900;margin-bottom:7px}
+.us-note-box p{margin:0 0 8px;font-size:12.5px;line-height:1.7;color:var(--sub)}
+.us-note-box p:last-child{margin:0}
+.us-news-list{display:flex;flex-direction:column;gap:8px}
+.us-news-a{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--border-soft);
+  border-radius:12px;text-decoration:none;color:inherit;transition:.12s}
+.us-news-a:hover{border-color:var(--border);background:var(--border-soft)}
+.us-news-a b{font-size:13.2px;font-weight:800;flex:none}
+.us-news-a span{flex:1;min-width:0;font-size:11.5px;color:var(--sub-2);font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.us-news-a i{font-style:normal;color:var(--sub-2);font-size:13px;flex:none}
+.us-nodata{text-align:center;padding:44px 20px}
+.us-nodata b{display:block;font-size:14px;font-weight:800;margin-bottom:6px}
+.us-nodata span{font-size:12.3px;color:var(--sub-2);font-weight:600}
+
+/* ── [v4.38] 종목검색 시장 선택 탭 (국내 / 해외) ─────────────────────────── */
+.mkt-tabs{display:flex;gap:8px;margin:0 0 10px}
+.mkt-tabs button{flex:1;border:1.5px solid var(--border);background:var(--panel);color:var(--sub);
+  border-radius:12px;padding:11px 0;font-size:14px;font-weight:800;cursor:pointer;transition:.12s}
+.mkt-tabs button:hover{border-color:var(--sub-2)}
+.mkt-tabs button.on{background:linear-gradient(135deg,#3b7ef0,#5b93f5);color:#fff;border-color:#3b7ef0;
+  box-shadow:0 3px 12px rgba(59,126,240,.28)}
+html[data-theme="dark"] .mkt-tabs button.on{background:linear-gradient(135deg,#4f8cf5,#3b7ef0);color:#fff}
+.us-rank-note{margin:2px 2px 10px}
+.us-ranklist{display:grid;grid-template-columns:1fr;gap:0}
+@media(min-width:900px){
+  /* 넓은 화면에서는 국내 순위처럼 2단으로 — 한 화면에 더 많이 보인다 */
+  .us-ranklist{grid-template-columns:1fr 1fr;column-gap:22px}
+  .us-ranklist .us-row:nth-last-child(2){border-bottom:none}
+}
+.us-ranklist .us-row{grid-template-columns:auto auto 1fr auto auto;padding:11px 8px;
+  border-bottom:1px solid var(--border-soft)}
+.us-ranklist .us-row:last-child{border-bottom:none}
+.us-rk{min-width:22px;text-align:center;font-size:12.5px;font-weight:900;color:var(--sub-2)}
+.us-ranklist .us-row:nth-child(-n+3) .us-rk{color:#e5484d}
+@media(max-width:640px){.mkt-tabs button{font-size:13px;padding:10px 0}}
+
+/* ── [v4.40] 계좌 선택 바 / 개설 안내 ─────────────────────────────────── */
+.acct-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  padding:14px 18px;margin-bottom:14px}
+.ab-l{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+.ab-ic{font-size:26px;flex:none}
+.ab-sel{flex:1;min-width:0}
+.ab-sel label{display:block;font-size:11px;font-weight:800;color:var(--sub-2);margin-bottom:4px}
+#acctSelect{width:100%;max-width:420px;border:1.5px solid var(--border);border-radius:11px;
+  padding:10px 12px;font-size:14px;font-weight:800;background:var(--panel);color:var(--fg);cursor:pointer}
+#acctSelect:focus{outline:none;border-color:#3b7ef0}
+.ab-r{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.ab-kv{text-align:right}
+.ab-kv span{display:block;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.ab-kv b{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+.ab-add{border:1.5px solid #3b7ef0;background:transparent;color:#3b7ef0;border-radius:10px;
+  padding:8px 14px;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap}
+.ab-add:hover{background:#3b7ef0;color:#fff}
+.acct-empty{padding:28px 24px;text-align:center;margin-bottom:14px}
+.ae-ic{font-size:44px;margin-bottom:10px}
+.ae-t{font-size:19px;font-weight:900;margin-bottom:8px}
+.ae-d{font-size:13px;line-height:1.75;color:var(--sub);font-weight:600;margin-bottom:18px}
+.acct-empty .acct-pick,.acct-empty .acct-detail,.acct-empty .fld2{text-align:left}
+.ae-msg{font-size:12.5px;font-weight:700;min-height:18px;margin:8px 0}
+.ae-note{font-size:11.5px;color:var(--sub-2);font-weight:600;margin-top:10px}
+.ae-sheet{padding:4px 2px}
+.ae-sheet .ae-d{margin-bottom:12px;font-size:12.5px}
+/* ── 해외 주도 섹터 ── */
+.us-sect-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+.us-sect{border:1px solid var(--border-soft);border-radius:14px;padding:13px 15px;background:var(--panel)}
+.uss-h{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.uss-rk{font-size:12px;font-weight:900;color:var(--sub-2);min-width:18px}
+.uss-h b{flex:1;font-size:14px;font-weight:900}
+.uss-avg{font-size:14.5px;font-weight:900;font-variant-numeric:tabular-nums}
+.uss-bar{height:7px;border-radius:99px;background:var(--border-soft);overflow:hidden;margin-bottom:9px}
+.uss-bar i{display:block;height:100%;border-radius:99px}
+.uss-bar i.up{background:linear-gradient(90deg,#ff9a8b,#e5484d)}
+.uss-bar i.down{background:linear-gradient(90deg,#9ec5ff,#2f7ae5)}
+.uss-m{font-size:11.5px;color:var(--sub-2);font-weight:700;line-height:1.9}
+.uss-t{display:inline-block;background:var(--border-soft);border-radius:7px;padding:2px 8px;margin:0 3px 3px 0;
+  cursor:pointer;color:var(--fg);font-weight:700}
+.uss-t:hover{background:var(--border)}
+.uss-t i{font-style:normal;font-weight:800;margin-left:3px}
+
+/* ── [v4.41] 홈 국내·해외 공존 ────────────────────────────────────────── */
+.asset-split{margin-top:14px}
+.as-bar{display:flex;height:9px;border-radius:99px;overflow:hidden;background:rgba(255,255,255,.14)}
+.as-bar i{display:block;height:100%}
+.as-bar i.kr{background:linear-gradient(90deg,#6ea8ff,#3b7ef0)}
+.as-bar i.us{background:linear-gradient(90deg,#ffc36b,#f5a30d)}
+.as-lb{display:flex;justify-content:space-between;gap:12px;margin-top:8px;font-size:11.5px;font-weight:700;
+  color:rgba(255,255,255,.72);flex-wrap:wrap}
+.as-lb b{font-weight:800;color:#fff}
+.as-lb i{font-style:normal;opacity:.72;margin-left:3px}
+.home-hot-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.hh-mkt{display:flex;gap:3px;flex:none;background:var(--border-soft);border-radius:99px;padding:3px}
+.hh-mkt button{border:none;background:transparent;border-radius:99px;padding:5px 10px;font-size:13px;
+  cursor:pointer;line-height:1;opacity:.5;transition:.12s}
+.hh-mkt button.on{background:var(--panel);opacity:1;box-shadow:0 1px 4px rgba(16,26,45,.12)}
+.hh-wait{font-size:12px;color:var(--sub-2);font-weight:700;padding:0 6px}
+.hm-us{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}
+.hm-usl{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;color:rgba(255,255,255,.8)}
+.hmu-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.4);flex:none}
+.hmu-dot.on{background:#12b76a}.hmu-dot.ext{background:#f5a30d}
+.hm-usi{display:flex;gap:10px}
+.hm-uswait{font-size:11px;color:rgba(255,255,255,.55);font-weight:700}
