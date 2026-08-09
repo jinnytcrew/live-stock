@@ -8275,8 +8275,8 @@ function renderSearch(){
     usSeen.add(x.t); usHit.push([x.t]);
   });
   usAllLoad(()=>{ if(currentView==='search'&&($('searchInput').value||'').trim()===q)renderSearch(); });
-  usSearchRemote(q,(items)=>{ if(items&&items.length&&currentView==='search'
-      &&($('searchInput').value||'').trim()===q)renderSearch(); });
+  usSearchRemote(q,(items)=>{ if(!items||!items.length)return;
+    setTimeout(()=>{ if(currentView==='search'&&($('searchInput').value||'').trim()===q)renderSearch(); },0); });
   // (1) 내장 종목
   const local=STOCKS.filter(([n,c])=>n.toLowerCase().replace(/\s+/g,'').includes(ql)||c.toLowerCase().includes(ql)||choMatch(n,q))
     .map(([n,c,t])=>({code:c,name:n,market:(byCode[c]&&byCode[c].market)||'',kind:'',tag:t}));
@@ -12297,7 +12297,9 @@ var _usRemote={}, _usRemoteT=null;
 function usSearchRemote(q,cb){
   const key=q.trim().toLowerCase();
   if(!key||key.length<1)return;
-  if(_usRemote[key]!==undefined){cb&&cb(_usRemote[key]);return;}
+  /* [v4.75] 이미 받아 둔 결과면 되돌아가지 않는다 — 화면을 그리는 중에 다시
+     그리기를 부르면 재귀가 된다(위 usAllLoad 와 같은 실수). */
+  if(_usRemote[key]!==undefined)return;
   _usRemote[key]=null;
   fetch('/api/ussearch?q='+encodeURIComponent(q),{cache:'no-store'})
     .then(r=>r.json())
@@ -12310,20 +12312,28 @@ function usSearchRemote(q,cb){
    내장 114종 + 검색으로 등록된 것만으로는 스페이스X 같은 종목이 잡히지 않았다.
    전 종목 목록(약 1만 종)을 한 번 받아 브라우저에 담아 두고 검색에 함께 쓴다. */
 var usAll=null, usAllAt=0, _usAllBusy=false;
+/* ══ [v4.75] 또 재귀를 만들었다 — 이번엔 확실히 끊는다 ═══════════════════════
+   이미 목록이 있을 때 콜백을 '그 자리에서' 불렀다. 그 콜백은 화면을 다시 그리고,
+   다시 그린 화면이 또 usAllLoad 를 부른다 → 끝없이 되돌아가 앱이 멈췄다.
+   (검색 화면의 'Maximum call stack size exceeded' 가 이것이다.)
+   [규칙] 이 함수는 '새로 받아왔을 때만' 콜백을 부른다. 이미 있으면 부를 이유가 없다 —
+   호출한 쪽은 이미 그 데이터를 손에 들고 그리는 중이기 때문이다. */
 function usAllLoad(cb){
-  if(usAll){cb&&cb();return;}
+  if(usAll)return;                       // 이미 있음 → 되돌아가지 않는다
   if(_usAllBusy)return;
   try{ const raw=localStorage.getItem('usAll1');
     if(raw){ const c=JSON.parse(raw);
       if(c&&Array.isArray(c.rows)&&c.rows.length>500&&Date.now()-(c.at||0)<3*864e5){
-        usAll=c.rows; usAllAt=c.at; cb&&cb(); return; } } }catch(e){}
+        usAll=c.rows; usAllAt=c.at;
+        if(cb)setTimeout(cb,0);          // 저장분을 막 꺼냈을 때만, 그것도 타이머로
+        return; } } }catch(e){}
   _usAllBusy=true;
   fetch('/api/usall',{cache:'no-store'}).then(r=>r.json()).then(j=>{
     _usAllBusy=false;
     if(!j||!j.ok||!Array.isArray(j.rows))return;
     usAll=j.rows; usAllAt=Date.now();
     try{localStorage.setItem('usAll1',JSON.stringify({at:usAllAt,rows:usAll}));}catch(e){}
-    cb&&cb();
+    if(cb)setTimeout(cb,0);
   }).catch(()=>{_usAllBusy=false;});
 }
 /* 전 종목 목록에서 찾기 — 티커·영문명·한글 별칭 모두 본다 */
@@ -12505,6 +12515,19 @@ function usApplyQuote(reu,q){
   const keep=usQ[t]||{};
   const nn={}; Object.keys(q).forEach(k=>{ if(q[k]!=null)nn[k]=q[k]; });
   usQ[t]={...keep,...nn,t,at:Date.now()}; delete usQ[t].stale;   // [v4.65] 새 값이 오면 '저장분' 표시 해제
+  /* ══ [v4.75] 한글 종목명을 시세 응답에서 가져온다 ═══════════════════════════
+     [놓치고 있던 것] 서버는 네이버에서 시세를 받을 때 한글 이름(stockName)도 함께
+     받아 name 으로 넘겨주고 있었다. 그런데 화면은 그걸 쓰지 않고 영문명을 그대로
+     띄웠다 — 'Ocular Therapeutix Inc' 처럼. 이미 손에 있는 한글을 안 쓴 셈이다.
+     한글이 섞인 이름이 오면 그때부터 그 이름으로 부른다(다음에도 쓰도록 저장). */
+  try{
+    const nm=String(q.name||'').trim();
+    if(nm&&/[가-힣]/.test(nm)&&usMeta[t]&&!/[가-힣]/.test(String(usMeta[t].kr||''))){
+      usMeta[t].kr=nm;
+      if(usDyn[t])usDyn[t].kr=nm; else usDyn[t]={sfx:usMeta[t].sfx,kr:nm,en:usMeta[t].en,etf:usMeta[t].etf||0};
+      try{localStorage.setItem('usDyn1',JSON.stringify(usDyn));}catch(e){}
+    }
+  }catch(e){}
   const b=byCode[t]||{};
   byCode[t]={...b,code:t,name:usMeta[t].kr,us:1,price:usQ[t].price,prevClose:usQ[t].prev,
     open:usQ[t].open,high:usQ[t].high,low:usQ[t].low,vol:usQ[t].vol,cap:usQ[t].cap,
@@ -12666,13 +12689,15 @@ function usLgUrls(t){
     out.push('/api/uslogo?d='+encodeURIComponent(d));          // 서버 중계(차단망 대비)
   }
   const tk=t.replace('.','-');
+  /* ══ [v4.75] 서버가 고른 로고를 먼저 쓴다 ═══════════════════════════════════
+     바깥 사이트에서 직접 받으면 브라우저가 캔버스로 내용을 읽을 수 없어(다른 출처)
+     '흰 빈 그림'인지 확인할 방법이 없다. 서버는 그 제약이 없고, 후보를 두드려
+     내용까지 확인한 뒤 돌려준다. 게다가 같은 출처라 화면 쪽 확인도 그대로 통한다. */
+  out.push('/api/uslogo?t='+encodeURIComponent(tk));
   out.push('https://financialmodelingprep.com/image-stock/'+tk+'.png');
   out.push('https://assets.parqet.com/logos/symbol/'+tk+'?format=png&size=128');
-  /* [v4.74] 후보를 넓힌다 — 앞의 두 곳이 빈 그림을 주는 종목이 꽤 있다 */
   out.push('https://s3-symbol-logo.tradingview.com/'+tk.toLowerCase()+'.svg');
   out.push('https://logos.stockanalysis.com/'+tk.toLowerCase()+'.png');
-  out.push('https://eodhd.com/img/logos/US/'+tk+'.png');
-  out.push('https://storage.googleapis.com/iexcloud-hl37opg/api/logos/'+tk+'.png');
   return out;
 }
 function usLgUrl(t){ const i=usLgOk[t]; return i==null?'':usLgUrls(t)[i]||''; }
@@ -12784,11 +12809,17 @@ function usTick(t,size){
      되돌리는데, 인라인이 스타일시트를 이기므로 CSS 의 background-size:contain 이
      통째로 무효가 됐다. 그래서 로고가 원본 크기로 그려져 배지 밖으로 잘렸다.
      → 색과 이미지를 각각 개별 속성으로 지정하고 크기도 인라인에 함께 박는다. */
+  /* [v4.75] 로고가 끝내 없으면 색 배지에 티커를 새긴다 — 빈 네모는 남기지 않는다.
+     그림이 있다고 표시해도 실제로 못 그려지면(onerror) 글자가 되살아나게 한다. */
   const cls='us-tick'+(size?' '+size:'')+(u?' on':'');
   const st=u
     ? `background-color:#fff;background-image:url('${u}');background-size:contain;background-position:center;background-repeat:no-repeat`
     : `background-color:${c}`;
-  return `<span class="${cls}" data-uslg="${t}" style="${st}">${t.length>5?t.slice(0,5):t}</span>`;
+  const lbl=t.length>5?t.slice(0,5):t;
+  return `<span class="${cls}" data-uslg="${t}" style="${st}">${lbl}`
+    +(u?`<img class="us-tick-probe" src="${u}" alt="" aria-hidden="true"
+        onerror="this.closest('.us-tick').classList.remove('on')">`:'')
+    +`</span>`;
 }
 /* 진단 — 콘솔에서 상태 확인 */
 try{

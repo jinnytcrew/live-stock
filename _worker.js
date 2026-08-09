@@ -10898,10 +10898,17 @@ async function cboeFetchOne(reu,diag,budget){
   }catch(e){ diag&&diag.push(tk+":cb"+String(e).slice(0,8)); return null; }
 }
 /* 부분 성공을 합칠 때 이미 알던 값(52주·시총 등)을 지우지 않는다 */
+/* [v4.75] 이름은 '있으면 지우지 않는다' — 뒤에 온 원천이 이름을 안 주면
+   앞서 받은 한글 이름이 사라져 화면이 영문으로 되돌아갔다. */
 function usMergeQ(oldQ,newQ){
   if(!oldQ)return newQ; if(!newQ)return oldQ;
   const o={...oldQ};
-  for(const k of Object.keys(newQ))if(newQ[k]!=null)o[k]=newQ[k];
+  for(const k of Object.keys(newQ)){
+    const v=newQ[k];
+    if(v==null)continue;
+    if(k==="name"&&!String(v).trim())continue;      // 빈 이름으로 덮지 않는다
+    o[k]=v;
+  }
   return o;
 }
 /* KV 는 무료 플랜에서 하루 쓰기 1,000회 — 종목당 4분에 1번만 쓴다.
@@ -11496,25 +11503,72 @@ async function usdiag_default(){
 }
 /* [v4.30] 해외 로고 중계 — 사용자 통신망에서 외부 CDN 이 막혀도 서버가 대신 받아 온다.
    국내 로고에서 토스·네이버가 통째로 차단됐던 전례가 있어 같은 안전장치를 둔다. */
+/* 그림이 쓸 만한지 서버에서 판별한다.
+   ① 너무 작으면 버린다  ② PNG 는 머리말에서 가로·세로를 읽어 16px 미만이면 버린다
+   ③ 거의 같은 바이트만 반복되면(단색 그림) 버린다 — '흰 빈 상자'의 정체가 이것이다 */
+function imgLooksReal(buf,ct){
+  if(!buf||buf.length<400)return false;
+  if(String(ct||"").indexOf("svg")>=0)return buf.length>200;
+  if(buf.length>8&&buf[0]===0x89&&buf[1]===0x50){          // PNG
+    const w=(buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+    const h=(buf[20]<<24)|(buf[21]<<16)|(buf[22]<<8)|buf[23];
+    if(w<16||h<16)return false;
+    /* 단색 PNG 는 압축이 극단적으로 잘 되어 픽셀 수에 비해 파일이 아주 작다 */
+    if(buf.length < (w*h)/900 + 400)return false;
+  }
+  /* 바이트 다양성 — 같은 값만 반복되면 내용이 없는 그림이다 */
+  const step=Math.max(1,Math.floor(buf.length/512));
+  const seen=new Set();
+  for(let i=0;i<buf.length;i+=step){ seen.add(buf[i]); if(seen.size>24)return true; }
+  return seen.size>12;
+}
 async function uslogo_default(req2){
   const u=new URL(req2.url);
   const d=String(u.searchParams.get("d")||"").toLowerCase().replace(/[^a-z0-9.-]/g,"").slice(0,64);
   const tk=String(u.searchParams.get("t")||"").toUpperCase().replace(/[^A-Z0-9.-]/g,"").slice(0,10);
-  if(!d&&tk){                                   /* [v4.31] 도메인 없는 종목: 티커 기반 소스 */
-    for(const url of ["https://financialmodelingprep.com/image-stock/"+tk.replace(".","-")+".png",
-                      "https://assets.parqet.com/logos/symbol/"+tk.replace(".","-")+"?format=png&size=128"]){
+  if(!d&&tk){
+    /* ══ [v4.75] 티커 로고를 서버가 고르고 검사한다 ═════════════════════════
+       [왜 서버인가] 브라우저는 다른 출처의 그림을 캔버스로 읽을 수 없어(CORS)
+       '흰 빈 그림'인지 확인할 방법이 없었다. 서버는 그 제약이 없다.
+       후보를 여러 곳 두드려 보고, 그림이 실제로 내용을 담고 있는지까지 확인한 뒤
+       가장 나은 것을 돌려준다. 결과는 KV 에 담아 다음부터는 바로 내보낸다.
+       화면 쪽에서도 같은 출처(우리 도메인)라 픽셀 검사가 그대로 통한다. */
+    const TK=tk.replace(".","-"), tkl=TK.toLowerCase();
+    const CKT="uslgt:"+TK;
+    try{ if(KV){ const c=await KV.get(CKT,"json");
+      if(c&&c.b64)return new Response(Uint8Array.from(atob(c.b64),ch=>ch.charCodeAt(0)),
+        {headers:{"content-type":c.ct||"image/png","cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
+      if(c&&c.no)return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
+    }}catch(e){}
+    const cands=[
+      "https://financialmodelingprep.com/image-stock/"+TK+".png",
+      "https://assets.parqet.com/logos/symbol/"+TK+"?format=png&size=128",
+      "https://s3-symbol-logo.tradingview.com/"+tkl+".svg",
+      "https://logos.stockanalysis.com/"+tkl+".png",
+      "https://eodhd.com/img/logos/US/"+TK+".png",
+      "https://storage.googleapis.com/iexcloud-hl37opg/api/logos/"+TK+".png"
+    ];
+    let best=null;
+    for(const url of cands){
       try{
         const c=new AbortController(); const t2=setTimeout(()=>c.abort(),4500);
         const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"image/*" },signal:c.signal});
         clearTimeout(t2);
         if(!r.ok)continue;
         const ct=r.headers.get("content-type")||"image/png";
-        if(ct.indexOf("image")<0)continue;
+        if(ct.indexOf("image")<0&&ct.indexOf("svg")<0)continue;
         const buf=new Uint8Array(await r.arrayBuffer());
-        if(buf.length<300)continue;
-        return new Response(buf,{headers:{"content-type":ct,"cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
+        if(!imgLooksReal(buf,ct))continue;
+        best={buf,ct}; break;
       }catch(e){}
     }
+    if(best){
+      try{ if(KV&&best.buf.length<80000){
+        let bin=""; best.buf.forEach(b=>bin+=String.fromCharCode(b));
+        await KV.put(CKT,JSON.stringify({ct:best.ct,b64:btoa(bin)}),{expirationTtl:1209600}); } }catch(e){}
+      return new Response(best.buf,{headers:{"content-type":best.ct,"cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
+    }
+    try{ if(KV)await KV.put(CKT,JSON.stringify({no:1}),{expirationTtl:43200}); }catch(e){}
     return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
   }
   if(!d||d.indexOf(".")<0)return new Response("bad",{status:400});
@@ -12259,7 +12313,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.74.0";
+var APP_VER = "4.75.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
