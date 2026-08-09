@@ -3972,13 +3972,19 @@ html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
   .sr-col .us-sec span{display:none}
 }
 
-/* ══ [v4.61] 총자산 카드 ═══════════════════════════════════════════════════ */
-.big-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+/* ══ [v4.68] 총자산 카드 — 원화와 달러를 같은 글자로 ═══════════════════════
+   달러만 작고 노란 글씨라 '덤으로 붙은 값'처럼 보였다. 둘 다 내 자산이므로
+   크기·색·굵기를 원화와 똑같이 맞추고, 위 버튼과의 간격도 넉넉히 띄운다. */
+.big-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin-top:18px}
 .big-row .big{margin:0}
-.home-usd-top{flex-shrink:0;text-align:right;line-height:1.2}
-.home-usd-top b{display:block;font-size:19px;font-weight:900;letter-spacing:-.4px;
-  color:#ffcf57;font-variant-numeric:tabular-nums}
-.home-usd-top span{display:block;margin-top:2px;font-size:10.5px;font-weight:700;
+.home-usd-top{flex-shrink:0;text-align:right;line-height:1.15}
+/* .big 과 완전히 같은 글자로 — 크기·굵기·자간·그림자까지 맞춘다 */
+.home-usd-top b{display:block;font-size:30px;font-weight:800;letter-spacing:-.8px;
+  color:#fff;font-variant-numeric:tabular-nums;text-shadow:0 2px 14px rgba(0,0,0,.25)}
+.hero-assets .home-usd-top b{font-size:31px;letter-spacing:-1px}
+.hero-duo .hero-assets .home-usd-top b{font-size:26px}
+.home-usd-top span{display:block;margin-top:3px;font-size:11px;font-weight:700;
   color:rgba(255,255,255,.62)}
 .ha-seed{display:block;padding:12px 2px 2px;font-size:12px;line-height:1.7;
   font-weight:600;color:rgba(255,255,255,.72)}
@@ -4011,3 +4017,7 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
 .afx-c.has b{color:var(--down)}
 .afx-none{padding:20px;text-align:center;font-size:12.5px;font-weight:700;color:var(--sub-2)}
 .uc-note{color:var(--sub-2);font-weight:600}
+.eq-lg{font-style:normal;margin-left:8px;font-size:10.5px;font-weight:700;color:rgba(255,255,255,.6)}
+.eq-lg em{display:inline-block;width:9px;height:2.5px;border-radius:2px;margin:0 4px 0 8px;vertical-align:middle}
+.eq-lg em.kr{background:#8fd3ff}
+.eq-lg em.us{background:#ff9db0}

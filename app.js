@@ -907,13 +907,24 @@ function compactEquity(){
   equityHist=Object.keys(keepOld).sort().map(k=>keepOld[k]).concat(td);
   if(equityHist.length>600)equityHist=equityHist.slice(-600);
 }
+/* [v4.68] 국내·해외를 나눠 기록한다 — 그래프를 두 갈래로 그리기 위해서다.
+   예전 기록에는 합계(v)만 있으므로, 없으면 그리기 쪽에서 합계 한 줄로 되돌아간다. */
+function eqSplitNow(){
+  let us=0;
+  try{ (holdings||[]).forEach(h=>{ if(h&&h.us)us+=hEvalKRW(h); });
+    const fx=(typeof usFx==='function'?usFx():0)||0;
+    us+=(+usdCash||0)*fx;
+  }catch(e){}
+  return Math.round(us);
+}
 function recordEquity(){
   if(!currentUser)return;
   const total=Math.round(eqTotalNow());
   if(!(total>0))return;
   const now=Date.now(), day=eqDay(now);
+  const us=eqSplitNow();
   const last=equityHist[equityHist.length-1];
-  if(!last){ equityHist.push({d:day,t:now,v:total}); }
+  if(!last){ equityHist.push({d:day,t:now,v:total,u:us}); }
   else{
     const lt=last.t||Date.parse(last.d+'T15:30:00+09:00')||0;
     /* [v3.1 · 톱니 그래프 원인 ①]
@@ -921,12 +932,12 @@ function recordEquity(){
        '값이 바뀌면 무조건 새 점' 규칙이 그 왕복을 전부 점으로 남겼다.
        거래 1건뿐인데 산맥처럼 보인 이유다. 왕복은 접고, 3분 버킷 안에서는 값만 갱신한다.
        (첫날 기준선은 seedEquityFromTrades 가 1회 플래그로 따로 보장하므로 안전) */
-    if(last.v===total){ last.t=Math.max(lt,now); }
+    if(last.v===total){ last.t=Math.max(lt,now); last.u=us; }
     else{
       const p2=equityHist[equityHist.length-2];
       if(p2&&p2.v===total&&(now-(p2.t||0))<EQ_BUCKET){ equityHist.pop(); p2.t=now; }   // A,B,A 왕복 → 접기
-      else if(now-lt<EQ_BUCKET){ last.v=total; last.t=now; }                            // 같은 버킷 → 갱신
-      else equityHist.push({d:day,t:now,v:total});
+      else if(now-lt<EQ_BUCKET){ last.v=total; last.t=now; last.u=us; }                 // 같은 버킷 → 갱신
+      else equityHist.push({d:day,t:now,v:total,u:us});
     }
   }
   compactEquity();
@@ -7193,10 +7204,15 @@ function drawHeroEq(){
      가로줄만 남아 '차트가 고장 난 것처럼' 보였다(가장 자주 나오는 첫날 상태인데도).
      → 점이 두 개 미만이면 선 대신 '기록이 쌓이는 중'이라고 말해 준다.
         거짓 그래프를 그리는 것보다 아무것도 없다고 말하는 편이 정직하다. */
-  if(pts.length<2){
+  /* ══ [v4.68] 거래 기록이 있으면 바로 그린다 ═══════════════════════════════
+     '내일부터' 라고 미루지 않는다. 거래가 한 건이라도 있으면 그 순간부터 자산이
+     움직이므로, 매매 기록 시점의 평가액을 점으로 삼아 지금까지의 흐름을 그린다.
+     거래가 아예 없으면 그래프 대신 '—' 로 비워 둔다(없는 흐름을 지어내지 않는다). */
+  const tl=(typeof tradeLog!=='undefined'&&Array.isArray(tradeLog))?tradeLog:[];
+  if(pts.length<2&&tl.length===0){
     cv.style.display='none';
-    if(note)note.innerHTML=`<span class="ha-seed">📈 평가액 <b>${KRW(curTot)}원</b>
-      · 자산 추이 그래프는 <b>내일부터</b> 그려집니다 (하루에 한 점씩 쌓입니다)</span>`;
+    if(note)note.innerHTML=`<span class="ha-seed">📈 자산 추이 <b>—</b>
+      · 첫 거래를 하면 그때부터 흐름이 그려집니다</span>`;
     return;
   }
   cv.style.display='block';
@@ -7213,15 +7229,30 @@ function drawHeroEq(){
   const g=x.createLinearGradient(0,0,0,H);g.addColorStop(0,up?'rgba(255,207,87,.35)':'rgba(127,178,255,.3)');g.addColorStop(1,'rgba(255,255,255,0)');
   x.fillStyle=g;x.fill();
   x.strokeStyle=col;x.lineWidth=2;x.beginPath();pts.forEach((v,i)=>{i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v));});x.stroke();
+  /* ══ [v4.68] 국내·해외를 갈라 함께 보여 준다 ═══════════════════════════════
+     합계 한 줄만으로는 '어느 쪽이 움직였는지'를 알 수 없다. 굵은 선은 합계,
+     가는 두 선은 국내와 해외다. 해외 자산이 없던 시절 기록에는 구분값이 없으므로,
+     그 구간이 있으면 아예 그리지 않는다(0 으로 채워 넣으면 거짓이 된다). */
+  const rows=equityHist.slice(-60);
+  const hasSplit=rows.length===pts.length&&rows.every(r=>r&&typeof r.u==='number');
+  if(hasSplit&&rows.some(r=>r.u>0)){
+    const usArr=rows.map(r=>r.u), krArr=rows.map((r,i)=>pts[i]-r.u);
+    const line=(arr,color,dash)=>{ x.save(); x.setLineDash(dash||[]); x.strokeStyle=color; x.lineWidth=1.4;
+      x.globalAlpha=.95; x.beginPath(); arr.forEach((v,i)=>{i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v));});
+      x.stroke(); x.restore(); };
+    line(krArr,'#8fd3ff');            // 국내
+    line(usArr,'#ff9db0',[4,3]);      // 해외
+  }
   const d=pts[pts.length-1]-pts[0],r=pts[0]?d/pts[0]*100:0;
   if(note){
     /* [v3.0.1] '변동 없음' 판정을 양 끝값 비교에서 전체 최고·최저 비교로 바꾼다.
        기록에 오르내림이 분명히 있는데도 우연히 시작값과 현재값이 같으면
        "아직 변동이 없어 기준선으로 표시"가 떴다(첨부 사진). 그래프는 이미 꺾여 있는데. */
     const flat=(Math.max(...pts)-Math.min(...pts))<1;
+    const lg=`<i class="eq-lg"><em class="kr"></em>국내<em class="us"></em>해외</i>`;
     note.innerHTML=flat
-      ?`평가액 <b class="num">${KRW(Math.round(curTot))}원</b> · 아직 변동이 없어 기준선으로 표시돼요 · 보유 <b>${holdings.length}</b> · 관심 <b>${watchlist.length}</b>`
-      :`${eqSpanLabel()} <b class="num">${(d>=0?'+':'')+KRW(Math.round(d))}원 (${(r>=0?'+':'')+r.toFixed(2)}%)</b> · 보유 <b>${holdings.length}</b> · 관심 <b>${watchlist.length}</b>`;
+      ?`평가액 <b class="num">${KRW(Math.round(curTot))}원</b> · 아직 변동이 없어 기준선으로 표시돼요 ${lg}`
+      :`${eqSpanLabel()} <b class="num">${(d>=0?'+':'')+KRW(Math.round(d))}원 (${(r>=0?'+':'')+r.toFixed(2)}%)</b> ${lg}`;
   }
 }
 /* [v2.3.2] 점프바 우측 — 실시간 인기 종목 티커(조회수 랭킹 상위 5) */
@@ -8075,8 +8106,8 @@ function usPopRestore(){
                 ② 화면 쪽에서도 이미 최신이면 다시 요청하지 않는다 */
 function usPopLoad(cb){
   if(usPopBusy)return;
-  if(usPop&&usPop.length>=100&&Date.now()-usPopAt<180e3)return;   // 완성됨 — 되돌아가지 않는다
-  if(usPop&&Date.now()-usPopAt<180e3&&_usPopTry>=8)return;        // 더 받을 게 없음
+  /* [v4.68] 서버가 한 번에 100종을 완성해 주므로 여러 번 이어받을 필요가 없다 */
+  if(usPop&&usPop.length&&Date.now()-usPopAt<180e3)return;
   usPopBusy=true;
   const again=_usPopTry>0;
   fetch('/api/uspopular'+(again?'?fresh=1':''),{cache:'no-store'}).then(r=>r.json()).then(j=>{
@@ -8097,7 +8128,7 @@ function usPopLoad(cb){
     usPop=out; usPopAt=Date.now(); usPopSave();
     cb&&cb();
     /* 아직 100위에 못 미치면 곧바로 한 번 더 — 서버가 다음 묶음을 받아 온다 */
-    if(out.length<100&&_usPopTry<8)setTimeout(()=>usPopLoad(cb),350);
+    if(out.length<60&&_usPopTry<3)setTimeout(()=>usPopLoad(cb),400);   // 원천이 흔들린 날만 한 번 더
   }).catch(()=>{usPopBusy=false;_usPopTry++;});
   return;
 }
@@ -8111,7 +8142,7 @@ function usRankSection(){
     if(!usPop)usPopRestore();                     // [v4.65] 저장해 둔 목록이 있으면 즉시 사용
     /* [v4.67] 화면을 그리는 함수 안에서 '다시 그리기'를 부르는 건 재귀의 씨앗이다.
        아직 100종이 아닐 때만, 그것도 한 번만 예약한다. */
-    if((usPop||[]).length<100&&!usPopBusy&&!_usPopQueued){
+    if((usPop||[]).length<60&&!usPopBusy&&!_usPopQueued){
       _usPopQueued=true;
       setTimeout(()=>{ _usPopQueued=false;
         usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
@@ -8126,12 +8157,11 @@ function usRankSection(){
     if(miss.length)usEnsureQuotes(usPop.map(x=>x.t),true).then(redraw);
     const b=usPopBasis||{};
     /* 무엇을 근거로 매겼는지 숨기지 않는다 — 어느 사이트의 어떤 수치인지 밝힌다 */
-    const parts=[];
-    if(b.wiki>0)parts.push(`위키백과 기업 문서 <b>실제 조회수</b> ${b.wiki}종`);
-    if(b.yahoo>0)parts.push(`야후 검색 급상승 ${b.yahoo}종`);
-    if(b.ext&&b.ext.length)parts.push(b.ext.map(x=>x==='naver-pop'?'네이버 해외 인기':x==='stocktwits'?'Stocktwits 관심 급증':x).join(' · '));
+    const LBL={'naver-pop':'네이버 해외 인기','yahoo-trend':'야후 검색 급상승',
+      'stocktwits':'Stocktwits 관심 급증','yahoo-active':'거래 활발'};
+    const parts=(b.src||[]).map(x=>`${LBL[x.k]||x.k} ${x.n}종`);
     if(b.app>0)parts.push(`앱 내 조회 ${KRW(b.appTotal||0)}회`);
-    const src=parts.length?parts.join(' + '):'원천에 연결하지 못했습니다';
+    const src=parts.length?parts.join(' · '):'원천에 연결하지 못했습니다';
     const ses=usSession();
     const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
       · 조회수 상위 <b>${usPop.length}종</b><br><small>${src}</small>
@@ -12804,7 +12834,7 @@ function renderUsRankBody(){
     /* 서버가 센 실제 조회수 순서. 아직 안 왔으면 받아 오고 다시 그린다. */
     if(!usPop)usPopRestore();
     /* [v4.67] 여기서도 콜백 안에서 곧바로 다시 그리면 재귀가 된다 — 타이머로 미룬다 */
-    if((usPop||[]).length<100&&!usPopBusy&&!_usPopQueued){
+    if((usPop||[]).length<60&&!usPopBusy&&!_usPopQueued){
       _usPopQueued=true;
       setTimeout(()=>{ _usPopQueued=false;
         usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
@@ -12819,10 +12849,9 @@ function renderUsRankBody(){
     if(miss.length)usEnsureQuotes(known.map(x=>x.t),true).then(()=>{ if(currentView==='us')renderUsRankBody(); });
     const b2=usPopBasis||{};
     list=known.map(x=>x.t).slice(0,100);
-    const extN=(b2.ext||[]).length+(b2.yahoo>0?1:0);
-    note=(b2.wiki>0)
-      ?`위키백과 기업 문서 실제 조회수가 많은 순서 · ${b2.wiki}종`
-      :(extN?`외부 사이트 검색·관심 순위 기준`:`조회수 원천에 연결하지 못했습니다`);
+    note=(b2.src&&b2.src.length)
+      ?`많이 찾아본 순서 · ${(b2.src||[]).map(x=>x.k==='naver-pop'?'네이버 인기':x.k==='yahoo-trend'?'야후 검색':x.k==='stocktwits'?'커뮤니티':'거래 활발').join(' · ')}`
+      :`조회수 원천에 연결하지 못했습니다`;
   }
   else {list=pool.filter(t=>usQ[t].vol).slice().sort((a,b)=>val(b)-val(a));
         note='거래대금(가격×거래량)이 큰 순서';}

@@ -11718,128 +11718,58 @@ async function usvTop(){
   for (const [t, n] of USVIEW_MEM) { out[t] = (out[t] || 0) + n; total += n; }
   return { map: out, total };
 }
-/* 바깥 관심도 신호 — 어느 하나가 막혀도 나머지로 굴러간다 */
-async function usPopExternal(diag, budget){
-  const lists = [];
-  const grab = async (name, url, pick, hdr) => {
-    if (budget && budget.left <= 1) return;
-    if (budget) budget.left--;
-    try {
-      const c = new AbortController(); const t = setTimeout(() => c.abort(), 4500);
-      const r = await fetch(url, { headers: hdr || HDRS, signal: c.signal }); clearTimeout(t);
-      if (!r.ok) { diag.push(name + ":" + r.status); return; }
-      const arr = pick(await r.text());
-      if (arr && arr.length) { lists.push({ name, arr }); diag.push(name + ":" + arr.length); }
-      else diag.push(name + ":parse");
-    } catch (e) { diag.push(name + ":" + String(e).slice(0, 10)); }
-  };
-  /* [v4.60] 네이버 해외 인기·나스닥 스크리너는 화면 진단에서 404 로 확인됐다.
-     경로가 사라진 것이라 재시도해도 소용없고, 매 요청마다 4회를 헛되이 썼다.
-     그 몫을 위키 문서 조회에 돌린다(순위가 26위에서 끊기던 원인 중 하나). */
-  /* ② Stocktwits 트렌딩 — 이야기가 많이 오가는 종목. 거래소 정보가 없어 티커만 쓴다 */
-  await grab("stocktwits", "https://api.stocktwits.com/api/2/trending/symbols.json?limit=30",
-    (txt) => { try {
-      const j = JSON.parse(txt); const s = j.symbols || [];
-      return s.filter(x => x && x.symbol && /^[A-Z]{1,5}$/.test(x.symbol))
-        .map(x => ({ t: x.symbol, sfx: null, en: String(x.title || "").trim(), kr: "" }));
-    } catch (e) { return null; } },
-    { "User-Agent": UA20, Accept: "application/json" });
-  return lists;
-}
-/* ══ [v4.59] 바깥 사이트의 '실제 조회수' 를 가져온다 ═════════════════════════
-   [무엇을 찾았나] 미국 주식의 조회수를 공개하는 곳은 없지만, '그 회사 문서를
-   몇 번 봤는지'를 숫자로 공개하는 곳은 있다 — 위키미디어 조회수 API 다.
-   문서별 일자별 조회수를 공개 API 로 그대로 내주고, 인증이 없고 봇도 막지 않는다.
-   이건 대체 지표가 아니라 말 그대로 '조회수' 다.
-   [함께 쓰는 것]
-     · 야후 파이낸스 trending — 야후에서 가장 많이 '검색된' 종목
-     · Stocktwits trending    — 관심 종목에 담은 사람이 급증한 종목
-     · 네이버 해외 인기        — 네이버에서 많이 찾은 해외 종목
-   넷 다 서로 다른 사이트의 실제 이용자 행동 수치다. 하나가 막혀도 나머지로 굴러가고,
-   어느 곳에서 왔는지 화면에 그대로 밝힌다.
-   [호출 수] 위키 인기문서 1 + 야후 1 + Stocktwits 1 + 네이버 1 + 문서별 보충 12
-   = 최대 16회. Cloudflare 무료 한도(★11 50회) 안에 넉넉히 들어온다. */
-var WIKI_UA = "LIVEjeungkwon/4.59 (educational paper-trading app; contact via github.com/jinnytcrew)";
-/* 티커 → 영문 위키백과 문서명. 회사명이 곧 문서명이 아닌 경우가 많아 표로 둔다. */
-var WIKI_ART = {
-  AAPL:"Apple_Inc.", MSFT:"Microsoft", NVDA:"Nvidia", GOOGL:"Alphabet_Inc.", GOOG:"Alphabet_Inc.",
-  AMZN:"Amazon_(company)", META:"Meta_Platforms", TSLA:"Tesla,_Inc.", AVGO:"Broadcom",
-  AMD:"Advanced_Micro_Devices", INTC:"Intel", MU:"Micron_Technology", QCOM:"Qualcomm",
-  TXN:"Texas_Instruments", ARM:"Arm_Holdings", TSM:"TSMC", ASML:"ASML_Holding",
-  SMCI:"Supermicro", DELL:"Dell_Technologies", HPQ:"HP_Inc.", IBM:"IBM", ORCL:"Oracle_Corporation",
-  CRM:"Salesforce", ADBE:"Adobe_Inc.", NOW:"ServiceNow", PLTR:"Palantir_Technologies",
-  SNOW:"Snowflake_Inc.", NFLX:"Netflix", DIS:"The_Walt_Disney_Company", CMCSA:"Comcast",
-  UBER:"Uber", LYFT:"Lyft", ABNB:"Airbnb", BKNG:"Booking_Holdings", DASH:"DoorDash",
-  SHOP:"Shopify", SQ:"Block,_Inc.", PYPL:"PayPal", COIN:"Coinbase", HOOD:"Robinhood_Markets",
-  V:"Visa_Inc.", MA:"Mastercard", AXP:"American_Express", JPM:"JPMorgan_Chase",
-  BAC:"Bank_of_America", WFC:"Wells_Fargo", GS:"Goldman_Sachs", MS:"Morgan_Stanley",
-  C:"Citigroup", BLK:"BlackRock", SCHW:"Charles_Schwab_Corporation", BRK_B:"Berkshire_Hathaway",
-  "BRK.B":"Berkshire_Hathaway", WMT:"Walmart", COST:"Costco", TGT:"Target_Corporation",
-  HD:"The_Home_Depot", LOW:"Lowe's", NKE:"Nike,_Inc.", SBUX:"Starbucks", MCD:"McDonald's",
-  KO:"Coca-Cola", PEP:"PepsiCo", PG:"Procter_&_Gamble", CL:"Colgate-Palmolive",
-  UL:"Unilever", MDLZ:"Mondelez_International", KHC:"Kraft_Heinz", GIS:"General_Mills",
-  JNJ:"Johnson_&_Johnson", PFE:"Pfizer", MRK:"Merck_&_Co.", ABBV:"AbbVie", LLY:"Eli_Lilly_and_Company",
-  BMY:"Bristol_Myers_Squibb", AMGN:"Amgen", GILD:"Gilead_Sciences", MRNA:"Moderna",
-  NVO:"Novo_Nordisk", UNH:"UnitedHealth_Group", CVS:"CVS_Health", ISRG:"Intuitive_Surgical",
-  XOM:"ExxonMobil", CVX:"Chevron_Corporation", COP:"ConocoPhillips", SLB:"SLB",
-  BA:"Boeing", LMT:"Lockheed_Martin", RTX:"RTX_Corporation", NOC:"Northrop_Grumman",
-  GD:"General_Dynamics", GE:"General_Electric", CAT:"Caterpillar_Inc.", DE:"John_Deere",
-  HON:"Honeywell", MMM:"3M", UPS:"United_Parcel_Service", FDX:"FedEx", F:"Ford_Motor_Company",
-  GM:"General_Motors", RIVN:"Rivian", LCID:"Lucid_Motors", NIO:"Nio_Inc.", LI:"Li_Auto",
-  XPEV:"XPeng", BABA:"Alibaba_Group", JD:"JD.com", PDD:"PDD_Holdings", BIDU:"Baidu",
-  T:"AT&T", VZ:"Verizon", TMUS:"T-Mobile_US", CSCO:"Cisco", ANET:"Arista_Networks",
-  PANW:"Palo_Alto_Networks", CRWD:"CrowdStrike", ZS:"Zscaler", DDOG:"Datadog",
-  SPOT:"Spotify", RBLX:"Roblox_Corporation", EA:"Electronic_Arts", TTWO:"Take-Two_Interactive",
-  SONY:"Sony", TM:"Toyota", HMC:"Honda", LIN:"Linde_plc", NEE:"NextEra_Energy",
-  DUK:"Duke_Energy", SO:"Southern_Company", VST:"Vistra_Corp", CEG:"Constellation_Energy",
-  OKLO:"Oklo_Inc.", SMR:"NuScale_Power", MSTR:"Strategy_(company)", GME:"GameStop", AMC:"AMC_Theatres",
-  /* [v4.65] 후보를 넓힌다 — 문서가 없거나 이름이 어긋나 빠지는 종목이 늘 생기므로,
-     100위를 안정적으로 채우려면 시작 후보가 넉넉해야 한다. */
-  ACN:"Accenture", ADP:"ADP_(company)", AMAT:"Applied_Materials", LRCX:"Lam_Research",
-  KLAC:"KLA_Corporation", ADI:"Analog_Devices", NXPI:"NXP_Semiconductors", MCHP:"Microchip_Technology",
-  ON:"Onsemi", MRVL:"Marvell_Technology", SNPS:"Synopsys", CDNS:"Cadence_Design_Systems",
-  INTU:"Intuit", WDAY:"Workday,_Inc.", TEAM:"Atlassian", MDB:"MongoDB_Inc.", NET:"Cloudflare",
-  OKTA:"Okta,_Inc.", TWLO:"Twilio", ZM:"Zoom_Communications", DOCU:"Docusign", U:"Unity_(game_engine)",
-  PINS:"Pinterest", SNAP:"Snap_Inc.", MTCH:"Match_Group", EBAY:"EBay", ETSY:"Etsy",
-  CHWY:"Chewy_(company)", LULU:"Lululemon_Athletica", DECK:"Deckers_Brands", CROX:"Crocs",
-CMG:"Chipotle_Mexican_Grill", YUM:"Yum!_Brands", DPZ:"Domino's_Pizza",
-  MAR:"Marriott_International", HLT:"Hilton_Worldwide", RCL:"Royal_Caribbean_Group",
-  CCL:"Carnival_Corporation_&_plc", DAL:"Delta_Air_Lines", UAL:"United_Airlines", LUV:"Southwest_Airlines",
-  AAL:"American_Airlines", SPGI:"S&P_Global", MCO:"Moody's_Corporation", ICE:"Intercontinental_Exchange",
-  CME:"CME_Group", NDAQ:"Nasdaq,_Inc.", PM:"Philip_Morris_International", MO:"Altria",
-  KMB:"Kimberly-Clark", GIS2:"General_Mills", HSY:"The_Hershey_Company", K:"Kellanova",
-  SYK:"Stryker_Corporation", BSX:"Boston_Scientific", MDT:"Medtronic", ABT:"Abbott_Laboratories",
-  TMO:"Thermo_Fisher_Scientific", DHR:"Danaher_Corporation", REGN:"Regeneron_Pharmaceuticals",
-  VRTX:"Vertex_Pharmaceuticals", BIIB:"Biogen", ZTS:"Zoetis", ELV:"Elevance_Health",
-  SOFI:"SoFi", AFRM:"Affirm_(company)", UPST:"Upstart_(company)", DKNG:"DraftKings",
-  ROKU:"Roku,_Inc.", WBD:"Warner_Bros._Discovery", PARA:"Paramount_Global", LYV:"Live_Nation_Entertainment",
-  APP:"AppLovin", VRT:"Vertiv", GEV:"GE_Vernova", ETN:"Eaton_Corporation",
-  PWR:"Quanta_Services", PH:"Parker_Hannifin", EMR:"Emerson_Electric", ITW:"Illinois_Tool_Works",
-  UNP:"Union_Pacific_Railroad", CSX:"CSX_Transportation", NSC:"Norfolk_Southern_Railway",
-  FCX:"Freeport-McMoRan", NEM:"Newmont", NUE:"Nucor", DOW:"Dow_Chemical_Company",
-  AVAV:"AeroVironment", LDOS:"Leidos", HII:"Huntington_Ingalls_Industries", TDG:"TransDigm"
-};
-/* [v4.60] 티커 → 거래소 접미(O 나스닥 / N 뉴욕 / A 아멕스).
-   야후·Stocktwits 는 거래소를 알려 주지 않아, 이걸 모르면 클라이언트가 종목을
-   등록하지 못하고 순위에서 통째로 빠졌다 — 26위에서 끊긴 또 하나의 이유다. */
-var US_NYSE = ("JPM BAC WFC GS MS C BLK SCHW AXP V MA BRK.B BRK.A WMT TGT HD LOW NKE MCD KO PG CL UL "
+/* ══ [v4.68] 조회수 원천을 다시 잡는다 ═══════════════════════════════════════
+   [지적이 옳다] 위키백과 문서 조회수는 '그 회사 문서를 본 횟수'이지 '그 종목을
+   찾아본 횟수'가 아니다. 증권 앱이 보여 주는 조회수와는 다른 숫자다.
+   [그래서 이렇게 바꾼다] 실제로 '종목을 찾아본 기록'을 주는 곳을 앞에 세운다.
+     1) 네이버 해외증시 인기 종목 — 한국 사용자가 실제로 많이 본 미국 종목.
+        API 경로는 계속 바뀌므로 화면 HTML 에 심긴 초기 데이터에서 직접 긁는다.
+        (m.stock.naver.com 은 이 앱에서 응답이 확인된 유일한 네이버 호스트다)
+     2) 야후 파이낸스 trending — 야후에서 가장 많이 '검색된' 종목
+     3) Stocktwits trending — 관심 종목에 담은 사람이 급증한 종목
+     4) 야후 most_actives 화면 — 한 번의 호출로 100종을 받아 남는 자리를 채운다
+   위키백과는 주 원천에서 내리고, 순위를 다듬는 보조 신호로만 남긴다.
+   [속도] 네 곳 모두 한 번씩만 부르므로 한 번의 요청으로 100위가 완성된다. */
+var WIKI_UA = "LIVEjeungkwon/4.68 (educational paper-trading app; contact via github.com/jinnytcrew)";
+/* 티커 → 거래소 접미(O 나스닥 / N 뉴욕 / A 아멕스) — 야후·Stocktwits 는 거래소를 안 준다 */
+var US_NYSE = ("JPM BAC WFC GS MS C BLK SCHW AXP V MA BRK.B WMT TGT HD LOW NKE MCD KO PG CL UL "
   + "JNJ PFE MRK ABBV LLY BMY UNH CVS XOM CVX COP SLB BA LMT RTX NOC GD GE CAT DE HON MMM UPS FDX F GM "
-  + "DIS T VZ NEE DUK SO LIN NIO LI XPEV BABA JD PDD SONY TM HMC NVO ASML TSM ACN CRM ORCL IBM PM MO "
-  + "SPGI CB MCO ICE CME AON MMC TRV ALL PGR AIG MET PRU BK STT NTRS RF KEY HBAN CFG FITB "
+  + "DIS T VZ NEE DUK SO LIN NIO LI XPEV BABA JD PDD SONY TM HMC NVO ASML TSM ACN ORCL IBM PM MO "
+  + "SPGI CB MCO ICE CME AON MMC TRV ALL PGR AIG MET PRU BK STT "
   + "O SPG PLD AMT CCI EQIX PSA DLR VICI WELL ABT TMO DHR SYK BDX BSX MDT ZTS ELV CI HUM CNC "
-  + "RIVN LCID SMR VST CEG D AEP EXC XEL ED WEC ES PEG SRE PCG NRG "
-  + "SHOP SQ SPOT UBER LYFT ABNB DASH RBLX HOOD COIN PLTR SNOW NET TWLO ZM DOCU "
-  + "GME AMC BB KSS M JWN GPS ANF AEO URBN").split(/\s+/);
-var US_AMEX = ("SMR OKLO LEU UUUU NXE DNN UEC".split(/\s+/));
+  + "RIVN LCID VST CEG D AEP EXC XEL ED WEC PEG SRE PCG NRG IONQ "
+  + "SHOP SQ SPOT UBER LYFT ABNB DASH RBLX HOOD COIN PLTR NET TWLO DOCU "
+  + "GME AMC BB KSS M JWN GPS ANF AEO URBN PLUG SOFI MP UUUU CRML REPL CRVS").split(/\s+/);
+var US_AMEX = "SMR OKLO LEU NXE DNN UEC SPCE".split(/\s+/);
 var US_EXCH = (function(){ const m={};
   US_NYSE.forEach(t=>{ if(t)m[t]="N"; });
   US_AMEX.forEach(t=>{ if(t)m[t]="A"; });
   return m; })();
+/* 위키 인기문서에서 종목을 알아보기 위한 문서명 표 — 순위를 다듬는 보조 신호에만 쓴다 */
+var WIKI_ART = {
+  AAPL:"Apple_Inc.", MSFT:"Microsoft", NVDA:"Nvidia", GOOGL:"Alphabet_Inc.", AMZN:"Amazon_(company)",
+  META:"Meta_Platforms", TSLA:"Tesla,_Inc.", AVGO:"Broadcom", AMD:"Advanced_Micro_Devices",
+  INTC:"Intel", MU:"Micron_Technology", QCOM:"Qualcomm", ARM:"Arm_Holdings", TSM:"TSMC",
+  ASML:"ASML_Holding", SMCI:"Supermicro", IBM:"IBM", ORCL:"Oracle_Corporation", CRM:"Salesforce",
+  ADBE:"Adobe_Inc.", PLTR:"Palantir_Technologies", NFLX:"Netflix", DIS:"The_Walt_Disney_Company",
+  UBER:"Uber", ABNB:"Airbnb", SHOP:"Shopify", PYPL:"PayPal", COIN:"Coinbase", HOOD:"Robinhood_Markets",
+  V:"Visa_Inc.", MA:"Mastercard", JPM:"JPMorgan_Chase", BAC:"Bank_of_America", GS:"Goldman_Sachs",
+  WMT:"Walmart", COST:"Costco", NKE:"Nike,_Inc.", SBUX:"Starbucks", MCD:"McDonald's",
+  KO:"Coca-Cola", PEP:"PepsiCo", JNJ:"Johnson_&_Johnson", PFE:"Pfizer", LLY:"Eli_Lilly_and_Company",
+  UNH:"UnitedHealth_Group", XOM:"ExxonMobil", CVX:"Chevron_Corporation", BA:"Boeing",
+  LMT:"Lockheed_Martin", RTX:"RTX_Corporation", GE:"General_Electric", CAT:"Caterpillar_Inc.",
+  F:"Ford_Motor_Company", GM:"General_Motors", RIVN:"Rivian", LCID:"Lucid_Motors", NIO:"Nio_Inc.",
+  BABA:"Alibaba_Group", T:"AT&T", VZ:"Verizon", CSCO:"Cisco", SPOT:"Spotify", RBLX:"Roblox_Corporation",
+  SONY:"Sony", TM:"Toyota", GME:"GameStop", AMC:"AMC_Theatres", MSTR:"Strategy_(company)",
+  IONQ:"IonQ", RGTI:"Rigetti_Computing", QBTS:"D-Wave_Quantum", SOFI:"SoFi", DKNG:"DraftKings",
+  MP:"MP_Materials", UUUU:"Energy_Fuels", OKLO:"Oklo_Inc.", SMR:"NuScale_Power", VST:"Vistra_Corp",
+  CEG:"Constellation_Energy", GEV:"GE_Vernova", VRT:"Vertiv", ANET:"Arista_Networks",
+  CRWD:"CrowdStrike", PANW:"Palo_Alto_Networks", NOW:"ServiceNow", INTU:"Intuit", ACN:"Accenture"
+};
 function usGuessSfx(t){
   const k=String(t||"").toUpperCase();
-  /* 표에 없으면 나스닥으로 본다 — 틀려도 CNBC·Cboe 는 티커만으로 시세를 주므로
-     화면이 비지는 않는다(네이버 경로만 못 쓸 뿐). */
-  return US_EXCH[k] || "O";
+  /* 표에 없으면 나스닥으로 본다 — 틀려도 CNBC·Cboe 는 티커만으로 시세를 주므로 화면이 비지 않는다 */
+  return (typeof US_EXCH!=="undefined"&&US_EXCH[k])||"O";
 }
 function wikiDate(back){
   const d = new Date(Date.now() - back * 864e5);
@@ -11855,22 +11785,20 @@ async function wikiGet(url, ms){
     return { j: await r.json() };
   } catch (e) { clearTimeout(t); return { err: String(e).slice(0, 14) }; }
 }
-/* ① 인기문서 1000위 — 한 번의 호출로 큰 회사들의 실제 조회수를 통째로 얻는다 */
+/* 위키 인기문서(일간·월간) — 순위를 다듬는 보조 신호. 종목별 개별 조회는 하지 않는다. */
 async function wikiTopViews(diag, budget){
-  const out = {};
-  const art2t = {};
+  const out = {}, art2t = {};
   for (const k in WIKI_ART) { const a = WIKI_ART[k]; if (!art2t[a]) art2t[a] = k; }
   const d = wikiDate(2), dm = wikiDate(35);
   const urls = [
     ["day", `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${d.y}/${d.m}/${d.d}`],
-    /* 월간 1000위 — 하루치보다 기업 문서가 훨씬 많이 걸린다(순위 표본을 넓히는 핵심) */
     ["mon", `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${dm.y}/${dm.m}/all-days`]
   ];
   const rs = await Promise.all(urls.map(async ([nm, u]) => {
     if (budget && budget.left <= 0) return null;
     if (budget) budget.left--;
     const { j, err } = await wikiGet(u, 6000);
-    if (err) { diag.push("wiki-top-" + nm + ":" + err); return null; }
+    if (err) { diag.push("wiki-" + nm + ":" + err); return null; }
     return { nm, arr: (j && j.items && j.items[0] && j.items[0].articles) || [] };
   }));
   for (const r of rs) {
@@ -11878,85 +11806,17 @@ async function wikiTopViews(diag, budget){
     let n = 0;
     for (const a of r.arr) {
       const t = art2t[a.article];
-      /* 월간은 한 달 누적이라 30 으로 나눠 일평균으로 맞춘다 — 일간과 단위를 통일 */
       const v = r.nm === "mon" ? Math.round((+a.views || 0) / 30) : (+a.views || 0);
       if (t && !(out[t] > 0) && v > 0) { out[t] = v; n++; }
     }
-    diag.push("wiki-top-" + r.nm + ":" + n);
+    diag.push("wiki-" + r.nm + ":" + n);
   }
   return out;
 }
-/* ② 문서별 조회수 — 최근 한 주치를 한 호출로 받는다. KV 에 12시간 담아 재사용한다. */
-async function wikiArticleViews(tickers, have, diag, budget){
-  const out = {};
-  const need = [];
-  for (const t of tickers) {
-    if (have[t] != null || !WIKI_ART[t]) continue;
-    need.push(t);
-  }
-  /* ══ [v4.62] 조회수 캐시를 '한 덩어리'로 ═════════════════════════════════
-     [무엇이 문제였나] 종목마다 wikv:AAPL 처럼 따로 저장했다. 한 번에 38개면
-     쓰기도 38번이다. 무료 KV 는 하루 쓰기 1,000회라 몇 번 새로고침하면 한도에
-     걸리고, 그 뒤로는 저장이 조용히 실패해 캐시가 영영 안 쌓인다.
-     → 다음 방문에도 같은 38개만 다시 받게 되어 순위가 40여 종에서 멈췄다.
-     한 키에 전부 담으면 읽기 1번·쓰기 1번으로 끝난다. */
-  let bag = null;
-  try { bag = KV ? await KV.get("wikv:all", "json") : null; } catch (e) { }
-  if (!bag || typeof bag !== "object") bag = {};
-  const still = [];
-  for (const t of need) {
-    const hit = bag[t];
-    if (!hit || !hit.at) { still.push(t); continue; }
-    const age = Date.now() - hit.at;
-    if (hit.bad) { if (age < 6 * 3600e3) continue; still.push(t); continue; }  // 실패는 6시간 쉬어 간다
-    if (age < 24 * 3600e3) out[t] = hit.v; else still.push(t);
-  }
-  diag.push("wiki-kv:" + (need.length - still.length));
-  /* [v4.60] 한 번에 14개씩 '차례로' 받다 보니 135종을 채우는 데 열 번 넘는 방문이
-     필요했다 — 그래서 순위가 26위에서 끊겼다. 동시에 띄우고 개수도 늘린다.
-     서브리퀘스트는 요청당 50개(★11)이므로 30개까지는 넉넉하다. */
-  const s = wikiDate(8), e = wikiDate(2);
-  const take = still.slice(0, Math.max(0, Math.min(38, budget ? budget.left - 4 : 38)));
-  if (budget) budget.left -= take.length;
-  const got = await Promise.all(take.map(async (t) => {
-    const { j, err } = await wikiGet(
-      `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/`
-      + encodeURIComponent(WIKI_ART[t]) + `/daily/${s.s}/${e.s}`, 5000);
-    if (err) return { t, fail: 1 };
-    const items = (j && j.items) || [];
-    if (!items.length) return { t, fail: 1 };
-    const avg = Math.round(items.reduce((a, x) => a + (+x.views || 0), 0) / items.length);
-    return { t, avg };
-  }));
-  let n = 0, bad = 0;
-  for (const g of got) {
-    if (!g) continue;
-    if (g.fail) {
-      /* ══ [v4.65] 실패도 기억한다 ═══════════════════════════════════════════
-         문서명이 틀렸거나 위키에 문서가 없으면 계속 404 가 난다. 그런데 실패를
-         기억하지 않으니, 실패한 종목이 다음 회차에도 대기열 앞자리를 그대로 차지해
-         새 종목이 들어올 자리를 막았다 — 순위가 55종에서 멈춘 진짜 이유다.
-         실패는 짧게(6시간) 기억해 두어 대기열에서 비켜 준다. */
-      bag[g.t] = { at: Date.now(), v: 0, bad: 1 }; bad++;
-      continue;
-    }
-    out[g.t] = g.avg; bag[g.t] = { at: Date.now(), v: g.avg }; n++;
-  }
-  /* 쓰기는 한 번뿐 — 오래된 항목은 정리해 키가 무한정 커지지 않게 한다 */
-  if ((n || bad) && KV) {
-    try {
-      const cut = Date.now() - 48 * 3600e3;
-      for (const k in bag) if (!bag[k] || !(bag[k].at > cut)) delete bag[k];
-      await KV.put("wikv:all", JSON.stringify(bag), { expirationTtl: 172800 });
-    } catch (e) { }
-  }
-  diag.push("wiki-art:" + n + "/" + take.length + (bad ? "-bad" + bad : ""));
-  return out;
-}
-/* ③ 야후 파이낸스에서 가장 많이 검색된 종목 */
+/* 야후에서 가장 많이 검색된 종목 */
 async function yahooTrending(diag, budget){
-  if (budget && budget.left <= 0) return null;
-  budget && budget.left--;
+  if (budget && budget.left <= 1) return null;
+  if (budget) budget.left--;
   try {
     const c = new AbortController(); const t = setTimeout(() => c.abort(), 4500);
     const r = await fetch("https://query1.finance.yahoo.com/v1/finance/trending/US?count=40",
@@ -11965,83 +11825,148 @@ async function yahooTrending(diag, budget){
     if (!r.ok) { diag.push("yh-trend:" + r.status); return null; }
     const j = await r.json();
     const q = (j && j.finance && j.finance.result && j.finance.result[0] && j.finance.result[0].quotes) || [];
-    const arr = q.map(x => String(x.symbol || "")).filter(x => /^[A-Z]{1,5}$/.test(x));
+    const arr = q.map(x => String(x.symbol || "").toUpperCase()).filter(x => /^[A-Z][A-Z0-9]{0,5}$/.test(x));
     diag.push("yh-trend:" + arr.length);
     return arr.length ? arr : null;
   } catch (e) { diag.push("yh-trend:" + String(e).slice(0, 10)); return null; }
 }
+function usExchSfx(ex){
+  const e=String(ex||"").toUpperCase();
+  if(e.includes("NASDAQ"))return "O";
+  if(e.includes("NYSEARCA")||e.includes("AMEX")||e.includes("NYSE AMERICAN"))return "A";
+  if(e.includes("NYSE"))return "N";
+  return null;
+}
+/* 네이버 해외증시 인기 종목 — 화면에 심긴 초기 데이터에서 로이터코드를 순서대로 긁는다 */
+async function naverWorldPopular(diag,budget){
+  const urls=[
+    "https://m.stock.naver.com/worldstock",
+    "https://m.stock.naver.com/worldstock/home/USA/index"
+  ];
+  for(const u of urls){
+    if(budget&&budget.left<=1)break;
+    if(budget)budget.left--;
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const r=await fetch(u,{headers:{ "User-Agent":UA25, Accept:"text/html,application/json",
+        "Accept-Language":"ko-KR,ko;q=0.9", Referer:"https://m.stock.naver.com/" },signal:c.signal});
+      clearTimeout(t);
+      if(!r.ok){ diag.push("nv-pop:"+r.status); continue; }
+      const txt=await r.text();
+      /* 구조가 바뀌어도 견디도록, 로이터코드가 나오는 순서 그대로 뽑는다 */
+      const seen=new Set(), out=[];
+      const re=/"reutersCode"\s*:\s*"([A-Z0-9.\-]{1,10}\.(?:O|N|A))"([\s\S]{0,320}?)(?="reutersCode"|$)/g;
+      let m2;
+      while((m2=re.exec(txt))&&out.length<60){
+        const reu=m2[1], tail=m2[2]||"";
+        const tk=reu.split(".")[0], sfx=reu.split(".")[1];
+        if(seen.has(tk))continue; seen.add(tk);
+        const kr=(tail.match(/"stockNameKor"\s*:\s*"([^"]{1,40})"/)||tail.match(/"stockName"\s*:\s*"([^"]{1,40})"/)||[])[1]||"";
+        const en=(tail.match(/"stockNameEng"\s*:\s*"([^"]{1,60})"/)||[])[1]||"";
+        out.push({t:tk,sfx,kr,en});
+      }
+      if(out.length>=5){ diag.push("nv-pop:"+out.length); return out; }
+      diag.push("nv-pop:thin"+out.length);
+    }catch(e){ diag.push("nv-pop:"+String(e).slice(0,10)); }
+  }
+  return null;
+}
+/* 야후 화면(스크리너) — 한 번에 100종. 이름·거래소·시가총액까지 함께 준다 */
+async function yahooScreen(scrId,count,diag,budget){
+  if(budget&&budget.left<=1)return null;
+  if(budget)budget.left--;
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
+      +"?scrIds="+encodeURIComponent(scrId)+"&count="+count+"&start=0",
+      {headers:{ "User-Agent":UA20, Accept:"application/json" },signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok){ diag.push(scrId+":"+r.status); return null; }
+    const j=await r.json();
+    const q=(j&&j.finance&&j.finance.result&&j.finance.result[0]&&j.finance.result[0].quotes)||[];
+    const out=[];
+    for(const x of q){
+      const t2=String(x.symbol||"").toUpperCase();
+      if(!/^[A-Z][A-Z0-9]{0,5}([.\-][A-Z])?$/.test(t2))continue;   // 숫자·클래스주(BRK.B) 허용
+      out.push({t:t2.replace(/\./g,"-"),sfx:usExchSfx(x.fullExchangeName||x.exchange),
+        kr:"",en:String(x.shortName||x.longName||"").trim(),cap:+x.marketCap||0});
+    }
+    diag.push(scrId+":"+out.length);
+    return out.length?out:null;
+  }catch(e){ diag.push(scrId+":"+String(e).slice(0,10)); return null; }
+}
+async function usPopExternal(diag, budget){
+  const lists = [];
+  const push=(name,arr)=>{ if(arr&&arr.length)lists.push({name,arr}); };
+  push("naver-pop", await naverWorldPopular(diag,budget));
+  /* 야후에서 가장 많이 검색된 종목 */
+  const yh=await yahooTrending(diag,budget);
+  if(yh&&yh.length)push("yahoo-trend", yh.map(t=>({t,sfx:null,kr:"",en:""})));
+  /* Stocktwits — 관심 급증 */
+  if(budget&&budget.left>1){
+    if(budget)budget.left--;
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4500);
+      const r=await fetch("https://api.stocktwits.com/api/2/trending/symbols.json?limit=30",
+        {headers:{ "User-Agent":UA20, Accept:"application/json" },signal:c.signal});
+      clearTimeout(t);
+      if(r.ok){ const j=JSON.parse(await r.text());
+        const arr=(j.symbols||[]).filter(x=>x&&/^[A-Z][A-Z0-9]{0,5}$/.test(String(x.symbol||"").toUpperCase()))
+          .map(x=>({t:x.symbol,sfx:null,kr:"",en:String(x.title||"").trim()}));
+        push("stocktwits",arr); diag.push("stocktwits:"+arr.length);
+      } else diag.push("stocktwits:"+r.status);
+    }catch(e){ diag.push("stocktwits:"+String(e).slice(0,10)); }
+  }
+  /* 남는 자리는 '거래가 가장 활발한 종목' 100종으로 채운다 — 한 번의 호출로 충분하다 */
+  push("yahoo-active", await yahooScreen("most_actives",100,diag,budget));
+  return lists;
+}
 async function uspopular_default(req2){
-  const diag = [], budget = { left: 46 };
-  const CK = "uspop:v2";
+  const diag = [], budget = { left: 20 };
+  const CK = "uspop:v3";
   const fresh = new URL(req2.url).searchParams.get("fresh") === "1";
   if (!fresh) {
     try {
       const c = KV ? await KV.get(CK, "json") : null;
-      if (c && c.at && Date.now() - c.at < 10 * 60e3 && Array.isArray(c.items) && c.items.length) {
+      if (c && c.at && Date.now() - c.at < 10 * 60e3 && Array.isArray(c.items) && c.items.length >= 60) {
         return new Response(JSON.stringify({ ok: true, items: c.items, basis: c.basis, cached: 1 }),
           { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
       }
     } catch (e) { }
   }
   const score = new Map();
-  const bump = (t, sfx, add, origin, kr, en) => {
+  const bump = (t, sfx, add, origin, kr, en, cap) => {
     if (!t) return;
     const cur = score.get(t);
     if (cur) { cur.sc += add; if (cur.origin.indexOf(origin) < 0) cur.origin.push(origin);
-      if (!cur.sfx && sfx) cur.sfx = sfx; if (!cur.kr && kr) cur.kr = kr; if (!cur.en && en) cur.en = en; }
-    else score.set(t, { t, sfx: sfx || null, kr: kr || "", en: en || "", sc: add, origin: [origin] });
+      if (!cur.sfx && sfx) cur.sfx = sfx; if (!cur.kr && kr) cur.kr = kr; if (!cur.en && en) cur.en = en;
+      if (!cur.cap && cap) cur.cap = cap; }
+    else score.set(t, { t, sfx: sfx || null, kr: kr || "", en: en || "", cap: cap || 0, sc: add, origin: [origin] });
   };
-  /* ══ 주 신호 : 위키백과 문서 실제 조회수 ══════════════════════════════════
-     '그 회사를 몇 번 찾아봤는가' 를 숫자로 그대로 주는 유일한 공개 원천이다.
-     인기문서 1000위(1콜)로 큰 회사를 훑고, 빠진 종목만 문서별로 보충한다. */
-  const topV = await wikiTopViews(diag, budget);
-  const uni = Object.keys(WIKI_ART);
-  const artV = await wikiArticleViews(uni, topV, diag, budget);
-  const wikiV = Object.assign({}, artV, topV);
-  const wEntries = Object.entries(wikiV).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-  /* [v4.59 · 정정] 처음엔 조회수를 로그로 눌러 다른 신호와 섞었는데, 로그가 너무
-     압축한 나머지 조회수 61,000 인 종목이 12,000 인 종목보다 아래로 밀렸다.
-     탭 이름이 '조회수'인 이상 조회수 많은 순서가 그대로 나와야 한다.
-     → 조회수가 있는 종목은 '조회수 내림차순'을 절대 우선으로 두고(1000점대),
-       조회수를 못 구한 종목만 보조 신호 점수(최대 100점대)로 그 아래에 붙인다.
-     보조 신호는 순서를 뒤집는 데 쓰이지 않고, 빈자리를 채우는 데만 쓰인다. */
-  wEntries.forEach(([t, v]) => bump(t, null, 0, "wiki"));
-  diag.push("wiki:" + wEntries.length);
-  /* ══ 보조 신호 : 다른 사이트의 검색·관심 순위 ══════════════════════════ */
-  const yh = await yahooTrending(diag, budget);
-  if (yh) yh.forEach((t, i) => bump(t, null, 90 * (1 - i / yh.length), "yahoo"));
+  /* 원천마다 '조회수에 얼마나 가까운가'로 무게를 준다.
+     네이버 인기(한국 사용자 실제 조회) > 야후 검색 급상승 > 커뮤니티 관심 > 거래 활발 */
+  const W = { "naver-pop": 1000, "yahoo-trend": 700, "stocktwits": 420, "yahoo-active": 240 };
   const lists = await usPopExternal(diag, budget);
   lists.forEach(({ name, arr }) => {
-    const n = arr.length || 1;
-    const w = name === "naver-pop" ? 80 : 60;
-    arr.forEach((it, i) => bump(it.t, it.sfx, w * (1 - i / n), name, it.kr, it.en));
+    const n = arr.length || 1, w = W[name] || 200;
+    arr.forEach((it, i) => bump(it.t, it.sfx, w * (1 - i / n), name, it.kr, it.en, it.cap));
   });
-  /* ══ 이 앱에서 실제로 열어 본 횟수 — 있으면 얹는다(없어도 순위는 나온다) ══ */
+  /* 이 앱에서 실제로 열어 본 횟수 — 있으면 얹는다 */
   const vt = await usvTop();
   const vEntries = Object.entries(vt.map).sort((a, b) => b[1] - a[1]);
   const vMax = vEntries.length ? vEntries[0][1] : 0;
-  vEntries.slice(0, 120).forEach(([t, n]) => bump(t, null, 50 * (n / (vMax || 1)), "app"));
-  /* 두 무리를 완전히 갈라 정렬한다 — 보조 신호가 조회수 순서를 절대 뒤집지 못하게.
-     ① 조회수를 구한 종목 : 조회수 많은 순
-     ② 조회수를 못 구한 종목 : 보조 신호 점수 순 (항상 ① 아래) */
-  const all = [...score.values()];
-  const withV = all.filter(x => (wikiV[x.t] || 0) > 0).sort((a, b) => wikiV[b.t] - wikiV[a.t]);
-  const noV = all.filter(x => !(wikiV[x.t] > 0)).sort((a, b) => b.sc - a.sc);
-  /* [v4.66] 딱 100위까지만 — 그 이상은 '조회수 TOP 100' 이 아니다 */
-  /* [v4.67] 이름이 비면 화면에 티커만 두 번 나온다(AVAV · AVAV). 위키 문서명을
-     사람이 읽는 형태로 되돌려 영문명으로 쓴다 — Eli_Lilly_and_Company → Eli Lilly and Company */
-  const artName = (t) => {
-    const a = WIKI_ART[t]; if (!a) return "";
-    return decodeURIComponent(a).replace(/_/g, " ").replace(/\s*\((company|game engine)\)$/i, "").trim();
-  };
-  const items = withV.concat(noV).slice(0, 100)
-    .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en || artName(x.t), origin: x.origin,
-      wiki: wikiV[x.t] || 0, views: Math.round(vt.map[x.t] || 0) }));
-  const basis = {
-    wiki: wEntries.length, wikiTop: wEntries.length ? wEntries[0][0] : null,
-    yahoo: yh ? yh.length : 0, ext: lists.map(l => l.name),
-    app: vEntries.length, appTotal: Math.round(vt.total), diag
-  };
+  vEntries.slice(0, 120).forEach(([t, n]) => bump(t, null, 300 * (n / (vMax || 1)), "app"));
+  /* 위키 문서 조회수는 '보조'로만 — 같은 순위대에서 더 많이 회자되는 쪽을 위로 올린다.
+     인기문서 목록 2회만 보고, 종목별 개별 조회는 하지 않는다(느리고 조회수도 아니다). */
+  let wikiV = {};
+  try { wikiV = await wikiTopViews(diag, budget); } catch (e) { }
+  const wEnt = Object.entries(wikiV).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  wEnt.forEach(([t], i) => { if (score.has(t)) bump(t, null, 120 * (1 - i / wEnt.length), "wiki"); });
+  const items = [...score.values()].sort((a, b) => b.sc - a.sc).slice(0, 100)
+    .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, cap: x.cap || 0,
+      origin: x.origin, views: Math.round(vt.map[x.t] || 0) }));
+  const basis = { n: items.length, src: lists.map(l => ({ k: l.name, n: l.arr.length })),
+    app: vEntries.length, appTotal: Math.round(vt.total), wiki: wEnt.length, diag };
   try { if (KV && items.length) await KV.put(CK, JSON.stringify({ at: Date.now(), items, basis }), { expirationTtl: 900 }); } catch (e) { }
   await usvFlush(true);
   return new Response(JSON.stringify({ ok: items.length > 0, items, basis }),
@@ -12078,9 +12003,14 @@ async function uspopdiag_default(){
     "https://api.stocktwits.com/api/2/trending/symbols.json?limit=30",
     { "User-Agent": UA20, Accept: "application/json" },
     (t) => (JSON.parse(t).symbols || []).length);
-  await probe("naver-popular(해외 인기)",
-    "https://m.stock.naver.com/api/stocks/marketValue/worldStock?page=1&pageSize=60",
-    HDRS, (t) => { const j = JSON.parse(t); const a = j.stocks || j.datas || j.items || []; return a.length; });
+  await probe("naver-popular(한국인 조회 상위)",
+    "https://m.stock.naver.com/worldstock",
+    { "User-Agent": UA25, Accept: "text/html", "Accept-Language": "ko-KR,ko;q=0.9", Referer: "https://m.stock.naver.com/" },
+    (t) => (t.match(/"reutersCode"\s*:\s*"[A-Z0-9.\-]{1,10}\.(?:O|N|A)"/g) || []).length);
+  await probe("yahoo-active(거래 활발 100종)",
+    "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=100&start=0",
+    { "User-Agent": UA20, Accept: "application/json" },
+    (t) => { const j = JSON.parse(t); return (((j.finance || {}).result || [])[0] || {}).quotes ? j.finance.result[0].quotes.length : 0; });
   out.usable = out.tried.filter(x => x.parsed > 0).map(x => x.label);
   return new Response(JSON.stringify(out, null, 2),
     { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -12118,7 +12048,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.67.0";
+var APP_VER = "4.68.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
