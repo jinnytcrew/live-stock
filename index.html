@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=350">
+<link rel="stylesheet" href="/app.css?v=351">
 </head>
 <body>
 
@@ -47,7 +47,17 @@
    [이번 방식] 그리드로 세 줄을 만들고 가운데만 minmax(0,1fr) 로 둔다.
    가운데는 0 까지 줄어들 수 있고, 진행바·TIP·푸터 줄은 언제나 제 높이를 먼저 가져간다.
    '기대'가 아니라 '규칙'으로 보장된다. */
-#bootGate{position:fixed;inset:0;height:100vh;height:100dvh;
+/* ══ [v4.69] 새로고침 직후 아래가 잘리던 진짜 이유 ═══════════════════════════
+   height:100vh 를 폴백으로 두고 있었다. 안드로이드에서 100vh 는 '주소창이 숨겨졌을
+   때의 큰 화면'을 가리킨다. 그런데 새로고침·업데이트 직후에는 주소창이 다시 나와
+   실제로 보이는 높이가 그보다 작다 → 화면(#bootGate)이 보이는 영역보다 커지고,
+   맨 아래 TIP·저작권 줄이 화면 밖으로 밀려 잘렸다(첨부 영상).
+   dvh 를 지원하면 그 값이 이겨서 괜찮았지만, 지원하지 않는 브라우저에서는
+   폴백인 100vh 가 그대로 적용돼 매번 잘렸다.
+   → height 지정을 아예 없앤다. position:fixed + inset:0 만으로 '실제 보이는 영역'에
+     정확히 맞춰지며, 이게 모든 브라우저에서 안전하다.
+     dvh 를 쓸 수 있으면 그때만 더 정밀하게 맞춘다. */
+#bootGate{position:fixed;inset:0;
   z-index:2000000;display:grid;grid-template-rows:minmax(0,1fr) auto auto;
   justify-items:center;align-content:stretch;
   overflow:hidden;box-sizing:border-box;max-width:100vw;
@@ -58,7 +68,10 @@
           max(24px,env(safe-area-inset-right))
           max(22px,env(safe-area-inset-bottom))
           max(24px,env(safe-area-inset-left))}
+@supports (height:100dvh){ #bootGate{height:100dvh} }
 #bootGate.out{opacity:0;pointer-events:none}
+/* 그래도 모자라는 극단적인 경우에는 잘리는 대신 스크롤할 수 있게 둔다 */
+@media (max-height:380px){ #bootGate{overflow-y:auto;align-content:start} }
 /* 오로라 — 두 겹의 큰 원이 천천히 흐른다 */
 #bootGate::before,#bootGate::after{content:'';position:absolute;border-radius:50%;pointer-events:none;filter:blur(60px)}
 #bootGate::before{width:120vw;height:120vw;max-width:900px;max-height:900px;top:-42vw;left:-30vw;
@@ -1319,6 +1332,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=350"></script>
+<script type="module" src="/app.js?v=351"></script>
 </body>
 </html>

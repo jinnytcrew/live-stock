@@ -1807,11 +1807,27 @@ html.reduce-motion .info-tabs .lv{animation:none}
 #searchResults .sr:hover{background:var(--border-soft)}
 #searchResults .sr .nm{font-size:14px}
 #searchResults .sr .px{font-size:14.5px;font-weight:800}
+/* ══ [v4.69] 2단이 계속 깨지던 진짜 이유 ═══════════════════════════════════
+   #searchResults 자체가 1000px 이상에서 이미 '2열 그리드'였다(국내 결과를 두 줄로
+   흘리려고 만든 규칙). 그 안에 내가 만든 좌우 2단(.sr-2col)을 넣으니, 2단 전체가
+   바깥 그리드의 '한 칸'만 차지했다 — 화면 절반이 통째로 비고 왼쪽 칸만 좁게 눌린
+   이유가 이것이다. 겉에서 아무리 1fr 1fr 을 줘도 소용없었다.
+   → 2단을 쓸 때는 바깥 그리드를 끄고, 좌우 칸 안에서만 세로로 쌓는다. */
 @media (min-width:1000px){
   #searchResults{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px;align-items:start}
   #searchResults .rank-note,#searchResults .etf-more,#searchResults .srch-sentinel,#searchResults .empty,
   #searchResults .us-searchblk,#searchResults .us-ranklist{grid-column:1/-1}   /* [v4.38] 해외 블록·순위는 전체 폭 */
+  /* 2단을 그릴 때는 바깥 그리드를 해제한다 */
+  #searchResults:has(>.sr-2col){display:block}
 }
+/* :has() 를 못 쓰는 브라우저 대비 — 렌더러가 컨테이너에 붙이는 표시 */
+#searchResults.two-col{display:block!important}
+#searchResults.two-col .sr-2col{grid-column:1/-1}
+/* 칸 안에서는 세로로만 쌓는다(바깥 그리드 규칙이 새어 들어오지 않게) */
+.sr-2col .sr-col{display:block;min-width:0}
+.sr-2col .sr-col>*{grid-column:auto!important}
+.sr-2col .us-searchblk,.sr-2col .kr-searchblk{grid-column:auto!important;width:100%;box-sizing:border-box}
+.sr-2col .rank-note,.sr-2col .etf-more,.sr-2col .empty,.sr-2col .srch-sentinel{grid-column:auto!important}
 .srch-short button{border-radius:99px}
 
 /* ═══════ v2.2 ═══════ */

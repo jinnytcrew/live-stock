@@ -8020,14 +8020,14 @@ let _rankBusy={};
    그래서 inline onclick="rankRetry(...)" 는 항상 ReferenceError 였다(2·3번 사진의 그 오류).
    → 인라인 핸들러를 없애고 addEventListener 로 연결한다. */
 function rankRetry(tab){rankCache[tab]=null;rankError[tab]=false;_rankBusy[tab]=false;
-  $('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();}
+  $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();}
 function bindRankRetry(){
   const b=$('rankRetryBtn');
   if(b)b.addEventListener('click',(e)=>{e.stopPropagation();rankRetry(b.dataset.tab||searchRankTab);});
   const u=$('usRankRetry'); /* [v4.48] 해외 순위 다시 시도 */
   if(u)u.addEventListener('click',(e)=>{e.stopPropagation();_usQFail=0;
     usPop=null; usPopAt=0; _usPopTry=0;          // [v4.58] 인기 목록도 새로 받는다
-    $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();});
+    $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();});
   const pd=$('usPopDiag');                       // [v4.59] 어느 사이트에서 왔는지 직접 확인
   if(pd)pd.addEventListener('click',(e)=>{e.stopPropagation();openUsPopDiag();});
 }
@@ -8069,7 +8069,7 @@ async function openUsPopDiag(){
 /* [v4.60] 100위를 첫 방문에 채운다 — 서버는 한 번에 38개 문서까지만 조회수를
    받아올 수 있어(요청당 외부 호출 한도) 처음엔 40여 종만 나왔다. 목록이 100에
    못 미치면 화면을 그린 채로 조용히 한 번 더 받아 이어 붙인다(최대 4회). */
-var _usPopTry=0, _usPopQueued=false;
+var _usPopTry=0, _usPopQueued=false, _usPopStale=false;
 /* ══ [v4.65] 해외 목록을 국내처럼 '들어가자마자' 띄운다 ═══════════════════
    국내는 종목 목록을 브라우저에 담아 두어 진입 즉시 그린다. 해외만 매번
    서버 응답을 기다리느라 빈 화면을 보여 줬다 — 같은 방식을 해외에도 쓴다.
@@ -8081,19 +8081,21 @@ function usPopSave(){
       if(v&&v.price!=null)q[x.t]={price:v.price,prev:v.prev,cap:v.cap,w52h:v.w52h,w52l:v.w52l,vol:v.vol}; });
     const meta={};
     (usPop||[]).forEach(x=>{ const mm=usMeta[x.t]; if(mm)meta[x.t]={kr:mm.kr,en:mm.en,sfx:mm.sfx,etf:mm.etf}; });
-    localStorage.setItem('usPopCache',JSON.stringify({at:Date.now(),list:usPop,q,meta}));
+    localStorage.setItem('usPopCache_v2',JSON.stringify({at:Date.now(),list:usPop,q,meta,basis:usPopBasis}));
+    try{localStorage.removeItem('usPopCache');}catch(e){}   // 옛 기준으로 만든 목록은 버린다
   }catch(e){}
 }
 function usPopRestore(){
   try{
-    const raw=localStorage.getItem('usPopCache'); if(!raw)return false;
+    const raw=localStorage.getItem('usPopCache_v2'); if(!raw)return false;
     const c=JSON.parse(raw);
     if(!c||!Array.isArray(c.list)||!c.list.length)return false;
     if(Date.now()-(c.at||0)>24*3600e3)return false;      // 하루 지난 건 쓰지 않는다
     Object.keys(c.meta||{}).forEach(t=>{ if(!usMeta[t]){ const mm=c.meta[t];
       usRegister({t,sfx:mm.sfx||'O',kr:mm.kr||t,en:mm.en||t,etf:mm.etf?1:0}); } });
     Object.keys(c.q||{}).forEach(t=>{ if(!usQ[t])usQ[t]=Object.assign({},c.q[t],{stale:1}); });
-    usPop=c.list; usPopAt=0;                              // 화면엔 바로 쓰되 갱신은 계속 진행
+    usPop=c.list; usPopAt=0; usPopBasis=c.basis||null;
+    _usPopStale=true;          // [v4.69] 저장분 표시 — 새 목록이 오면 반드시 갈아 끼운다
     return true;
   }catch(e){ return false; }
 }
@@ -8107,7 +8109,7 @@ function usPopRestore(){
 function usPopLoad(cb){
   if(usPopBusy)return;
   /* [v4.68] 서버가 한 번에 100종을 완성해 주므로 여러 번 이어받을 필요가 없다 */
-  if(usPop&&usPop.length&&Date.now()-usPopAt<180e3)return;
+  if(usPop&&usPop.length&&!_usPopStale&&Date.now()-usPopAt<180e3)return;
   usPopBusy=true;
   const again=_usPopTry>0;
   fetch('/api/uspopular'+(again?'?fresh=1':''),{cache:'no-store'}).then(r=>r.json()).then(j=>{
@@ -8125,7 +8127,7 @@ function usPopLoad(cb){
       out.push({t,views:it.views||0,wiki:it.wiki||0,origin:it.origin||[]});
       if(out.length>=100)break;
     }
-    usPop=out; usPopAt=Date.now(); usPopSave();
+    usPop=out; usPopAt=Date.now(); _usPopStale=false; usPopSave();
     cb&&cb();
     /* 아직 100위에 못 미치면 곧바로 한 번 더 — 서버가 다음 묶음을 받아 온다 */
     if(out.length<60&&_usPopTry<3)setTimeout(()=>usPopLoad(cb),400);   // 원천이 흔들린 날만 한 번 더
@@ -8135,14 +8137,20 @@ function usPopLoad(cb){
 function usRankSection(){
   const tab=searchRankTab;
   const redraw=()=>{ if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
-    $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); } };
+    $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); } };
 
   /* ── 조회수 탭 ── 서버가 센 실제 조회수 순서 ── */
   if(tab==='조회수'){
     if(!usPop)usPopRestore();                     // [v4.65] 저장해 둔 목록이 있으면 즉시 사용
     /* [v4.67] 화면을 그리는 함수 안에서 '다시 그리기'를 부르는 건 재귀의 씨앗이다.
        아직 100종이 아닐 때만, 그것도 한 번만 예약한다. */
-    if((usPop||[]).length<60&&!usPopBusy&&!_usPopQueued){
+    /* ══ [v4.69] 저장해 둔 목록이 영영 안 바뀌던 문제 ═══════════════════════
+       예전 조건은 '목록이 60종 미만일 때만' 새로 받는 것이었다. 그런데 저장분은
+       이미 100종이라 조건에 걸리지 않았다 → 옛 기준으로 만든 순위가 화면에 계속
+       남았고, 원천을 바꿔도 반영되지 않았다. 화면에 '원천에 연결하지 못했습니다'가
+       뜬 것도 저장분에는 원천 정보가 없었기 때문이다.
+       → 저장분이거나 3분이 지났으면 무조건 새로 받는다. */
+    if((_usPopStale||!usPopAt||Date.now()-usPopAt>180e3)&&!usPopBusy&&!_usPopQueued){
       _usPopQueued=true;
       setTimeout(()=>{ _usPopQueued=false;
         usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
@@ -8215,10 +8223,10 @@ function rankSection(){
         if((($('searchInput')||{}).value||'').trim())return;
         if(!(list&&list.length)){          // 결과 없음 → 여기서 멈춘다(재귀 호출 금지)
           rankError[tab]=true;
-          $('searchResults').innerHTML=`<div class="empty">${tab} 순위를 불러오지 못했습니다.<br><button class="etf-more" id="rankRetryBtn" data-tab="${tab}">다시 시도</button></div>`;
+          $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=`<div class="empty">${tab} 순위를 불러오지 못했습니다.<br><button class="etf-more" id="rankRetryBtn" data-tab="${tab}">다시 시도</button></div>`;
           bindRankRetry(); return;
         }
-        $('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();
+        $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();
       }).catch(()=>{_rankBusy[tab]=false;rankError[tab]=true;});
     }
     return rankError[tab]
@@ -8250,7 +8258,7 @@ function renderSearch(){
   const ql=q.toLowerCase().replace(/\s+/g,'');
   /* [v4.38] 시장 탭은 '순위'를 나누는 장치다. 검색어를 넣으면 국내·해외를 함께 보여 주므로 감춘다. */
   {const mt=$('searchMktTabs'); if(mt)mt.hidden=!!q;}
-  if(!q){ $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); return; }
+  if(!q){ $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); return; }
   /* [v4.28] 해외(미국) 매치 — 티커·한글·영문 어느 쪽으로든 걸리면 국내 결과 위에 얹는다 */
   const usHit=usLocalMatch(q).slice(0,6).map(t=>[t]);
   /* [v4.31] 내장에 없으면 원격에서 찾아 화면을 다시 그린다 */
@@ -8320,6 +8328,7 @@ function renderSearch(){
      보려고 한참 스크롤해야 했고, 두 시장을 나란히 견주기도 어려웠다.
      왼쪽 국내 · 오른쪽 해외로 갈라 한눈에 비교되게 한다.
      좁은 화면에서는 한 단으로 되돌아가되, 국내가 먼저 오도록 순서를 지킨다. */
+  $('searchResults').classList.add('two-col');   // [v4.69] 바깥 2열 그리드를 끈다
   $('searchResults').innerHTML=
     `<div class="sr-2col">
        <div class="sr-col sr-kr">${krHead}${html}</div>
@@ -8563,7 +8572,7 @@ document.querySelectorAll('#searchMktTabs button').forEach(b=>b.onclick=()=>{
   if(searchMkt==='us')usPollStart(US_UNI.map(u=>u[0]));
   if(searchMkt==='us')usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{
     if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
-      $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();
+      $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();
     }});
 });
 
@@ -12448,7 +12457,7 @@ function usPollStart(list){
       if(currentView==='us')renderUsLive();
       if(currentView==='ustrade')renderUsTradeLive();
       if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
-        $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults'));
+        $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults'));
       }
     }); },iv);
 }
@@ -12834,7 +12843,7 @@ function renderUsRankBody(){
     /* 서버가 센 실제 조회수 순서. 아직 안 왔으면 받아 오고 다시 그린다. */
     if(!usPop)usPopRestore();
     /* [v4.67] 여기서도 콜백 안에서 곧바로 다시 그리면 재귀가 된다 — 타이머로 미룬다 */
-    if((usPop||[]).length<60&&!usPopBusy&&!_usPopQueued){
+    if((_usPopStale||!usPopAt||Date.now()-usPopAt>180e3)&&!usPopBusy&&!_usPopQueued){
       _usPopQueued=true;
       setTimeout(()=>{ _usPopQueued=false;
         usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)

@@ -11945,7 +11945,12 @@ async function uspopular_default(req2){
   };
   /* 원천마다 '조회수에 얼마나 가까운가'로 무게를 준다.
      네이버 인기(한국 사용자 실제 조회) > 야후 검색 급상승 > 커뮤니티 관심 > 거래 활발 */
-  const W = { "naver-pop": 1000, "yahoo-trend": 700, "stocktwits": 420, "yahoo-active": 240 };
+  /* ══ [v4.69] 상위권은 '실제로 많이 본 종목'만 ═══════════════════════════════
+     거래 활발(yahoo-active)은 거래대금 순서라 조회수와 다르다. 그런데 100종이나
+     되다 보니 점수 총합에서 상위를 차지해 버렸다 — 화면에 록히드마틴·맥도날드가
+     1·2위로 뜬 이유다. 조회 신호가 있는 종목을 무조건 위에 두고, 거래 활발은
+     뒷자리를 채우는 데만 쓴다(점수 폭을 크게 낮춘다). */
+  const W = { "naver-pop": 100000, "yahoo-trend": 40000, "stocktwits": 12000, "yahoo-active": 60 };
   const lists = await usPopExternal(diag, budget);
   lists.forEach(({ name, arr }) => {
     const n = arr.length || 1, w = W[name] || 200;
@@ -11955,13 +11960,13 @@ async function uspopular_default(req2){
   const vt = await usvTop();
   const vEntries = Object.entries(vt.map).sort((a, b) => b[1] - a[1]);
   const vMax = vEntries.length ? vEntries[0][1] : 0;
-  vEntries.slice(0, 120).forEach(([t, n]) => bump(t, null, 300 * (n / (vMax || 1)), "app"));
+  vEntries.slice(0, 120).forEach(([t, n]) => bump(t, null, 20000 * (n / (vMax || 1)), "app"));
   /* 위키 문서 조회수는 '보조'로만 — 같은 순위대에서 더 많이 회자되는 쪽을 위로 올린다.
      인기문서 목록 2회만 보고, 종목별 개별 조회는 하지 않는다(느리고 조회수도 아니다). */
   let wikiV = {};
   try { wikiV = await wikiTopViews(diag, budget); } catch (e) { }
   const wEnt = Object.entries(wikiV).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-  wEnt.forEach(([t], i) => { if (score.has(t)) bump(t, null, 120 * (1 - i / wEnt.length), "wiki"); });
+  wEnt.forEach(([t], i) => { if (score.has(t)) bump(t, null, 400 * (1 - i / wEnt.length), "wiki"); });
   const items = [...score.values()].sort((a, b) => b.sc - a.sc).slice(0, 100)
     .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, cap: x.cap || 0,
       origin: x.origin, views: Math.round(vt.map[x.t] || 0) }));
@@ -12048,7 +12053,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.68.0";
+var APP_VER = "4.69.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
