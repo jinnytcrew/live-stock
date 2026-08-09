@@ -4087,3 +4087,20 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
 .uinf-note{margin-top:11px;padding:12px 13px;border-radius:12px;font-size:12px;line-height:1.75;
   font-weight:600;background:rgba(47,122,229,.07);border:1px solid rgba(47,122,229,.2);color:var(--sub)}
 .uinf-note b{color:var(--text);font-weight:900}
+
+/* ══ [v4.82] 해외 뉴스 목록 · 체결강도 ═══════════════════════════════════════ */
+.unews{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:12px;
+  overflow:hidden;background:var(--panel)}
+.unews-it{display:flex;align-items:flex-start;gap:11px;padding:13px;text-decoration:none;
+  border-bottom:1px solid var(--border-soft)}
+.unews-it:last-child{border-bottom:0}
+.unews-it:hover{background:var(--border-soft)}
+.unews-th{flex-shrink:0;width:64px;height:48px;border-radius:8px;background-size:cover;
+  background-position:center;background-color:var(--border-soft)}
+.unews-b{min-width:0;flex:1}
+.unews-b b{display:block;font-size:13px;font-weight:800;line-height:1.5;color:var(--text);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.unews-b i{display:block;margin-top:5px;font-style:normal;font-size:11px;font-weight:700;color:var(--sub-2)}
+.fin-table.ustr td{font-variant-numeric:tabular-nums}
+.fin-table.ustr td.up{color:var(--up);font-weight:800}
+.fin-table.ustr td.down{color:var(--down);font-weight:800}

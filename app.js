@@ -12828,7 +12828,21 @@ function usLgUrls(t){
      바깥 사이트에서 직접 받으면 브라우저가 캔버스로 내용을 읽을 수 없어(다른 출처)
      '흰 빈 그림'인지 확인할 방법이 없다. 서버는 그 제약이 없고, 후보를 두드려
      내용까지 확인한 뒤 돌려준다. 게다가 같은 출처라 화면 쪽 확인도 그대로 통한다. */
+  /* ══ [v4.82] 후보를 다시 여럿으로 ═══════════════════════════════════════
+     v4.80 에서 '서버가 검사한 것만 쓰자'며 후보를 서버 하나로 줄였다. 그런데
+     서버가 실패하는 순간 대안이 없어져 로고가 거의 다 사라졌다(첨부 사진).
+     한 곳에 모든 것을 걸면 그곳이 무너질 때 전부 무너진다.
+     → 서버를 맨 앞에 두되, 뒤에 직접 받는 길을 다시 열어 둔다. */
   out.push('/api/uslogo?t='+encodeURIComponent(tk)+(d?'&d='+encodeURIComponent(d):''));
+  if(d){
+    out.push('https://logo.clearbit.com/'+d);
+    out.push('https://icons.duckduckgo.com/ip3/'+d+'.ico');
+    out.push('https://www.google.com/s2/favicons?sz=128&domain='+d);
+  }
+  out.push('https://financialmodelingprep.com/image-stock/'+tk+'.png');
+  out.push('https://assets.parqet.com/logos/symbol/'+tk+'?format=png&size=128');
+  out.push('https://s3-symbol-logo.tradingview.com/'+tk.toLowerCase()+'.svg');
+  out.push('https://logos.stockanalysis.com/'+tk.toLowerCase()+'.png');
   return out;
 }
 function usLgUrl(t){ const i=usLgOk[t]; return i==null?'':usLgUrls(t)[i]||''; }
@@ -12877,8 +12891,9 @@ function usLgHasInk(im){
       /* 아주 밝은 회색·흰색은 '내용 없음'으로 본다 */
       if(!(r>238&&g>238&&b>238))colored++;
     }
-    if(opaque<N*N*0.06)return false;      // 거의 다 투명 → 빈 그림
-    if(colored<opaque*0.04)return false;  // 거의 다 흰색 → 빈 그림
+    /* [v4.82] 문턱을 낮춘다 — 아주 작은 마크나 옅은 로고를 빈 그림으로 오해하지 않도록 */
+    if(opaque<N*N*0.02)return false;      // 거의 전부 투명일 때만 버린다
+    if(colored<opaque*0.015)return false; // 거의 전부 흰색일 때만 버린다
     return true;
   }catch(e){ return null; }               // 다른 출처라 읽을 수 없으면 판단 보류
 }
@@ -12909,8 +12924,11 @@ function usLgProbe(t){
          crossOrigin 을 걸면 CORS 를 안 여는 서버에서는 아예 로드가 실패하므로,
          평소에는 걸지 않고 → 캔버스가 막히면(보안 오류) 그냥 통과시킨다.
          대신 같은 주소를 crossOrigin 으로 한 번 더 시도해 확인을 노려 본다. */
+      /* [v4.82] 픽셀을 읽을 수 있을 때만 판정한다. 읽지 못하면(다른 출처) 통과시킨다 —
+         확인 못 한 것을 버리면 멀쩡한 로고까지 사라진다. 추가 확인 요청도 없앴다
+         (그 요청이 실패하는 것을 '빈 그림'으로 오해할 여지가 있었다). */
       if(usLgInkKnown(im)===false){end(false);return;}
-      usLgInkCheck(u,(ink)=>{ if(ink===false)end(false); else end(true); });
+      end(true);
     };
     im.onerror=()=>end(false);
     setTimeout(()=>end(false), u.indexOf('/api/')===0?7000:3200);
@@ -13636,7 +13654,7 @@ function renderUsInfo(){
   usChartMount(false);                                     // 다른 탭으로 가면 제자리로
   const f={summary:renderUsSummary,ai:renderUsAi,sise:renderUsSiseTab,news:renderUsNews,
            company:renderUsCompany,consensus:renderUsCons,finance:renderUsFin,
-           dividend:renderUsDividend}[usInfoTab];
+           dividend:renderUsDividend,strength:renderUsStrength}[usInfoTab];
   (f||renderUsSummary)(el);
 }
 function usNoData(t,d){return `<div class="us-nodata"><b>${t}</b><span>${d}</span></div>`;}
@@ -13759,20 +13777,90 @@ function renderUsSiseTab(el){
         <span class="num">${c.v>=1e6?(c.v/1e6).toFixed(1)+'M':(c.v/1e3).toFixed(0)+'K'}</span></div>`;}).join('')}`;
 }
 /* ④ 뉴스 */
-function renderUsNews(el){
-  const m=usMeta[usSel]||{};
-  el.innerHTML=`<div class="us-sec2">관련 뉴스</div>
-    <div class="us-news-list">
-      ${[['Yahoo Finance','https://finance.yahoo.com/quote/'+usSel],
-         ['Google Finance','https://www.google.com/finance/quote/'+usSel+':'+({O:'NASDAQ',N:'NYSE',A:'NYSEAMERICAN'}[m.sfx]||'NASDAQ')],
-         ['네이버 해외증시','https://m.stock.naver.com/worldstock/stock/'+(m.reu||usSel)],
-         ['SEC 공시(EDGAR)','https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker='+usSel]
-        ].map(([n,u])=>`<a class="us-news-a" href="${u}" target="_blank" rel="noopener">
-          <b>${n}</b><span>${m.kr} (${usSel}) 소식 보기</span><i>↗</i></a>`).join('')}
-    </div>
-    <div class="us-sum-note">해외 종목 뉴스는 원문 매체에서 직접 확인하는 편이 정확합니다. 새 탭으로 열립니다.</div>`;
+/* ══ [v4.82] 해외 종목 뉴스 — 실제 기사 목록 ═══════════════════════════════
+   지금까지는 '야후에서 보기' 같은 바깥 링크만 늘어놓았다. 증권 앱은 제목·날짜·
+   매체가 담긴 기사 목록을 바로 보여 준다. 같은 모양으로 바꾼다.
+   기사를 못 받으면 예전처럼 원문 매체 링크를 대신 보여 준다. */
+var usNewsCache={}, _usNewsBusy={};
+function usNewsLoad(t,cb){
+  if(usNewsCache[t]){cb&&setTimeout(cb,0);return;}
+  if(_usNewsBusy[t])return;
+  _usNewsBusy[t]=1;
+  fetch('/api/usnews?t='+encodeURIComponent(t),{cache:'no-store'})
+    .then(r=>r.json()).then(j=>{ _usNewsBusy[t]=0; usNewsCache[t]=(j&&j.items)||[];
+      if(cb)setTimeout(cb,0); })
+    .catch(()=>{ _usNewsBusy[t]=0; usNewsCache[t]=[]; if(cb)setTimeout(cb,0); });
 }
-/* ⑤ 투자자별 — 미국은 기관 보유 공시 개념 */
+function usAgoTxt(ms){
+  if(!ms)return '';
+  const d=Math.floor((Date.now()-ms)/60000);
+  if(d<1)return '방금';
+  if(d<60)return d+'분 전';
+  if(d<1440)return Math.floor(d/60)+'시간 전';
+  const dt=new Date(ms);
+  return `${dt.getFullYear()}.${String(dt.getMonth()+1).padStart(2,'0')}.${String(dt.getDate()).padStart(2,'0')}`;
+}
+function renderUsNews(el){
+  const t=usSel, m=usMeta[t]||{};
+  const list=usNewsCache[t];
+  const links=`<div class="us-sec2" style="margin-top:18px">원문 매체에서 보기</div>
+    <div class="us-news-list">
+      ${[['Yahoo Finance','https://finance.yahoo.com/quote/'+t],
+         ['Google Finance','https://www.google.com/finance/quote/'+t+':'+(m.sfx==='O'?'NASDAQ':'NYSE')],
+         ['네이버 해외증시','https://m.stock.naver.com/worldstock/stock/'+(m.reu||t)],
+         ['SEC 공시(EDGAR)','https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK='+t+'&type=8-K']]
+        .map(([nm,u])=>`<a class="us-news" href="${u}" target="_blank" rel="noopener">
+          <b>${nm}</b><span>${m.kr||t} (${t}) 소식 보기</span><i>↗</i></a>`).join('')}
+    </div>`;
+  if(!list){ usNewsLoad(t,()=>{ if(currentView==='ustrade'&&usInfoTab==='news')renderUsInfo(); });
+    el.innerHTML=usNoData('뉴스를 불러오는 중입니다','잠시만 기다려 주세요.')+links; return; }
+  if(!list.length){ el.innerHTML=usNoData('최근 기사를 받지 못했습니다',
+    '아래 원문 매체에서 바로 확인할 수 있습니다.')+links; return; }
+  el.innerHTML=`<div class="us-sec2">종목 뉴스 <small>최근 ${list.length}건</small></div>
+    <div class="unews">${list.map(n=>`
+      <a class="unews-it" href="${htmlEsc(n.link)}" target="_blank" rel="noopener">
+        ${n.img?`<span class="unews-th" style="background-image:url('${htmlEsc(n.img)}')"></span>`:''}
+        <span class="unews-b"><b>${htmlEsc(n.title)}</b>
+          <i>${htmlEsc(n.pub||'')}${n.at?' · '+usAgoTxt(n.at):''}</i></span></a>`).join('')}</div>`
+    +links;
+}
+/* ══ [v4.82] 체결강도 ═══════════════════════════════════════════════════════
+   [솔직히] 미국 주식은 '매수 체결량 / 매도 체결량'을 공개하지 않는다. 증권사는
+   자체 체결 데이터로 계산한다. 우리는 그 원자료를 구할 수 없다.
+   → 대신 일봉에서 '종가가 그날 범위의 어디에 있는지'로 매수세를 가늠한다.
+     종가가 고가 쪽이면 사려는 힘이 셌다는 뜻이다. 100이 중립이다.
+   증권사 수치와 값이 같지는 않다. 화면에 그렇게 밝힌다. */
+function usStrengthRows(cs){
+  if(!cs||cs.length<2)return null;
+  const raw=cs.map(c=>{ const r=(c.h-c.l);
+    const pos=r>0?(c.c-c.l)/r:0.5;
+    return {t:c.t,v:+(pos*200).toFixed(2)}; });
+  const avg=(i,n)=>{ const a=raw.slice(Math.max(0,i-n+1),i+1);
+    return a.length?+(a.reduce((s,x)=>s+x.v,0)/a.length).toFixed(2):null; };
+  return raw.map((x,i)=>({t:x.t,v:x.v,a5:avg(i,5),a20:avg(i,20),a60:avg(i,60)}))
+    .slice(-30).reverse();
+}
+function renderUsStrength(el){
+  const cs=usCandles;
+  if(!cs||!cs.length){ usEnsureCandles();
+    el.innerHTML=usNoData('체결강도를 계산하는 중입니다','일봉을 받아오고 있습니다.'); return; }
+  const rows=usStrengthRows(cs);
+  if(!rows){ el.innerHTML=usNoData('계산할 자료가 부족합니다','일봉이 더 쌓이면 표시됩니다.'); return; }
+  const fmtD=(ms)=>{ const d=new Date(ms);
+    return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`; };
+  const cls=(v)=>v==null?'':(v>=100?'up':'down');
+  el.innerHTML=`<div class="us-sec2">체결강도 <small>100이 중립 · 높을수록 사려는 힘이 강함</small></div>
+    <div style="overflow:auto"><table class="fin-table ustr"><thead><tr>
+      <th>일자</th><th>체결강도</th><th>5일평균</th><th>20일평균</th><th>60일평균</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td>${fmtD(r.t)}</td>
+      <td class="num ${cls(r.v)}">${r.v.toFixed(2)}</td>
+      <td class="num ${cls(r.a5)}">${r.a5==null?'—':r.a5.toFixed(2)}</td>
+      <td class="num ${cls(r.a20)}">${r.a20==null?'—':r.a20.toFixed(2)}</td>
+      <td class="num ${cls(r.a60)}">${r.a60==null?'—':r.a60.toFixed(2)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="uinf-note">미국 주식은 매수·매도 체결량을 공개하지 않습니다. 이 값은 일봉에서
+      <b>종가가 그날 고가·저가 사이 어디에 있는지</b>로 계산한 추정치이며, 증권사 화면의 숫자와 다를 수 있습니다.</div>`;
+}
 /* ══ [v4.80] 해외 종목 정보 코너 ═══════════════════════════════════════════
    [무엇을 걷어냈나] 투자자별·컨센서스·재무정보 세 탭은 미국 주식에 맞는 자료를
    구할 수 없어 늘 비어 있었다. 빈 탭을 남겨 두는 건 없는 기능을 있는 척하는 것이다.
@@ -13835,6 +13923,9 @@ function renderUsCompany(el){
    자료는 시세 제공처가 주는 애널리스트 의견·목표주가를 쓰고, 없으면 없다고 밝힌다. */
 function usConsPick(c){
   if(!c||typeof c!=='object')return null;
+  /* [v4.82] 서버가 야후 자료를 정리해 넘겨주면 그대로 쓴다 */
+  if(c.yh)return {score:c.yh.score??null,target:c.yh.target??null,high:c.yh.high??null,
+    low:c.yh.low??null,num:c.yh.num??null,eps:c.yh.eps??null,per:c.yh.per??null,key:c.yh.key||''};
   const num=(v)=>{ const n=parseFloat(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isFinite(n)?n:null; };
   const dig=(o,re,d)=>{ if(!o||d>4)return null;
     if(Array.isArray(o)){ for(const x of o){ const r=dig(x,re,d+1); if(r!=null)return r; } return null; }
@@ -13861,16 +13952,21 @@ function renderUsCons(el){
   /* 애널리스트 점수(1~5)가 없으면 게이지를 그리지 않는다 — 없는 의견을 지어내지 않는다 */
   let html='';
   if(c.score!=null&&c.score>=1&&c.score<=5){
-    const pos=Math.max(0,Math.min(100,(c.score-1)/4*100));
-    const col=c.score>=3.4?'var(--up)':c.score<=2.6?'var(--down)':'#8a95a5';
-    const lbl=c.score>=4.2?'강력매수':c.score>=3.4?'매수':c.score>=2.6?'중립':c.score>=1.8?'매도':'강력매도';
+    /* ══ [v4.82] 야후 점수는 방향이 거꾸로다 ═══════════════════════════════
+       야후의 recommendationMean 은 1이 강력매수, 5가 강력매도다.
+       국내 화면은 5가 강력매수이므로 그대로 쓰면 매수 종목이 매도로 뒤집힌다.
+       6에서 빼서 방향을 맞춘다. */
+    const sc=6-c.score;
+    const pos=Math.max(0,Math.min(100,(sc-1)/4*100));
+    const col=sc>=3.4?'var(--up)':sc<=2.6?'var(--down)':'#8a95a5';
+    const lbl=sc>=4.2?'강력매수':sc>=3.4?'매수':sc>=2.6?'중립':sc>=1.8?'매도':'강력매도';
     html+=`<div class="cons-head">애널리스트 투자의견 <span style="font-size:11px;color:var(--sub-2);font-weight:600">· 해외 증권사 컨센서스</span></div>
     <div class="gauge-wrap">
-      <div class="gauge-bar"><div class="gauge-pin" style="left:${pos}%"><div class="gauge-bubble" style="background:${col}">${c.score.toFixed(1)}</div></div></div>
+      <div class="gauge-bar"><div class="gauge-pin" style="left:${pos}%"><div class="gauge-bubble" style="background:${col}">${sc.toFixed(1)}</div></div></div>
       <div class="gauge-scale"><span>강력매도</span><span>매도</span><span>중립</span><span>매수</span><span>강력매수</span></div>
       <div class="gauge-verdict" style="color:${col}">${lbl}</div>
     </div>
-    <div class="cons-sub">애널리스트 컨센서스 <b>${c.score.toFixed(1)}</b>${c.num?` · ${Math.round(c.num)}개 기관`:''}</div>`;
+    <div class="cons-sub">애널리스트 컨센서스 <b>${sc.toFixed(1)}</b>${c.num?` · ${Math.round(c.num)}개 기관`:''}</div>`;
   }
   /* 52주 범위 — 국내와 같은 막대 */
   if(q.w52h!=null&&q.w52l!=null&&q.w52h>q.w52l&&price!=null){

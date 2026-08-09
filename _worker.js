@@ -12376,6 +12376,73 @@ function nameOfSec(v){
    응답이 확인된 호스트다. 여러 경로를 차례로 두드려 얻어지는 것만 모아 돌려준다.
    [설계 원칙] 없는 항목은 만들어 내지 않는다. 받은 것만 담고, 무엇을 못 받았는지
    diag 에 남겨 화면에서 확인할 수 있게 한다. */
+/* ══ [v4.82] 야후 상세자료 열쇠(쿠키·크럼) ═══════════════════════════════════
+   [왜 필요한가] 컨센서스·재무·기업개요는 야후 quoteSummary 에 다 들어 있는데,
+   야후가 2023년부터 이 경로에 '쿠키 + 크럼' 검사를 걸었다. 그래서 그동안
+   목표주가·투자의견이 계속 '—' 로 비어 있었다.
+   [절차] fc.yahoo.com 에서 쿠키를 받고 → 그 쿠키로 crumb 를 받는다.
+   한 번 받으면 반나절 쓸 수 있으므로 KV 에 담아 둔다(매번 두 번씩 더 부르지 않도록). */
+var YH_UA2="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+async function yhCrumb(diag){
+  try{ if(KV){ const c=await KV.get("yhcrumb:v1","json");
+    if(c&&c.at&&Date.now()-c.at<12*3600e3&&c.crumb)return c; } }catch(e){}
+  const H={ "User-Agent":YH_UA2, Accept:"text/html,application/xhtml+xml,*/*;q=0.8",
+    "Accept-Language":"en-US,en;q=0.9" };
+  const pickCookie=(r)=>{
+    let list=[];
+    try{ if(r.headers.getSetCookie)list=r.headers.getSetCookie(); }catch(e){}
+    if(!list.length){ const one=r.headers.get("set-cookie"); if(one)list=[one]; }
+    return list.map(c=>String(c).split(";")[0].trim()).filter(Boolean).join("; ");
+  };
+  let cookie="";
+  for(const u of ["https://fc.yahoo.com","https://finance.yahoo.com"]){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),5000);
+      const r=await fetch(u,{headers:H,redirect:"manual",signal:c.signal});
+      clearTimeout(t);
+      cookie=pickCookie(r);
+      if(cookie)break;
+    }catch(e){}
+  }
+  if(!cookie){ diag&&diag.push("yh-cookie:none"); return null; }
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),5000);
+    const r=await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb",
+      {headers:{...H,Cookie:cookie},signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok){ diag&&diag.push("yh-crumb:"+r.status); return null; }
+    const crumb=(await r.text()).trim();
+    if(!crumb||crumb.length>32||/[<>]/.test(crumb)){ diag&&diag.push("yh-crumb:bad"); return null; }
+    const rec={at:Date.now(),cookie,crumb};
+    try{ if(KV)await KV.put("yhcrumb:v1",JSON.stringify(rec),{expirationTtl:43200}); }catch(e){}
+    diag&&diag.push("yh-crumb:ok");
+    return rec;
+  }catch(e){ diag&&diag.push("yh-crumb:"+String(e).slice(0,10)); return null; }
+}
+async function yhSummary(tk,diag){
+  const k=await yhCrumb(diag);
+  if(!k)return null;
+  const mods="assetProfile,summaryDetail,defaultKeyStatistics,financialData,"
+    +"incomeStatementHistory,calendarEvents,price";
+  for(const host of ["query2","query1"]){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),7000);
+      const r=await fetch(`https://${host}.finance.yahoo.com/v10/finance/quoteSummary/`
+        +encodeURIComponent(tk)+`?modules=${mods}&crumb=`+encodeURIComponent(k.crumb),
+        {headers:{ "User-Agent":YH_UA2, Accept:"application/json", Cookie:k.cookie },signal:c.signal});
+      clearTimeout(t);
+      if(!r.ok){ diag&&diag.push("yh-sum:"+r.status);
+        if(r.status===401||r.status===403){ try{ if(KV)await KV.delete("yhcrumb:v1"); }catch(e){} }
+        continue; }
+      const j=await r.json();
+      const res=j&&j.quoteSummary&&j.quoteSummary.result&&j.quoteSummary.result[0];
+      if(!res){ diag&&diag.push("yh-sum:empty"); continue; }
+      diag&&diag.push("yh-sum:ok");
+      return res;
+    }catch(e){ diag&&diag.push("yh-sum:"+String(e).slice(0,10)); }
+  }
+  return null;
+}
 async function usinfo_default(req2){
   const u=new URL(req2.url);
   const reu=String(u.searchParams.get("code")||"").trim().slice(0,16);
@@ -12450,13 +12517,64 @@ async function usinfo_default(req2){
     }
   }catch(e){}
   /* ② 재무·컨센서스 — 있으면 그대로 담는다(구조가 제각각이라 원본을 넘긴다) */
+  /* ══ [v4.82] 야후 상세자료를 먼저 쓴다 ═══════════════════════════════════
+     네이버 해외 경로는 컨센서스·재무를 주지 않아 화면이 계속 '—' 였다.
+     야후 quoteSummary 에는 목표주가·투자의견·재무·기업개요가 모두 들어 있다. */
+  const yh=await yhSummary(usSymDot(reu),diag);
+  if(yh){
+    const n=(o)=>{ if(o==null)return null; if(typeof o==="number")return o;
+      if(typeof o==="object"&&o.raw!=null)return o.raw; return null; };
+    const t2=(o)=>{ if(o==null)return null; if(typeof o==="object"&&o.fmt!=null)return o.fmt;
+      return typeof o==="object"?null:o; };
+    const ap=yh.assetProfile||{}, sd=yh.summaryDetail||{}, ks=yh.defaultKeyStatistics||{},
+          fd=yh.financialData||{}, ce=yh.calendarEvents||{}, pr=yh.price||{};
+    put("nameEn",pr.longName||pr.shortName);
+    put("exch",  pr.exchangeName||pr.fullExchangeName);
+    put("sector",[ap.sector,ap.industry].filter(Boolean).join(" · "));
+    put("ceo",   (ap.companyOfficers&&ap.companyOfficers[0]&&ap.companyOfficers[0].name)||null);
+    put("addr",  [ap.address1,ap.city,ap.state,ap.country].filter(Boolean).join(", "));
+    put("home",  ap.website);
+    put("emp",   n(ap.fullTimeEmployees));
+    put("desc",  ap.longBusinessSummary);
+    dv("amount", n(sd.dividendRate));
+    dv("yield",  n(sd.dividendYield)!=null?+(n(sd.dividendYield)*100).toFixed(2):null);
+    dv("exDate", t2(sd.exDividendDate)||t2(ce.exDividendDate));
+    dv("payDate",t2(ce.dividendDate));
+    kv("per",  n(sd.trailingPE)!=null?n(sd.trailingPE).toFixed(2):null);
+    kv("pbr",  n(ks.priceToBook)!=null?n(ks.priceToBook).toFixed(2):null);
+    kv("eps",  n(ks.trailingEps));
+    kv("bps",  n(ks.bookValue));
+    kv("roe",  n(fd.returnOnEquity)!=null?+(n(fd.returnOnEquity)*100).toFixed(2):null);
+    kv("cap",  t2(sd.marketCap)||n(sd.marketCap));
+    /* 컨센서스 — 화면이 바로 쓸 수 있는 모양으로 정리해 넘긴다 */
+    const cs={};
+    const setc=(k2,v)=>{ if(v!=null)cs[k2]=v; };
+    setc("score", n(fd.recommendationMean));
+    setc("target",n(fd.targetMeanPrice));
+    setc("high",  n(fd.targetHighPrice));
+    setc("low",   n(fd.targetLowPrice));
+    setc("num",   n(fd.numberOfAnalystOpinions));
+    setc("key",   String(fd.recommendationKey||""));
+    setc("eps",   n(ks.forwardEps));
+    setc("per",   n(ks.forwardPE)!=null?n(ks.forwardPE).toFixed(2):null);
+    if(Object.keys(cs).length)out.consensus={yh:cs};
+    /* 재무 — 연간 손익계산서 */
+    try{
+      const hs=(yh.incomeStatementHistory&&yh.incomeStatementHistory.incomeStatementHistory)||[];
+      const rows=hs.slice(0,4).map(x=>({
+        yearMonth:String(t2(x.endDate)||"").slice(0,7),
+        revenue:t2(x.totalRevenue), operatingIncome:t2(x.operatingIncome),
+        netIncome:t2(x.netIncome), grossProfit:t2(x.grossProfit)}));
+      if(rows.length)out.finance={annual:rows};
+    }catch(e){}
+  }
   /* 경로 이름이 버전마다 달라 여러 개를 차례로 두드린다 — 하나라도 되면 그걸 쓴다 */
   let fin=null;
-  for(const p2 of ["/finance","/finance/annual","/financeSummary","/financialStatement"]){
+  if(!out.finance)for(const p2 of ["/finance","/financeSummary"]){
     fin=await grab("fin"+p2.replace(/\//g,"_"),p2); if(fin)break;
   }
   let cons=null;
-  for(const p2 of ["/consensus","/analystOpinion","/estimate","/investmentOpinion"]){
+  if(!out.consensus)for(const p2 of ["/consensus","/analystOpinion"]){
     cons=await grab("cons"+p2.replace(/\//g,"_"),p2); if(cons)break;
   }
   if(Object.keys(prof).length)out.profile=prof;
@@ -12469,6 +12587,44 @@ async function usinfo_default(req2){
   return new Response(JSON.stringify({ok:true,...out}),
     {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
 }
+/* ══ [v4.82] 해외 종목 뉴스 ═══════════════════════════════════════════════
+   지금까지는 '야후에서 보기' 같은 바깥 링크만 늘어놓았다. 증권 앱은 제목·날짜·
+   매체가 담긴 실제 목록을 보여 준다. 야후 검색이 뉴스를 함께 주므로 그것을 쓴다. */
+async function usnews_default(req2){
+  const u=new URL(req2.url);
+  const tk=String(u.searchParams.get("t")||"").toUpperCase().replace(/[^A-Z0-9.\-]/g,"").slice(0,10);
+  if(!tk)return new Response(JSON.stringify({ok:false,err:"t"}),{headers:{"content-type":"application/json"}});
+  const CK="usnews:"+tk;
+  try{ const c=KV?await KV.get(CK,"json"):null;
+    if(c&&c.at&&Date.now()-c.at<10*60e3)
+      return new Response(JSON.stringify({ok:true,items:c.items,cached:1}),
+        {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+  }catch(e){}
+  const diag=[]; let items=[];
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(tk)
+      +"&quotesCount=0&newsCount=20&enableFuzzyQuery=false",
+      {headers:{ "User-Agent":UA20, Accept:"application/json" },signal:c.signal});
+    clearTimeout(t);
+    if(r.ok){
+      const j=await r.json();
+      items=((j&&j.news)||[]).map(x=>({
+        title:String(x.title||"").slice(0,180),
+        link:String(x.link||""),
+        pub:String(x.publisher||""),
+        at:(+x.providerPublishTime||0)*1000,
+        img:(x.thumbnail&&x.thumbnail.resolutions&&x.thumbnail.resolutions[0]
+             &&x.thumbnail.resolutions[0].url)||""
+      })).filter(x=>x.title&&x.link);
+      diag.push("yh-news:"+items.length);
+    } else diag.push("yh-news:"+r.status);
+  }catch(e){ diag.push("yh-news:"+String(e).slice(0,10)); }
+  try{ if(KV&&items.length)await KV.put(CK,JSON.stringify({at:Date.now(),items}),{expirationTtl:900}); }catch(e){}
+  return new Response(JSON.stringify({ok:items.length>0,items,diag}),
+    {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+}
+ROUTES["usnews"]=usnews_default;
 ROUTES["usinfo"]=usinfo_default;
 ROUTES["usall"]=usall_default;
 ROUTES["usview"]=usview_default;
