@@ -4334,6 +4334,7 @@ function _showView(name){
   if(name==='ustrade')safeRun('usTrade',renderUsTrade);
   if(name==='pro')safeRun('pro',()=>setProTab(proTab));
   if(name==='search'){
+    try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
     safeRun('searchEtf',()=>{if(!etfList)loadEtfList();});
     safeRun('searchAll',()=>{if(!stockAll&&!stockLoading)loadStockAll(()=>{if(currentView==='search')renderSearch();}).then(()=>{if(currentView==='search')renderSearch();}).catch(()=>{});});
     safeRun('search',renderSearch);safeRun('hist',renderHist);safeRun('viewHist',renderViewHist);safeRun('short',renderSearchShortcuts);
@@ -7193,69 +7194,8 @@ function eqSpanLabel(){
   const t0=a.t||0,t1=b.t||0,mn=Math.round((t1-t0)/6e4);
   return mn>=60?('오늘 '+Math.round(mn/60)+'시간'):mn>=1?('오늘 '+mn+'분'):'오늘';
 }
-function drawHeroEq(){
-  const cv=$('heroEq');if(!cv)return;
-  /* [v2.5.7] 기록이 없어도 항상 그린다 — 변동이 없으면 현재 평가액에서 수평선으로 표시 */
-  let pts=equityHist.slice(-60).map(x=>x.v);
-  const curTot=totalAssetsNow();
-  const note=$('haMini');
-  /* ══ [v4.61] 기록이 하루뿐일 때 ═══════════════════════════════════════════
-     예전에는 같은 값 두 개를 만들어 억지로 직선을 그었다. 화면에는 아무 의미 없는
-     가로줄만 남아 '차트가 고장 난 것처럼' 보였다(가장 자주 나오는 첫날 상태인데도).
-     → 점이 두 개 미만이면 선 대신 '기록이 쌓이는 중'이라고 말해 준다.
-        거짓 그래프를 그리는 것보다 아무것도 없다고 말하는 편이 정직하다. */
-  /* ══ [v4.68] 거래 기록이 있으면 바로 그린다 ═══════════════════════════════
-     '내일부터' 라고 미루지 않는다. 거래가 한 건이라도 있으면 그 순간부터 자산이
-     움직이므로, 매매 기록 시점의 평가액을 점으로 삼아 지금까지의 흐름을 그린다.
-     거래가 아예 없으면 그래프 대신 '—' 로 비워 둔다(없는 흐름을 지어내지 않는다). */
-  const tl=(typeof tradeLog!=='undefined'&&Array.isArray(tradeLog))?tradeLog:[];
-  if(pts.length<2&&tl.length===0){
-    cv.style.display='none';
-    if(note)note.innerHTML=`<span class="ha-seed">📈 자산 추이 <b>—</b>
-      · 첫 거래를 하면 그때부터 흐름이 그려집니다</span>`;
-    return;
-  }
-  cv.style.display='block';
-  const dpr=window.devicePixelRatio||1,W=cv.clientWidth||420,H=52;
-  cv.width=W*dpr;cv.height=H*dpr;
-  const x=cv.getContext('2d');x.scale(dpr,dpr);
-  let lo=Math.min(...pts),hi=Math.max(...pts);
-  {const _p=Math.max(1000,(hi||1)*0.0015); if(hi-lo<_p){const _c=(hi+lo)/2; lo=_c-_p/2; hi=_c+_p/2;}}   // [v3.7] 미세 잡음 확대 완화
-  const pad=(hi-lo)*0.24||1;lo-=pad;hi+=pad;   // [v3.7] 선이 카드 윗변에 붙던 문제 — 여백 확대
-  const X=i=>4+i/(pts.length-1)*(W-8),Y=v=>4+(1-(v-lo)/(hi-lo))*(H-8);
-  const up=pts[pts.length-1]>=pts[0];
-  const col=up?'#ffcf57':'#7fb2ff';
-  x.beginPath();x.moveTo(X(0),H);pts.forEach((v,i)=>x.lineTo(X(i),Y(v)));x.lineTo(X(pts.length-1),H);x.closePath();
-  const g=x.createLinearGradient(0,0,0,H);g.addColorStop(0,up?'rgba(255,207,87,.35)':'rgba(127,178,255,.3)');g.addColorStop(1,'rgba(255,255,255,0)');
-  x.fillStyle=g;x.fill();
-  x.strokeStyle=col;x.lineWidth=2;x.beginPath();pts.forEach((v,i)=>{i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v));});x.stroke();
-  /* ══ [v4.68] 국내·해외를 갈라 함께 보여 준다 ═══════════════════════════════
-     합계 한 줄만으로는 '어느 쪽이 움직였는지'를 알 수 없다. 굵은 선은 합계,
-     가는 두 선은 국내와 해외다. 해외 자산이 없던 시절 기록에는 구분값이 없으므로,
-     그 구간이 있으면 아예 그리지 않는다(0 으로 채워 넣으면 거짓이 된다). */
-  const rows=equityHist.slice(-60);
-  const hasSplit=rows.length===pts.length&&rows.every(r=>r&&typeof r.u==='number');
-  if(hasSplit&&rows.some(r=>r.u>0)){
-    const usArr=rows.map(r=>r.u), krArr=rows.map((r,i)=>pts[i]-r.u);
-    const line=(arr,color,dash)=>{ x.save(); x.setLineDash(dash||[]); x.strokeStyle=color; x.lineWidth=1.4;
-      x.globalAlpha=.95; x.beginPath(); arr.forEach((v,i)=>{i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v));});
-      x.stroke(); x.restore(); };
-    line(krArr,'#8fd3ff');            // 국내
-    line(usArr,'#ff9db0',[4,3]);      // 해외
-  }
-  const d=pts[pts.length-1]-pts[0],r=pts[0]?d/pts[0]*100:0;
-  if(note){
-    /* [v3.0.1] '변동 없음' 판정을 양 끝값 비교에서 전체 최고·최저 비교로 바꾼다.
-       기록에 오르내림이 분명히 있는데도 우연히 시작값과 현재값이 같으면
-       "아직 변동이 없어 기준선으로 표시"가 떴다(첨부 사진). 그래프는 이미 꺾여 있는데. */
-    const flat=(Math.max(...pts)-Math.min(...pts))<1;
-    const lg=`<i class="eq-lg"><em class="kr"></em>국내<em class="us"></em>해외</i>`;
-    note.innerHTML=flat
-      ?`평가액 <b class="num">${KRW(Math.round(curTot))}원</b> · 아직 변동이 없어 기준선으로 표시돼요 ${lg}`
-      :`${eqSpanLabel()} <b class="num">${(d>=0?'+':'')+KRW(Math.round(d))}원 (${(r>=0?'+':'')+r.toFixed(2)}%)</b> ${lg}`;
-  }
-}
-/* [v2.3.2] 점프바 우측 — 실시간 인기 종목 티커(조회수 랭킹 상위 5) */
+/* [v4.79] 자산 추이 그래프는 화면에서 걷어냈다 — 호출부가 남아 있어도 조용히 넘어간다. */
+function drawHeroEq(){ return; }
 let _hhTry=0;
 var homeHotMkt='kr';
 async function renderHomeHot(){
@@ -8152,7 +8092,9 @@ function usRankSection(){
        남았고, 원천을 바꿔도 반영되지 않았다. 화면에 '원천에 연결하지 못했습니다'가
        뜬 것도 저장분에는 원천 정보가 없었기 때문이다.
        → 저장분이거나 3분이 지났으면 무조건 새로 받는다. */
-    if((_usPopStale||!usPopAt||Date.now()-usPopAt>180e3)&&!usPopBusy&&!_usPopQueued){
+    /* [v4.79] 장이 닫혀 있으면 자주 새로 받지 않는다 — 순위가 흔들리는 것을 막는다 */
+    if((_usPopStale||!usPopAt||Date.now()-usPopAt>(usSession().phase==='closed'?30*60e3:180e3))
+       &&!usPopBusy&&!_usPopQueued){
       _usPopQueued=true;
       setTimeout(()=>{ _usPopQueued=false;
         usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
@@ -8273,7 +8215,9 @@ function renderSearch(){
   usLocalMatch(q).forEach(t=>{ if(!usSeen.has(t)){usSeen.add(t);usHit.push([t]);} });
   usAllMatch(q).forEach(x=>{
     if(usHit.length>=8||usSeen.has(x.t))return;
-    usRegister({t:x.t,sfx:(usMeta[x.t]&&usMeta[x.t].sfx)||null,kr:'',en:x.en,etf:x.etf});
+    /* [v4.78] 목록이 알려 준 거래소를 쓴다 — 전부 나스닥으로 등록하면
+       뉴욕 상장 종목은 네이버 시세 경로를 못 쓴다. */
+    usRegister({t:x.t,sfx:(usMeta[x.t]&&usMeta[x.t].sfx)||x.sfx||null,kr:'',en:x.en,etf:x.etf});
     usSeen.add(x.t); usHit.push([x.t]);
   });
   usAllLoad(()=>{ if(currentView==='search'&&($('searchInput').value||'').trim()===q)renderSearch(); });
@@ -10479,27 +10423,8 @@ function renderPortfolioNumbers(){
   {const uw=$('homeUsdWrap');
    if(uw){ uw.hidden=!(usdCash>0);
      if(usdCash>0)set('homeUsd','$'+USD2(usdCash)+' · '+KRW(usdKrw)+'원'); }}
-  try{
-    const sp=$('assetSplit');
-    if(sp){
-      let krE=0,usE=0;
-      (holdings||[]).forEach(hh=>{ if(!hh)return; (hh.us?(usE+=hEvalKRW(hh)):(krE+=hEvalKRW(hh))); });
-      const usTot=usE+usdKrw, krTot=krE+cash, all=usTot+krTot;
-      if(all>0&&(usTot>0||holdings.some(x=>x&&x.us))){
-        sp.hidden=false;
-        const kp=krTot/all*100, up=100-kp;
-        /* [v4.61] 해외가 0.2% 라도 막대에 보이게 최소 폭을 준다 —
-           '해외 19,983원 0%' 처럼 있는데 없는 것처럼 보이던 문제. */
-        const kw=Math.max(up>0?2:0,Math.min(100,kp)), uw=100-kw;
-        const fmt=(v)=>v>0&&v<1?v.toFixed(2):v.toFixed(0);
-        sp.innerHTML=`<div class="as-bar"><i class="kr" style="width:${kw}%"></i><i class="us" style="width:${uw}%"></i></div>
-          <div class="as-lb">
-            <span><b>🇰🇷 국내</b> ${KRW(krTot)}원 <i>${fmt(kp)}%</i></span>
-            <span><b>🇺🇸 해외</b> ${KRW(usTot)}원 <i>${fmt(up)}%</i></span>
-          </div>`;
-      } else sp.hidden=true;
-    }
-  }catch(e){}
+  /* [v4.79] 자산 비중 막대 제거 — 국내·해외 상자에 이미 금액이 나온다 */
+
   set('acctAssets',KRW(assets)+'원');set('acctPnl',signed(pnl),dir);set('acctRate',pctS(rate),dir);set('acctCash',KRW(cash)+'원'+(usdCash>0?' + $'+USD2(usdCash):''));
 }
 /* 예수금 설정 */
@@ -12271,10 +12196,10 @@ Object.keys(usDyn).forEach(t=>{ const d=usDyn[t];
     reu:t.replace('.','/')+'.'+(d.sfx||'O'),dyn:1}; });
 
 /* 통칭·줄임말 — 정식 명칭과 다르게 부르는 경우를 잡아 준다 */
-var US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT','마이크로':'MSFT',
+var US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT',
  '페이스북':'META','페북':'META','인스타':'META','엔비':'NVDA','엔디비아':'NVDA','앤비디아':'NVDA',
  '테슬라주':'TSLA','테슬':'TSLA','애플주':'AAPL','아마존닷컴':'AMZN','넷플':'NFLX','넷플릭스':'NFLX',
- '버크셔':'BRK.B','버핏':'BRK.B','코스트코':'COST','스벅':'SBUX','스타벅':'SBUX',
+ '버크셔':'BRK-B','버핏':'BRK.B','코스트코':'COST','스벅':'SBUX','스타벅':'SBUX',
  '팔란':'PLTR','팔란티르':'PLTR','타이완반도체':'TSM','대만반도체':'TSM','티에스엠씨':'TSM',
  '브로드':'AVGO','퀄컴':'QCOM','인텔':'INTC','마이크론':'MU','암':'ARM',
  '비트코인ETF':'IBIT','비트코인':'IBIT','금':'GLD','금ETF':'GLD','채권':'TLT','미국채':'TLT',
@@ -12306,6 +12231,28 @@ var US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT','
   '엔엑스피':'NXPI','램리서치':'LRCX','케이엘에이':'KLAC','어플라이드머티리얼즈':'AMAT',
   '아나로그디바이스':'ADI','룰루레몬':'LULU','치폴레':'CMG','츄이':'CHWY','데커스':'DECK',
   '옥시덴탈':'OXY','바이오젠':'BIIB','조에티스':'ZTS','엘리번스':'ELV',
+  /* [v4.79] 자음 뼈대로도 안 잡히는 이름은 표로 확실히 잡는다
+     (넷플릭스=Netflix 처럼 표기가 많이 달라진 경우) */
+  '넷플릭스':'NFLX','넷플릭스주':'NFLX','우버':'UBER','리프트':'LYFT','에어비앤비':'ABNB',
+  '도어대시':'DASH','쇼피파이':'SHOP','스퀘어':'SQ','블록':'SQ','페이팔':'PYPL',
+  '디즈니':'DIS','컴캐스트':'CMCSA','스포티파이':'SPOT','로블록스':'RBLX',
+  '나이키':'NKE','스타벅스':'SBUX','맥도날드':'MCD','코카콜라':'KO','펩시':'PEP',
+  '월마트':'WMT','코스트코':'COST','타깃':'TGT','홈디포':'HD','로우스':'LOW',
+  '존슨앤드존슨':'JNJ','화이자':'PFE','머크':'MRK','애브비':'ABBV','일라이릴리':'LLY',
+  '모더나':'MRNA','노보노디스크':'NVO','유나이티드헬스':'UNH',
+  '엑슨모빌':'XOM','셰브론':'CVX','보잉':'BA','록히드마틴':'LMT','캐터필러':'CAT',
+  '디어':'DE','허니웰':'HON','쓰리엠':'MMM','페덱스':'FDX','포드':'F','제너럴모터스':'GM',
+  '버라이즌':'VZ','티모바일':'TMUS','시스코':'CSCO','퀄컴':'QCOM','텍사스인스트루먼트':'TXN',
+  '인튜이트':'INTU','세일즈포스':'CRM','어도비':'ADBE','서비스나우':'NOW','오라클':'ORCL',
+  '스노우플레이크':'SNOW','팔로알토네트웍스':'PANW','크라우드스트라이크':'CRWD',
+  '데이터독':'DDOG','클라우드플레어':'NET','몽고디비':'MDB','아틀라시안':'TEAM',
+  '알리바바':'BABA','징둥':'JD','바이두':'BIDU','니오':'NIO','리오토':'LI','샤오펑':'XPEV',
+  '소니':'SONY','도요타':'TM','아스말':'ASML','티에스엠시':'TSM','타이완반도체':'TSM',
+  '버크셔':'BRK-B','비자':'V','마스터카드':'MA','제이피모건':'JPM','골드만삭스':'GS',
+  '치폴레':'CMG','룰루레몬':'LULU','데커스':'DECK','츄이':'CHWY','시놉시스':'SNPS',
+  '케이던스':'CDNS','마벨':'MRVL','온세미':'ON','램리서치':'LRCX','케이엘에이':'KLAC',
+  '어플라이드머티리얼즈':'AMAT','아나로그디바이스':'ADI','버텍스':'VRTX','리제네론':'REGN',
+  '바이오젠':'BIIB','조에티스':'ZTS','이튼':'ETN','아리스타':'ANET','버티브':'VRT',
   '소xl':'SOXL','소알':'SOXL','슈왑배당':'SCHD','인베스코나스닥':'QQQ','에스앤피500etf':'SPY'};
 
 /* 원격 검색 — 내장 목록에 없는 종목까지 찾는다 */
@@ -12337,7 +12284,7 @@ var usAll=null, usAllAt=0, _usAllBusy=false;
 function usAllLoad(cb){
   if(usAll)return;                       // 이미 있음 → 되돌아가지 않는다
   if(_usAllBusy)return;
-  try{ const raw=localStorage.getItem('usAll1');
+  try{ const raw=localStorage.getItem('usAll2');
     if(raw){ const c=JSON.parse(raw);
       if(c&&Array.isArray(c.rows)&&c.rows.length>500&&Date.now()-(c.at||0)<3*864e5){
         usAll=c.rows; usAllAt=c.at;
@@ -12348,22 +12295,88 @@ function usAllLoad(cb){
     _usAllBusy=false;
     if(!j||!j.ok||!Array.isArray(j.rows))return;
     usAll=j.rows; usAllAt=Date.now();
-    try{localStorage.setItem('usAll1',JSON.stringify({at:usAllAt,rows:usAll}));}catch(e){}
+    try{localStorage.setItem('usAll2',JSON.stringify({at:usAllAt,rows:usAll}));}catch(e){}
     if(cb)setTimeout(cb,0);
   }).catch(()=>{_usAllBusy=false;});
 }
 /* 전 종목 목록에서 찾기 — 티커·영문명·한글 별칭 모두 본다 */
+/* ══ [v4.79] 한글로 검색해도 해외 종목이 나오게 ═══════════════════════════════
+   [문제] 전 종목 목록(1만 1천종)은 영문 이름뿐이라, 별칭 표에 없는 종목을 한글로
+   검색하면 아무것도 안 나왔다. 별칭을 아무리 늘려도 한계가 있다.
+   [해법] 한글 이름과 영문 이름을 '자음 뼈대'로 바꿔 맞춰 본다.
+     마이크론 → mkrn,  Micron → mkrn        (모음을 빼고 비슷한 자음끼리 묶는다)
+     스타벅스 → stpks, Starbucks → strpks   (뼈대가 들어 있으면 일치로 본다)
+   한국어 표기는 영어 발음을 옮긴 것이라 자음 뼈대가 잘 맞는다.
+   ㅋ/ㄱ, ㅍ/ㅂ/v/f, ㄹ/l/r 처럼 헷갈리는 소리는 한 갈래로 뭉갠다. */
+var _CHO="ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ".split('');
+var _JONG=["","ㄱ","ㄲ","ㄳ","ㄴ","ㄵ","ㄶ","ㄷ","ㄹ","ㄺ","ㄻ","ㄼ","ㄽ","ㄾ","ㄿ","ㅀ","ㅁ","ㅂ","ㅄ","ㅅ","ㅆ","ㅇ","ㅈ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+var _J2C={'ㄱ':'k','ㄲ':'k','ㅋ':'k','ㄷ':'t','ㄸ':'t','ㅌ':'t','ㅂ':'p','ㅃ':'p','ㅍ':'p',
+  'ㅅ':'s','ㅆ':'s','ㅈ':'s','ㅉ':'s','ㅊ':'s','ㄹ':'r','ㅁ':'m','ㄴ':'n','ㅎ':'','ㅇ':''};
+var _sq=(x)=>x.replace(/(.)\1+/g,'$1');
+function krSkeleton(q){
+  let out='';
+  for(const ch of String(q||'')){
+    const c=ch.charCodeAt(0);
+    if(c>=0xAC00&&c<=0xD7A3){
+      const i=c-0xAC00;
+      out+=_J2C[_CHO[Math.floor(i/588)]]||'';
+      const jg=_JONG[i%28];
+      if(jg){ const f=jg[0]; out+=(f==='ㅇ')?'n':(_J2C[f]||''); }
+    } else if(/[a-zA-Z]/.test(ch)) out+=ch.toLowerCase();
+    else if(/[0-9]/.test(ch)) out+=ch;
+  }
+  return _sq(out.replace(/b/g,'p').replace(/d/g,'t').replace(/l/g,'r').replace(/g/g,'k'));
+}
+function enSkeleton(v){
+  return _sq(String(v||'').toLowerCase().replace(/[^a-z0-9]/g,'')
+    .replace(/ch/g,'s').replace(/sh/g,'s').replace(/ph/g,'p').replace(/th/g,'t')
+    .replace(/c/g,'k').replace(/q/g,'k').replace(/g/g,'k').replace(/x/g,'s')
+    .replace(/[aeiouwyh]/g,'')
+    .replace(/v/g,'p').replace(/f/g,'p').replace(/b/g,'p')
+    .replace(/d/g,'t').replace(/z/g,'s').replace(/j/g,'s').replace(/l/g,'r'));
+}
+function skelHit(a,b){ if(!a||a.length<2||!b)return false;
+  let i=0; for(const ch of b){ if(ch===a[i])i++; if(i>=a.length)return true; } return false; }
+/* ══ [v4.78] 40건에서 끊어 정확 일치를 놓치던 문제 ═══════════════════════════
+   목록은 대체로 알파벳순이라 'A' 를 검색하면 A000·A001… 이 먼저 40개 차고
+   정작 티커가 정확히 'A' 인 종목(애질런트)에 닿기도 전에 멈췄다.
+   → 끝까지 훑되 세 갈래(정확 일치 · 티커 시작 · 이름 포함)로 나눠 담고,
+     정확 일치를 맨 앞에 둔다. 훑는 비용은 1만 건이라도 순식간이다. */
 function usAllMatch(q){
   if(!usAll)return [];
   const qU=String(q||'').trim().toUpperCase(); if(!qU)return [];
-  const out=[];
+  const exact=[], pre=[], name=[], skel=[];
+  /* 한글 질의는 자음 뼈대로 바꿔 영문 이름과 맞춰 본다 */
+  const isKr=/[가-힣]/.test(qU);
+  const qs=isKr?krSkeleton(qU):'';
   for(const r of usAll){
     const t=r[0], en=r[1]||'';
-    if(t===qU){ out.unshift({t,en,etf:r[2]}); continue; }
-    if(t.indexOf(qU)===0||en.toUpperCase().indexOf(qU)>=0)out.push({t,en,etf:r[2]});
-    if(out.length>=40)break;
+    if(t===qU){ exact.push({t,en,etf:r[2],sfx:r[3]||''}); continue; }
+    if(!isKr&&pre.length<30&&t.indexOf(qU)===0){ pre.push({t,en,etf:r[2],sfx:r[3]||''}); continue; }
+    if(!isKr&&name.length<30&&qU.length>=2&&en.toUpperCase().indexOf(qU)>=0){
+      name.push({t,en,etf:r[2],sfx:r[3]||''}); continue; }
+    if(isKr&&skel.length<60&&qs.length>=2){
+      const es=enSkeleton(en);
+      if(!skelHit(qs,es))continue;
+      /* 얼마나 잘 맞는지 점수를 매긴다 — 뼈대가 통째로 같으면 최고,
+         이름 첫 낱말과 맞으면 그다음, 어딘가에 섞여 있기만 하면 마지막 */
+      const first=enSkeleton(String(en).split(/[\s,]/)[0]||'');
+      /* 뼈대가 통째로 같으면 최고. 그다음은 첫 낱말 일치.
+         '들어 있기만 한' 경우는 길이 차가 클수록 엉뚱할 확률이 높다
+         (버텍스 4글자가 Uber Technologies 안에 우연히 들어가는 식). */
+      const gap=Math.abs(first.length-qs.length);
+      /* 뼈대가 통째로 같으면 최고 → 첫 낱말 일치 → 앞에서부터 맞음 → 그냥 섞여 있음.
+         마지막 갈래는 우연히 맞는 일이 많아 뒤로 밀되, 버리지는 않는다
+         (버리면 아예 못 찾는 종목이 생긴다 — 순서만 뒤로 두면 충분하다). */
+      const rank = es===qs?0 : first===qs?1
+        : (first.indexOf(qs)===0)?(2+Math.min(gap,3))
+        : (es.indexOf(qs)===0)?6 : 7;
+      skel.push({t,en,etf:r[2],sfx:r[3]||'',_r:rank,_l:gap});
+    }
   }
-  return out;
+  /* 잘 맞는 순 → 이름이 짧은 순 (Micron 이 Micron Solutions Holding 보다 앞) */
+  skel.sort((a,b)=>(a._r-b._r)||(a._l-b._l));
+  return exact.concat(pre,name,skel).slice(0,40);
 }
 /* ══ [v4.76] 티커 → 한글 이름 표 ═══════════════════════════════════════════
    [무엇이 문제였나] 한글 이름이 없으면 티커를 그대로 이름 자리에 넣어
@@ -12426,9 +12439,20 @@ var US_KRNAME=(function(){
     if(US_KRMAP[t])return;                       // 표에 있는 정식 이름이 우선
     if(!m[t]||Math.abs(k.length-4)<Math.abs(m[t].length-4))m[t]=k;
   });
-  /* 내장 목록의 한글명이 있으면 그쪽이 정확하다 */
+  /* ══ [v4.79] 여기서 '2X' 가 다시 '2배' 로 되돌아가고 있었다 ═══════════════
+     내장 목록(US_UNI)에 '반도체 3배' 같은 이름이 들어 있고, 그것이 표(US_KRMAP)의
+     '반도체 3X' 를 덮어썼다. 표기를 바꿔도 화면이 그대로였던 이유다.
+     → 표에 정식 이름이 있으면 내장 값이 이기지 못하게 한다. */
   try{ Object.keys(usMeta).forEach(t=>{ const kr=usMeta[t]&&usMeta[t].kr;
+    if(US_KRMAP[t])return;                              // 표가 우선
     if(kr&&/[가-힣]/.test(kr))m[t]=kr; }); }catch(e){}
+  /* 어디서 왔든 배수 표기는 국내식(2X·3X)으로 통일한다 — 표에 없는 종목까지 포함 */
+  /* 종목명 안의 배수만 바꾼다 — '평균의 3배 이상' 같은 설명 문장은 건드리지 않도록
+     뒤에 조사·단어가 이어지지 않는 '끝자리 배수'만 대상으로 삼는다. */
+  const toX=(v)=>String(v||'').replace(/(^|[\s(])(-?\d)\s*배(?=\s*[)\]]?\s*$)/g,'$1$2X');
+  Object.keys(m).forEach(t=>{ m[t]=toX(m[t]); });
+  try{ Object.keys(usMeta).forEach(t=>{ const o=usMeta[t]; if(!o)return;
+    if(o.kr)o.kr=toX(o.kr); if(o.en)o.en=toX(o.en); }); }catch(e){}
   return m;
 })();
 /* [v4.76] 예전에 티커나 영문으로 저장된 이름을 표에 맞춰 되살린다.
@@ -12437,8 +12461,13 @@ try{
   let ch=0;
   Object.keys(usMeta).forEach(t=>{ const nm=US_KRNAME[t];
     if(nm&&usMeta[t].kr!==nm){ usMeta[t].kr=nm; if(usDyn[t]){usDyn[t].kr=nm;ch++;} } });
-  /* 이름 자리에 티커가 들어간 것도 바로잡는다 */
+  /* ══ [v4.77] 여기서 UPS·RTX 가 영문으로 되돌아가고 있었다 ═══════════════════
+     '이름 자리에 티커가 들어갔으면 영문으로 바꾼다'는 규칙을 넣었는데,
+     UPS·IBM·RTX·GE 처럼 '한글 이름이 곧 알파벳'인 회사는 kr===티커가 정상이다.
+     그런데도 규칙에 걸려 'United Parcel Service, Inc.' 로 덮어써 버렸다.
+     → 표에 정식 이름이 있는 종목은 건드리지 않는다. */
   Object.keys(usMeta).forEach(t=>{ const m2=usMeta[t];
+    if(US_KRNAME[t])return;                       // 표에 이름이 있으면 그게 정답이다
     if(m2&&m2.kr===t&&m2.en&&m2.en!==t){ m2.kr=m2.en; if(usDyn[t]){usDyn[t].kr=m2.en;ch++;} } });
   if(ch)localStorage.setItem('usDyn1',JSON.stringify(usDyn));
 }catch(e){}
@@ -12737,7 +12766,24 @@ GLD:'ssga.com',
   TEAM:'atlassian.com', WDAY:'workday.com', SNPS:'synopsys.com', CDNS:'cadence.com', ON:'onsemi.com', MCHP:'microchip.com', NXPI:'nxp.com', ADI:'analog.com',
   LULU:'lululemon.com', CMG:'chipotle.com', CHWY:'chewy.com', DECK:'deckers.com',
   OXY:'oxy.com', REGN:'regeneron.com', VRTX:'vrtx.com', BIIB:'biogen.com',
-  HXSCL:'skhynix.com'};
+  HXSCL:'skhynix.com',
+  /* [v4.77] 화면에서 로고가 비던 종목 보강 */
+  BLK:'blackrock.com', MS:'morganstanley.com', SCHW:'schwab.com', AXP:'americanexpress.com',
+  WFC:'wellsfargo.com', C:'citigroup.com', COP:'conocophillips.com', SLB:'slb.com',
+  DE:'deere.com', HON:'honeywell.com', BMY:'bms.com', UPS:'ups.com',
+  'BRK-B':'berkshirehathaway.com', 'BRK.B':'berkshirehathaway.com',
+  MMM:'3m.com', FDX:'fedex.com', NOC:'northropgrumman.com', GD:'gd.com',
+  TMUS:'t-mobile.com', ELV:'elevancehealth.com', ZTS:'zoetis.com', BIIB:'biogen.com',
+  SO:'southerncompany.com', DUK:'duke-energy.com', TGT:'target.com', COST:'costco.com',
+  PM:'pmi.com', MO:'altria.com', KMB:'kimberly-clark.com', HSY:'thehersheycompany.com',
+  SYK:'stryker.com', BSX:'bostonscientific.com', MDT:'medtronic.com', ABT:'abbott.com',
+  TMO:'thermofisher.com', DHR:'danaher.com', ICE:'ice.com', CME:'cmegroup.com',
+  NDAQ:'nasdaq.com', SPGI:'spglobal.com', MCO:'moodys.com', UNP:'up.com',
+  CSX:'csx.com', NSC:'norfolksouthern.com', FCX:'fcx.com', NEM:'newmont.com',
+  NUE:'nucor.com', DOW:'dow.com', LDOS:'leidos.com', HII:'hii.com', TDG:'transdigm.com',
+  AVAV:'avinc.com', RDDT:'redditinc.com', NTDOY:'nintendo.com', WRD:'weride.ai',
+  OCUL:'ocutx.com', CRMD:'cormedix.com', INOD:'innodata.com', REPL:'replimune.com',
+  AAOI:'ao-inc.com', DRTS:'alphatau.com', SNDQ:'tradretfs.com'};
 /* 상태: 1=성공(소스 인덱스), 0=실패 — 세션 간 유지 */
 var usLgOk={}, usLgNo={}, _usLgBusy=new Set(), _usLgQ=[], _usLgLive=0;
 /* [v4.30] 실패 기록은 짧게 — 통신 상태나 CDN 사정으로 한 번 실패했다고
@@ -12900,6 +12946,75 @@ function usTick(t,size){
         onerror="this.closest('.us-tick').classList.remove('on')">`:'')
     +`</span>`;
 }
+/* ══ [v4.77] 해외 종목 로고 정밀 검사 ═══════════════════════════════════════
+   국내에만 있던 검사를 해외에도 붙인다. 저장된 판정을 믿지 않고 후보를 실제로
+   내려받아 어디서 나오는지, 빈 그림인지, 아예 없는지를 가려낸다.
+   결과는 곧바로 캐시에 반영돼 검사 직후부터 화면에 그대로 뜬다. */
+var _ulaRun=false;
+function ulaTargets(){
+  /* 화면에 실제로 등장하는 해외 종목 전부 — 내장 + 검색 등록 + 인기 목록 */
+  const set=new Set(Object.keys(usMeta));
+  try{ (usPop||[]).forEach(x=>set.add(x.t)); }catch(e){}
+  return [...set].filter(t=>usMeta[t]).sort();
+}
+function ulaSet(id,html){ const e=$(id); if(e)e.innerHTML=html; }
+async function ulaStart(reset){
+  if(_ulaRun)return;
+  _ulaRun=true;
+  const list=ulaTargets();
+  if(reset){ list.forEach(t=>{ delete usLgOk[t]; delete usLgNo[t]; }); usLgSave(); }
+  $('ulaBarWrap').hidden=false; $('ulaStat').hidden=false;
+  $('ulaStart').hidden=true; $('ulaStop').hidden=false;
+  const res={ok:0,none:0,by:{}}, fails=[];
+  const SRC=['서버 중계','FMP','Parqet','TradingView','StockAnalysis'];
+  const urlsOf=(t)=>usLgUrls(t);
+  const tryOne=(t)=>new Promise(done=>{
+    const urls=urlsOf(t); let i=0;
+    const next=()=>{
+      if(i>=urls.length){ usLgNo[t]=Date.now(); delete usLgOk[t]; done(null); return; }
+      const idx=i++, u=urls[idx];
+      const im=new Image(); im.referrerPolicy='no-referrer';
+      let settled=false;
+      const to=setTimeout(()=>{ if(!settled){settled=true;im.src='';next();} },3500);
+      im.onload=()=>{ if(settled)return; settled=true; clearTimeout(to);
+        if((im.naturalWidth||0)<16||(im.naturalHeight||0)<16){ next(); return; }
+        if(usLgInkKnown(im)===false){ next(); return; }
+        usLgOk[t]=idx; delete usLgNo[t]; done(idx); };
+      im.onerror=()=>{ if(settled)return; settled=true; clearTimeout(to); next(); };
+      im.src=u;
+    };
+    next();
+  });
+  for(let n=0;n<list.length;n++){
+    if(!_ulaRun)break;
+    const t=list[n];
+    const idx=await tryOne(t);
+    if(idx==null){ res.none++; fails.push(t); }
+    else { res.ok++; const k=SRC[idx]||('소스'+(idx+1)); res.by[k]=(res.by[k]||0)+1; }
+    const pct=Math.round((n+1)/list.length*100);
+    const bar=$('ulaBar'); if(bar)bar.style.width=pct+'%';
+    ulaSet('ulaStat',`진행 <b>${n+1}/${list.length}</b> (${pct}%) · 로고 있음 <b>${res.ok}</b> · 없음 <b>${res.none}</b>`);
+    if((n%12)===11){ usLgSave(); try{usLgPaint(t);}catch(e){} }
+  }
+  usLgSave();
+  try{ list.forEach(t=>usLgPaint(t)); }catch(e){}
+  const bySrc=Object.keys(res.by).map(k=>`${k} <b>${res.by[k]}</b>`).join(' · ')||'없음';
+  ulaSet('ulaStat',`검사 완료 · 전체 <b>${list.length}</b>종 · 로고 있음 <b>${res.ok}</b> · 없음 <b>${res.none}</b><br>
+    <small style="color:var(--sub-2)">소스별: ${bySrc}</small>`);
+  ulaSet('ulaFails', fails.length
+    ? `<div class="ea-fh">로고를 찾지 못한 ${fails.length}종 <small>— 색 배지에 티커로 표시됩니다</small></div>`
+      +`<div class="ea-chips">${fails.slice(0,120).map(t=>
+          `<span class="ea-chip">${t}<i>${(usMeta[t]&&usMeta[t].kr)||''}</i></span>`).join('')}</div>`
+    : `<div class="ea-fh">모든 종목에서 로고를 찾았습니다 ✅</div>`);
+  $('ulaStart').hidden=false; $('ulaStop').hidden=true;
+  _ulaRun=false;
+}
+/* 버튼은 검색 화면이 그려진 뒤에 잡는다 — 최상위에서 잡으면 아직 없을 수 있다 */
+function ulaBind(){
+  const b1=$('ulaStart'); if(b1&&!b1._b){b1._b=1;b1.onclick=()=>ulaStart(false);}
+  const b2=$('ulaReset'); if(b2&&!b2._b){b2._b=1;b2.onclick=()=>ulaStart(true);}
+  const b3=$('ulaStop');  if(b3&&!b3._b){b3._b=1;b3.onclick=()=>{_ulaRun=false;};}
+}
 /* 진단 — 콘솔에서 상태 확인 */
 try{
   window.__usLgStat=()=>({total:US_UNI.length,mapped:Object.keys(US_DOMAIN).length,
@@ -12941,14 +13056,11 @@ function usMetricTxt(t,kind){
   if(kind==='vol')return q.vol>0?`거래량 ${usBigNum(q.vol)}주`:'';
   return '';
 }
-/* 52주 위치 — 값이 온전할 때만 그린다(짐작으로 막대를 그리면 거짓 정보가 된다) */
-function usBandMini(q){
-  if(!q||q.price==null||q.w52h==null||q.w52l==null||!(q.w52h>q.w52l))return '';
-  const p=Math.max(0,Math.min(100,(q.price-q.w52l)/(q.w52h-q.w52l)*100));
-  const tone=p>=80?'hi':p<=20?'lo':'mid';
-  return `<span class="uz-mini ${tone}" title="52주 범위에서 ${p.toFixed(0)}% 지점">
-    <i style="width:${p}%"></i><em style="left:${p}%"></em></span>`;
-}
+/* [v4.79] 종목명 밑 색 줄(52주 위치 막대)은 걷어냈다.
+   설명이 없어 무슨 줄인지 알 수 없었고, 52주 값이 없는 종목에서는 아예 사라져
+   '어떤 건 있고 어떤 건 없는' 들쭉날쭉한 화면이 됐다. 52주 위치는 종목 상세에
+   숫자와 함께 이미 나온다 — 목록에서는 굳이 반복하지 않는다. */
+function usBandMini(){ return ''; }
 function usRow(t,rank,metric){
   const m=usMeta[t]; if(!m)return '';
   const q=usQ[t], has=q&&q.price!=null;
@@ -13127,7 +13239,9 @@ function renderUsRankBody(){
     /* 서버가 센 실제 조회수 순서. 아직 안 왔으면 받아 오고 다시 그린다. */
     if(!usPop)usPopRestore();
     /* [v4.67] 여기서도 콜백 안에서 곧바로 다시 그리면 재귀가 된다 — 타이머로 미룬다 */
-    if((_usPopStale||!usPopAt||Date.now()-usPopAt>180e3)&&!usPopBusy&&!_usPopQueued){
+    /* [v4.79] 장이 닫혀 있으면 자주 새로 받지 않는다 — 순위가 흔들리는 것을 막는다 */
+    if((_usPopStale||!usPopAt||Date.now()-usPopAt>(usSession().phase==='closed'?30*60e3:180e3))
+       &&!usPopBusy&&!_usPopQueued){
       _usPopQueued=true;
       setTimeout(()=>{ _usPopQueued=false;
         usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)

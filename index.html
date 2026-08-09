@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=357">
+<link rel="stylesheet" href="/app.css?v=360">
 </head>
 <body>
 
@@ -594,9 +594,9 @@
           <div class="hm-s">보유 <b class="num" id="hmUsHold">—</b></div>
         </div>
       </div>
-      <div class="asset-split" id="assetSplit" hidden></div>
-      <canvas id="heroEq" height="52"></canvas>
-      <div class="ha-mini" id="haMini"></div>
+      <!-- [v4.79] 비중 막대와 자산 추이 그래프는 걷어냈다.
+           국내·해외 상자에 이미 금액이 나와 있어 같은 이야기를 두 번 하는 셈이었고,
+           거래가 없는 동안에는 보여 줄 것도 없었다. -->
     </div>
     <div class="hero-market" id="heroMarket" role="button" tabindex="0" aria-label="오늘의 시장 · AI 브리핑으로 이동">
       <div class="hm-load">시장 온도를 재는 중…</div>
@@ -826,6 +826,22 @@
         <div class="ea-bar" id="laBarWrap" hidden><i id="laBar"></i></div>
         <div class="ea-stat" id="laStat" hidden></div>
         <div class="ea-fails" id="laFails"></div>
+      </div>
+    </div>
+
+    <!-- [v4.77] 해외 종목도 같은 검사를 할 수 있게 -->
+    <div class="sec" style="margin-top:16px">
+      <div class="sec-title">🇺🇸 해외 종목 로고 검사 <span class="sec-sub">· 등록된 해외 종목의 로고를 실제로 내려받아 확인</span></div>
+      <div class="panel etf-audit">
+        <div class="ea-top">
+          <button id="ulaStart">해외 로고 검사 시작</button>
+          <button id="ulaStop" hidden>중단</button>
+          <button id="ulaReset">캐시 비우고 다시 찾기</button>
+          <span class="ea-note">종목마다 로고를 실제로 요청해 어느 소스에서 나오는지, 빈 그림인지, 아예 없는지를 가려냅니다. 결과는 바로 화면에 반영됩니다.</span>
+        </div>
+        <div class="ea-bar" id="ulaBarWrap" hidden><i id="ulaBar"></i></div>
+        <div class="ea-stat" id="ulaStat" hidden></div>
+        <div class="ea-fails" id="ulaFails"></div>
       </div>
     </div>
   </section>
@@ -1344,6 +1360,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=357"></script>
+<script type="module" src="/app.js?v=360"></script>
 </body>
 </html>

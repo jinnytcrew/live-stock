@@ -12087,6 +12087,15 @@ async function usPopExternal(diag, budget){
   push("yahoo-active", await yahooScreen("most_actives",100,diag,budget));
   return lists;
 }
+/* 미국 정규장이 열려 있는 시간대인가 — 순위를 얼마나 오래 붙잡을지 정하는 데 쓴다.
+   (미국 동부 기준 평일 09:30~16:00. 휴일까지 정확히 볼 필요는 없다) */
+function usMarketOpenish(){
+  const d = new Date(Date.now() - 5 * 3600e3);   // 대략 미국 동부
+  const wd = d.getUTCDay();
+  if (wd === 0 || wd === 6) return false;
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return mins >= 9 * 60 + 30 && mins <= 16 * 60;
+}
 async function uspopular_default(req2){
   const diag = [], budget = { left: 20 };
   const CK = "uspop:v3";
@@ -12094,7 +12103,12 @@ async function uspopular_default(req2){
   if (!fresh) {
     try {
       const c = KV ? await KV.get(CK, "json") : null;
-      if (c && c.at && Date.now() - c.at < 10 * 60e3 && Array.isArray(c.items) && c.items.length >= 60) {
+      /* ══ [v4.79] 장이 닫혀 있으면 순위가 흔들릴 이유가 없다 ═══════════════════
+         주말·휴장에도 볼 때마다 순서가 달라졌다. 원인은 ① 10분마다 새로 만들고
+         ② 그 재료(야후 검색 급상승 등)가 시시각각 바뀌기 때문이다.
+         장중에는 10분, 장이 닫혀 있으면 6시간 동안 같은 순위를 유지한다. */
+      const TTL = usMarketOpenish() ? 10 * 60e3 : 6 * 3600e3;
+      if (c && c.at && Date.now() - c.at < TTL && Array.isArray(c.items) && c.items.length >= 60) {
         return new Response(JSON.stringify({ ok: true, items: c.items, basis: c.basis, cached: 1 }),
           { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
       }
@@ -12161,8 +12175,10 @@ async function uspopular_default(req2){
   };
   const inKR = (t) => KR_RANK[t] != null;
   const attnOf = (x) => x.origin.some(o => ATTN.has(o));
-  const t1 = all.filter(x => attnOf(x) && inKR(x.t)).sort((a, b) => b.sc - a.sc);
-  const t2 = all.filter(x => attnOf(x) && !inKR(x.t)).sort((a, b) => b.sc - a.sc);
+  /* 점수가 같으면 티커 순으로 — 안 그러면 매번 순서가 뒤바뀐다 */
+  const byScore = (a, b) => (b.sc - a.sc) || (a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
+  const t1 = all.filter(x => attnOf(x) && inKR(x.t)).sort(byScore);
+  const t2 = all.filter(x => attnOf(x) && !inKR(x.t)).sort(byScore);
   const seen1 = new Set(t1.concat(t2).map(x => x.t));
   /* [v4.76] 유니버스로 채우는 종목도 이름을 붙여 보낸다 — 이름이 비면 화면이
      티커를 두 번 찍는다(MS · MS). 위키 문서명에서 사람이 읽는 이름을 만든다. */
@@ -12170,7 +12186,7 @@ async function uspopular_default(req2){
     .map(t => ({ t, sfx: null, kr: "", en: artName(t), cap: 0, sc: 0, origin: ["kr-univ"] }));
   const seen2 = new Set(t1.concat(t2, t3).map(x => x.t));
   const t4 = all.filter(x => !attnOf(x) && !seen2.has(x.t))
-    .sort((a, b) => (b.cap || 0) - (a.cap || 0));
+    .sort((a, b) => ((b.cap || 0) - (a.cap || 0)) || (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
   let ranked = t1.concat(t2, t3, t4);
   const fallback = t1.length < 8 ? 1 : 0;
   const items = ranked.slice(0, 100)
@@ -12244,51 +12260,88 @@ ROUTES["uspopdiag"]=uspopdiag_default;
    [주의] SEC 는 연락처가 담긴 User-Agent 를 요구한다(정책). */
 var SEC_UA = "LIVEjeungkwon/4.74 (educational paper-trading app; contact github.com/jinnytcrew)";
 async function usall_default(){
-  const CK = "usall:v1";
+  const CK = "usall:v2";
   try {
     const c = KV ? await KV.get(CK, "json") : null;
-    if (c && c.at && Date.now() - c.at < 24 * 3600e3 && Array.isArray(c.rows) && c.rows.length > 500)
+    if (c && c.at && Date.now() - c.at < 24 * 3600e3 && Array.isArray(c.rows) && c.rows.length > 2000)
       return new Response(JSON.stringify({ ok: true, n: c.rows.length, rows: c.rows, cached: 1 }),
         { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
   } catch (e) { }
-  const diag = [], seen = new Set(), rows = [];
-  const add = (t, en, etf) => {
+  const diag = [], map = new Map();
+  /* rows: [티커, 이름, ETF여부, 거래소(O/N/A)] */
+  const add = (t, en, etf, sfx) => {
     const k = String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
-    if (!k || k.length > 6 || seen.has(k)) return;
-    seen.add(k);
-    rows.push([k, String(en || "").slice(0, 60), etf ? 1 : 0]);
+    if (!k || k.length > 6) return;
+    const cur = map.get(k);
+    if (cur) { if (!cur[1] && en) cur[1] = String(en).slice(0, 60); if (!cur[3] && sfx) cur[3] = sfx; return; }
+    map.set(k, [k, String(en || "").slice(0, 60), etf ? 1 : 0, sfx || ""]);
   };
-  /* ① SEC 상장사 전체 */
-  try {
-    const c = new AbortController(); const t = setTimeout(() => c.abort(), 9000);
-    const r = await fetch("https://www.sec.gov/files/company_tickers.json",
-      { headers: { "User-Agent": SEC_UA, Accept: "application/json" }, signal: c.signal });
-    clearTimeout(t);
-    if (r.ok) {
-      const j = await r.json();
-      let n = 0;
-      for (const k in j) { const it = j[k]; if (!it) continue; add(it.ticker, it.title, 0); n++; }
-      diag.push("sec:" + n);
-    } else diag.push("sec:" + r.status);
-  } catch (e) { diag.push("sec:" + String(e).slice(0, 12)); }
-  /* ② ETF·기타는 야후 화면에서 보탠다 */
-  for (const sc of ["most_actives", "day_gainers", "day_losers"]) {
+  const grab = async (nm, url, hdr, ms) => {
     try {
-      const c = new AbortController(); const t = setTimeout(() => c.abort(), 6000);
-      const r = await fetch("https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
-        + "?scrIds=" + sc + "&count=250&start=0",
-        { headers: { "User-Agent": UA20, Accept: "application/json" }, signal: c.signal });
+      const c = new AbortController(); const t = setTimeout(() => c.abort(), ms || 9000);
+      const r = await fetch(url, { headers: hdr, signal: c.signal });
       clearTimeout(t);
-      if (!r.ok) { diag.push(sc + ":" + r.status); continue; }
-      const j = await r.json();
-      const q = (j && j.finance && j.finance.result && j.finance.result[0] && j.finance.result[0].quotes) || [];
-      q.forEach(x => add(x.symbol, x.shortName || x.longName, String(x.quoteType || "").toUpperCase() === "ETF"));
-      diag.push(sc + ":" + q.length);
-    } catch (e) { diag.push(sc + ":" + String(e).slice(0, 10)); }
+      if (!r.ok) { diag.push(nm + ":" + r.status); return null; }
+      return await r.text();
+    } catch (e) { diag.push(nm + ":" + String(e).slice(0, 12)); return null; }
+  };
+  /* ══ [v4.78] 종목이 빠지지 않도록 원천을 바꾼다 ═══════════════════════════
+     [무엇이 빠졌나] SEC 파일은 '상장 기업' 목록이라 ETF 가 통째로 없다.
+     SOXL·TQQQ·SCHD 같은 것이 검색되지 않았다. 거래소 정보도 없어 전부 나스닥으로
+     등록돼, 뉴욕 상장 종목은 네이버 시세 경로를 못 썼다.
+     [바꾼 원천] 나스닥이 공개하는 심볼 디렉터리 두 파일이 미국 상장 증권 전체를
+     담고 ETF 여부와 거래소까지 알려 준다. SEC 파일은 회사명 보강용으로만 쓴다. */
+  const NH = { "User-Agent": SEC_UA, Accept: "text/plain,*/*" };
+  const nas = await grab("nasdaq", "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt", NH, 12000);
+  if (nas) {
+    let n = 0;
+    for (const line of nas.split("\n")) {
+      const p2 = line.split("|");
+      if (p2.length < 7 || p2[0] === "Symbol" || /^File Creation/.test(line)) continue;
+      if (p2[3] === "Y") continue;                       // 시험용 종목 제외
+      add(p2[0], nameOfSec(p2[1]), p2[6] === "Y", "O");  // 나스닥 = .O
+      n++;
+    }
+    diag.push("nasdaq:" + n);
   }
-  try { if (KV && rows.length > 500) await KV.put(CK, JSON.stringify({ at: Date.now(), rows }), { expirationTtl: 172800 }); } catch (e) { }
+  const oth = await grab("other", "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt", NH, 12000);
+  if (oth) {
+    let n = 0;
+    for (const line of oth.split("\n")) {
+      const p2 = line.split("|");
+      if (p2.length < 5 || p2[0] === "ACT Symbol" || /^File Creation/.test(line)) continue;
+      if (p2[6] === "Y") continue;
+      /* 거래소 코드 — N 뉴욕 / A 아멕스 / P 아카(ETF 대부분) / Z·V 기타 */
+      const ex = p2[2] === "N" ? "N" : (p2[2] === "A" || p2[2] === "P") ? "A" : "N";
+      add(p2[0], nameOfSec(p2[1]), p2[4] === "Y", ex);
+      n++;
+    }
+    diag.push("other:" + n);
+  }
+  /* 회사명 보강 — 나스닥 파일의 이름은 증권 형태가 길게 붙어 있어 SEC 이름이 더 깔끔하다 */
+  const sec = await grab("sec", "https://www.sec.gov/files/company_tickers.json",
+    { "User-Agent": SEC_UA, Accept: "application/json" }, 9000);
+  if (sec) {
+    try {
+      const j = JSON.parse(sec); let n = 0;
+      for (const k in j) { const it = j[k]; if (!it || !it.ticker) continue;
+        const cur = map.get(String(it.ticker).toUpperCase());
+        if (cur) { cur[1] = String(it.title || cur[1]).slice(0, 60); n++; }
+        else add(it.ticker, it.title, 0, "");
+      }
+      diag.push("sec:" + n);
+    } catch (e) { diag.push("sec:parse"); }
+  }
+  const rows = [...map.values()];
+  try { if (KV && rows.length > 2000) await KV.put(CK, JSON.stringify({ at: Date.now(), rows }), { expirationTtl: 172800 }); } catch (e) { }
   return new Response(JSON.stringify({ ok: rows.length > 0, n: rows.length, rows, diag }),
     { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
+}
+/* 나스닥 파일의 이름에서 증권 형태 설명을 떼어낸다 */
+function nameOfSec(v){
+  return String(v || "").split(" - ")[0]
+    .replace(/\s+(Common Stock|Class [A-Z]|Ordinary Shares|American Depositary Shares?)\s*$/i, "")
+    .trim();
 }
 ROUTES["usall"]=usall_default;
 ROUTES["usview"]=usview_default;
