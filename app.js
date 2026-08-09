@@ -8265,8 +8265,16 @@ function renderSearch(){
   {const mt=$('searchMktTabs'); if(mt)mt.hidden=!!q;}
   if(!q){ $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); return; }
   /* [v4.28] 해외(미국) 매치 — 티커·한글·영문 어느 쪽으로든 걸리면 국내 결과 위에 얹는다 */
-  const usHit=usLocalMatch(q).slice(0,6).map(t=>[t]);
-  /* [v4.31] 내장에 없으면 원격에서 찾아 화면을 다시 그린다 */
+  /* [v4.74] 내장 → 전 종목 목록 → 원격 순으로 넓혀 간다 */
+  const usSeen=new Set();
+  const usHit=[];
+  usLocalMatch(q).forEach(t=>{ if(!usSeen.has(t)){usSeen.add(t);usHit.push([t]);} });
+  usAllMatch(q).forEach(x=>{
+    if(usHit.length>=8||usSeen.has(x.t))return;
+    usRegister({t:x.t,sfx:(usMeta[x.t]&&usMeta[x.t].sfx)||null,kr:'',en:x.en,etf:x.etf});
+    usSeen.add(x.t); usHit.push([x.t]);
+  });
+  usAllLoad(()=>{ if(currentView==='search'&&($('searchInput').value||'').trim()===q)renderSearch(); });
   usSearchRemote(q,(items)=>{ if(items&&items.length&&currentView==='search'
       &&($('searchInput').value||'').trim()===q)renderSearch(); });
   // (1) 내장 종목
@@ -12226,10 +12234,17 @@ function usRegister(it){
   const sfx=/^[ONA]$/.test(it.sfx)?it.sfx:'O';
   /* [v4.73] 한글명이 없으면 영문명이라도 쓴다 — 'SPCX · SPCX' 처럼 티커가 두 번
      나오면 무슨 종목인지 알 수 없다. 흔히 붙는 법인 꼬리표는 떼어 읽기 좋게 만든다. */
-  const clean=(v)=>String(v||'').replace(/,?\s*(Inc\.?|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|plc|Holdings?|Group|The)\b\.?/gi,'')
-    .replace(/\s{2,}/g,' ').trim();
+  const clean=(v)=>String(v||'')
+    /* 'Fluence Energy Inc - Ordinary Shares - Class A' 처럼 뒤에 붙는 증권 형태 설명을 떼어낸다 */
+    .replace(/\s*[-–]\s*(Ordinary|Common|Class|Depositary|American|Registered)[^-–]*$/gi,'')
+    .replace(/\s*[-–]\s*ADR\s*$/i,' (ADR)')
+    .replace(/,?\s*(Inc\.?|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|Limited|plc|PLC|N\.V\.|S\.A\.|Holdings?|Group|The)\b\.?/g,'')
+    .replace(/\s{2,}/g,' ').replace(/[\s,]+$/,'').trim();
   const en=clean(it.en)||String(it.en||'').trim();
-  const rec={t,sfx,kr:it.kr||en||t,en:en||t,theme:'etc',etf:it.etf?1:0,reu:t.replace('.','/')+'.'+sfx,dyn:1};
+  /* [v4.74] 한글 이름이 있으면 그걸 쓴다 — 화면에 영문만 늘어놓지 않는다 */
+  const krFromAlias=(typeof US_KRNAME!=='undefined'&&US_KRNAME[t])||'';
+  const rec={t,sfx,kr:it.kr||krFromAlias||en||t,en:en||t,theme:'etc',etf:it.etf?1:0,
+    reu:t.replace('.','/')+'.'+sfx,dyn:1};
   usMeta[t]=rec; usDyn[t]={sfx,kr:rec.kr,en:rec.en,etf:rec.etf};
   try{ const keys=Object.keys(usDyn); if(keys.length>400)delete usDyn[keys[0]];
     localStorage.setItem('usDyn1',JSON.stringify(usDyn)); }catch(e){}
@@ -12251,7 +12266,31 @@ var US_ALIAS={'구글':'GOOGL','알파벳':'GOOGL','마소':'MSFT','MS':'MSFT','
  '배당':'SCHD','슈드':'SCHD','제피':'JEPI','티큐':'TQQQ','삼배':'TQQQ',
  '리얼티':'O','월배당':'O','일라이':'LLY','릴리':'LLY','노보':'NVO','유나이티드헬스':'UNH',
  '코인베이스':'COIN','코베':'COIN','마이크로스트래티지':'MSTR','마스트':'MSTR','스트래티지':'MSTR','마이크로':'MSTR','로빈후드':'HOOD',
- '보잉':'BA','록히드':'LMT','로켓랩':'RKLB','오클로':'OKLO','뉴스케일':'SMR'};
+ '보잉':'BA','록히드':'LMT','로켓랩':'RKLB','오클로':'OKLO','뉴스케일':'SMR',
+  /* ══ [v4.74] 한글 검색·표시 보강 ═══════════════════════════════════════════
+     화면에 영문 회사명이 그대로 나와 읽기 어려웠고, 한글로 검색해도 안 잡혔다.
+     한글 이름을 표에 넣어 검색과 표시 둘 다 해결한다. */
+  '스페이스x':'SPCX','스페이스엑스':'SPCX','SPACEX':'SPCX',
+  'sk하이닉스adr':'HXSCL','에스케이하이닉스adr':'HXSCL','하이닉스adr':'HXSCL',
+  '레딧':'RDDT','닌텐도':'NTDOY','위라이드':'WRD','플루언스':'FLNC','플루언스에너지':'FLNC',
+  '이노데이터':'INOD','코메딕스':'CRMD','오큘러':'OCUL','리플리뮨':'REPL',
+  '어플라이드옵토':'AAOI','크리티컬메탈':'CRML','알파타우':'DRTS',
+  '브리스톨마이어스':'BMY','리제네론':'REGN','버텍스':'VRTX','모건스탠리':'MS',
+  '버크셔':'BRK-B','버크셔해서웨이':'BRK-B','블랙록':'BLK','찰스슈왑':'SCHW',
+  '아이온큐':'IONQ','리게티':'RGTI','디웨이브':'QBTS','아처항공':'ACHR','조비':'JOBY',
+  '인튜이티브머신스':'LUNR','오클로':'OKLO','뉴스케일':'SMR','로켓랩':'RKLB','에이에스티에스':'ASTS',
+  '앱러빈':'APP','버티브':'VRT','지이버노바':'GEV','센트루스':'LEU','에너지퓨얼스':'UUUU',
+  '엠피머티리얼즈':'MP','넥스젠':'NXE','유라늄에너지':'UEC','사이퍼마이닝':'CIFR',
+  '소파이':'SOFI','어펌':'AFRM','업스타트':'UPST','드래프트킹스':'DKNG','로쿠':'ROKU',
+  '워너브라더스':'WBD','파라마운트':'PARA','라이브네이션':'LYV','로빈후드':'HOOD',
+  '스트래티지':'MSTR','마이크로스트래티지':'MSTR','코인베이스':'COIN',
+  '이튼':'ETN','콴타서비스':'PWR','아리스타':'ANET','몽고디비':'MDB','클라우드플레어':'NET',
+  '데이터독':'DDOG','지스케일러':'ZS','옥타':'OKTA','아틀라시안':'TEAM','워크데이':'WDAY',
+  '시놉시스':'SNPS','케이던스':'CDNS','마벨':'MRVL','온세미':'ON','마이크로칩':'MCHP',
+  '엔엑스피':'NXPI','램리서치':'LRCX','케이엘에이':'KLAC','어플라이드머티리얼즈':'AMAT',
+  '아나로그디바이스':'ADI','룰루레몬':'LULU','치폴레':'CMG','츄이':'CHWY','데커스':'DECK',
+  '옥시덴탈':'OXY','바이오젠':'BIIB','조에티스':'ZTS','엘리번스':'ELV',
+  '소xl':'SOXL','소알':'SOXL','슈왑배당':'SCHD','인베스코나스닥':'QQQ','에스앤피500etf':'SPY'};
 
 /* 원격 검색 — 내장 목록에 없는 종목까지 찾는다 */
 var _usRemote={}, _usRemoteT=null;
@@ -12267,6 +12306,53 @@ function usSearchRemote(q,cb){
       _usRemote[key]=items; cb&&cb(items); })
     .catch(()=>{ _usRemote[key]=[]; cb&&cb([]); });
 }
+/* ══ [v4.74] 미국 전 종목 목록 — 국내처럼 '빠짐없이' 검색되게 ═══════════════
+   내장 114종 + 검색으로 등록된 것만으로는 스페이스X 같은 종목이 잡히지 않았다.
+   전 종목 목록(약 1만 종)을 한 번 받아 브라우저에 담아 두고 검색에 함께 쓴다. */
+var usAll=null, usAllAt=0, _usAllBusy=false;
+function usAllLoad(cb){
+  if(usAll){cb&&cb();return;}
+  if(_usAllBusy)return;
+  try{ const raw=localStorage.getItem('usAll1');
+    if(raw){ const c=JSON.parse(raw);
+      if(c&&Array.isArray(c.rows)&&c.rows.length>500&&Date.now()-(c.at||0)<3*864e5){
+        usAll=c.rows; usAllAt=c.at; cb&&cb(); return; } } }catch(e){}
+  _usAllBusy=true;
+  fetch('/api/usall',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    _usAllBusy=false;
+    if(!j||!j.ok||!Array.isArray(j.rows))return;
+    usAll=j.rows; usAllAt=Date.now();
+    try{localStorage.setItem('usAll1',JSON.stringify({at:usAllAt,rows:usAll}));}catch(e){}
+    cb&&cb();
+  }).catch(()=>{_usAllBusy=false;});
+}
+/* 전 종목 목록에서 찾기 — 티커·영문명·한글 별칭 모두 본다 */
+function usAllMatch(q){
+  if(!usAll)return [];
+  const qU=String(q||'').trim().toUpperCase(); if(!qU)return [];
+  const out=[];
+  for(const r of usAll){
+    const t=r[0], en=r[1]||'';
+    if(t===qU){ out.unshift({t,en,etf:r[2]}); continue; }
+    if(t.indexOf(qU)===0||en.toUpperCase().indexOf(qU)>=0)out.push({t,en,etf:r[2]});
+    if(out.length>=40)break;
+  }
+  return out;
+}
+/* [v4.74] 별칭 표를 뒤집어 '티커 → 한글 이름'을 만든다.
+   같은 티커에 별칭이 여럿이면 가장 자연스러운(길이가 중간인) 것을 고른다. */
+var US_KRNAME=(function(){
+  const m={};
+  Object.keys(US_ALIAS).forEach(k=>{
+    if(!/[가-힣]/.test(k))return;                       // 한글 별칭만
+    const t=US_ALIAS[k];
+    if(!m[t]||Math.abs(k.length-4)<Math.abs(m[t].length-4))m[t]=k;
+  });
+  /* 내장 목록의 한글명이 있으면 그쪽이 정확하다 */
+  try{ Object.keys(usMeta).forEach(t=>{ const kr=usMeta[t]&&usMeta[t].kr;
+    if(kr&&/[가-힣]/.test(kr))m[t]=kr; }); }catch(e){}
+  return m;
+})();
 /* 내장 + 별칭 + 등록분 통합 매칭 */
 function usLocalMatch(q){
   const qs=String(q||'').trim(); if(!qs)return [];
@@ -12582,6 +12668,10 @@ function usLgUrls(t){
   const tk=t.replace('.','-');
   out.push('https://financialmodelingprep.com/image-stock/'+tk+'.png');
   out.push('https://assets.parqet.com/logos/symbol/'+tk+'?format=png&size=128');
+  /* [v4.74] 후보를 넓힌다 — 앞의 두 곳이 빈 그림을 주는 종목이 꽤 있다 */
+  out.push('https://s3-symbol-logo.tradingview.com/'+tk.toLowerCase()+'.svg');
+  out.push('https://logos.stockanalysis.com/'+tk.toLowerCase()+'.png');
+  out.push('https://eodhd.com/img/logos/US/'+tk+'.png');
   out.push('https://storage.googleapis.com/iexcloud-hl37opg/api/logos/'+tk+'.png');
   return out;
 }
@@ -12598,6 +12688,43 @@ function usLgPump(){
     const t=_usLgQ.shift(); if(!t||usLgOk[t]!=null)continue;
     _usLgBusy.add(t); _usLgLive++; usLgProbe(t);
   }
+}
+/* 같은 그림을 CORS 로 한 번 더 받아 내용까지 확인한다. 못 받으면 판단을 보류한다. */
+var _usInk={};
+function usLgInkCheck(u,cb){
+  if(_usInk[u]!==undefined){cb(_usInk[u]);return;}
+  let done=false; const fin=(v)=>{ if(done)return; done=true; _usInk[u]=v; cb(v); };
+  const t2=setTimeout(()=>fin(null),1600);
+  const im2=new Image();
+  try{im2.crossOrigin='anonymous';}catch(e){}
+  im2.referrerPolicy='no-referrer';
+  im2.onload=()=>{ clearTimeout(t2); fin(usLgHasInk(im2)); };
+  im2.onerror=()=>{ clearTimeout(t2); fin(null); };   // CORS 불가 → 보류(통과)
+  im2.src=u;
+}
+function usLgInkKnown(im){ try{ return usLgHasInk(im); }catch(e){ return null; } }
+/* 그림에 '내용'이 있는지 확인 — 흰 바탕/투명만 있으면 로고가 아니다 */
+function usLgHasInk(im){
+  try{
+    const N=24;
+    const cv=document.createElement('canvas'); cv.width=N; cv.height=N;
+    const cx=cv.getContext('2d',{willReadFrequently:true});
+    if(!cx)return true;
+    cx.clearRect(0,0,N,N);
+    cx.drawImage(im,0,0,N,N);
+    const d=cx.getImageData(0,0,N,N).data;
+    let opaque=0, colored=0;
+    for(let i=0;i<d.length;i+=4){
+      const a=d[i+3]; if(a<24)continue;
+      opaque++;
+      const r=d[i],g=d[i+1],b=d[i+2];
+      /* 아주 밝은 회색·흰색은 '내용 없음'으로 본다 */
+      if(!(r>238&&g>238&&b>238))colored++;
+    }
+    if(opaque<N*N*0.06)return false;      // 거의 다 투명 → 빈 그림
+    if(colored<opaque*0.04)return false;  // 거의 다 흰색 → 빈 그림
+    return true;
+  }catch(e){ return null; }               // 다른 출처라 읽을 수 없으면 판단 보류
 }
 function usLgProbe(t){
   const urls=usLgUrls(t);
@@ -12617,7 +12744,18 @@ function usLgProbe(t){
     const end=(ok)=>{ if(settled)return; settled=true;
       if(ok)finish(idx); else if(--left<=0)finish(null); };
     im.onload=()=>{ /* 16px 미만은 빈 파비콘 — 로고로 인정하지 않는다 */
-      if((im.naturalWidth||0)<16||(im.naturalHeight||0)<16){end(false);return;} end(true); };
+      if((im.naturalWidth||0)<16||(im.naturalHeight||0)<16){end(false);return;}
+      /* ══ [v4.74] 크기만 보면 '흰 빈 상자'를 거르지 못한다 ═══════════════════
+         어떤 소스는 로고가 없을 때 흰색이나 투명한 그림을 200×200 으로 돌려준다.
+         크기 검사는 통과하지만 화면에는 빈 네모만 남는다(첨부 사진의 OCUL·FLNC·BLK).
+         → 실제 픽셀을 조금 찍어 보고, 전부 흰색이거나 전부 투명하면 버린다. */
+      /* [v4.74] 픽셀 확인은 '읽을 수 있을 때만' 한다.
+         crossOrigin 을 걸면 CORS 를 안 여는 서버에서는 아예 로드가 실패하므로,
+         평소에는 걸지 않고 → 캔버스가 막히면(보안 오류) 그냥 통과시킨다.
+         대신 같은 주소를 crossOrigin 으로 한 번 더 시도해 확인을 노려 본다. */
+      if(usLgInkKnown(im)===false){end(false);return;}
+      usLgInkCheck(u,(ink)=>{ if(ink===false)end(false); else end(true); });
+    };
     im.onerror=()=>end(false);
     setTimeout(()=>end(false), u.indexOf('/api/')===0?7000:3200);
     im.src=u;

@@ -12170,6 +12170,63 @@ async function uspopdiag_default(){
     { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 }
 ROUTES["uspopdiag"]=uspopdiag_default;
+/* ══ [v4.74] 미국 전 종목 목록 ═══════════════════════════════════════════════
+   [무엇이 부족했나] 국내는 전 종목 5,455종을 받아 두고 검색하는데, 해외는 앱에
+   박아 둔 114종 + 검색으로 우연히 등록된 것뿐이었다. 그래서 스페이스X 처럼
+   목록에 없는 종목은 한글로 검색해도 나오지 않았다.
+   [원천] 미국 증권거래위원회(SEC)가 상장사 티커 전체를 한 파일로 공개한다.
+   약 1만 종이고 인증이 없다. 여기에 야후 화면에서 얻는 ETF 목록을 더해
+   '국내처럼 하나도 빠짐없이' 검색되게 한다.
+   [주의] SEC 는 연락처가 담긴 User-Agent 를 요구한다(정책). */
+var SEC_UA = "LIVEjeungkwon/4.74 (educational paper-trading app; contact github.com/jinnytcrew)";
+async function usall_default(){
+  const CK = "usall:v1";
+  try {
+    const c = KV ? await KV.get(CK, "json") : null;
+    if (c && c.at && Date.now() - c.at < 24 * 3600e3 && Array.isArray(c.rows) && c.rows.length > 500)
+      return new Response(JSON.stringify({ ok: true, n: c.rows.length, rows: c.rows, cached: 1 }),
+        { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
+  } catch (e) { }
+  const diag = [], seen = new Set(), rows = [];
+  const add = (t, en, etf) => {
+    const k = String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+    if (!k || k.length > 6 || seen.has(k)) return;
+    seen.add(k);
+    rows.push([k, String(en || "").slice(0, 60), etf ? 1 : 0]);
+  };
+  /* ① SEC 상장사 전체 */
+  try {
+    const c = new AbortController(); const t = setTimeout(() => c.abort(), 9000);
+    const r = await fetch("https://www.sec.gov/files/company_tickers.json",
+      { headers: { "User-Agent": SEC_UA, Accept: "application/json" }, signal: c.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      const j = await r.json();
+      let n = 0;
+      for (const k in j) { const it = j[k]; if (!it) continue; add(it.ticker, it.title, 0); n++; }
+      diag.push("sec:" + n);
+    } else diag.push("sec:" + r.status);
+  } catch (e) { diag.push("sec:" + String(e).slice(0, 12)); }
+  /* ② ETF·기타는 야후 화면에서 보탠다 */
+  for (const sc of ["most_actives", "day_gainers", "day_losers"]) {
+    try {
+      const c = new AbortController(); const t = setTimeout(() => c.abort(), 6000);
+      const r = await fetch("https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
+        + "?scrIds=" + sc + "&count=250&start=0",
+        { headers: { "User-Agent": UA20, Accept: "application/json" }, signal: c.signal });
+      clearTimeout(t);
+      if (!r.ok) { diag.push(sc + ":" + r.status); continue; }
+      const j = await r.json();
+      const q = (j && j.finance && j.finance.result && j.finance.result[0] && j.finance.result[0].quotes) || [];
+      q.forEach(x => add(x.symbol, x.shortName || x.longName, String(x.quoteType || "").toUpperCase() === "ETF"));
+      diag.push(sc + ":" + q.length);
+    } catch (e) { diag.push(sc + ":" + String(e).slice(0, 10)); }
+  }
+  try { if (KV && rows.length > 500) await KV.put(CK, JSON.stringify({ at: Date.now(), rows }), { expirationTtl: 172800 }); } catch (e) { }
+  return new Response(JSON.stringify({ ok: rows.length > 0, n: rows.length, rows, diag }),
+    { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
+}
+ROUTES["usall"]=usall_default;
 ROUTES["usview"]=usview_default;
 ROUTES["uspopular"]=uspopular_default;
 ROUTES["usdiag"]=usdiag_default;
@@ -12202,7 +12259,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.73.0";
+var APP_VER = "4.74.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
