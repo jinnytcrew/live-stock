@@ -2120,8 +2120,56 @@ var CURRENCIES=[
   {c:'CAD',n:'캐나다 달러',f:'🇨🇦',sym:'C$',dec:2,spread:14},
   {c:'SGD',n:'싱가포르 달러',f:'🇸🇬',sym:'S$',dec:2,spread:14},
   {c:'VND',n:'베트남 동', f:'🇻🇳',sym:'₫',dec:0,spread:20,per:100},
+  /* ══ [v4.61] 취급 통화 확대 ═══════════════════════════════════════════════
+     11개로는 아시아·유럽의 주요 통화가 많이 빠져 있었다. 실제 증권사 외화계좌가
+     다루는 범위에 맞춰 넓힌다. 스프레드는 통화가 덜 거래될수록 크게 잡는다
+     (거래량이 적은 통화일수록 살 때·팔 때 차이가 벌어지는 실제 구조). */
+  {c:'TWD',n:'대만 달러',  f:'🇹🇼',sym:'NT$',dec:2,spread:22},
+  {c:'THB',n:'태국 바트',  f:'🇹🇭',sym:'฿',dec:2,spread:20},
+  {c:'IDR',n:'인도네시아 루피아',f:'🇮🇩',sym:'Rp',dec:0,spread:26,per:100},
+  {c:'PHP',n:'필리핀 페소',f:'🇵🇭',sym:'₱',dec:2,spread:24},
+  {c:'MYR',n:'말레이시아 링깃',f:'🇲🇾',sym:'RM',dec:2,spread:22},
+  {c:'INR',n:'인도 루피',  f:'🇮🇳',sym:'₹',dec:2,spread:26},
+  {c:'NZD',n:'뉴질랜드 달러',f:'🇳🇿',sym:'NZ$',dec:2,spread:18},
+  {c:'SEK',n:'스웨덴 크로나',f:'🇸🇪',sym:'kr',dec:2,spread:20},
+  {c:'NOK',n:'노르웨이 크로네',f:'🇳🇴',sym:'kr',dec:2,spread:20},
+  {c:'DKK',n:'덴마크 크로네',f:'🇩🇰',sym:'kr',dec:2,spread:20},
+  {c:'PLN',n:'폴란드 즈워티',f:'🇵🇱',sym:'zł',dec:2,spread:24},
+  {c:'CZK',n:'체코 코루나',f:'🇨🇿',sym:'Kč',dec:2,spread:24},
+  {c:'HUF',n:'헝가리 포린트',f:'🇭🇺',sym:'Ft',dec:0,spread:26,per:100},
+  {c:'TRY',n:'튀르키예 리라',f:'🇹🇷',sym:'₺',dec:2,spread:30},
+  {c:'ZAR',n:'남아공 란드',f:'🇿🇦',sym:'R',dec:2,spread:28},
+  {c:'MXN',n:'멕시코 페소',f:'🇲🇽',sym:'Mex$',dec:2,spread:26},
+  {c:'BRL',n:'브라질 헤알',f:'🇧🇷',sym:'R$',dec:2,spread:28},
+  {c:'AED',n:'아랍에미리트 디르함',f:'🇦🇪',sym:'د.إ',dec:2,spread:24},
+  {c:'SAR',n:'사우디 리얄',f:'🇸🇦',sym:'﷼',dec:2,spread:24},
+  {c:'ILS',n:'이스라엘 셰켈',f:'🇮🇱',sym:'₪',dec:2,spread:26},
 ];
 function curInfo(c){ return CURRENCIES.find(x=>x.c===c)||CURRENCIES[0]; }
+/* [v4.61] 통화가 많아져 묶음·검색이 필요해졌다 */
+var fxFind='', fxGroup='fav';
+var FX_GROUP={
+  asia:['JPY','CNY','HKD','TWD','THB','IDR','PHP','MYR','INR','SGD','VND'],
+  eu:['EUR','GBP','CHF','SEK','NOK','DKK','PLN','CZK','HUF','TRY'],
+  am:['USD','CAD','MXN','BRL'],
+  etc:['AUD','NZD','ZAR','AED','SAR','ILS']
+};
+function fxListShown(){
+  const q=String(fxFind||'').trim().toLowerCase();
+  let list=CURRENCIES.slice();
+  if(q){
+    list=list.filter(c=>c.c.toLowerCase().includes(q)||c.n.toLowerCase().includes(q));
+  }else if(fxGroup==='fav'){
+    /* 보유 중인 통화를 먼저, 그다음 거래가 많은 주요 통화 */
+    const major=['USD','JPY','EUR','CNY','HKD','GBP','AUD','CAD','CHF','SGD'];
+    list=list.filter(c=>fxBal(c.c)>0||major.includes(c.c))
+      .sort((a,b)=>(fxBal(b.c)>0?1:0)-(fxBal(a.c)>0?1:0));
+  }else if(fxGroup!=='all'){
+    const g=FX_GROUP[fxGroup]||[];
+    list=list.filter(c=>g.includes(c.c));
+  }
+  return list;
+}
 var fxRates=null, _fxAllAt=0;
 try{ const s=JSON.parse(localStorage.getItem('fxAll1')||'null');
   if(s&&s.v&&Date.now()-s.at<6*3600e3){ fxRates=s.v; _fxAllAt=s.at; } }catch(e){}
@@ -2505,14 +2553,21 @@ function renderAcctFx(){
   sec.innerHTML=`<div class="sec"><div class="sec-title">환전 <span class="sec-sub">· 원화 ↔ ${CURRENCIES.length}개 통화 · 계좌 우대 ${Math.round(pref*100)}%</span></div>
     <div class="panel afx">
       <div class="afx-wallet">
-        <div class="afw-i"><small>원화 예수금</small><b class="num">${KRW(cash)}원</b></div>
-        ${held.length?held.map(c=>`<div class="afw-i"><small>${c.f} ${c.c}</small><b class="num">${c.sym}${fmtCur(fxBal(c.c),c.c)}</b>
+        <div class="afw-i"><small>🇰🇷 KRW 예수금</small><b class="num">${KRW(cash)}원</b></div>
+        ${held.length?held.map(c=>`<div class="afw-i held"><small>${c.f} ${c.c}</small><b class="num">${c.sym}${fmtCur(fxBal(c.c),c.c)}</b>
           <i class="num">${krwPer(c.c)?'≈ '+KRW(Math.round(fxBal(c.c)*krwPer(c.c)))+'원':''}</i></div>`).join('')
           :`<div class="afw-i empty2"><small>보유 외화</small><b>아직 없습니다</b></div>`}
       </div>
-      <div class="afx-cur" id="afxCur">${CURRENCIES.map(c=>
-        `<button class="afx-c ${fxSel===c.c?'on':''}" data-cur="${c.c}"><i>${c.f}</i><b>${c.c}</b>
-          <span class="num">${krwPer(c.c)?fmtRate(krwPer(c.c),c.c):'—'}</span></button>`).join('')}</div>
+      <!-- [v4.61] 통화가 31개로 늘어 칩만 늘어놓으면 찾기 어렵다 — 검색과 묶음을 둔다 -->
+      <div class="afx-tools">
+        <input id="afxFind" class="afx-find" placeholder="통화 검색 (USD, 엔, 유로…)" value="${htmlEsc(fxFind||'')}">
+        <div class="afx-groups">${[['fav','보유·주요'],['asia','아시아'],['eu','유럽'],['am','미주'],['etc','기타'],['all','전체']]
+          .map(([k,l])=>`<button class="afx-g ${fxGroup===k?'on':''}" data-fxg="${k}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="afx-cur" id="afxCur">${fxListShown().map(c=>
+        `<button class="afx-c ${fxSel===c.c?'on':''} ${fxBal(c.c)>0?'has':''}" data-cur="${c.c}"><i>${c.f}</i><b>${c.c}</b>
+          <span class="num">${krwPer(c.c)?fmtRate(krwPer(c.c),c.c):'—'}</span></button>`).join('')
+        ||'<div class="afx-none">맞는 통화가 없습니다</div>'}</div>
       <div class="us-chips" style="margin:12px 0 8px">
         <button class="us-chip ${toCur?'on':''}" data-fxdir="toCur">원화 → ${info.c} (살 때 ${buy?fmtRate(buy,fxSel):'—'})</button>
         <button class="us-chip ${!toCur?'on':''}" data-fxdir="toKrw">${info.c} → 원화 (팔 때 ${sell?fmtRate(sell,fxSel):'—'})</button>
@@ -2526,6 +2581,10 @@ function renderAcctFx(){
       <div class="us-ord-note">※ 환율은 실시간 기준가에 통화별 스프레드를 적용하며, 계좌 종류에 따라 우대율이 다릅니다.<br>
       ※ 달러는 해외 주식 주문에 바로 쓰이고, 매도 대금은 T+1 정산 후 원화로 환전할 수 있습니다.</div>
     </div></div>`;
+  {const f=$('afxFind');
+   if(f)f.oninput=()=>{ fxFind=f.value; renderAcctFx();
+     const g=$('afxFind'); if(g){g.focus(); g.setSelectionRange(g.value.length,g.value.length);} };}
+  sec.querySelectorAll('[data-fxg]').forEach(b=>b.onclick=()=>{ fxGroup=b.dataset.fxg; renderAcctFx(); });
   const amt=$('afxAmt'), pv=$('afxPrev');
   const prev=()=>{ const v=parseFloat(amt.value)||0;
     if(!base||!(v>0)){pv.textContent='';return;}
@@ -4682,12 +4741,57 @@ function etfFiltered(){
      [순위][로고][ 이름줄(전체·말줄임) + 코드·분류 보조줄 ][현재가][등락][3개월][순자산]
    이름 칸이 남는 폭을 전부 가져가 긴 ETF명도 온전히 보이고, 행 높이가 일정해
    화면당 표시 밀도가 3배 이상 올라간다. */
+/* ══ [v4.61] ETF 로고 — 운용사별 색 + 약자 ═════════════════════════════════
+   [무엇이 문제였나] ETF 도 일반 종목과 같은 로고 탐색을 태웠는데, 운용사 CI 이미지가
+   대부분 '단색 사각형'이라 화면에는 색깔 네모만 줄줄이 남았다. 게다가 이미지가
+   로드되면 글자를 숨기게 되어 있어(.lgo.on i{opacity:0}) 약자마저 사라졌다.
+   → ETF 는 이미지 탐색을 아예 쓰지 않고, 운용사 고유색 위에 약자를 새긴다.
+     KODEX 와 TIGER 가 한눈에 구분되는 게 로고의 목적이다. */
+var ETF_BRAND={
+  'KODEX':      ['KDX', '#0b3d91'],   // 삼성자산운용
+  'TIGER':      ['TGR', '#e8500f'],   // 미래에셋
+  'RISE':       ['RSE', '#00a19c'],   // KB
+  'SOL':        ['SOL', '#f5a300'],   // 신한
+  'ACE':        ['ACE', '#1f4fd8'],   // 한국투자
+  'PLUS':       ['PLS', '#7b3fe4'],   // 한화
+  'KOSEF':      ['KSF', '#0f7b3f'],   // 키움
+  'HANARO':     ['HNR', '#c0142d'],   // NH아문디
+  'ARIRANG':    ['ARI', '#00509d'],   // 한화(구)
+  'TIMEFOLIO':  ['TMF', '#111827'],
+  'KIWOOM':     ['KWM', '#0f7b3f'],
+  'WOORI':      ['WOO', '#0069b4'],
+  'BNK':        ['BNK', '#e2231a'],
+  '히어로즈':    ['HRZ', '#5b21b6'],
+  '마이다스':    ['MDS', '#b45309'],
+  '마이티':      ['MTY', '#be123c'],
+  '파워':        ['PWR', '#1e40af'],
+  'FOCUS':      ['FCS', '#0891b2'],
+  '트루':        ['TRU', '#4d7c0f'],
+  '한투':        ['KIM', '#1f4fd8'],
+  '삼성':        ['SSA', '#0b3d91'],
+  '미래에셋':    ['MAM', '#e8500f']
+};
+function etfBrandOf(name){
+  const n=String(name||'').trim().toUpperCase();
+  for(const k in ETF_BRAND){ if(n.startsWith(k.toUpperCase()))return {key:k,ab:ETF_BRAND[k][0],col:ETF_BRAND[k][1]}; }
+  /* 표에 없는 운용사 — 첫 낱말을 약자로 쓰고, 이름 해시로 색을 정해 서로 구분되게 한다 */
+  const w=String(name||'').trim().split(/\s+/)[0]||'ETF';
+  const ab=/[가-힣]/.test(w[0])?w.slice(0,2):w.slice(0,3).toUpperCase();
+  let h=0; for(let i=0;i<w.length;i++)h=(h*31+w.charCodeAt(i))>>>0;
+  const pal=['#0b3d91','#e8500f','#00a19c','#7b3fe4','#0f7b3f','#c0142d','#b45309','#5b21b6','#0891b2','#be123c'];
+  return {key:w,ab,col:pal[h%pal.length]};
+}
+function etfLogo(name,size){
+  const b=etfBrandOf(name);
+  const cls='lgo etf-lg'+(size?' '+size:'')+(b.ab.length>=3?' t3':'');
+  return `<span class="${cls}" style="--lgc:${b.col}" title="${htmlEsc(b.key)}"><i aria-hidden="true">${htmlEsc(b.ab)}</i></span>`;
+}
 function etfRowHtml(x,rank){
   const dir=dirOf(x.changeRate),d3=dirOf(x.m3);
   const lev=x.lev!==1?`<span class="etf-lev ${x.lev<0?'inv':'up'}">${x.lev>0?'+':''}${x.lev}배</span>`:'';
   return `<div class="etf-row" data-code="${x.code}">
     <span class="rk num">${rank}</span>
-    ${stockLogo(x.code,x.name,'sm')}
+    ${etfLogo(x.name,'sm')}
     <span class="c1"><span class="e2-nm"><b>${x.name}</b>${lev}<span class="etf-brand">${x.brand}</span></span>
       <span class="e2-sub num">${x.code} · ${x.tab}</span></span>
     <span class="c2 num">${x.price!=null?KRW(x.price):'—'}</span>
@@ -7084,9 +7188,18 @@ function drawHeroEq(){
   /* [v2.5.7] 기록이 없어도 항상 그린다 — 변동이 없으면 현재 평가액에서 수평선으로 표시 */
   let pts=equityHist.slice(-60).map(x=>x.v);
   const curTot=totalAssetsNow();
-  if(!pts.length)pts=[curTot,curTot];
-  else if(pts.length===1)pts=[pts[0],curTot];
   const note=$('haMini');
+  /* ══ [v4.61] 기록이 하루뿐일 때 ═══════════════════════════════════════════
+     예전에는 같은 값 두 개를 만들어 억지로 직선을 그었다. 화면에는 아무 의미 없는
+     가로줄만 남아 '차트가 고장 난 것처럼' 보였다(가장 자주 나오는 첫날 상태인데도).
+     → 점이 두 개 미만이면 선 대신 '기록이 쌓이는 중'이라고 말해 준다.
+        거짓 그래프를 그리는 것보다 아무것도 없다고 말하는 편이 정직하다. */
+  if(pts.length<2){
+    cv.style.display='none';
+    if(note)note.innerHTML=`<span class="ha-seed">📈 평가액 <b>${KRW(curTot)}원</b>
+      · 자산 추이 그래프는 <b>내일부터</b> 그려집니다 (하루에 한 점씩 쌓입니다)</span>`;
+    return;
+  }
   cv.style.display='block';
   const dpr=window.devicePixelRatio||1,W=cv.clientWidth||420,H=52;
   cv.width=W*dpr;cv.height=H*dpr;
@@ -7867,7 +7980,7 @@ function bindRankRetry(){
   if(b)b.addEventListener('click',(e)=>{e.stopPropagation();rankRetry(b.dataset.tab||searchRankTab);});
   const u=$('usRankRetry'); /* [v4.48] 해외 순위 다시 시도 */
   if(u)u.addEventListener('click',(e)=>{e.stopPropagation();_usQFail=0;
-    usPop=null; usPopAt=0;                       // [v4.58] 인기 목록도 새로 받는다
+    usPop=null; usPopAt=0; _usPopTry=0;          // [v4.58] 인기 목록도 새로 받는다
     $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();});
   const pd=$('usPopDiag');                       // [v4.59] 어느 사이트에서 왔는지 직접 확인
   if(pd)pd.addEventListener('click',(e)=>{e.stopPropagation();openUsPopDiag();});
@@ -7907,12 +8020,18 @@ async function openUsPopDiag(){
   const cp=$('usdgCopy');
   if(cp)cp.onclick=()=>{try{navigator.clipboard.writeText(JSON.stringify(j,null,1).slice(0,4000));cp.textContent='복사됨';}catch(e){}};
 }
+/* [v4.60] 100위를 첫 방문에 채운다 — 서버는 한 번에 38개 문서까지만 조회수를
+   받아올 수 있어(요청당 외부 호출 한도) 처음엔 40여 종만 나왔다. 목록이 100에
+   못 미치면 화면을 그린 채로 조용히 한 번 더 받아 이어 붙인다(최대 4회). */
+var _usPopTry=0;
 function usPopLoad(cb){
   if(usPopBusy)return;
-  if(usPop&&Date.now()-usPopAt<180e3){cb&&cb();return;}
+  if(usPop&&usPop.length>=100&&Date.now()-usPopAt<180e3){cb&&cb();return;}
+  if(usPop&&Date.now()-usPopAt<180e3&&_usPopTry>=4){cb&&cb();return;}
   usPopBusy=true;
-  fetch('/api/uspopular',{cache:'no-store'}).then(r=>r.json()).then(j=>{
-    usPopBusy=false;
+  const again=_usPopTry>0;
+  fetch('/api/uspopular'+(again?'?fresh=1':''),{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    usPopBusy=false; _usPopTry++;
     if(!j||!j.ok||!Array.isArray(j.items))return;
     usPopBasis=j.basis||null;
     /* 내장 목록에 없는 종목은 즉석 등록 — 거래소를 아는 것만 받는다(로이터코드가 필요) */
@@ -7928,7 +8047,9 @@ function usPopLoad(cb){
     }
     usPop=out; usPopAt=Date.now();
     cb&&cb();
-  }).catch(()=>{usPopBusy=false;});
+    /* 아직 100위에 못 미치면 곧바로 한 번 더 — 서버가 다음 묶음을 받아 온다 */
+    if(out.length<100&&_usPopTry<4)setTimeout(()=>usPopLoad(cb),400);
+  }).catch(()=>{usPopBusy=false;_usPopTry++;});
 }
 function usRankSection(){
   const tab=searchRankTab;
@@ -8106,7 +8227,18 @@ function renderSearch(){
   usHit.length&&usEnsureQuotes(usHit.map(u=>u[0]),true).then(()=>{ if(currentView==='search')usPaintRows($('searchResults')); });
 /* [v4.36] 해외만 국기 라벨이 붙어 있어 국내 결과가 무엇인지 모호했다 — 국내도 같은 방식으로 구분한다 */
   const krHead=`<div class="kr-searchblk"><div class="us-sec"><b>🇰🇷 국내 주식</b><span>코스피·코스닥·NXT</span></div></div>`;
-  $('searchResults').innerHTML=usBlock+krHead+html;
+  /* ══ [v4.60] 검색 결과를 좌우 2단으로 ═══════════════════════════════════
+     예전에는 해외 블록을 국내 위에 얹어 세로로 쌓았다. 넓은 화면에서는 해외 몇 종을
+     보려고 한참 스크롤해야 했고, 두 시장을 나란히 견주기도 어려웠다.
+     왼쪽 국내 · 오른쪽 해외로 갈라 한눈에 비교되게 한다.
+     좁은 화면에서는 한 단으로 되돌아가되, 국내가 먼저 오도록 순서를 지킨다. */
+  $('searchResults').innerHTML=
+    `<div class="sr-2col">
+       <div class="sr-col sr-kr">${krHead}${html}</div>
+       <div class="sr-col sr-us">${usBlock||
+         `<div class="us-searchblk"><div class="us-sec"><b>🇺🇸 해외 주식</b><span>탭하면 해외 거래 화면이 열립니다</span></div>
+          <div class="sr-none">이 검색어와 맞는 해외 종목이 없습니다</div></div>`}</div>
+     </div>`;
   safeRun('cmpbar',renderCmpUi);
   if(vsState)vsPaint(true);
   bindStockClicks($('searchResults'));
@@ -10200,28 +10332,19 @@ function renderPortfolioNumbers(){
   const pnl=te-tc,assets=te+cash+usdKrw,rate=tc?pnl/tc*100:0,dir=dirOf(pnl);
   const set=(id,txt,cls)=>{const e=$(id);if(!e)return;e.textContent=txt;if(cls!==undefined)e.className='num '+cls;};
   set('homeAssets',KRW(assets)+'원');set('homePnl',signed(pnl),dir);set('homeRate',pctS(rate),dir);set('homeCash',KRW(cash)+'원');
-  /* ══ [v4.41] 홈 총자산을 국내·해외로 나눠 보여 준다 ═══════════════════════
-     해외 종목과 달러 예수금이 생겼는데 화면은 합계 하나만 보여 줘서
-     어디에 얼마가 들어가 있는지 알 수 없었다. 달러 예수금을 따로 띄우고,
-     자산을 국내/해외로 갈라 비중 막대로 보여 준다. */
-  {const uw=$('homeUsdWrap');
-   if(uw){ uw.hidden=!(usdCash>0);
-     if(usdCash>0)set('homeUsd','$'+USD2(usdCash)); }}
+  /* ══ [v4.61] 총자산 줄 오른쪽에 달러 자산을 함께 ═══════════════════════════
+     원화 합계만 크게 띄우니 '해외에 얼마가 들어가 있는지'가 한 줄 아래로 밀렸다.
+     달러 예수금 + 해외 보유 평가액을 달러로 환산해 같은 줄 끝에 붙인다. */
   try{
-    const sp=$('assetSplit');
-    if(sp){
-      let krE=0,usE=0;
-      (holdings||[]).forEach(hh=>{ if(!hh)return; if(hh.us)usE+=hEvalKRW(hh); else krE+=hEvalKRW(hh); });
-      const usTot=usE+usdKrw, krTot=krE+cash, all=usTot+krTot;
-      if(all>0&&(usTot>0)){
-        sp.hidden=false;
-        const kp=Math.max(0,Math.min(100,krTot/all*100)), up=100-kp;
-        sp.innerHTML=`<div class="as-bar"><i class="kr" style="width:${kp}%"></i><i class="us" style="width:${up}%"></i></div>
-          <div class="as-lb">
-            <span><b>🇰🇷 국내</b> ${KRW(krTot)}원 <i>${kp.toFixed(0)}%</i></span>
-            <span><b>🇺🇸 해외</b> ${KRW(usTot)}원 <i>${up.toFixed(0)}%</i></span>
-          </div>`;
-      } else sp.hidden=true;
+    const usdBox=$('homeUsdTop');
+    if(usdBox){
+      const fx=usFx()||0;
+      let usHold=0; (holdings||[]).forEach(h=>{ if(h&&h.us)usHold+=hEvalKRW(h); });
+      const usdTotal=(+usdCash||0)+(fx>0?usHold/fx:0);
+      if(usdTotal>0.004){
+        usdBox.hidden=false;
+        usdBox.innerHTML=`<b class="num">$${USD2(usdTotal)}</b><span>해외 자산</span>`;
+      } else usdBox.hidden=true;
     }
   }catch(e){}
   /* ══ [v4.41] 홈 총자산을 국내·해외로 나눠 보여 준다 ═══════════════════════
@@ -10240,10 +10363,14 @@ function renderPortfolioNumbers(){
       if(all>0&&(usTot>0||holdings.some(x=>x&&x.us))){
         sp.hidden=false;
         const kp=krTot/all*100, up=100-kp;
-        sp.innerHTML=`<div class="as-bar"><i class="kr" style="width:${kp}%"></i><i class="us" style="width:${up}%"></i></div>
+        /* [v4.61] 해외가 0.2% 라도 막대에 보이게 최소 폭을 준다 —
+           '해외 19,983원 0%' 처럼 있는데 없는 것처럼 보이던 문제. */
+        const kw=Math.max(up>0?2:0,Math.min(100,kp)), uw=100-kw;
+        const fmt=(v)=>v>0&&v<1?v.toFixed(2):v.toFixed(0);
+        sp.innerHTML=`<div class="as-bar"><i class="kr" style="width:${kw}%"></i><i class="us" style="width:${uw}%"></i></div>
           <div class="as-lb">
-            <span><b>🇰🇷 국내</b> ${KRW(krTot)}원 <i>${kp.toFixed(0)}%</i></span>
-            <span><b>🇺🇸 해외</b> ${KRW(usTot)}원 <i>${up.toFixed(0)}%</i></span>
+            <span><b>🇰🇷 국내</b> ${KRW(krTot)}원 <i>${fmt(kp)}%</i></span>
+            <span><b>🇺🇸 해외</b> ${KRW(usTot)}원 <i>${fmt(up)}%</i></span>
           </div>`;
       } else sp.hidden=true;
     }
@@ -12766,20 +12893,73 @@ function usToEngine(cs){
   return (cs||[]).map(c=>({d:String(c.t),o:+c.o,h:+c.h,l:+c.l,c:+c.c,v:+c.v||0}));
 }
 var usTfMap={D:'D',W:'W',M:'M'};
+/* ══ [v4.60] 일봉은 화면에 들어오는 즉시 받아 둔다 ══════════════════════════
+   [무엇이 잘못됐나] v4.57 에서 차트를 국내 엔진으로 옮기면서, 캔들을 '차트 탭에서만'
+   불러오게 바뀌었다. 그런데 시세 탭도 같은 캔들을 쓴다 → 차트를 한 번도 안 누르면
+   '일별 시세를 불러오는 중입니다'에서 영영 멈춘다. 내가 만든 회귀다.
+   → 종목 화면에 들어오면 탭과 무관하게 바로 받고, 받으면 열려 있는 탭을 다시 그린다. */
+var _usCdBusy=null;
+function usEnsureCandles(){
+  if(!usSel)return Promise.resolve();
+  if(usCandles&&usCandles.length)return Promise.resolve();
+  if(_usCdBusy)return _usCdBusy;
+  const want=usSel;
+  _usCdBusy=fetch('/api/uscandle?code='+encodeURIComponent(usMeta[want].reu)+'&n=560',{cache:'no-store'})
+    .then(r=>r.json()).then(j=>{
+      if(usSel!==want)return;
+      usCandles=(j&&j.ok&&Array.isArray(j.candles))?j.candles:[];
+      if(usCandles.length)usApplyCandleExtras(j);
+    }).catch(()=>{ if(usSel===want)usCandles=[]; })
+    .then(()=>{ _usCdBusy=null;
+      if(currentView==='ustrade'){ if(usInfoTab==='chart')usLoadIntoChart(); else renderUsInfo(); } });
+  return _usCdBusy;
+}
+/* 분봉 — 야후 1분봉을 받아 두고 3·5·10·30·60 분은 여기서 묶는다 */
+var usMinRaw=null, _usMinFor=null, _usMinBusy=null;
+function usEnsureMinutes(){
+  if(!usSel)return Promise.resolve();
+  if(_usMinFor===usSel&&usMinRaw)return Promise.resolve();
+  if(_usMinBusy)return _usMinBusy;
+  const want=usSel;
+  _usMinBusy=fetch('/api/uscandle?tf=MIN&code='+encodeURIComponent(usMeta[want].reu),{cache:'no-store'})
+    .then(r=>r.json()).then(j=>{
+      if(usSel!==want)return;
+      usMinRaw=(j&&j.ok&&Array.isArray(j.candles))?j.candles:[];
+      _usMinFor=want;
+    }).catch(()=>{ if(usSel===want){usMinRaw=[];_usMinFor=want;} })
+    .then(()=>{ _usMinBusy=null; if(currentView==='ustrade'&&usInfoTab==='chart')usLoadIntoChart(); });
+  return _usMinBusy;
+}
+function usMinAgg(mins){
+  const src=usMinRaw||[]; if(!src.length)return [];
+  const ms=mins*60000, out=[]; let cur=null,k0=null;
+  for(const c of src){
+    const k=Math.floor(c.t/ms);
+    if(k!==k0){ if(cur)out.push(cur); k0=k; cur={t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}; }
+    else { cur.h=Math.max(cur.h,c.h); cur.l=Math.min(cur.l,c.l); cur.c=c.c; cur.v+=c.v; }
+  }
+  if(cur)out.push(cur);
+  /* 국내 엔진은 d(라벨)로 축을 그린다 — 분봉은 시:분으로 준다 */
+  return out.map(c=>{ const d=new Date(c.t);
+    const hh=String(d.getHours()).padStart(2,'0'), mm=String(d.getMinutes()).padStart(2,'0');
+    return {d:hh+':'+mm,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}; });
+}
 async function usLoadIntoChart(){
   if(currentView!=='ustrade'||!usSel)return;
   const lg=$('chartLegend');
-  /* 봉 종류는 국내 세그먼트(chartTf)를 따른다. 해외는 분봉이 없으므로 일봉으로 내린다. */
-  if(isMinute(chartTf))chartTf='D';
+  if(isMinute(chartTf)){
+    if(_usMinFor!==usSel||!usMinRaw){
+      chartLoading=true; if(lg)lg.textContent='분봉 불러오는 중…'; drawChart();
+      await usEnsureMinutes(); chartLoading=false;
+    }
+    curCandles=usMinAgg(minutesOf(chartTf));
+    resetView(); drawChart();
+    if(!curCandles.length&&lg)lg.textContent='분봉 데이터를 받지 못했어요 · ⟳ 로 다시 시도';
+    return;
+  }
   if(!usCandles||!usCandles.length){
     chartLoading=true; if(lg)lg.textContent='차트 불러오는 중…'; drawChart();
-    try{
-      const r=await fetch('/api/uscandle?code='+encodeURIComponent(usMeta[usSel].reu)+'&n=560',{cache:'no-store'});
-      const j=await r.json();
-      usCandles=(j&&j.ok&&Array.isArray(j.candles))?j.candles:[];
-      if(usCandles.length)usApplyCandleExtras(j);
-    }catch(e){ usCandles=[]; }
-    chartLoading=false;
+    await usEnsureCandles(); chartLoading=false;
   }
   curCandles=usToEngine(usAgg(usCandles||[],usTfMap[chartTf]||'D'));
   resetView(); drawChart();
@@ -12799,6 +12979,7 @@ function usApplyCandleExtras(j){
 }
 function openUS(t){ if(!usMeta[t])return;
   usSel=t; usSide='buy'; usOrdPx=null; usOrdQty=1; usCandles=null;
+  usMinRaw=null; _usMinFor=null;                       // [v4.60] 분봉 캐시도 종목별
   /* [v4.56] 해외도 '최근 본 종목'에 국내와 같은 목록으로 남긴다 —
      예전에는 해외만 '최근 검색'으로 따로 놀아서, 방금 본 미국 종목을
      종목검색 화면에서 다시 찾을 수가 없었다. */
@@ -12825,6 +13006,7 @@ function renderUsTrade(){
   document.querySelectorAll('#usInfoTabs button').forEach(x=>x.classList.toggle('on',x.dataset.uinfo===usInfoTab));
   renderUsInfo();
   usEnsureQuotes([usSel],true).then(()=>{renderUsHead();renderUsOrder();renderUsInfo();renderUsCta();});
+  usEnsureCandles();          // [v4.60] 탭과 무관하게 바로 — 시세 탭도 이 데이터를 쓴다
   usPollStart([usSel]);
   /* [v4.50] 하단 고정 주문바 — 모듈이라 inline onclick 을 쓸 수 없어 여기서 묶는다 */
   {const b=$('usCtaBuy'), sl=$('usCtaSell');
@@ -12837,10 +13019,9 @@ function renderUsInfo(){
   const el=$('usInfoBody'), cc=$('usChartCard');
   if(usInfoTab==='chart'){ if(cc)cc.hidden=false; el.style.display='none';
     usChartMount(true);                                    // [v4.57] 국내 차트 카드를 이리로
-    try{ if(isMinute(chartTf))chartTf='D'; buildTfSeg(); buildMaSeg(); }catch(e){}
-    /* 해외는 분봉을 제공하지 않으므로 분봉 버튼은 감춘다 */
-    try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{
-      b.style.display=isMinute(b.dataset.tf)?'none':''; }); }catch(e){}
+    try{ buildTfSeg(); buildMaSeg(); }catch(e){}
+    /* [v4.60] 분봉도 지원하므로 더 이상 감추지 않는다 */
+    try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{b.style.display='';}); }catch(e){}
     usLoadIntoChart();
     requestAnimationFrame(()=>requestAnimationFrame(()=>drawChart()));
     return; }
@@ -12952,7 +13133,9 @@ function renderUsAi(el){
 /* ③ 시세 — 일별 표 */
 function renderUsSiseTab(el){
   const cs=usCandles;
-  if(!cs||!cs.length){el.innerHTML=usNoData('일별 시세를 불러오는 중입니다','잠시만 기다려 주세요.');return;}
+  if(!cs||!cs.length){
+    usEnsureCandles();      // [v4.60] 아직 없으면 지금 받는다(도착하면 자동으로 다시 그려진다)
+    el.innerHTML=usNoData('일별 시세를 불러오는 중입니다','잠시만 기다려 주세요.');return;}
   /* [v4.57] 시세 표도 차트와 같은 봉 종류를 따른다 — 차트에서 주봉을 골랐는데
      시세 표만 일별이면 두 화면이 다른 이야기를 하게 된다. */
   usTF=(chartTf==='W'||chartTf==='M')?chartTf:'D';

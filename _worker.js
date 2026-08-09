@@ -11272,64 +11272,79 @@ async function uscandle_default(req2){
   const u=new URL(req2.url), diag=[];
   const reu=String(u.searchParams.get("code")||"").trim().slice(0,16);
   if(!reu)return new Response(JSON.stringify({ok:false,err:"code"}),{headers:{"content-type":"application/json"}});
+  /* ══ [v4.60] 해외 분봉 ═══════════════════════════════════════════════════
+     [왜 이제 되나] 화면 진단(조회수 원천 확인)에서 야후가 200 으로 응답하는 것이
+     실제로 확인됐다. 그동안 '야후는 429 로 막혔다'고 짐작했던 건 KV 오류로 요청이
+     시작조차 못 하던 시절의 잘못된 추측이었다.
+     → 야후 차트의 1분봉(최근 5일)을 한 번에 받아 두고, 3·5·10·30·60분은
+       클라이언트에서 묶어 만든다. 국내와 같은 봉 종류를 해외에서도 쓸 수 있다. */
+  if(String(u.searchParams.get("tf")||"")==="MIN"){
+    const MK="usmin:"+reu;
+    try{ const c=KV?await KV.get(MK,"json"):null;
+      if(c&&c.at&&Date.now()-c.at<3*60*1000&&Array.isArray(c.candles)&&c.candles.length)
+        return new Response(JSON.stringify({ok:true,tf:"MIN",candles:c.candles,cached:1}),
+          {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+    }catch(e){}
+    const tk=usSymDot(reu);
+    for(const [nm,url] of [
+      ["yh1m","https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(tk)+"?interval=1m&range=5d&includePrePost=false"],
+      ["yh5m","https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(tk)+"?interval=5m&range=1mo&includePrePost=false"]
+    ]){
+      try{
+        const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+        const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"application/json" },signal:c.signal});
+        clearTimeout(t);
+        if(!r.ok){ diag.push(nm+":"+r.status); continue; }
+        const j=await r.json();
+        const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
+        const ts=res&&res.timestamp, q=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0];
+        if(!ts||!q){ diag.push(nm+":shape"); continue; }
+        const out=[];
+        for(let i=0;i<ts.length;i++){
+          const cl=+q.close[i]; if(!(cl>0))continue;
+          let o=+q.open[i],h=+q.high[i],l=+q.low[i];
+          if(!(o>0))o=cl; if(!(h>0))h=Math.max(o,cl); if(!(l>0))l=Math.min(o,cl);
+          out.push({t:ts[i]*1000,o,h:Math.max(h,o,cl),l:Math.min(l,o,cl),c:cl,v:+q.volume[i]||0});
+        }
+        if(out.length<10){ diag.push(nm+":thin"); continue; }
+        diag.push(nm+":"+out.length);
+        try{ if(KV)await KV.put(MK,JSON.stringify({at:Date.now(),candles:out}),{expirationTtl:300}); }catch(e){}
+        return new Response(JSON.stringify({ok:true,tf:"MIN",candles:out,src:nm,diag}),
+          {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+      }catch(e){ diag.push(nm+":"+String(e).slice(0,10)); }
+    }
+    return new Response(JSON.stringify({ok:false,tf:"MIN",candles:[],diag}),
+      {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+  }
   const CK="uscd:"+reu;
   try{ const c=KV?await KV.get(CK,"json"):null;
     if(c&&c.at&&Date.now()-c.at<15*60*1000&&Array.isArray(c.candles))
       return new Response(JSON.stringify({ok:true,candles:c.candles,cached:1}),{headers:{"content-type":"application/json","access-control-allow-origin":"*"}});
   }catch(e){}
-  /* ══ [v4.48] 차트 원천도 교체 ═══════════════════════════════════════════
-     야후가 429 로 죽으면 차트는 KV 캐시 수명(1시간)만큼만 살다가 비었다 —
-     사용자 화면에서 52주 고저만 남고 시세가 '—' 였던 것도 이 캐시의 잔상이다.
-     워커 IP 에서 열리는 Cboe(약 1년)·Stooq(장기) 일봉을 앞에 세운다. */
+  /* ══ [v4.60] 차트도 시세와 같은 순서로 ═══════════════════════════════════
+     Cboe → Stooq → 네이버 순이라, 네이버가 가장 빠른데도 앞의 둘이 각각 6초씩
+     헛돌고 나서야 도달했다. 종목 화면을 열 때마다 12초를 버리던 셈이다.
+     시세에서 실제로 응답이 확인된 m.stock.naver.com 을 맨 앞에 세우고,
+     타임아웃도 6초 → 4초로 줄인다. */
   try{
-    const tk=usSymDot(reu);
-    const cc=new AbortController(); const ct=setTimeout(()=>cc.abort(),6000);
-    const cr=await fetch("https://cdn.cboe.com/api/global/delayed_quotes/charts/historical/"+encodeURIComponent(tk)+".json",
-      {headers:{ "User-Agent": UA20, Accept:"application/json" },signal:cc.signal});
-    clearTimeout(ct);
-    if(cr.ok){
-      let j=null; try{ j=JSON.parse(await cr.text()); }catch(e){}
-      const arr=(j&&j.data)||[];
-      const cs=[];
-      for(const it of (Array.isArray(arr)?arr:[])){
-        const t8=String(it.date!=null?it.date:it.Date||"").replace(/[^0-9]/g,"").slice(0,8);
-        const c2=usNum(it.close!=null?it.close:it.Close);
-        if(t8.length!==8||c2==null)continue;
-        cs.push({t:+t8,
-          o:usNum(it.open!=null?it.open:it.Open)!=null?usNum(it.open!=null?it.open:it.Open):c2,
-          h:usNum(it.high!=null?it.high:it.High)!=null?usNum(it.high!=null?it.high:it.High):c2,
-          l:usNum(it.low!=null?it.low:it.Low)!=null?usNum(it.low!=null?it.low:it.Low):c2,
-          c:c2,v:usNum(it.volume!=null?it.volume:it.Volume)||0});
-      }
-      cs.sort((a,b)=>a.t-b.t);
-      if(cs.length>5){
+    for(const url of [
+      "https://m.stock.naver.com/api/chart/foreign/item/"+reu+"/day",
+      "https://m.stock.naver.com/api/chart/foreign/item/"+reu+"/day?range=2y"
+    ]){
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),4000);
+      let r=null; try{ r=await fetch(url,{headers:HDRS,signal:c.signal}); }catch(e){ diag.push("nv:"+String(e).slice(0,8)); }
+      clearTimeout(t);
+      if(!r||!r.ok){ if(r)diag.push("nv:"+r.status); continue; }
+      const cs=usPickCandles(await r.text());
+      if(cs&&cs.length>20){
+        diag.push("nv:"+cs.length);
         try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),candles:cs}),{expirationTtl:3600}); }catch(e){}
-        return new Response(JSON.stringify({ok:true,candles:cs,diag:["cboe"]}),
+        return new Response(JSON.stringify({ok:true,candles:cs,src:"naver",diag}),
           {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
       }
-      diag.push("cb:empty");
-    } else diag.push("cb:"+cr.status);
-  }catch(e){ diag.push("cb:"+String(e).slice(0,10)); }
-  /* ② Stooq 전체 일봉 CSV — IP 한도만 남아 있으면 10년치도 준다 */
-  try{
-    const t2=await tget("https://stooq.com/q/d/l/?s="+encodeURIComponent(usSym(reu).toLowerCase())+".us&i=d",6000);
-    const lines=String(t2||"").trim().split(/\r?\n/);
-    if(/^date,open/i.test(lines[0]||"")&&lines.length>6){
-      const cs=[];
-      for(const ln of lines.slice(1)){
-        const p=ln.split(","); const d8=String(p[0]||"").replace(/-/g,""); const c2=usNum(p[4]);
-        if(d8.length!==8||c2==null)continue;
-        cs.push({t:+d8,o:usNum(p[1])!=null?usNum(p[1]):c2,h:usNum(p[2])!=null?usNum(p[2]):c2,
-                 l:usNum(p[3])!=null?usNum(p[3]):c2,c:c2,v:usNum(p[5])||0});
-      }
-      const cut=cs.slice(-520);
-      if(cut.length>5){
-        try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),candles:cut}),{expirationTtl:3600}); }catch(e){}
-        return new Response(JSON.stringify({ok:true,candles:cut,diag:["stooq"]}),
-          {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
-      }
-    } else diag.push("sqd:"+(/exceeded/i.test(String(t2||""))?"limit":"fmt"));
-  }catch(e){ diag.push("sqd:"+String(e).slice(0,10)); }
+      diag.push("nv:thin");
+    }
+  }catch(e){ diag.push("nv:"+String(e).slice(0,10)); }
   const H={ "User-Agent": UA20, Accept:"application/json", Referer:"https://m.stock.naver.com/worldstock/stock/"+reu, "Accept-Language":"ko" };
   /* [v4.42] 야후에서 2년치 일봉을 먼저 받는다 — 네이버가 막혀도 차트가 비지 않는다 */
   try{
@@ -11642,45 +11657,15 @@ async function usPopExternal(diag, budget){
       else diag.push(name + ":parse");
     } catch (e) { diag.push(name + ":" + String(e).slice(0, 10)); }
   };
-  /* ① 네이버 해외 인기 — 이 앱에서 유일하게 응답이 확인된 호스트라 여러 경로를 시도한다 */
-  const nvPick = (txt) => {
-    try {
-      const j = JSON.parse(txt);
-      const cand = j.stocks || j.datas || j.items || (j.result && (j.result.stocks || j.result.items))
-        || (Array.isArray(j) ? j : null);
-      if (!Array.isArray(cand)) return null;
-      const out = [];
-      for (const it of cand) {
-        const reu = String(it.reutersCode || it.symbolCode || it.code || "").toUpperCase();
-        const m = reu.match(/^([A-Z0-9.\-]{1,8})\.([ONA])$/);
-        if (!m) continue;
-        out.push({ t: m[1], sfx: m[2],
-          kr: String(it.stockNameKor || it.stockName || it.nameKor || "").trim(),
-          en: String(it.stockNameEng || it.nameEng || "").trim() });
-        if (out.length >= 60) break;
-      }
-      return out.length ? out : null;
-    } catch (e) { return null; }
-  };
-  for (const u of [
-    "https://m.stock.naver.com/api/stocks/marketValue/worldStock?page=1&pageSize=60",
-    "https://m.stock.naver.com/api/worldstock/home/popular",
-    "https://m.stock.naver.com/api/stocks/searchTop/worldStock?pageSize=60"
-  ]) { if (lists.length) break; await grab("naver-pop", u, nvPick); }
+  /* [v4.60] 네이버 해외 인기·나스닥 스크리너는 화면 진단에서 404 로 확인됐다.
+     경로가 사라진 것이라 재시도해도 소용없고, 매 요청마다 4회를 헛되이 썼다.
+     그 몫을 위키 문서 조회에 돌린다(순위가 26위에서 끊기던 원인 중 하나). */
   /* ② Stocktwits 트렌딩 — 이야기가 많이 오가는 종목. 거래소 정보가 없어 티커만 쓴다 */
   await grab("stocktwits", "https://api.stocktwits.com/api/2/trending/symbols.json?limit=30",
     (txt) => { try {
       const j = JSON.parse(txt); const s = j.symbols || [];
       return s.filter(x => x && x.symbol && /^[A-Z]{1,5}$/.test(x.symbol))
         .map(x => ({ t: x.symbol, sfx: null, en: String(x.title || "").trim(), kr: "" }));
-    } catch (e) { return null; } },
-    { "User-Agent": UA20, Accept: "application/json" });
-  /* ③ 나스닥 활발종목 */
-  await grab("nasdaq", "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=40&offset=0&download=false",
-    (txt) => { try {
-      const j = JSON.parse(txt); const rows = (j.data && (j.data.rows || j.data.table && j.data.table.rows)) || [];
-      return rows.filter(r => r && r.symbol && /^[A-Z]{1,5}$/.test(r.symbol))
-        .map(r => ({ t: r.symbol, sfx: null, en: String(r.name || "").trim(), kr: "" }));
     } catch (e) { return null; } },
     { "User-Agent": UA20, Accept: "application/json" });
   return lists;
@@ -11733,6 +11718,28 @@ var WIKI_ART = {
   DUK:"Duke_Energy", SO:"Southern_Company", VST:"Vistra_Corp", CEG:"Constellation_Energy",
   OKLO:"Oklo_Inc.", SMR:"NuScale_Power", MSTR:"Strategy_(company)", GME:"GameStop", AMC:"AMC_Theatres"
 };
+/* [v4.60] 티커 → 거래소 접미(O 나스닥 / N 뉴욕 / A 아멕스).
+   야후·Stocktwits 는 거래소를 알려 주지 않아, 이걸 모르면 클라이언트가 종목을
+   등록하지 못하고 순위에서 통째로 빠졌다 — 26위에서 끊긴 또 하나의 이유다. */
+var US_NYSE = ("JPM BAC WFC GS MS C BLK SCHW AXP V MA BRK.B BRK.A WMT TGT HD LOW NKE MCD KO PG CL UL "
+  + "JNJ PFE MRK ABBV LLY BMY UNH CVS XOM CVX COP SLB BA LMT RTX NOC GD GE CAT DE HON MMM UPS FDX F GM "
+  + "DIS T VZ NEE DUK SO LIN NIO LI XPEV BABA JD PDD SONY TM HMC NVO ASML TSM ACN CRM ORCL IBM PM MO "
+  + "SPGI CB MCO ICE CME AON MMC TRV ALL PGR AIG MET PRU BK STT NTRS RF KEY HBAN CFG FITB "
+  + "O SPG PLD AMT CCI EQIX PSA DLR VICI WELL ABT TMO DHR SYK BDX BSX MDT ZTS ELV CI HUM CNC "
+  + "RIVN LCID SMR VST CEG D AEP EXC XEL ED WEC ES PEG SRE PCG NRG "
+  + "SHOP SQ SPOT UBER LYFT ABNB DASH RBLX HOOD COIN PLTR SNOW NET TWLO ZM DOCU "
+  + "GME AMC BB KSS M JWN GPS ANF AEO URBN").split(/\s+/);
+var US_AMEX = ("SMR OKLO LEU UUUU NXE DNN UEC".split(/\s+/));
+var US_EXCH = (function(){ const m={};
+  US_NYSE.forEach(t=>{ if(t)m[t]="N"; });
+  US_AMEX.forEach(t=>{ if(t)m[t]="A"; });
+  return m; })();
+function usGuessSfx(t){
+  const k=String(t||"").toUpperCase();
+  /* 표에 없으면 나스닥으로 본다 — 틀려도 CNBC·Cboe 는 티커만으로 시세를 주므로
+     화면이 비지는 않는다(네이버 경로만 못 쓸 뿐). */
+  return US_EXCH[k] || "O";
+}
 function wikiDate(back){
   const d = new Date(Date.now() - back * 864e5);
   const y = d.getUTCFullYear(), m = String(d.getUTCMonth() + 1).padStart(2, "0"), dd = String(d.getUTCDate()).padStart(2, "0");
@@ -11752,21 +11759,29 @@ async function wikiTopViews(diag, budget){
   const out = {};
   const art2t = {};
   for (const k in WIKI_ART) { const a = WIKI_ART[k]; if (!art2t[a]) art2t[a] = k; }
-  for (const back of [2, 3]) {
-    if (budget && budget.left <= 0) break;
-    budget && budget.left--;
-    const d = wikiDate(back);
-    const { j, err } = await wikiGet(
-      `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${d.y}/${d.m}/${d.d}`, 5000);
-    if (err) { diag.push("wiki-top:" + err); continue; }
-    const arr = (j && j.items && j.items[0] && j.items[0].articles) || [];
+  const d = wikiDate(2), dm = wikiDate(35);
+  const urls = [
+    ["day", `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${d.y}/${d.m}/${d.d}`],
+    /* 월간 1000위 — 하루치보다 기업 문서가 훨씬 많이 걸린다(순위 표본을 넓히는 핵심) */
+    ["mon", `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${dm.y}/${dm.m}/all-days`]
+  ];
+  const rs = await Promise.all(urls.map(async ([nm, u]) => {
+    if (budget && budget.left <= 0) return null;
+    if (budget) budget.left--;
+    const { j, err } = await wikiGet(u, 6000);
+    if (err) { diag.push("wiki-top-" + nm + ":" + err); return null; }
+    return { nm, arr: (j && j.items && j.items[0] && j.items[0].articles) || [] };
+  }));
+  for (const r of rs) {
+    if (!r) continue;
     let n = 0;
-    for (const a of arr) {
+    for (const a of r.arr) {
       const t = art2t[a.article];
-      if (t && !out[t]) { out[t] = +a.views || 0; n++; }
+      /* 월간은 한 달 누적이라 30 으로 나눠 일평균으로 맞춘다 — 일간과 단위를 통일 */
+      const v = r.nm === "mon" ? Math.round((+a.views || 0) / 30) : (+a.views || 0);
+      if (t && !(out[t] > 0) && v > 0) { out[t] = v; n++; }
     }
-    diag.push("wiki-top:" + n);
-    if (n) break;
+    diag.push("wiki-top-" + r.nm + ":" + n);
   }
   return out;
 }
@@ -11787,23 +11802,29 @@ async function wikiArticleViews(tickers, have, diag, budget){
     else still.push(t);
   }
   diag.push("wiki-kv:" + (need.length - still.length));
+  /* [v4.60] 한 번에 14개씩 '차례로' 받다 보니 135종을 채우는 데 열 번 넘는 방문이
+     필요했다 — 그래서 순위가 26위에서 끊겼다. 동시에 띄우고 개수도 늘린다.
+     서브리퀘스트는 요청당 50개(★11)이므로 30개까지는 넉넉하다. */
   const s = wikiDate(8), e = wikiDate(2);
-  let got = 0;
-  for (const t of still.slice(0, 14)) {
-    if (budget && budget.left <= 2) break;
-    budget && budget.left--;
+  const take = still.slice(0, Math.max(0, Math.min(38, budget ? budget.left - 4 : 38)));
+  if (budget) budget.left -= take.length;
+  const got = await Promise.all(take.map(async (t) => {
     const { j, err } = await wikiGet(
       `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/`
-      + encodeURIComponent(WIKI_ART[t]) + `/daily/${s.s}/${e.s}`, 4500);
-    if (err) { diag.push("wiki-a:" + err); continue; }
+      + encodeURIComponent(WIKI_ART[t]) + `/daily/${s.s}/${e.s}`, 5000);
+    if (err) return null;
     const items = (j && j.items) || [];
-    if (!items.length) continue;
-    const sum = items.reduce((a, x) => a + (+x.views || 0), 0);
-    const avg = Math.round(sum / items.length);
-    out[t] = avg; got++;
-    try { if (KV) await KV.put("wikv:" + t, JSON.stringify({ at: Date.now(), v: avg }), { expirationTtl: 86400 }); } catch (e) { }
+    if (!items.length) return null;
+    const avg = Math.round(items.reduce((a, x) => a + (+x.views || 0), 0) / items.length);
+    return { t, avg };
+  }));
+  let n = 0;
+  for (const g of got) {
+    if (!g) continue;
+    out[g.t] = g.avg; n++;
+    try { if (KV) await KV.put("wikv:" + g.t, JSON.stringify({ at: Date.now(), v: g.avg }), { expirationTtl: 86400 }); } catch (e) { }
   }
-  diag.push("wiki-art:" + got);
+  diag.push("wiki-art:" + n + "/" + take.length);
   return out;
 }
 /* ③ 야후 파이낸스에서 가장 많이 검색된 종목 */
@@ -11824,7 +11845,7 @@ async function yahooTrending(diag, budget){
   } catch (e) { diag.push("yh-trend:" + String(e).slice(0, 10)); return null; }
 }
 async function uspopular_default(req2){
-  const diag = [], budget = { left: 22 };
+  const diag = [], budget = { left: 46 };
   const CK = "uspop:v2";
   const fresh = new URL(req2.url).searchParams.get("fresh") === "1";
   if (!fresh) {
@@ -11881,7 +11902,7 @@ async function uspopular_default(req2){
   const withV = all.filter(x => (wikiV[x.t] || 0) > 0).sort((a, b) => wikiV[b.t] - wikiV[a.t]);
   const noV = all.filter(x => !(wikiV[x.t] > 0)).sort((a, b) => b.sc - a.sc);
   const items = withV.concat(noV).slice(0, 130)
-    .map(x => ({ t: x.t, sfx: x.sfx, kr: x.kr, en: x.en, origin: x.origin,
+    .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, origin: x.origin,
       wiki: wikiV[x.t] || 0, views: Math.round(vt.map[x.t] || 0) }));
   const basis = {
     wiki: wEntries.length, wikiTop: wEntries.length ? wEntries[0][0] : null,
@@ -11964,7 +11985,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.59.0";
+var APP_VER = "4.61.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

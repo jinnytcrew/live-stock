@@ -3906,3 +3906,58 @@ html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
 .rank-retry.mini{display:inline-block;margin-top:7px;padding:4px 10px;font-size:11px;
   border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
 .rank-retry.mini:hover{border-color:var(--sub-2);color:var(--text)}
+
+/* ══ [v4.60] 검색 결과 2단 — 왼쪽 국내 · 오른쪽 해외 ═══════════════════════ */
+.sr-2col{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.sr-col{min-width:0}
+.sr-col .us-searchblk,.sr-col .kr-searchblk{margin:0}
+.sr-none{padding:22px 14px;text-align:center;font-size:12.5px;font-weight:700;color:var(--sub-2)}
+/* 2단에서는 국내 목록의 내부 2열 배치를 1열로 되돌린다 — 칸이 좁아 글자가 눌린다 */
+.sr-kr .stock-grid,.sr-kr .srch-grid{grid-template-columns:1fr!important}
+/* [v4.61] 좁은 화면에서도 2단을 유지한다 — 결과가 없으면 그 칸에 안내가 뜨므로
+   한 단으로 되돌릴 이유가 없고, 두 시장을 나란히 보는 것이 이 화면의 목적이다. */
+@media (max-width:1100px){ .sr-2col{gap:10px} }
+@media (max-width:700px){
+  .sr-2col{gap:7px}
+  .sr-col .us-sec b{font-size:12.5px}
+  .sr-col .us-sec span{display:none}
+}
+
+/* ══ [v4.61] 총자산 카드 ═══════════════════════════════════════════════════ */
+.big-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.big-row .big{margin:0}
+.home-usd-top{flex-shrink:0;text-align:right;line-height:1.2}
+.home-usd-top b{display:block;font-size:19px;font-weight:900;letter-spacing:-.4px;
+  color:#ffcf57;font-variant-numeric:tabular-nums}
+.home-usd-top span{display:block;margin-top:2px;font-size:10.5px;font-weight:700;
+  color:rgba(255,255,255,.62)}
+.ha-seed{display:block;padding:12px 2px 2px;font-size:12px;line-height:1.7;
+  font-weight:600;color:rgba(255,255,255,.72)}
+.ha-seed b{color:#fff;font-weight:800}
+.as-bar i.us{min-width:0}
+
+/* ══ [v4.61] ETF 로고 — 운용사 색 + 약자 ═══════════════════════════════════ */
+.lgo.etf-lg{background:var(--lgc)!important;background-image:none!important;
+  border-radius:9px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.lgo.etf-lg>i{opacity:1!important;color:#fff;font-weight:900;letter-spacing:-.4px;font-size:12.5px}
+.lgo.etf-lg.t3>i{font-size:11px}
+.lgo.etf-lg.sm>i{font-size:11px}
+.lgo.etf-lg.sm.t3>i{font-size:9.5px}
+.lgo.etf-lg.xs>i{font-size:8.5px}
+
+/* ══ [v4.61] 환전 — KRW 통일 · 보유 외화 강조 · 검색/묶음 ═══════════════════ */
+.afw-i.held small{color:var(--down);font-weight:800}
+.afw-i.held b{color:var(--down)}
+.afx-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 8px}
+.afx-find{flex:1;min-width:150px;height:36px;padding:0 12px;border-radius:10px;
+  border:1px solid var(--border);background:var(--panel);color:var(--text);
+  font-size:12.5px;font-weight:700}
+.afx-find:focus{outline:none;border-color:var(--sub-2)}
+.afx-groups{display:flex;gap:5px;flex-wrap:wrap}
+.afx-g{padding:7px 11px;border-radius:9px;cursor:pointer;border:1px solid var(--border);
+  background:var(--panel);font-size:11.5px;font-weight:800;color:var(--sub-2)}
+.afx-g.on{background:var(--text);color:var(--panel);border-color:var(--text)}
+html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
+.afx-c.has{border-color:var(--down)}
+.afx-c.has b{color:var(--down)}
+.afx-none{padding:20px;text-align:center;font-size:12.5px;font-weight:700;color:var(--sub-2)}
