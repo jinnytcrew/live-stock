@@ -4039,17 +4039,21 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
 .hm-box{padding:13px 14px;border-radius:14px;background:rgba(255,255,255,.07);
   border:1px solid rgba(255,255,255,.10);min-width:0}
 .hm-box.us{background:rgba(255,207,87,.10);border-color:rgba(255,207,87,.22)}
-.hm-h{font-size:11.5px;font-weight:800;color:rgba(255,255,255,.72);margin-bottom:6px}
-.hm-v{font-size:21px;font-weight:900;letter-spacing:-.6px;color:#fff;
-  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hm-s{margin-top:5px;font-size:11px;font-weight:600;color:rgba(255,255,255,.58);
+/* [v4.90] 국내·해외 상자 — 라벨은 노란색, 금액은 진한 흰색, 전체적으로 크게 */
+.hm-h{font-size:14px;font-weight:900;color:#ffcf57;margin-bottom:8px;letter-spacing:-.2px}
+.hm-v{font-size:26px;font-weight:900;letter-spacing:-.8px;color:#fff;
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  text-shadow:0 1px 10px rgba(0,0,0,.25)}
+.hm-s{margin-top:7px;font-size:12.5px;font-weight:700;color:rgba(255,255,255,.66);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hm-s b{font-weight:800;color:rgba(255,255,255,.86)}
+.hm-s b{font-weight:900;color:#fff}
 .hm-usKrw{margin-top:3px}
 @media (max-width:520px){
   .hm-split{gap:8px}
-  .hm-v{font-size:18px}
-  .hm-box{padding:11px 12px}
+  .hm-v{font-size:21px}
+  .hm-h{font-size:12.5px}
+  .hm-s{font-size:11.5px}
+  .hm-box{padding:12px 13px}
 }
 /* [v4.75] 로고 로드 실패를 감지하기 위한 숨은 그림 — 화면에는 보이지 않는다 */
 

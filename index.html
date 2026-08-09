@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=370">
+<link rel="stylesheet" href="/app.css?v=372">
 </head>
 <body>
 
@@ -754,7 +754,10 @@
         <div class="cal-wdays"><span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="sat">토</span></div>
         <div class="cal-grid" id="calGrid"></div>
         <div class="cal-events" id="calEvents"></div>
-        <div class="cal-note">국내 실적일 <b>트레이딩뷰 확정 일정</b>(시총 상위 450) · 실적 상세 <b>네이버 금융 분기 재무·컨센서스</b> · 공모주 <b>38커뮤니케이션 실데이터</b> · 미국 실적 <b>야후 파이낸스</b> · 휴장일·<b>FOMC</b>·선물옵션 만기·미국 고용지표 등 공개된 실제 일정 기반입니다.</div>
+        <!-- [v4.90] '확정 일정'이라고 적어 두었지만 실제로는 추정 날짜가 섞여 있었다.
+             무엇이 확정이고 무엇이 추정인지 설명을 정확히 고친다. -->
+        <div class="cal-note">국내 실적일 <b>트레이딩뷰</b>(시총 상위 450) · 실적 상세 <b>네이버 금융 분기 재무·컨센서스</b> · 공모주 <b>38커뮤니케이션</b> · 미국 실적 <b>야후 파이낸스</b> · 휴장일·<b>FOMC</b>·선물옵션 만기·미국 고용지표 등 공개 일정 기반입니다.<br>
+          <b>확정</b>은 회사가 공시한 날짜, <b>추정일</b>은 과거 발표 패턴으로 계산한 날짜입니다. 추정일은 실제와 다를 수 있으니 회사 공시를 확인하세요.</div>
       </div>
     </div>
     <div class="sec">
@@ -1365,6 +1368,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=370"></script>
+<script type="module" src="/app.js?v=372"></script>
 </body>
 </html>

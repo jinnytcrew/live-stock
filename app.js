@@ -865,16 +865,29 @@ let equityHist=[]; try{equityHist=JSON.parse(localStorage.getItem('equityHist')|
    ══════════════════════════════════════════════════════════════════════════ */
 const EQ_BUCKET=3*60e3;
 function eqTotalNow(){
-  /* [v4.5] 자산 추이에 NaN 이 한 번이라도 들어가면 그래프가 통째로 깨진다.
-     보유 한 줄이 손상돼도 전체가 오염되지 않도록 정수로 정규화해 합산한다. */
+  /* ══ [v4.91] 해외 자산이 통째로 빠져 있었다 ═══════════════════════════════
+     [무엇이 잘못됐나] 이 함수는 모든 보유를 '원화'로 보고 단가×수량을 더했다.
+     그래서 애플 5주($313)가 1,565원으로 계산됐다. 달러 예수금은 아예 빠졌다.
+     [영향] 이 값 하나를 홈 총자산·자산 추이·클랜 수익률 리그가 함께 쓴다.
+     즉 해외 거래를 하면 세 화면이 모두 틀린 값을 보여 주고,
+     클랜 랭킹에서는 해외 수익이 반영되지 않아 순위가 어긋난다.
+     [고침] 해외 보유는 환율로 환산하고, 달러 예수금도 더한다.
+     소수점 주식(0.01주)도 있으므로 수량·단가를 정수로 자르지 않는다.
+     (예전에 정수로 자른 것은 NaN 방지가 목적이었다 — 그건 아래에서 따로 막는다) */
+  const num=(v)=>{const n=Number(v);return isFinite(n)?n:0;};
+  const fx=(()=>{ try{ const v=Number(usFx()); return isFinite(v)&&v>0?v:0; }catch(e){ return 0; } })();
   const ev=(Array.isArray(holdings)?holdings:[]).reduce((a,h)=>{
-    if(!h)return a;const st=byCode[h.code]||{};
-    const q=Math.trunc(Number(h.qty))||0, av=Math.trunc(Number(h.avg))||0;
+    if(!h)return a;
+    const st=byCode[h.code]||{};
+    const q=num(h.qty), av=num(h.avg);
     if(q<=0)return a;
-    const px=Math.trunc(Number(st.price!=null?st.price:av))||av;
-    return a+px*q;},0);
-  const c=Math.trunc(Number(cash))||0;
-  return Math.max(0,ev)+Math.max(0,c);
+    const px=num(st.price!=null?st.price:av)||av;
+    const krw=h.us?(fx>0?px*q*fx:0):px*q;      // 해외는 환율로 환산 · 환율을 모르면 0
+    return a+(isFinite(krw)?krw:0);},0);
+  const c=num(cash);
+  const uc=fx>0?num(typeof usdCash!=='undefined'?usdCash:0)*fx:0;   // 달러 예수금
+  const tot=Math.max(0,ev)+Math.max(0,c)+Math.max(0,uc);
+  return Math.round(isFinite(tot)?tot:0);
 }
 /* ══ [v4.5 · 치명] 날짜를 한국시간(KST)으로 통일한다 ═══════════════════════
    [무엇이 잘못됐나]
@@ -1676,7 +1689,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=370';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=372';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -6200,14 +6213,43 @@ function renderAcctExtras(){
 /* ══ [v2.5] 클랜(길드) ══ — 계정 기반 · 월간 수익률 리그 · 초대 코드 */
 let clanCache=null,_clanBusy=false;
 let _bizFull=null;   // [v2.5.3] 사업요약 전문(더보기용)
+/* ══ [v4.91] 클랜 요청 — 실패했을 때 '왜'를 알 수 있게 ═══════════════════════
+   지금까지는 서버가 보낸 err 값(server·auth 같은 영문 코드)만 그대로 띄웠다.
+   'server' 만 보고는 무엇이 잘못됐는지 알 수 없다. 서버는 detail 에 실제 원인을
+   담아 보내는데 화면이 그걸 버리고 있었다. 사람이 읽을 말로 바꾸고, 개발자용
+   원인도 함께 남긴다. */
+var CLAN_ERR={
+  guest:'로그인이 필요합니다',
+  net:'서버에 연결하지 못했습니다 · 잠시 후 다시 시도해 주세요',
+  auth:'로그인 정보가 서버와 맞지 않습니다 · 로그아웃 후 다시 로그인해 주세요',
+  nostore:'서버 저장소에 연결하지 못했습니다',
+  already:'이미 클랜에 속해 있어요',
+  name:'클랜 이름은 2자 이상이어야 합니다',
+  nocode:'그런 초대 코드를 찾지 못했습니다',
+  full:'클랜 정원이 찼습니다',
+  perm:'권한이 없습니다',
+  method:'요청 방식이 올바르지 않습니다',
+  body:'요청 내용을 읽지 못했습니다',
+  action:'지원하지 않는 기능입니다',
+  server:'서버에서 오류가 났습니다'
+};
+function clanErrMsg(r){
+  const k=String((r&&r.err)||'');
+  const base=CLAN_ERR[k]||(k?('오류: '+k):'알 수 없는 오류');
+  const d=r&&r.detail?String(r.detail).slice(0,60):'';
+  return d?`${base}\n(${d})`:base;
+}
 async function clanCall(action,extra){
   if(!currentUser)return {ok:false,err:'guest'};
   const acc=accounts()[currentUser]||{};
   try{fnBump();
     const r=await fetch('/api/clan',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({action,id:currentUser,pass:acc.pass,name:acc.name||currentUser,...extra})});
-    return await r.json();
-  }catch(e){return {ok:false,err:'net'};}
+    if(!r.ok)return {ok:false,err:'net',detail:'HTTP '+r.status};
+    const j=await r.json();
+    if(j&&!j.ok)try{console.warn('[clan]',action,j.err,j.detail||'');}catch(e){}
+    return j;
+  }catch(e){return {ok:false,err:'net',detail:String(e).slice(0,60)};}
 }
 let clanTab='league';
 function clanSeenKey(cid){return 'clanSeen:'+cid;}
@@ -6303,7 +6345,7 @@ async function renderClanLobby(el){
     if(nm.length<2){toast('warn','클랜 이름은 2자 이상','');return;}
     const r=await clanCall('create',{clanName:nm,emblem,intro:$('cjIntro').value,open:$('cjOpen').checked,ym:monthPerf().ym});
     if(r.ok){clanCache=r;toast('buy','클랜 창설!',nm);renderClan();clanAutoSync(true);}
-    else toast('warn','창설 실패',r.err==='already'?'이미 클랜에 속해 있어요':r.err||'');};
+    else toast('warn','창설 실패',clanErrMsg(r));};
   $('cjJoin').onclick=async()=>{const cd=($('cjCode').value||'').trim().toUpperCase();
     if(cd.length<4){toast('warn','코드를 확인하세요','');return;}
     const r=await clanCall('join',{code:cd,ym:monthPerf().ym});
@@ -6371,7 +6413,7 @@ function paintClan(){
     rk.querySelectorAll('[data-mem]').forEach(b=>b.onclick=()=>openMemberCard(b.dataset.mem));
     $('clanMsgSave').onclick=async()=>{
       const r=await clanCall('sync',{msg:$('clanMsg').value,rate:monthPerf().rate,ym:monthPerf().ym,tr:tradeLog.length,hold:holdings.length});
-      if(r.ok){clanCache=r;paintClan();toast('buy','상태 메시지 저장','');}else toast('warn','저장 실패',r.err||'');};
+      if(r.ok){clanCache=r;paintClan();toast('buy','상태 메시지 저장','');}else toast('warn','저장 실패',clanErrMsg(r));};
     const hof=$('clanHof');
     if(hof)hof.innerHTML=(c.hof&&c.hof.length)?`<div class="sec-title" style="margin-top:18px">명예의 전당 <span class="sec-sub">· 지난 시즌 1위</span></div>
       <div class="panel hof-wrap">${c.hof.map(h=>`<div class="hof-r"><span class="hof-ym">${h.ym}</span><b>${h.name}</b><span class="num ${h.rate>=0?'up':'down'}">${pctS(h.rate)}</span></div>`).join('')}</div>`:'';
@@ -6410,7 +6452,7 @@ function paintClan(){
       <div class="panel feed-wrap">${(c.feed&&c.feed.length)?c.feed.map(f=>`<div class="fd-r"><span class="fd-t">${f.t}</span><span class="fd-ts">${agoStr2(f.ts)}</span></div>`).join(''):'<div class="empty">아직 활동 기록이 없어요</div>'}</div>`;
     pane.querySelectorAll('[data-ap]').forEach(b=>b.onclick=async()=>{
       const r=await clanCall('approve',{target:b.dataset.ap});
-      if(r.ok){clanCache=r;paintClan();toast('buy','가입 승인','');}else toast('warn','승인 실패',r.err||'');});
+      if(r.ok){clanCache=r;paintClan();toast('buy','가입 승인','');}else toast('warn','승인 실패',clanErrMsg(r));});
     pane.querySelectorAll('[data-dn]').forEach(b=>b.onclick=async()=>{
       const r=await clanCall('deny',{target:b.dataset.dn});
       if(r.ok){clanCache=r;paintClan();toast('warn','신청 반려','');}});
@@ -6507,7 +6549,7 @@ function openClanAdmin(){
   $('caSave').onclick=async()=>{
     const g=($('caGoal').value||'').trim();
     const r=await clanCall('settings',{clanName:$('caName').value,emblem,intro:$('caIntro').value,open:$('caOpen').checked,goal:g===''?0:parseFloat(g)});
-    if(!r.ok){toast('warn','저장 실패',r.err||'');return;}
+    if(!r.ok){toast('warn','저장 실패',clanErrMsg(r));return;}
     clanCache=r;
     const r2=await clanCall('notice',{notice:$('caNotice').value});
     if(r2.ok)clanCache=r2;
@@ -7417,7 +7459,7 @@ function renderCalEvents(){
     const flagBadge=(flag&&e.cat!=='earn')?`<span class="cal-flag">${flag}</span>`:'';
     const open=calDetailOpen===i;
     return `<div class="cal-ev clickable${open?' open':''}" data-ei="${i}" role="button"><div class="cal-ev-ic ${ic[0]}">${icEmoji}</div><div class="cal-ev-b">
-      <div class="cal-ev-t">${flagBadge}${e.t}${e.cat==='earn'?(e.sure?'<span class="cal-sure ok">확정</span>':'<span class="cal-sure est">추정</span>'):''}${e.imp?'<span class="cal-imp">중요</span>':''}</div>
+      <div class="cal-ev-t">${flagBadge}${e.t}${e.cat==='earn'?(e.sure?'<span class="cal-sure ok">확정</span>':'<span class="cal-sure est" title="회사가 공시한 날짜가 아니라 과거 발표 패턴으로 추정한 날짜입니다">추정일</span>'):''}${e.imp?'<span class="cal-imp">중요</span>':''}</div>
       <div class="cal-ev-tag">${e.sub||''}</div></div><span class="cal-chev">${open?'▾':'▸'}</span></div>${open?`<div class="cal-detail">${calDetailHtml(e)}</div>`:''}`;
   }).join('')+(evs.length>showEvs.length?`<button class="cal-more" id="calMore">실적 일정 ${evs.length-showEvs.length}개 더 보기 ▾</button>`
       :(calShowAll&&evs.length>LIM+1?`<button class="cal-more" id="calMore">접기 ▴</button>`:''))

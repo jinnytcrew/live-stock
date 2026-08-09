@@ -4587,7 +4587,11 @@ async function tvKrEarnings() {
       "earnings_release_date",
       "market_cap_basic",
       "earnings_per_share_forecast_next_fq",
-      "revenue_forecast_next_fq"
+      "revenue_forecast_next_fq",
+      /* [v4.90] 그 날짜가 '회사가 공시한 확정일'인지 '제공사가 추정한 날'인지 알려 주는 값.
+         이걸 안 보고 전부 확정으로 표시하고 있었다. */
+      "earnings_publication_type_next_fq",
+      "earnings_release_next_calendar_date"
     ],
     sort: { sortBy: "market_cap_basic", sortOrder: "desc" },
     range: [0, 450]
@@ -4619,8 +4623,21 @@ async function tvKrEarnings() {
       const next = Number(d[2]) || 0, last = Number(d[3]) || 0;
       const epsF = d[5] != null && isFinite(Number(d[5])) ? Number(d[5]) : null;
       const revF = d[6] != null && isFinite(Number(d[6])) ? Number(d[6]) : null;
-      if (next && next > nowS - 86400) raw.push({ code, name: nm, ts: next, past: false, epsF, revF });
-      else if (last && nowS - last < 7 * 86400) raw.push({ code, name: nm, ts: last, past: true, epsF, revF });
+      const pub = d[7];                       // 발표일 종류(확정/추정)
+      /* ══ [v4.90] 확정과 추정을 가른다 ═══════════════════════════════════════
+         제공사는 회사가 공시한 날짜가 없으면 과거 패턴으로 날짜를 만들어 낸다.
+         패턴조차 없으면 '분기 종료 한 달 뒤 수요일'로 임의 지정한다.
+         그런 날짜를 '확정'이라 적으면 사용자가 그날 발표가 있다고 믿게 된다.
+         → 확실하다는 표시가 있을 때만 확정으로 본다. 모르면 추정이다. */
+      const sure = (function(){
+        const v = String(pub == null ? "" : pub).toLowerCase();
+        if (!v) return false;                                  // 값이 없으면 알 수 없음 → 추정
+        if (/confirm|exact|actual|official/.test(v)) return true;
+        if (v === "1" || v === "2") return true;               // 제공사 코드값(확정 계열)
+        return false;
+      })();
+      if (next && next > nowS - 86400) raw.push({ code, name: nm, ts: next, past: false, epsF, revF, sure });
+      else if (last && nowS - last < 7 * 86400) raw.push({ code, name: nm, ts: last, past: true, epsF, revF, sure: true });
     }
     const PREF = /([0-9]*우선주(\(신형\))?|[0-9]우(B|C)?|우(B|C))$/;
     const cleaned = raw.map((x) => {
@@ -4783,14 +4800,33 @@ var calendar_default = async (req2) => {
         if (x.epsF != null) cons.push("EPS \uC608\uC0C1 " + Math.round(x.epsF).toLocaleString() + "\uC6D0");
         if (x.revF != null) cons.push("\uB9E4\uCD9C \uC608\uC0C1 " + (x.revF >= 1e12 ? (x.revF / 1e12).toFixed(1) + "\uC870" : Math.round(x.revF / 1e8).toLocaleString() + "\uC5B5"));
       }
+      /* ══ [v4.90] 추정으로 볼 만한 신호를 더 본다 ═══════════════════════════
+         ① 제공사가 확정이라고 하지 않았다
+         ② 컨센서스(EPS·매출 예상)가 하나도 없다 — 이런 종목은 날짜도 대개 자동 생성이다
+         ③ '분기 종료 한 달 뒤 수요일' — 제공사가 패턴을 못 찾았을 때 쓰는 기본값이다
+         셋 중 하나라도 걸리면 확정이라고 적지 않는다. */
+      let sure2 = !!x.sure && !x.past ? true : x.past;
+      if (!x.past) {
+        if (x.epsF == null && x.revF == null) sure2 = false;
+        /* 제공사 기본값: '보고 대상 분기가 끝난 뒤 한 달째 되는 달의 수요일'.
+           발표일이 속한 분기가 아니라 '직전 분기의 마지막 달'을 기준으로 삼아야 한다.
+           예) 7월 발표 → 대상은 2분기(6월 종료) → 6월 + 1개월 = 7월 · 수요일이면 자동 생성 의심 */
+        const dt = new Date(ms + 9 * 3600e3);
+        const mo = dt.getUTCMonth();                       // 0=1월
+        const prevQEnd = (Math.floor(mo / 3) * 3 + 11) % 12; // 직전 분기의 마지막 달
+        const gap = (mo - prevQEnd + 12) % 12;
+        if (dt.getUTCDay() === 3 && gap === 1) sure2 = false;
+      }
       events.push({
         date: isoKST(ms),
         title: x.name + " \uC2E4\uC801 \uBC1C\uD45C",
-        tag: x.past ? "\uC2E4\uC801 \xB7 \uBC1C\uD45C \uC644\uB8CC" : cons.length ? "\uC2E4\uC801 \xB7 " + cons.join(" \xB7 ") : "\uC2E4\uC801",
+        tag: x.past ? "\uC2E4\uC801 \xB7 \uBC1C\uD45C \uC644\uB8CC"
+          : cons.length ? "\uC2E4\uC801 \xB7 " + cons.join(" \xB7 ")
+          : (sure2 ? "\uC2E4\uC801" : "\uC2E4\uC801 \xB7 \uB0A0\uC9DC \uCD94\uC815"),
         country: "kr",
         ticker: x.code + ".KS",
         code: x.code,
-        sure: true,
+        sure: sure2,
         past: !!x.past,
         epsF: !x.past && x.epsF != null ? Math.round(x.epsF) : null,
         revF: !x.past && x.revF != null ? Math.round(x.revF / 1e8) : null
@@ -5166,9 +5202,15 @@ var clan_default = async (req2) => {
   const uname = clip(b.name || user.name || uid, 12);
   const myClanId = user.clanId || null;
   const loadClan = (cid) => st.clan.get("clan:" + cid, { type: "json" }).catch(() => null);
-  const saveClan = async (c) => {
+  /* ══ [v4.91] KV 쓰기를 아낀다 ══════════════════════════════════════════════
+     [무엇이 문제였나] 클랜을 저장할 때마다 본문과 목록(index)을 함께 썼다.
+     채팅 한 줄에도 쓰기 2회다. 무료 KV 는 하루 쓰기 1,000회라 금방 바닥나고,
+     한도를 넘으면 저장이 실패해 '창설 실패 · server' 가 뜬다(첨부 사진).
+     [고침] 목록은 '탐색 화면에 보이는 정보'라 매번 갱신할 필요가 없다.
+     내용이 실제로 달라졌거나 5분이 지났을 때만 다시 쓴다. */
+  const saveClan = async (c, opts) => {
     await st.clan.setJSON("clan:" + c.cid, c);
-    await touchIndex(st, c);
+    if (!opts || opts.index !== false) await touchIndex(st, c);
   };
   const saveUserClan = async (cid) => {
     if (cid) user.clanId = cid;
@@ -5287,7 +5329,7 @@ var clan_default = async (req2) => {
         me.updatedAt = now;
         me.name = uname;
       }
-      await saveClan(c);
+      await saveClan(c, { index: false });   // [v4.91] 채팅은 탐색 목록에 영향이 없다
       return json2({ ok: true, clan: pub(c, uid) });
     }
     if (act === "notice") {
@@ -5451,6 +5493,8 @@ function sysChat(c, text) {
 async function touchIndex(st, c) {
   try {
     const idx = await st.clan.get("index", { type: "json" }).catch(() => null) || {};
+    /* 탐색 목록에 실제로 보이는 값이 그대로면 다시 쓰지 않는다 */
+    const prev = idx[c.cid];
     const ms = Object.values(c.members || {});
     const rated = ms.filter((m) => m.rate != null);
     idx[c.cid] = {
@@ -5464,6 +5508,11 @@ async function touchIndex(st, c) {
       lv: levelOf(c),
       at: Date.now()
     };
+    /* 보이는 값이 그대로면 저장을 건너뛴다 — at(갱신시각)은 비교에서 뺀다 */
+    if (prev) {
+      const same = ["name","emblem","intro","open","n","avg","lv"].every(k => prev[k] === idx[c.cid][k]);
+      if (same && Date.now() - (prev.at || 0) < 5 * 60e3) return;
+    }
     const keys = Object.keys(idx);
     if (keys.length > 300) {
       keys.sort((a, z) => (idx[a].at || 0) - (idx[z].at || 0));
