@@ -413,7 +413,13 @@ function monogram(code, name) {
  * @param {string} name 종목명
  * @param {string} size '' | 'xs' | 'sm' | 'lg' | 'xl'
  */
-export function stockLogo(code, name, size) {
+/* ══ [v4.86] 로고를 못 찾았을 때의 최후 표시 ═══════════════════════════════
+   [무엇이 문제였나] 이미지를 배경으로 깔아 두고 성공하면 글자를 감추는 방식이라,
+   이미지가 늦게 실패하면 '배경도 글자도 없는 빈 네모'가 남았다.
+   [바꾼 방식] 회색 바탕에 그 종목이 속한 시장 이름(코스피·코스닥·나스닥…)을 적는다.
+   무슨 종목인지 알 수 없는 빈 칸보다, 어느 시장 종목인지라도 알려 주는 편이 낫다.
+   네 번째 인자로 시장 이름을 받는다(없으면 예전처럼 이니셜을 쓴다). */
+export function stockLogo(code, name, size, mkt) {
   const c = String(code || '').toUpperCase();
   const m = monogram(c, name);
   if (c && name) nameOf[c] = name;
@@ -423,10 +429,14 @@ export function stockLogo(code, name, size) {
      원본 이미지의 여백이 제각각이라 같은 SK 로고인데도 혼자 크게 보였다(첨부 사진).
      대체 계층에서 온 이미지는 안쪽 여백을 강제로 넣어 크기를 맞춘다. */
   const alt = known && okMap[c] >= BASE_FLAG ? ' alt' : '';
-  const cls = 'lgo' + (size ? ' ' + size : '') + (m.brand ? ' bd' : '') + (url ? ' on' + alt : '');
+  /* 이미지가 없을 때 보여 줄 글자와 색 — 시장 이름이 오면 회색 바탕에 그것을 쓴다 */
+  const fbTxt = mkt ? String(mkt) : m.txt;
+  const fbCol = mkt ? '#8b95a4' : m.color;
+  const cls = 'lgo' + (size ? ' ' + size : '') + (m.brand && !mkt ? ' bd' : '')
+    + (mkt ? ' mk' : '') + (url ? ' on' + alt : '');
   const bg = url ? ";background-image:url('" + url + "')" : '';
   if (!known && c) want(c, name);
-  return `<span class="${cls}" style="--lgc:${m.color}${bg}"${c ? ` data-lg="${esc(c)}"` : ''}><i aria-hidden="true">${esc(m.txt)}</i></span>`;
+  return `<span class="${cls}" style="--lgc:${fbCol}${bg}"${c ? ` data-lg="${esc(c)}"` : ''}><i aria-hidden="true">${esc(fbTxt)}</i></span>`;
 }
 
 /* 진단용 — 콘솔에서 상태 확인·초기화 */

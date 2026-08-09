@@ -4105,12 +4105,37 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
    그림이 실패하면 <img> 가 스스로 사라지고 색 배지가 남는다. 빈 자리는 생기지 않는다. */
 .us-tick{position:relative;overflow:hidden;isolation:isolate}
 .us-tick .ut-lb{font-style:normal;font-weight:900;color:#fff;letter-spacing:-.3px;line-height:1}
+/* ══ [v4.85] 깜빡임 제거 ═══════════════════════════════════════════════════
+   ① 서서히 나타나기(transition)를 없앤다 — 다시 그릴 때마다 페이드가 보였다.
+   ② 흰 바탕은 그림이 아니라 '배지'에 입힌다. 그림에 흰 배경을 깔면 아직 안 받아진
+      동안 흰 네모가 번쩍인다. 배지에 입히면 'on' 을 떼는 순간 색이 그대로 돌아온다. */
 .us-tick .ut-im{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
-  background:#fff;padding:3px;box-sizing:border-box;opacity:0;transition:opacity .12s;
-  border-radius:inherit}
+  padding:3px;box-sizing:border-box;opacity:0;border-radius:inherit}
+.us-tick.on{background-color:#fff!important}
 .us-tick.on .ut-im{opacity:1}
 .us-tick.on .ut-lb{opacity:0}
 .us-tick.on{box-shadow:inset 0 0 0 1px rgba(16,26,45,.12)}
-html[data-theme="dark"] .us-tick.on .ut-im{background:#f4f6fa}
+html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa!important}
 .us-tick.sm .ut-lb{font-size:9.5px}
 .us-tick.xs .ut-lb{font-size:8px}
+
+/* ══ [v4.86] 로고 최후 표시 — 회색 바탕 + 시장 이름 ═══════════════════════════
+   빈 칸을 남기지 않는다. 어느 시장 종목인지라도 알려 준다. */
+.lgo.mk{background:var(--lgc)!important}
+.lgo.mk>i{font-size:9px;font-weight:800;letter-spacing:-.4px;color:#fff;white-space:nowrap}
+.lgo.mk.sm>i{font-size:8px}
+.lgo.mk.xs>i{font-size:7px}
+.lgo.mk.on>i{opacity:0}
+.us-tick .ut-lb{font-size:9px;letter-spacing:-.4px;white-space:nowrap}
+.us-tick.sm .ut-lb{font-size:8px}
+.us-tick.xs .ut-lb{font-size:7px}
+
+/* ══ [v4.87] 해외 세션 배지 — 국내 px-src 와 같은 크기·자리 ═══════════════════
+   본장이 가장 진하고, 시간외는 옅게, 닫힌 장은 회색. 국내 색 규칙과 결을 맞춘다. */
+.px-src.usreg{background:#1f7ae0}                    /* 정규장 — 진한 파랑 */
+.px-src.uspre{background:#7c5cf0}                    /* 프리마켓 — 보라 */
+.px-src.usaft{background:#0f9d8f}                    /* 애프터마켓 — 청록 */
+[data-theme="dark"] .px-src.usreg{background:#3b8ef0}
+[data-theme="dark"] .px-src.uspre{background:#8f74f5}
+[data-theme="dark"] .px-src.usaft{background:#14b3a2}
+.us-px .px-src,.uz-px .px-src{vertical-align:1px}

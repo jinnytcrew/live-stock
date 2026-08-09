@@ -1676,7 +1676,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=332';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=369';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -4323,6 +4323,7 @@ function _showView(name){
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.bv===name));   // 모바일 하단 내비 동기화
   $('mainNav').classList.remove('open');window.scrollTo(0,0);
   {const cta=$('usCta'); if(cta)cta.hidden=(name!=='ustrade');}   // [v4.50] 주문바는 상세에서만
+  try{usBadgeSync();}catch(e){}                     // [v4.88] 화면을 옮길 때 장 구분 맞추기
   if(name!=='ustrade'){ try{usChartMount(false);}catch(e){}        // [v4.57] 차트 카드 제자리로
     try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{b.style.display='';}); }catch(e){} }
   // [수정] 화면별 렌더러가 예외를 던져도 탭 전환 자체는 성공하도록 격리
@@ -7758,6 +7759,23 @@ function srcBadgeHtml(src){
    ETF 목록에서만 운용사 로고를 쓰고, 종목 상세·검색·관심종목은 여전히 이미지
    탐색을 태우고 있었다. 그래서 같은 KODEX 200 이 화면마다 다르게 보였다.
    로고를 부르는 길목 하나를 감싸 ETF 면 운용사 로고로 돌린다. */
+/* ══ [v4.86] 종목이 속한 시장 이름 ═══════════════════════════════════════
+   로고를 못 찾았을 때 빈 칸 대신 적어 줄 말이다. 거래소를 아는 만큼만 적는다. */
+function mktLabel(code){
+  try{
+    const t=String(code||'').toUpperCase();
+    if(usMeta[t]){ const x=usMeta[t].sfx;
+      return x==='O'?'나스닥':x==='N'?'뉴욕':x==='A'?'아멕스':'미국'; }
+    const s0=byCode[code];
+    const mk=String((s0&&(s0.market||s0.mkt))||'');
+    if(/코스닥|KOSDAQ/i.test(mk))return '코스닥';
+    if(/코스피|KOSPI/i.test(mk))return '코스피';
+    if(/코넥스|KONEX/i.test(mk))return '코넥스';
+    /* 시장을 모르면 종목코드 모양으로 가늠한다 — 국내는 여섯 자리 숫자다 */
+    if(/^\d{6}$/.test(String(code||'')))return '국내';
+    return '';
+  }catch(e){ return ''; }
+}
 function anyLogo(code,name,size){
   try{
     const s0=byCode[code];
@@ -7766,7 +7784,8 @@ function anyLogo(code,name,size){
       ||/^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|마이티|히어로즈|마이다스|파워|FOCUS|트루)/i.test(nm);
     if(isEtf&&typeof etfLogo==='function')return etfLogo(nm,size);
   }catch(e){}
-  return stockLogo(code,name,size);
+  /* [v4.86] 로고를 못 찾으면 회색 바탕에 시장 이름이 나오도록 넘겨 준다 */
+  return stockLogo(code,name,size,mktLabel(code));
 }
 function stockRow(code,name,market,tag,rank){
   const s=byCode[code];
@@ -8133,7 +8152,7 @@ function usRankSection(){
         :(x.views>0?`<i class="us-vw">앱 ${KRW(x.views)}</i>`:'');
       return `<div class="us-row" data-us="${t}"><span class="us-rk num">${i+1}</span>${usTick(t)}
         <div class="us-nm"><b>${m.kr||t}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en||''}${vv}</span></div>
-        <div class="us-px">${q.price!=null?'$'+USD2(q.price):'<i class="uz-wait">시세 대기</i>'}<small>${q.price!=null?USDKR(q.price):''}</small></div>
+        <div class="us-px">${q.price!=null?usBadgeHtml()+'$'+USD2(q.price):'<i class="uz-wait">시세 대기</i>'}<small>${q.price!=null?USDKR(q.price):''}</small></div>
         <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
   }
 
@@ -8154,7 +8173,7 @@ function usRankSection(){
     const m=usMeta[t],q=usQ[t];
     return `<div class="us-row" data-us="${t}"><span class="us-rk num">${i+1}</span>${usTick(t)}
       <div class="us-nm"><b>${m.kr}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en}</span></div>
-      <div class="us-px">$${USD2(q.price)}<small>${USDKR(q.price)}</small></div>
+      <div class="us-px">${usBadgeHtml()}$${USD2(q.price)}<small>${USDKR(q.price)}</small></div>
       <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
 }
 function rankSection(){
@@ -12603,8 +12622,13 @@ function usSession(now){
   const off=dst?4:5;                              // ET = UTC - off
   const et=new Date(t-off*3600e3);
   const wd=et.getUTCDay(), mins=et.getUTCHours()*60+et.getUTCMinutes();
+  /* ══ [v4.88] 미국 공휴일에도 '정규장'으로 나오던 문제 ═══════════════════════
+     앱에 미국 휴장일 표(US_HOLIDAYS)가 이미 있는데 이 함수가 보지 않았다.
+     추수감사절·독립기념일에도 배지가 '정규'로 떴다. 요일만 보지 말고 날짜도 본다. */
+  const etIso=`${et.getUTCFullYear()}-${String(et.getUTCMonth()+1).padStart(2,'0')}-${String(et.getUTCDate()).padStart(2,'0')}`;
+  const hol=(typeof US_HOLIDAYS!=='undefined'&&US_HOLIDAYS[etIso])?US_HOLIDAYS[etIso]:'';
   let phase='closed';
-  if(wd>=1&&wd<=5){
+  if(!hol&&wd>=1&&wd<=5){
     if(mins>=240&&mins<570)phase='pre';           // 04:00~09:30 ET
     else if(mins>=570&&mins<960)phase='regular';  // 09:30~16:00 ET
     else if(mins>=960&&mins<1080)phase='after';   // 16:00~18:00 ET (국내 증권사 제공 기준)
@@ -12615,7 +12639,7 @@ function usSession(now){
   let dAdd=0, base=new Date(et);
   if(!(wd>=1&&wd<=5)||mins>=960){ dAdd=1; let w=(wd+1)%7; while(w===0||w===6){dAdd++;w=(w+1)%7;} }
   const nx=(dAdd===0?'오늘':dAdd===1?'내일':['일','월','화','수','목','금','토'][(wd+dAdd)%7]+'요일')+' '+kst.open;
-  return {phase,label,dst,kst,next:nx,mins,wd};   // [v4.49] 마켓 클록 트랙용 ET 분·요일
+  return {phase,label,dst,kst,next:nx,mins,wd,hol};   // [v4.49] 마켓 클록 트랙용 ET 분·요일
 }
 
 /* ── 4. 시세 수집 ── */
@@ -12705,8 +12729,12 @@ function usPollStart(list){
     usEnsureQuotes(_usPollSet.concat(holdings.filter(h=>h.us).map(h=>h.code)),true).then(()=>{
       if(currentView==='us')renderUsLive();
       if(currentView==='ustrade')renderUsTradeLive();
+      /* [v4.85] 검색 화면도 숫자만 갈아 끼운다 — 통째로 다시 그리면 로고가 깜빡인다.
+         조회수 탭은 순서가 바뀌지 않으므로 다시 그릴 이유가 없다. */
       if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
-        $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults'));
+        const box=$('searchResults');
+        if(searchRankTab==='조회수')usPaintRows(box);
+        else { box.classList.remove('two-col'); box.innerHTML=rankSection(); bindStockClicks(box); }
       }
     }); },iv);
 }
@@ -12936,15 +12964,25 @@ function usLgProbe(t){
   });
 }
 /* 이미 그려진 자리들을 제자리 승격 — 다시 렌더하지 않아 깜빡임이 없다 */
+/* ══ [v4.88] 탐색이 끝난 뒤 화면에 반영 ═══════════════════════════════════
+   [무엇이 잘못돼 있었나] 이 함수는 아직 옛 방식(배경 이미지 + 인라인 흰 배경)을
+   쓰고 있었다. v4.83 에서 배지를 <img> 얹는 방식으로 바꿨는데 이곳만 남아,
+   뒤늦게 로고를 찾은 종목에는 다시 인라인 흰 배경이 박혔다.
+   그러면 그림이 실패해도 되돌릴 수 없어 '흰 네모'가 되살아난다.
+   → 새 방식에 맞춰 <img> 를 넣어 준다. 실패하면 usTickBad 가 알아서 걷어낸다. */
 function usLgPaint(t){
   const u=usLgUrl(t); if(!u)return;
   document.querySelectorAll('.us-tick[data-uslg="'+t+'"]').forEach(el=>{
+    let im=el.querySelector('img.ut-im');
+    if(!im){
+      im=document.createElement('img');
+      im.className='ut-im'; im.alt=''; im.setAttribute('aria-hidden','true');
+      im.decoding='async';
+      el.appendChild(im);
+    }
+    if(im.getAttribute('src')!==u){ delete im.dataset.b; im.src=u; }
     el.classList.add('on');
-    el.style.backgroundColor='#fff';
-    el.style.backgroundImage="url('"+u+"')";
-    el.style.backgroundSize='contain';
-    el.style.backgroundPosition='center';
-    el.style.backgroundRepeat='no-repeat';
+    usTickBind(el);
   });
 }
 /* 로고 배지 — 로고를 알면 바로 이미지로, 모르면 색 배지 + 뒤에서 탐색 */
@@ -12959,12 +12997,20 @@ function usLgPaint(t){
      · 그림이 실패하면 → 그 자리에서 스스로 사라지고 색 배지가 그대로 남는다
    인라인 스타일을 되돌릴 필요가 없으므로 어긋날 여지가 없다. */
 function usTick(t,size){
-  const PAL=(typeof US_PAL!=='undefined'&&US_PAL)?US_PAL:['#2563eb'];
-  const c=PAL[(t.charCodeAt(0)+t.charCodeAt(t.length-1))%PAL.length];
+  /* [v4.86] 로고를 못 찾으면 회색 바탕에 시장 이름을 적는다 — 국내와 같은 규칙이다.
+     티커는 바로 옆 줄에 이미 적혀 있으므로, 여기서는 어느 시장인지를 알려 주는 편이 낫다. */
+  const c='#8b95a4';
   let u=''; try{ u=usLgUrl(t); }catch(e){}
   if(!u)try{usLgWant(t);}catch(e){}
-  const lbl=htmlEsc(t.length>5?t.slice(0,5):t);
-  const cls='us-tick'+(size?' '+size:'');
+  const lbl=htmlEsc(mktLabel(t)||'미국');
+  /* ══ [v4.85] 스크롤할 때마다 로고가 번쩍이던 이유 ═══════════════════════════
+     목록은 시세가 들어올 때마다·스크롤로 항목이 새로 붙을 때마다 다시 그려진다.
+     그런데 usTick 은 매번 'on' 없이 그렸다 → 이미 확인된 로고인데도 색 배지부터
+     보였다가 그림이 붙는 과정을 반복했다. 여기에 0.12초 서서히 나타나기와
+     lazy 불러오기가 겹쳐 눈에 띄게 깜빡였다.
+     → 이미 확인된 로고(usLgUrl 이 주소를 돌려준 경우)는 처음부터 'on' 으로 그린다.
+       그림이 실패하면 usTickBad 가 'on' 을 떼고 색 배지로 되돌린다. */
+  const cls='us-tick'+(size?' '+size:'')+(u?' on':'');
   return `<span class="${cls}" data-uslg="${t}" style="background-color:${c}">`
     +`<em class="ut-lb">${lbl}</em>`
     /* ══ [v4.84] 인라인 핸들러를 쓰지 않는다 ═══════════════════════════════
@@ -12972,7 +13018,8 @@ function usTick(t,size){
        HTML 에 적은 onload="usTickOk(this)" 는 전역에서 실행되며 함수를 찾지 못한다
        → 그림 하나마다 ReferenceError 가 터져 오류가 수천 건 쌓였다.
        아래 usTickBind() 가 addEventListener 로 직접 묶는다(모듈 안에서 실행되므로 안전). */
-    +(u?`<img class="ut-im" src="${htmlEsc(u)}" alt="" aria-hidden="true" loading="lazy">`:'')
+    +(u?`<img class="ut-im" src="${htmlEsc(u)}" alt="" aria-hidden="true"
+        decoding="async" fetchpriority="low">`:'')
     +`</span>`;
 }
 /* 인라인 핸들러가 막히는 환경(엄격한 보안 정책)에서도 동작하도록 함수로 빼 둔다 */
@@ -12984,6 +13031,7 @@ function usTickBad(im){
   try{ const p=im.parentNode; im.remove(); if(p)p.classList.remove('on'); }catch(e){}
 }
 /* 인라인 핸들러가 실행되지 않는 경우를 대비해, 그려진 뒤 한 번 훑어 직접 묶는다 */
+var _lgSeen={};      // 주소별 확인 결과(true 정상 / false 실패)
 function usTickBind(root){
   try{
     (root||document).querySelectorAll('img.ut-im:not([data-b])').forEach(im=>{
@@ -12991,6 +13039,26 @@ function usTickBind(root){
       if(im.complete){ (im.naturalWidth>=16)?usTickOk(im):usTickBad(im); return; }
       im.addEventListener('load',()=>usTickOk(im));
       im.addEventListener('error',()=>usTickBad(im));
+    });
+    /* ══ [v4.86] 국내 로고도 늦게 실패하면 되살린다 ═══════════════════════
+       국내는 배경 이미지를 쓰므로 실패해도 알림이 없다. 같은 주소를 몰래 한 번
+       받아 보고, 못 받으면 'on' 을 떼어 회색 배지(시장 이름)가 나오게 한다. */
+    /* ══ [v4.88] 같은 로고를 매번 다시 확인하지 않는다 ═══════════════════════
+       목록을 다시 그리면 요소가 새로 생기므로 data-c 표시도 사라진다. 그래서
+       한 화면에서 같은 이미지를 몇 번이고 다시 받아 보고 있었다(요청 낭비).
+       주소별로 결과를 기억해 두고, 이미 확인한 주소는 곧바로 판정만 적용한다. */
+    (root||document).querySelectorAll('.lgo.on:not([data-c])').forEach(el=>{
+      el.dataset.c='1';
+      const m=/url\(['"]?([^'")]+)/.exec(el.style.backgroundImage||'');
+      if(!m)return;
+      const u=m[1];
+      const drop=()=>{ el.classList.remove('on','alt'); el.style.backgroundImage='none'; };
+      if(_lgSeen[u]===false){ drop(); return; }     // 이미 실패로 확인된 주소
+      if(_lgSeen[u]===true)return;                  // 이미 정상으로 확인된 주소
+      const probe=new Image();
+      probe.onerror=()=>{ _lgSeen[u]=false; drop(); };
+      probe.onload=()=>{ const ok=(probe.naturalWidth||0)>=8; _lgSeen[u]=ok; if(!ok)drop(); };
+      probe.src=u;
     });
   }catch(e){}
 }
@@ -13133,6 +13201,48 @@ function usMetricTxt(t,kind){
    '어떤 건 있고 어떤 건 없는' 들쭉날쭉한 화면이 됐다. 52주 위치는 종목 상세에
    숫자와 함께 이미 나온다 — 목록에서는 굳이 반복하지 않는다. */
 function usBandMini(){ return ''; }
+/* ══ [v4.87] 해외 종목 세션 배지 — 국내와 같은 자리·같은 모양 ═══════════════
+   국내는 주가 왼쪽에 KRX·NXT·통합·장 전·장 종료·휴장 배지를 단다. 해외에도 같은
+   자리에 같은 크기(px-src)로 달되, 미국 장 시간표에 맞춘 말을 쓴다.
+     프리   04:00~09:30 ET  — 정규장 전 거래
+     정규   09:30~16:00 ET  — 본장
+     애프터 16:00~18:00 ET  — 마감 후 거래(국내 증권사 제공 구간)
+     장 종료 / 휴장          — 그 밖
+   거래소 표기(나스닥·뉴욕)는 로고 배지가 이미 알려 주므로 여기서는 반복하지 않는다.
+   국내와 색 규칙을 맞춘다 — 본장이 가장 진하고, 시간외는 옅게, 닫힌 장은 회색. */
+function usBadgeInfo(){
+  const s=usSession();
+  if(s.phase==='pre')return ['프리','uspre'];
+  if(s.phase==='regular')return ['정규','usreg'];
+  if(s.phase==='after')return ['애프터','usaft'];
+  /* 주말은 '휴장'. 평일은 프리마켓 전(새벽)이면 '장 전', 애프터 뒤면 '장 종료'로
+     나눠 적는다 — 국내가 '장 전 / 장 종료'를 구분하는 것과 같은 결이다. */
+  if(s.hol)return ['휴장','hol'];                 // 미국 공휴일
+  if(s.wd===0||s.wd===6)return ['휴장','hol'];
+  return (s.mins<240)?['장 전','prem']:['장 종료','post'];
+}
+function usBadgeHtml(){ const b=usBadgeInfo(); return `<span class="px-src ${b[1]}">${b[0]}</span>`; }
+/* ══ [v4.88] 장이 바뀌면 배지도 그 자리에서 바뀌어야 한다 ═══════════════════
+   배지는 화면을 그릴 때만 계산된다. 그런데 v4.85 부터 순서가 그대로면 목록을
+   다시 그리지 않으므로, 밤 22:30 에 정규장이 열려도 배지는 '장 전' 인 채로 남는다.
+   1분마다 장 구분만 확인해, 달라졌을 때 화면의 배지 글자·색만 갈아 끼운다.
+   (목록을 다시 그리지 않으므로 로고가 깜빡이지 않는다) */
+var _usBadgeKey='';
+function usBadgeSync(){
+  try{
+    const b=usBadgeInfo(), key=b[1]+'|'+b[0];
+    if(key===_usBadgeKey)return;
+    _usBadgeKey=key;
+    document.querySelectorAll('.us-px .px-src,.uz-px .px-src').forEach(el=>{
+      el.textContent=b[0];
+      el.className='px-src '+b[1];
+    });
+  }catch(e){}
+}
+/* 1분마다 확인하되, 화면을 다시 보게 될 때(탭 복귀·화면 전환)도 곧바로 맞춘다 */
+try{ setInterval(usBadgeSync,60000);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)usBadgeSync(); });
+}catch(e){}
 function usRow(t,rank,metric){
   const m=usMeta[t]; if(!m)return '';
   const q=usQ[t], has=q&&q.price!=null;
@@ -13144,7 +13254,7 @@ function usRow(t,rank,metric){
     ${rank?`<span class="uz-rk num">${rank}</span>`:''}${usTick(t)}
     <span class="us-nm uz-nm"><b>${m.kr}${m.etf?'<i class="uz-etf">ETF</i>':''}</b>
       <span class="uz-sub2">${t}<em>·</em>${mt||m.en}</span>${band}</span>
-    <span class="us-px uz-px">${has?'$'+USD2(q.price):'<i class="uz-wait">시세 없음</i>'}
+    <span class="us-px uz-px">${has?usBadgeHtml()+'$'+USD2(q.price):'<i class="uz-wait">시세 없음</i>'}
       <small>${has?USDKR(q.price):''}</small></span>
     <span class="uz-badge ${cls}">${rt||'—'}</span></button>`;
 }
@@ -13449,7 +13559,8 @@ function usPaintRows(root){
   (root||document).querySelectorAll('.us-row[data-us], .us-star[data-us]').forEach(el=>{
     const t=el.dataset.us,q=usQ[t]; if(!q||q.price==null)return;
     const px=el.querySelector('.us-px'), rt=el.querySelector('.us-rt');
-    if(px)px.innerHTML='$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
+    /* [v4.87] 배지를 지우지 않는다 — 여기서 통째로 다시 쓰면 20초마다 배지가 사라진다 */
+    if(px)px.innerHTML=usBadgeHtml()+'$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
     if(rt){rt.textContent=usRateTxt(q);
       rt.classList.remove('up','down','flat'); rt.classList.add('num',usRateCls(q));}
     const p=el.querySelector('.p'), r=el.querySelector('.r');
@@ -13458,12 +13569,39 @@ function usPaintRows(root){
       r.classList.remove('up','down','flat'); r.classList.add('num',usRateCls(q));}
   });
 }
+/* ══ [v4.85] 순위가 실제로 바뀌었을 때만 다시 그린다 ═══════════════════════
+   [왜] 20초마다 시세가 들어올 때마다 순위표를 통째로 다시 만들면, 순서가 그대로여도
+   로고 그림이 새로 시작되고 스크롤이 흔들린다. 값은 usPaintRows 가 이미 칠한다.
+   [어떻게] 지금 화면에 그려진 종목 차례와, 새 시세로 다시 매긴 차례를 견준다.
+   같으면 건너뛰고, 달라졌을 때만 다시 그린다. */
+function usRankOrderChanged(){
+  try{
+    const box=$('usRankBody'); if(!box)return true;
+    const shown=[...box.querySelectorAll('[data-us]')].map(e=>e.dataset.us);
+    if(!shown.length)return true;
+    const rate=(t)=>{const q=usQ[t]; return (q&&q.prev)?(q.price-q.prev)/q.prev*100:0;};
+    const val =(t)=>{const q=usQ[t]; return (q&&q.price&&q.vol)?q.price*q.vol:0;};
+    const cap =(t)=>{const q=usQ[t]; return (q&&q.cap)||0;};
+    let next=shown.slice();
+    if(usRankTab==='up')next.sort((a,b)=>rate(b)-rate(a));
+    else if(usRankTab==='down')next.sort((a,b)=>rate(a)-rate(b));
+    else if(usRankTab==='val')next.sort((a,b)=>val(b)-val(a));
+    else if(usRankTab==='cap')next.sort((a,b)=>cap(b)-cap(a));
+    else return false;                       // 조회수 탭은 시세로 순서가 바뀌지 않는다
+    return next.join(',')!==shown.join(',');
+  }catch(e){ return true; }
+}
 function renderUsLive(){
+  /* ══ [v4.85] 시세가 들어올 때마다 목록을 통째로 다시 그리지 않는다 ═══════════
+     usPaintRows 가 이미 가격·등락률만 골라 칠해 준다. 그런데도 아래에서 목록
+     전체를 다시 만들어 붙이고 있었다 → 로고 그림이 매번 새로 시작되고,
+     스크롤 위치까지 흔들려 화면이 깜빡였다.
+     순서가 바뀌는 순위표만 다시 그리고, 나머지는 숫자만 갈아 끼운다. */
   usPaintRows();                                   // 화면 종류와 무관하게 먼저 칠한다
   if(currentView!=='us')return;
   renderUsBreadthChip();
-  if(usPane==='rank')renderUsRankBody();
-  if(usPane==='find')renderUsThemeBody();
+  /* 순위표도 '순서가 실제로 바뀌었을 때만' 다시 그린다 */
+  if(usPane==='rank'&&usRankOrderChanged())renderUsRankBody();
   if(usPane==='mine')renderUsMine();
   const fx=usFx();
   if(fx){const el=document.querySelector('#usHero .uz-hero-fx b'); if(el)el.textContent=KRW(Math.round(fx));}
