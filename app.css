@@ -3913,34 +3913,56 @@ html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
 .sr-col .us-searchblk,.sr-col .kr-searchblk{margin:0}
 .sr-none{padding:22px 14px;text-align:center;font-size:12.5px;font-weight:700;color:var(--sub-2)}
 /* 2단에서는 국내 목록의 내부 2열 배치를 1열로 되돌린다 — 칸이 좁아 글자가 눌린다 */
-/* ══ [v4.62] 2단에서 행이 세로로 쪼개지던 문제 ═══════════════════════════
-   [원인] 검색 행(.sr)은 '이름 | 가격 | 등락' 3칸 그리드인데 min-width 가 없어,
-   칸이 좁아지면 브라우저가 가격·등락 칸을 먼저 지키고 이름 칸을 글자 단위로
-   접어 버린다. 그래서 'S-Oil' 이 한 글자씩 세로로 쌓였다(첨부 사진).
-   [해법] 2단 안에서는 이름 칸이 줄어들 수 있게 min-width:0 을 주고,
-   가격·등락은 아래줄로 내려 세로 2단 구성으로 바꾼다 — 좁은 칸에 맞는 모양이다. */
-.sr-2col .sr{grid-template-columns:1fr auto;gap:8px 10px;padding:11px 12px;align-items:center}
+/* ══ [v4.65] 2단 검색 결과 — 처음부터 다시 ═════════════════════════════════
+   [지금까지 왜 계속 엉망이었나] 원래 행(.sr)은 넓은 한 단을 전제로
+   '이름 | 가격 | 등락'을 가로로 늘어놓는 구조다. 2단으로 반 토막 낸 폭에
+   그 구조를 그대로 밀어 넣으니 이름 칸이 글자 단위로 접히고(세로로 쌓이고),
+   지난번 수정은 가격을 아랫줄로 내려 행 높이만 두 배가 됐다.
+   [이번에는] 2단에서는 행 구조 자체를 바꾼다 — 로고 · 이름/코드(한 줄씩) ·
+   가격/등락(오른쪽 세로 두 줄). 어느 칸도 두 줄로 접히지 않는다. */
+.sr-2col .sr{
+  display:grid;grid-template-columns:auto 1fr auto;align-items:center;
+  gap:0 10px;padding:11px 12px}
 .sr-2col .sr>*{min-width:0}
-.sr-2col .sr-l{min-width:0;flex:1}
-.sr-2col .sr-t{min-width:0;flex:1}
-.sr-2col .sr .nm{font-size:13px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
-.sr-2col .sr .cd{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sr-2col .sr .px{grid-column:2;font-size:13.5px;white-space:nowrap}
-.sr-2col .sr .ch{grid-column:2;grid-row:2;min-width:0;font-size:11.5px;white-space:nowrap;margin-top:-4px}
-.sr-2col .sr .lgo{width:30px;height:30px}
-.sr-2col .sr .lgo>i{font-size:12px}
-.sr-2col .sr .nxt-badge,.sr-2col .sr .tag{font-size:9px;padding:1px 4px}
-/* 해외 행도 같은 폭에서 이름이 '마...' 로 잘리지 않게 배지를 줄이고 미니바를 감춘다 */
-.sr-2col .uz-row{padding:10px 11px;gap:8px}
-.sr-2col .uz-row .uz-nm b{font-size:12.5px;white-space:normal;line-height:1.35;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.sr-2col .uz-row .uz-sub2{font-size:10px}
+.sr-2col .sr-l{display:contents}            /* 감싸는 상자를 없애 3칸 그리드에 직접 태운다 */
+.sr-2col .sr .rk{grid-column:1;font-size:11px;min-width:18px;text-align:center}
+.sr-2col .sr .lgo{grid-column:1;width:32px;height:32px;flex:0 0 auto}
+.sr-2col .sr .lgo>i{font-size:12.5px}
+.sr-2col .sr-t{grid-column:2;min-width:0;display:block}
+.sr-2col .sr .nm{
+  display:block;font-size:13px;font-weight:800;line-height:1.35;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-2col .sr .cd{
+  display:block;margin-top:2px;font-size:10.5px;font-weight:600;color:var(--sub-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-2col .sr .px{
+  grid-column:3;grid-row:1;justify-self:end;align-self:end;
+  font-size:13.5px;font-weight:900;white-space:nowrap;line-height:1.2}
+.sr-2col .sr .ch{
+  grid-column:3;grid-row:2;justify-self:end;align-self:start;
+  font-size:11.5px;font-weight:800;white-space:nowrap;line-height:1.2;margin-top:2px}
+/* 순위가 붙는 행은 칸을 하나 더 쓴다(.has-rk 는 렌더러가 붙인다 — :has() 미지원 대비) */
+.sr-2col .sr.has-rk{grid-template-columns:auto auto 1fr auto}
+.sr-2col .sr.has-rk .lgo{grid-column:2}
+.sr-2col .sr.has-rk .sr-t{grid-column:3}
+.sr-2col .sr.has-rk .px,.sr-2col .sr.has-rk .ch{grid-column:4}
+/* 이름 옆 배지는 작게 — 좁은 칸에서 이름을 밀어내지 않게 */
+.sr-2col .sr .nxt-badge,.sr-2col .sr .tag,.sr-2col .sr .mkt-tag{
+  font-size:9px;padding:1px 4px;margin-left:3px;vertical-align:middle}
+.sr-2col .sr .px .mkt-badge{font-size:9px;margin-right:3px}
+
+/* 해외 행도 같은 원칙 — 두 줄로 접지 않고 한 줄 말줄임 */
+.sr-2col .uz-row{padding:10px 11px;gap:9px}
+.sr-2col .uz-row .uz-nm{min-width:0}
+.sr-2col .uz-row .uz-nm b{
+  display:block;font-size:12.5px;line-height:1.35;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-2col .uz-row .uz-sub2{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sr-2col .uz-row .uz-mini{display:none}
 .sr-2col .uz-px{font-size:13px}
 .sr-2col .uz-px small{font-size:9.5px}
-.sr-2col .uz-badge{min-width:56px;font-size:11.5px;padding:4px 6px}
-.sr-2col .uz-row .us-tick,.sr-2col .uz-row .lgo{width:30px;height:30px}
+.sr-2col .uz-badge{min-width:54px;font-size:11px;padding:4px 6px}
+.sr-2col .uz-row .us-tick,.sr-2col .uz-row .lgo{width:32px;height:32px;flex:0 0 auto}
 /* [v4.61] 좁은 화면에서도 2단을 유지한다 — 결과가 없으면 그 칸에 안내가 뜨므로
    한 단으로 되돌릴 이유가 없고, 두 시장을 나란히 보는 것이 이 화면의 목적이다. */
 @media (max-width:1100px){ .sr-2col{gap:10px} }

@@ -417,7 +417,7 @@ function surgeCard(o,rank){
       `<div class="sgc-adv-s"><b>${SURGE_STRATS.find(x=>x.id===h.sid).name}</b> <span>${h.met}/${h.total} · 점수 ${h.score}</span>
        <div class="sgc-adv-w">${h.why.join(' · ')}</div></div>`).join('')}</div>`:'';
   return `<div class="sgc" data-code="${o.s.code}">
-    <div class="sgc-h"><span class="sgc-rk${rank<=3?' top':''}">${rank}</span>${stockLogo(o.s.code,o.s.name,'sm')}
+    <div class="sgc-h"><span class="sgc-rk${rank<=3?' top':''}">${rank}</span>${anyLogo(o.s.code,o.s.name,'sm')}
       <b class="sgc-nm">${o.s.name}</b>${mktTag(o.s.code,o.s.market)}${dup}
       <span class="sgc-px num ${dirOf(o.chg)}">${KRW(px)}<em>${pctS(o.chg)}</em></span></div>
     <div class="sgc-tags">${tags}${strength}</div>
@@ -771,7 +771,7 @@ function renderCompare(){
     rows.map(s=>{const chg=chgPct(s)??0;
       const pos=(s.high>s.low)?(s.price-s.low)/(s.high-s.low)*100:50;
       const _cp=dispQuote(s.code),_px=(_cp&&_cp.price!=null)?_cp.price:s.price;   // [수정] 통합가
-      return `<tr data-code="${s.code}"><td>${stockLogo(s.code,s.name,'sm')}${s.name}${mktTag(s.code,s.market)}</td><td class="num">${KRW(_px)}</td>
+      return `<tr data-code="${s.code}"><td>${anyLogo(s.code,s.name,'sm')}${s.name}${mktTag(s.code,s.market)}</td><td class="num">${KRW(_px)}</td>
         <td class="num ${dirOf(chg)}">${pctS(chg)}</td><td class="num">${pos.toFixed(0)}%</td><td class="num">${((s.value||0)/1e8).toFixed(0)}억</td></tr>`;}).join('')+
     '</tbody></table></div>';
   $('cmpBody').querySelectorAll('tr[data-code]').forEach(r=>r.onclick=()=>openTrade(r.dataset.code));
@@ -1162,7 +1162,7 @@ function paintPicks(j){
     const st=p.stats||{};
     const meta=[st.trendUp?'정배열':null,'RSI '+st.rsi,'거래량 '+st.volRatio+'배',(st.mom20>=0?'+':'')+st.mom20+'%(20일)'].filter(Boolean).join(' · ');
     return `<div class="pick-row" data-code="${p.code}">
-      <div class="pk-rank">${i+1}</div>${stockLogo(p.code,p.name)}
+      <div class="pk-rank">${i+1}</div>${anyLogo(p.code,p.name)}
       <div class="pk-main"><div class="pk-nm">${p.name} ${badge}<span class="pk-cd">${p.code}</span></div>
         <div class="pk-tags">${(p.tags||[]).map(t=>`<span class="pk-tag${/주의|과매수/.test(t)?' warn':''}">${t}</span>`).join('')}</div>
         <div class="pk-meta">${meta}</div>
@@ -3857,7 +3857,6 @@ function showUpdateGate(prevKey){
     </div>
     <div class="ug-foot">
       <p class="ug-d">캐시를 정리하고 다시 시작해 새 버전으로 <b>완전 최적화</b>합니다. 관심종목·계좌 데이터는 그대로 유지돼요.</p>
-      <p class="ug-d ug-icon">📱 <b>홈 화면 아이콘</b> — ${iconUpdateHelpText()}</p>
       <button class="ug-go" id="ugGo">지금 업데이트</button>
       <button class="ug-skip" id="ugLater">나중에</button>
     </div>
@@ -5816,7 +5815,7 @@ function renderThemeDetail(no){
     </div>
     <div class="thm-d-list">${rows.slice(0,40).map(x=>`
       <div class="thm-s" data-code="${x.code}">
-        <span class="ts-n">${stockLogo(x.code,x.name,'xs')}${x.name}<i>${x.code}</i></span>
+        <span class="ts-n">${anyLogo(x.code,x.name,'xs')}${x.name}<i>${x.code}</i></span>
         <span class="ts-p num">${mktBadgeHtml(x.code)}${x.px!=null?KRW(x.px):'—'}</span>
         <span class="ts-r num ${dirOf(x.r==null?0:x.r)}">${x.r==null?'—':pctS(x.r)}</span>
       </div>`).join('')}</div>
@@ -5928,7 +5927,7 @@ function miniRow(s){
   const _mq=dispQuote(s.code);                                     // [수정] 통합가 기준으로 가격·등락 통일
   const px=(_mq&&_mq.price!=null)?_mq.price:s.price,pv=(_mq&&_mq.prevClose)||s.prevClose;
   const diff=(px!=null&&pv)?px-pv:null,p=diff!=null?diff/pv*100:null,dir=diff==null?'flat':dirOf(diff);
-  return `<div class="mini-row" data-code="${s.code}"><div class="sr-l">${stockLogo(s.code,s.name,'sm')}<div class="sr-t"><div class="nm">${s.name}</div><div class="cd num">${s.code}</div></div></div>
+  return `<div class="mini-row" data-code="${s.code}"><div class="sr-l">${anyLogo(s.code,s.name,'sm')}<div class="sr-t"><div class="nm">${s.name}</div><div class="cd num">${s.code}</div></div></div>
     <div class="px num ${dir}">${KRW(px)}</div><div class="ch num ${dir}">${diff==null?'—':arrow(dir)+' '+pctS(p)}</div></div>`;}
 /* [D6] 내 관심종목 오늘 요약 — [수정] 개장 전·접속 직후처럼 시세가 아직 없을 때
    '표시할 종목이 없어요'라고 잘못 말하던 것을 '시세 수신 중'으로 바꾸고, 시세가 오면 자동으로 채운다. */
@@ -6097,7 +6096,7 @@ function renderTopMovers(){
   const worst=srt.slice(-3).reverse().filter(x=>best.indexOf(x)<0);
   const mx=Math.max(1,...rows.map(x=>Math.abs(x.rate)));
   const row=(x)=>`<button class="mv-r" data-code="${x.code}">
-    ${stockLogo(x.code,x.name,'xs')}<span class="mv-n">${x.name}</span>
+    ${anyLogo(x.code,x.name,'xs')}<span class="mv-n">${x.name}</span>
     <span class="mv-bar"><i class="${x.rate>=0?'up':'down'}" style="width:${Math.max(6,Math.min(100,Math.abs(x.rate)/mx*100))}%"></i></span>
     <b class="num ${x.rate>=0?'up':'down'}">${pctS(x.rate)}</b>
     <span class="mv-p num ${x.rate>=0?'up':'down'}">${signed(Math.round(x.pnl))}</span></button>`;
@@ -7247,7 +7246,7 @@ async function renderHomeHot(){
     el.innerHTML=`<span class="hh-t">🔥 인기</span>`+top.map((x,i)=>{
       const st=byCode[x.code],q=st?dispQuote(x.code):null;
       const p=(q&&q.price!=null&&q.prevClose)?(q.price-q.prevClose)/q.prevClose*100:null;
-      return `<button class="hh-c" data-code="${x.code}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${stockLogo(x.code,x.name||(st&&st.name)||x.code,'xs')}${x.name||x.code}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
+      return `<button class="hh-c" data-code="${x.code}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${anyLogo(x.code,x.name||(st&&st.name)||x.code,'xs')}${x.name||x.code}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
     }).join('');
     el.querySelectorAll('.hh-c').forEach(b=>b.onclick=()=>openTrade(b.dataset.code));
     /* [v2.9.6 · 치명] 무한 재호출 차단.
@@ -7780,6 +7779,20 @@ function srcBadgeHtml(src){
   if(src==='통합')return '<span class="px-src uni">통합</span>';
   return '<span class="px-src krx">KRX</span>';   // 'KRX'·'KRXONLY'·미판정 전부 KRX로 명시
 }
+/* ══ [v4.65] ETF 로고를 앱 전체에서 통일 ═══════════════════════════════════
+   ETF 목록에서만 운용사 로고를 쓰고, 종목 상세·검색·관심종목은 여전히 이미지
+   탐색을 태우고 있었다. 그래서 같은 KODEX 200 이 화면마다 다르게 보였다.
+   로고를 부르는 길목 하나를 감싸 ETF 면 운용사 로고로 돌린다. */
+function anyLogo(code,name,size){
+  try{
+    const s0=byCode[code];
+    const nm=name||(s0&&s0.name)||'';
+    const isEtf=(typeof isFundLike==='function'&&isFundLike(code))
+      ||/^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|마이티|히어로즈|마이다스|파워|FOCUS|트루)/i.test(nm);
+    if(isEtf&&typeof etfLogo==='function')return etfLogo(nm,size);
+  }catch(e){}
+  return stockLogo(code,name,size);
+}
 function stockRow(code,name,market,tag,rank){
   const s=byCode[code];
   // [수정] 프리마켓에는 NXT 취급 종목의 NXT 체결가를 보여 준다(KRX 전용은 그대로 0.00%).
@@ -7797,8 +7810,10 @@ function stockRow(code,name,market,tag,rank){
   const srcTag=mktBadgeHtml(code);   // [v2.0] 세션 배지 — 시계+명단 기반, 시세 수신과 무관
   const rk=rank?`<span class="rk${rank<=3?' top':''}">${rank}</span>`:'';
   const mk=market||(s&&s.market)||'';
-  return `<div class="sr" data-code="${code}" data-name="${String(name||'').replace(/"/g,'')}" data-market="${mk}">
-    <div class="sr-l">${rk}${stockLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm">${name||code}${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
+  /* [v4.65] 순위 유무를 클래스로 알려 준다 — 2단 배치에서 칸 수가 달라지고,
+     :has() 를 못 쓰는 브라우저에서도 어긋나지 않게 하기 위해서다. */
+  return `<div class="sr${rank?' has-rk':''}" data-code="${code}" data-name="${String(name||'').replace(/"/g,'')}" data-market="${mk}">
+    <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm">${name||code}${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
     <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?'':arrow(dir)+' '+pctS(p)}</div></div>`;
 }
 
@@ -7918,7 +7933,7 @@ function renderViewHist(){
     <div class="sh-chips">${viewHist.map((h,i)=>{
       const us=h.us||!!usMeta[h.code];
       /* 한 목록에 국내·해외가 섞이므로 어느 시장인지 한눈에 보이게 국기를 붙인다 */
-      const logo=us?(typeof usTick==='function'?usTick(h.code):''):stockLogo(h.code,h.name,'xs');
+      const logo=us?(typeof usTick==='function'?usTick(h.code):''):anyLogo(h.code,h.name,'xs');
       return `<span class="sh-chip${us?' us':''}" data-i="${i}">${logo}<b>${h.name}</b>${us?'<i class="sh-fl">🇺🇸</i>':''}<i class="sh-x" data-x="${i}">✕</i></span>`;
     }).join('')}</div>`;
   el.querySelectorAll('.sh-chip').forEach(c=>c.onclick=(e)=>{
@@ -7954,7 +7969,7 @@ function renderHist(){
   el.innerHTML=`<div class="sh-head"><span>최근 검색</span><button id="shClear">전체 삭제</button></div>
     <div class="sh-chips">${srchHist.map((h,i)=>h.q
       ?`<span class="sh-chip q" data-i="${i}"><i class="sh-ic">🔍</i><b>${h.q}</b><i class="sh-x" data-x="${i}">✕</i></span>`
-      :`<span class="sh-chip" data-i="${i}">${stockLogo(h.code,h.name,'xs')}<b>${h.name}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
+      :`<span class="sh-chip" data-i="${i}">${anyLogo(h.code,h.name,'xs')}<b>${h.name}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
   el.querySelectorAll('.sh-chip').forEach(c=>c.onclick=(e)=>{
     if(e.target.classList.contains('sh-x'))return;
     const h=srchHist[+c.dataset.i]; if(!h)return;
@@ -8024,10 +8039,37 @@ async function openUsPopDiag(){
    받아올 수 있어(요청당 외부 호출 한도) 처음엔 40여 종만 나왔다. 목록이 100에
    못 미치면 화면을 그린 채로 조용히 한 번 더 받아 이어 붙인다(최대 4회). */
 var _usPopTry=0;
+/* ══ [v4.65] 해외 목록을 국내처럼 '들어가자마자' 띄운다 ═══════════════════
+   국내는 종목 목록을 브라우저에 담아 두어 진입 즉시 그린다. 해외만 매번
+   서버 응답을 기다리느라 빈 화면을 보여 줬다 — 같은 방식을 해외에도 쓴다.
+   저장한 목록과 마지막 시세를 먼저 그리고, 새 값이 오면 조용히 갈아 끼운다. */
+function usPopSave(){
+  try{
+    const q={};
+    (usPop||[]).slice(0,100).forEach(x=>{ const v=usQ[x.t];
+      if(v&&v.price!=null)q[x.t]={price:v.price,prev:v.prev,cap:v.cap,w52h:v.w52h,w52l:v.w52l,vol:v.vol}; });
+    const meta={};
+    (usPop||[]).forEach(x=>{ const mm=usMeta[x.t]; if(mm)meta[x.t]={kr:mm.kr,en:mm.en,sfx:mm.sfx,etf:mm.etf}; });
+    localStorage.setItem('usPopCache',JSON.stringify({at:Date.now(),list:usPop,q,meta}));
+  }catch(e){}
+}
+function usPopRestore(){
+  try{
+    const raw=localStorage.getItem('usPopCache'); if(!raw)return false;
+    const c=JSON.parse(raw);
+    if(!c||!Array.isArray(c.list)||!c.list.length)return false;
+    if(Date.now()-(c.at||0)>24*3600e3)return false;      // 하루 지난 건 쓰지 않는다
+    Object.keys(c.meta||{}).forEach(t=>{ if(!usMeta[t]){ const mm=c.meta[t];
+      usRegister({t,sfx:mm.sfx||'O',kr:mm.kr||t,en:mm.en||t,etf:mm.etf?1:0}); } });
+    Object.keys(c.q||{}).forEach(t=>{ if(!usQ[t])usQ[t]=Object.assign({},c.q[t],{stale:1}); });
+    usPop=c.list; usPopAt=0;                              // 화면엔 바로 쓰되 갱신은 계속 진행
+    return true;
+  }catch(e){ return false; }
+}
 function usPopLoad(cb){
   if(usPopBusy)return;
   if(usPop&&usPop.length>=100&&Date.now()-usPopAt<180e3){cb&&cb();return;}
-  if(usPop&&Date.now()-usPopAt<180e3&&_usPopTry>=4){cb&&cb();return;}
+  if(usPop&&Date.now()-usPopAt<180e3&&_usPopTry>=8){cb&&cb();return;}
   usPopBusy=true;
   const again=_usPopTry>0;
   fetch('/api/uspopular'+(again?'?fresh=1':''),{cache:'no-store'}).then(r=>r.json()).then(j=>{
@@ -8045,10 +8087,10 @@ function usPopLoad(cb){
       out.push({t,views:it.views||0,wiki:it.wiki||0,origin:it.origin||[]});
       if(out.length>=100)break;
     }
-    usPop=out; usPopAt=Date.now();
+    usPop=out; usPopAt=Date.now(); usPopSave();
     cb&&cb();
     /* 아직 100위에 못 미치면 곧바로 한 번 더 — 서버가 다음 묶음을 받아 온다 */
-    if(out.length<100&&_usPopTry<4)setTimeout(()=>usPopLoad(cb),400);
+    if(out.length<100&&_usPopTry<8)setTimeout(()=>usPopLoad(cb),350);
   }).catch(()=>{usPopBusy=false;_usPopTry++;});
 }
 function usRankSection(){
@@ -8058,8 +8100,10 @@ function usRankSection(){
 
   /* ── 조회수 탭 ── 서버가 센 실제 조회수 순서 ── */
   if(tab==='조회수'){
+    if(!usPop)usPopRestore();                     // [v4.65] 저장해 둔 목록이 있으면 즉시 사용
     if(!usPop){ usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true).then(redraw); redraw(); });
       return '<div class="empty">해외 인기 종목을 불러오는 중…</div>'; }
+    usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true).then(()=>{try{usPopSave();}catch(e){} redraw();}); redraw(); });
     if(!usPop.length)
       return '<div class="empty">아직 조회 기록이 쌓이지 않았습니다<br>'
         +'<small style="color:var(--sub-2)">해외 종목을 몇 개 열어 보면 순위가 만들어집니다</small><br>'
@@ -8543,8 +8587,8 @@ function renderWatch(){
      sumBar=`<div class="wl-stats">
        <div class="ws-c"><span>상승 / 하락</span><b><i class="up">${up}</i> / <i class="down">${dn}</i></b></div>
        <div class="ws-c"><span>평균 등락</span><b class="num ${avg>=0?'up':'down'}">${pctS(avg)}</b></div>
-       <div class="ws-c click" data-code="${best.st.code}"><span>베스트</span><b>${stockLogo(best.st.code,best.st.name,'xs')}${best.st.name} <i class="num up">${pctS(best.p)}</i></b></div>
-       ${ch.length>1?`<div class="ws-c click" data-code="${worst.st.code}"><span>워스트</span><b>${stockLogo(worst.st.code,worst.st.name,'xs')}${worst.st.name} <i class="num down">${pctS(worst.p)}</i></b></div>`:''}
+       <div class="ws-c click" data-code="${best.st.code}"><span>베스트</span><b>${anyLogo(best.st.code,best.st.name,'xs')}${best.st.name} <i class="num up">${pctS(best.p)}</i></b></div>
+       ${ch.length>1?`<div class="ws-c click" data-code="${worst.st.code}"><span>워스트</span><b>${anyLogo(worst.st.code,worst.st.name,'xs')}${worst.st.name} <i class="num down">${pctS(worst.p)}</i></b></div>`:''}
        ${bs.mode!=='live'||/마지막|전일|금요일/.test(bs.label)?`<div class="ws-basis"><i class="lv-dot"></i>${bs.label}</div>`:''}
      </div>`;}}
   const rows=watchSortMode==='chg'?listByChange(codes):codes.map(c=>byCode[c]).filter(Boolean);
@@ -8556,7 +8600,7 @@ function renderWatch(){
       const sel=wlSelMode?`<label class="wl-ck" onclick="event.stopPropagation()"><input type="checkbox" data-sel="${s.code}" ${wlSelSet.has(s.code)?'checked':''}></label>`:'';
       const mv=(mine&&!wlSelMode)?`<span class="wl-mv"><button data-mv="-1" data-code="${s.code}" aria-label="위로">▲</button><button data-mv="1" data-code="${s.code}" aria-label="아래로">▼</button></span>`:'';
       const nxtB=nxtCapability(s.code)===true?'<span class="nxt-badge sm">NXT</span>':'';
-      return `<tr data-code="${s.code}"><td><div class="td-l">${sel}${mv}${stockLogo(s.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${nxtB}${s.tags&&s.tags[0]?`<span class="tag">${s.tags[0]}</span>`:mktTag(s.code,s.market)}<button class="wl-fd" data-fd="${s.code}" aria-label="폴더에 담기">폴더</button><br><span class="cd num">${s.code}</span></div></div></td>
+      return `<tr data-code="${s.code}"><td><div class="td-l">${sel}${mv}${anyLogo(s.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${nxtB}${s.tags&&s.tags[0]?`<span class="tag">${s.tags[0]}</span>`:mktTag(s.code,s.market)}<button class="wl-fd" data-fd="${s.code}" aria-label="폴더에 담기">폴더</button><br><span class="cd num">${s.code}</span></div></div></td>
       <td class="num ${wv.dir}" id="wpx-${s.code}">${wv.px}</td><td class="num ${wv.dir}">${wv.diff}</td>
       <td class="num ${wv.dir}">${wv.rate}</td><td class="cdl-td" id="wcd-${s.code}">${miniCandle(s.code)}</td><td class="num">${wv.vol}</td>
       <td>${targetCell(s.code)}</td></tr>`;}).join('')+`</tbody></table>`;
@@ -8809,7 +8853,7 @@ function renderDetail(){
   const _px=_dq.price!=null?_dq.price:s.price, _pv=_dq.prevClose||s.prevClose;
   const has=_px!=null&&!!_pv;
   const diff=has?_px-_pv:0,p=has?diff/_pv*100:0,dir=has?dirOf(diff):'flat';
-  $('dName').innerHTML=`${stockLogo(s.code,s.name,'lg')}${s.name}${mktTag(s.code,s.market)}`;
+  $('dName').innerHTML=`${anyLogo(s.code,s.name,'lg')}${s.name}${mktTag(s.code,s.market)}`;
   $('dCode').innerHTML=s.code+' · '+(isFundLike(s.code)?'상장지수상품(ETF)':(s.market||mktCache[String(s.code).toUpperCase()]||'KRX'))+(function(){const cap=nxtCapability(s.code);
     if(cap===true)return NXTLIST.halted.has(s.code)
       ? ' <span class="nxt-badge halt" title="NXT 매매체결대상이지만 현재 매매거래정지 상태입니다">NXT 거래정지</span>'
@@ -9113,7 +9157,7 @@ function etfHoldingsHtml(list,limit,diag,proxy,kind,complete,totalW,cnt){
       const st=byCode[h.code];const dir=st&&st.price!=null&&st.prevClose?dirOf(st.price-st.prevClose):'flat';
       const chg=st&&st.price!=null&&st.prevClose?pctS((st.price-st.prevClose)/st.prevClose*100):'';
       /* [v4.26] 종목명 왼쪽에 로고 — 목록에서 종목을 눈으로 바로 집을 수 있게 */
-      return `<div class="etf-hold-r"><div class="etf-hold-n"><span class="ehr-i num">${i+1}</span>${stockLogo(h.code,h.name,'xs')}<b>${h.name}</b>${chg?`<span class="num ${dir}" style="margin-left:8px;font-size:12px">${chg}</span>`:''}</div>
+      return `<div class="etf-hold-r"><div class="etf-hold-n"><span class="ehr-i num">${i+1}</span>${anyLogo(h.code,h.name,'xs')}<b>${h.name}</b>${chg?`<span class="num ${dir}" style="margin-left:8px;font-size:12px">${chg}</span>`:''}</div>
         <div class="etf-hold-w"><div class="etf-bar"><i style="width:${Math.min(100,(h.weight||0))}%"></i></div><span class="num">${(h.weight||0).toFixed(2)}%</span></div></div>`;}).join('')}</div>
     ${list.length>limit?`<button class="etf-more" id="etfMore">${etfHoldOpen?'접기 ▲':`더보기 (${isComplete?'전체':'상위'} ${list.length}종목) ▼`}</button>`:''}`;
 }
@@ -10299,7 +10343,7 @@ function renderHoldings(){
     const evalAmt=hEvalKRW(h),cost=hCostKRW(h),pnl=evalAmt-cost,rate=cost?pnl/cost*100:0,dir=dirOf(pnl);
     const wgt=evalAmt/totEval*100;
     const P=(v)=>h.us?('$'+USD2(v)):KRW(v);
-    return `<tr data-code="${h.code}" ${h.us?'data-usopen="1"':''}><td><div class="td-l">${h.us?usTick(h.code):stockLogo(h.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${h.us?'<span class="mkt-tag nxt" style="background:#1d3f8f">🇺🇸 미국</span>':mktTag(h.code,s.market)}<br><span class="cd num">${h.code}</span></div></div></td>
+    return `<tr data-code="${h.code}" ${h.us?'data-usopen="1"':''}><td><div class="td-l">${h.us?usTick(h.code):anyLogo(h.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${h.us?'<span class="mkt-tag nxt" style="background:#1d3f8f">🇺🇸 미국</span>':mktTag(h.code,s.market)}<br><span class="cd num">${h.code}</span></div></div></td>
       <td class="num">${h.us?fmtQty(h.qty):KRW(h.qty)}</td><td class="num">${P(h.avg)}</td>
       <td class="num ${s.price!=null?dirOf(s.price-s.prevClose):'flat'}">${P(price)}</td>
       <td class="num">${KRW(evalAmt)}</td><td class="num ${dir}">${signed(pnl)}</td><td class="num ${dir}">${pctS(rate)}</td>
@@ -10830,43 +10874,68 @@ function drawChart(){
      분봉 라벨을 HH:MM 만 찍었다. 며칠치가 이어 붙으면 09:00 → 14:01 → 13:02 처럼
      시간이 거꾸로 가는 것처럼 보인다(첨부 사진). 실제로는 날이 바뀐 것뿐이다.
      → 날짜가 바뀌는 지점에는 'M.D 09:00' 처럼 날짜를 함께 찍어 구분해 준다. */
+  /* [v4.66] 날짜 표기를 '숫자/숫자'로 통일하고, 분봉에서 날이 바뀌면
+     날짜와 시각을 두 칸 띄워 붙인다 — 예: 8/3  11:55 */
   const fmtAxis=(dstr,prev)=>{const d=String(dstr||'').replace(/[^0-9]/g,'');
+    const md=(+d.slice(4,6))+'/'+(+d.slice(6,8));                     // M/D
     if(isMinute(chartTf)){
       if(d.length>=12){
         const hm=d.slice(8,10)+':'+d.slice(10,12);
         const pd=String(prev||'').replace(/[^0-9]/g,'');
         const newDay=!pd||pd.slice(0,8)!==d.slice(0,8);
-        return newDay?((+d.slice(4,6))+'.'+(+d.slice(6,8))+' '+hm):hm;
+        return newDay?(md+'  '+hm):hm;                                // 날짜 + 2칸 + 시각
       }
       return String(dstr).slice(-5);
     }
-    if(chartTf==='M')return d.slice(0,4)+'.'+d.slice(4,6);
+    if(chartTf==='M')return d.slice(0,4)+'/'+d.slice(4,6);
     if(chartTf==='Y')return d.slice(0,4);
-    const md=(+d.slice(4,6))+'.'+(+d.slice(6,8));                     // 일·주: M.D
-    if(!prev||String(prev).replace(/[^0-9]/g,'').slice(0,4)!==d.slice(0,4))return d.slice(2,4)+"'"+md;  // 해가 바뀌면 'YY 표기
+    if(!prev||String(prev).replace(/[^0-9]/g,'').slice(0,4)!==d.slice(0,4))return d.slice(2,4)+"'"+md;
     return md;};
-  const xEvery=Math.max(1,Math.ceil(m/6));
-  const xTicks=[];for(let i=0;i<m;i+=xEvery){xTicks.push(i);}
-  /* 분봉에서 날이 바뀌는 자리에는 눈금을 강제로 하나 두어 경계가 보이게 한다 */
+  /* ══ [v4.65] 축 글자가 서로 겹치던 문제 ═══════════════════════════════════
+     [무엇이 잘못됐나] 눈금을 '봉 개수'로만 나눠 찍었다. 분봉에 날짜가 붙으면서
+     글자가 길어졌는데도 간격은 그대로여서 '8.3 8:4 00:00' 처럼 서로 파고들었다.
+     게다가 날 바뀌는 자리에 눈금을 하나 더 끼워 넣어, 원래 눈금 바로 옆에 붙는
+     경우가 생겼다(첨부 사진).
+     [어떻게 고쳤나] 실제 증권 앱처럼 '픽셀 폭'을 기준으로 고른다.
+       ① 날 바뀌는 자리를 우선 후보로 삼고(그 자리 라벨이 정보가 가장 많다)
+       ② 후보를 왼쪽부터 훑으며, 앞 글자와 최소 간격이 확보될 때만 채택한다
+     이러면 어떤 확대 배율에서도 글자가 겹치지 않는다. */
+  const dayKey=(c)=>String((c||{}).d||'').replace(/[^0-9]/g,'').slice(0,8);
   let dayEdges=[];
   if(isMinute(chartTf)&&m>1){
-    for(let i=1;i<m;i++){
-      const a=String((vis[i-1]||{}).d||'').replace(/[^0-9]/g,'');
-      const b=String((vis[i]||{}).d||'').replace(/[^0-9]/g,'');
-      if(a.length>=8&&b.length>=8&&a.slice(0,8)!==b.slice(0,8))dayEdges.push(i);
-    }
-    if(dayEdges.length<=6)dayEdges.forEach(i=>{ if(!xTicks.includes(i))xTicks.push(i); });
-    xTicks.sort((a,b)=>a-b);
+    for(let i=1;i<m;i++)if(dayKey(vis[i-1])&&dayKey(vis[i])&&dayKey(vis[i-1])!==dayKey(vis[i]))dayEdges.push(i);
   }
+  const xTicks=(()=>{
+    ctx.save(); ctx.font='bold 10px Pretendard';      // 실제 축 글꼴과 동일하게 잰다
+    const cand=[];
+    dayEdges.forEach(i=>cand.push(i));
+    const step=Math.max(1,Math.floor(m/12));
+    for(let i=0;i<m;i+=step)cand.push(i);
+    cand.push(m-1);
+    const uniq=[...new Set(cand)].filter(i=>i>=0&&i<m).sort((a,b)=>a-b);
+    const out=[]; let lastRight=-1e9, prevLbl=null;
+    for(const i of uniq){
+      const txt=fmtAxis(vis[i].d,prevLbl);            // 그릴 때와 같은 prev 기준
+      const w=ctx.measureText(txt).width, x=X(i);
+      if(x-w/2 < lastRight+16)continue;              // 앞 글자와 16px 이상 벌어질 때만
+      if(x+w/2 > padL+plotW+1)continue;              // 오른쪽으로 삐져나가면 버린다
+      if(x-w/2 < padL-1)continue;                    // 왼쪽도 마찬가지
+      out.push(i); lastRight=x+w/2; prevLbl=vis[i].d;
+    }
+    ctx.restore();
+    return out.length?out:[Math.max(0,m-1)];
+  })();
   if(m>1&&(m-1)-xTicks[xTicks.length-1]>=xEvery*0.55)xTicks.push(m-1);   // 오른쪽 끝(최신 봉)도 여유 있으면 표기
   ctx.setLineDash([3,4]);
   xTicks.forEach(i=>{const x=X(i);ctx.strokeStyle=PAL.gridV;ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
   ctx.setLineDash([]);
-  if(dayEdges.length&&dayEdges.length<=40){
-    ctx.save();ctx.strokeStyle=(PAL&&PAL.axis)||'#94a3b8';ctx.globalAlpha=.34;ctx.lineWidth=1;
-    dayEdges.forEach(i=>{const x=X(i);ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
-    ctx.restore();
-  }
+  {/* 날 경계선은 눈금으로 채택된 자리에만 — 선까지 겹치면 화면이 지저분해진다 */
+   const drawn=dayEdges.filter(i=>xTicks.includes(i));
+   if(drawn.length&&drawn.length<=30){
+     ctx.save();ctx.strokeStyle=(PAL&&PAL.axis)||'#94a3b8';ctx.globalAlpha=.30;ctx.lineWidth=1;
+     drawn.forEach(i=>{const x=X(i);ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
+     ctx.restore();
+   }}
   /* [수정] 매물대 재설계 — ①봉과 덜 겹치도록 오른쪽(가격축 쪽) 정렬 ②차분한 슬레이트 기본색,
        최대 매물대=앰버, 현재가 구간=파랑만 강조 ③막대 높이를 칸의 62%로 줄이고 모서리 라운드
        ④% 라벨은 의미 있는 곳(최대·현재가·8%↑)만 — 색 설명은 캔버스 글자 대신 HTML 범례 칩으로 */
@@ -10955,7 +11024,7 @@ function drawChart(){
    const axisY=volTop+volH+5;
    xTicks.forEach(i=>{const c=vis[i];if(!c)return;const x=X(i);
      ctx.strokeStyle=axDark?'#94a3b8':'#444444';ctx.beginPath();ctx.moveTo(x,volTop+volH);ctx.lineTo(x,volTop+volH+4);ctx.stroke();
-     ctx.fillText(fmtAxis(c.d,prevD),Math.min(Math.max(x,padL+14),padL+plotW-14),axisY);prevD=c.d;});
+     ctx.fillText(fmtAxis(c.d,prevD),x,axisY);prevD=c.d;});
    ctx.textBaseline='middle';}
   // 이동평균선 (5/20/60/120)
   const prefix=[0];for(let i=0;i<cs.length;i++)prefix[i+1]=prefix[i]+cs[i].c;
@@ -10990,7 +11059,7 @@ function drawChart(){
       const up=c.c>=c.o,cc=up?'up':'down',chg=c.c-c.o,cp=c.o?chg/c.o*100:0;
       const tip=$('chartTip');
       tip.innerHTML=`<div class="d">${(()=>{const q=String(c.d||'').replace(/[^0-9]/g,'');
-        return q.length>=12?(+q.slice(4,6))+'.'+(+q.slice(6,8))+' '+q.slice(8,10)+':'+q.slice(10,12):c.d;})()}</div>
+        return q.length>=12?(+q.slice(4,6))+'/'+(+q.slice(6,8))+'  '+q.slice(8,10)+':'+q.slice(10,12):c.d;})()}</div>
         <div class="r"><span>시</span><span>${KRW(c.o)}</span></div>
         <div class="r"><span>고</span><span class="up">${KRW(c.h)}</span></div>
         <div class="r"><span>저</span><span class="down">${KRW(c.l)}</span></div>
@@ -11827,7 +11896,7 @@ function acSuggest(q){
       :'<div class="ac-sug-note">일치하는 종목이 없습니다.</div>';
     box.hidden=false;return;
   }
-  box.innerHTML=out.map(x=>`<button data-c="${x.c}" data-n="${(x.n||'').replace(/"/g,'&quot;')}">${stockLogo(x.c,x.n,24)}<span>${x.n||x.c}</span><span class="code num">${x.c}${x.mk?' · '+x.mk:''}</span></button>`).join('')
+  box.innerHTML=out.map(x=>`<button data-c="${x.c}" data-n="${(x.n||'').replace(/"/g,'&quot;')}">${anyLogo(x.c,x.n,24)}<span>${x.n||x.c}</span><span class="code num">${x.c}${x.mk?' · '+x.mk:''}</span></button>`).join('')
     +((!stockAll&&stockLoading)?'<div class="ac-sug-note">전 종목 명단 불러오는 중 — 결과가 더 늘어날 수 있어요.</div>':'');
   box.hidden=false;
   box.querySelectorAll('button[data-c]').forEach(b=>b.onclick=()=>{
@@ -11872,7 +11941,7 @@ async function acAnalyze(code){
     :`기관·외국인 수급은 중립입니다.`);
   interp.push(`현재가는 60일 고점 대비 <b>-${r.meta.gap}%</b>, 40일 박스폭은 <b>${r.meta.width}%</b>입니다.`);
   body.innerHTML=`<div class="ac-report">
-    <div class="ac-hd">${stockLogo(code,st.name,44)}<div><div class="nm">${st.name||code}</div><div class="cd num">${code}${st.nxt?' · NXT':''}</div></div>
+    <div class="ac-hd">${anyLogo(code,st.name,44)}<div><div class="nm">${st.name||code}</div><div class="cd num">${code}${st.nxt?' · NXT':''}</div></div>
       <div style="margin-left:auto;text-align:right"><div class="ac-gauge-num num">${r.total}<small>/100</small></div>${acStageChipHtml(r)}</div></div>
     ${badges.length?`<div class="ac-badges">${badges.join('')}</div>`:''}
     <div class="ac-canvas-wrap"><canvas id="acCanvas"></canvas>
@@ -12270,7 +12339,7 @@ function usApplyQuote(reu,q){
   const t=Object.keys(usMeta).find(k=>usMeta[k].reu===reu); if(!t)return false;
   const keep=usQ[t]||{};
   const nn={}; Object.keys(q).forEach(k=>{ if(q[k]!=null)nn[k]=q[k]; });
-  usQ[t]={...keep,...nn,t,at:Date.now()};
+  usQ[t]={...keep,...nn,t,at:Date.now()}; delete usQ[t].stale;   // [v4.65] 새 값이 오면 '저장분' 표시 해제
   const b=byCode[t]||{};
   byCode[t]={...b,code:t,name:usMeta[t].kr,us:1,price:usQ[t].price,prevClose:usQ[t].prev,
     open:usQ[t].open,high:usQ[t].high,low:usQ[t].low,vol:usQ[t].vol,cap:usQ[t].cap,

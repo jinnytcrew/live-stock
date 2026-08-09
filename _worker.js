@@ -11778,7 +11778,7 @@ var WIKI_ART = {
   HD:"The_Home_Depot", LOW:"Lowe's", NKE:"Nike,_Inc.", SBUX:"Starbucks", MCD:"McDonald's",
   KO:"Coca-Cola", PEP:"PepsiCo", PG:"Procter_&_Gamble", CL:"Colgate-Palmolive",
   UL:"Unilever", MDLZ:"Mondelez_International", KHC:"Kraft_Heinz", GIS:"General_Mills",
-  JNJ:"Johnson_&_Johnson", PFE:"Pfizer", MRK:"Merck_%26_Co.", ABBV:"AbbVie", LLY:"Eli_Lilly_and_Company",
+  JNJ:"Johnson_&_Johnson", PFE:"Pfizer", MRK:"Merck_&_Co.", ABBV:"AbbVie", LLY:"Eli_Lilly_and_Company",
   BMY:"Bristol_Myers_Squibb", AMGN:"Amgen", GILD:"Gilead_Sciences", MRNA:"Moderna",
   NVO:"Novo_Nordisk", UNH:"UnitedHealth_Group", CVS:"CVS_Health", ISRG:"Intuitive_Surgical",
   XOM:"ExxonMobil", CVX:"Chevron_Corporation", COP:"ConocoPhillips", SLB:"SLB",
@@ -11787,12 +11787,37 @@ var WIKI_ART = {
   HON:"Honeywell", MMM:"3M", UPS:"United_Parcel_Service", FDX:"FedEx", F:"Ford_Motor_Company",
   GM:"General_Motors", RIVN:"Rivian", LCID:"Lucid_Motors", NIO:"Nio_Inc.", LI:"Li_Auto",
   XPEV:"XPeng", BABA:"Alibaba_Group", JD:"JD.com", PDD:"PDD_Holdings", BIDU:"Baidu",
-  T:"AT%26T", VZ:"Verizon", TMUS:"T-Mobile_US", CSCO:"Cisco", ANET:"Arista_Networks",
+  T:"AT&T", VZ:"Verizon", TMUS:"T-Mobile_US", CSCO:"Cisco", ANET:"Arista_Networks",
   PANW:"Palo_Alto_Networks", CRWD:"CrowdStrike", ZS:"Zscaler", DDOG:"Datadog",
   SPOT:"Spotify", RBLX:"Roblox_Corporation", EA:"Electronic_Arts", TTWO:"Take-Two_Interactive",
   SONY:"Sony", TM:"Toyota", HMC:"Honda", LIN:"Linde_plc", NEE:"NextEra_Energy",
   DUK:"Duke_Energy", SO:"Southern_Company", VST:"Vistra_Corp", CEG:"Constellation_Energy",
-  OKLO:"Oklo_Inc.", SMR:"NuScale_Power", MSTR:"Strategy_(company)", GME:"GameStop", AMC:"AMC_Theatres"
+  OKLO:"Oklo_Inc.", SMR:"NuScale_Power", MSTR:"Strategy_(company)", GME:"GameStop", AMC:"AMC_Theatres",
+  /* [v4.65] 후보를 넓힌다 — 문서가 없거나 이름이 어긋나 빠지는 종목이 늘 생기므로,
+     100위를 안정적으로 채우려면 시작 후보가 넉넉해야 한다. */
+  ACN:"Accenture", ADP:"ADP_(company)", AMAT:"Applied_Materials", LRCX:"Lam_Research",
+  KLAC:"KLA_Corporation", ADI:"Analog_Devices", NXPI:"NXP_Semiconductors", MCHP:"Microchip_Technology",
+  ON:"Onsemi", MRVL:"Marvell_Technology", SNPS:"Synopsys", CDNS:"Cadence_Design_Systems",
+  INTU:"Intuit", WDAY:"Workday,_Inc.", TEAM:"Atlassian", MDB:"MongoDB_Inc.", NET:"Cloudflare",
+  OKTA:"Okta,_Inc.", TWLO:"Twilio", ZM:"Zoom_Communications", DOCU:"Docusign", U:"Unity_(game_engine)",
+  PINS:"Pinterest", SNAP:"Snap_Inc.", MTCH:"Match_Group", EBAY:"EBay", ETSY:"Etsy",
+  CHWY:"Chewy_(company)", LULU:"Lululemon_Athletica", DECK:"Deckers_Brands", CROX:"Crocs",
+CMG:"Chipotle_Mexican_Grill", YUM:"Yum!_Brands", DPZ:"Domino's_Pizza",
+  MAR:"Marriott_International", HLT:"Hilton_Worldwide", RCL:"Royal_Caribbean_Group",
+  CCL:"Carnival_Corporation_&_plc", DAL:"Delta_Air_Lines", UAL:"United_Airlines", LUV:"Southwest_Airlines",
+  AAL:"American_Airlines", SPGI:"S&P_Global", MCO:"Moody's_Corporation", ICE:"Intercontinental_Exchange",
+  CME:"CME_Group", NDAQ:"Nasdaq,_Inc.", PM:"Philip_Morris_International", MO:"Altria",
+  KMB:"Kimberly-Clark", GIS2:"General_Mills", HSY:"The_Hershey_Company", K:"Kellanova",
+  SYK:"Stryker_Corporation", BSX:"Boston_Scientific", MDT:"Medtronic", ABT:"Abbott_Laboratories",
+  TMO:"Thermo_Fisher_Scientific", DHR:"Danaher_Corporation", REGN:"Regeneron_Pharmaceuticals",
+  VRTX:"Vertex_Pharmaceuticals", BIIB:"Biogen", ZTS:"Zoetis", ELV:"Elevance_Health",
+  SOFI:"SoFi", AFRM:"Affirm_(company)", UPST:"Upstart_(company)", DKNG:"DraftKings",
+  ROKU:"Roku,_Inc.", WBD:"Warner_Bros._Discovery", PARA:"Paramount_Global", LYV:"Live_Nation_Entertainment",
+  APP:"AppLovin", VRT:"Vertiv", GEV:"GE_Vernova", ETN:"Eaton_Corporation",
+  PWR:"Quanta_Services", PH:"Parker_Hannifin", EMR:"Emerson_Electric", ITW:"Illinois_Tool_Works",
+  UNP:"Union_Pacific_Railroad", CSX:"CSX_Transportation", NSC:"Norfolk_Southern_Railway",
+  FCX:"Freeport-McMoRan", NEM:"Newmont", NUE:"Nucor", DOW:"Dow_Chemical_Company",
+  AVAV:"AeroVironment", LDOS:"Leidos", HII:"Huntington_Ingalls_Industries", TDG:"TransDigm"
 };
 /* [v4.60] 티커 → 거래소 접미(O 나스닥 / N 뉴욕 / A 아멕스).
    야후·Stocktwits 는 거래소를 알려 주지 않아, 이걸 모르면 클라이언트가 종목을
@@ -11881,8 +11906,10 @@ async function wikiArticleViews(tickers, have, diag, budget){
   const still = [];
   for (const t of need) {
     const hit = bag[t];
-    if (hit && hit.at && Date.now() - hit.at < 24 * 3600e3) out[t] = hit.v;
-    else still.push(t);
+    if (!hit || !hit.at) { still.push(t); continue; }
+    const age = Date.now() - hit.at;
+    if (hit.bad) { if (age < 6 * 3600e3) continue; still.push(t); continue; }  // 실패는 6시간 쉬어 간다
+    if (age < 24 * 3600e3) out[t] = hit.v; else still.push(t);
   }
   diag.push("wiki-kv:" + (need.length - still.length));
   /* [v4.60] 한 번에 14개씩 '차례로' 받다 보니 135종을 채우는 데 열 번 넘는 방문이
@@ -11895,26 +11922,35 @@ async function wikiArticleViews(tickers, have, diag, budget){
     const { j, err } = await wikiGet(
       `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/`
       + encodeURIComponent(WIKI_ART[t]) + `/daily/${s.s}/${e.s}`, 5000);
-    if (err) return null;
+    if (err) return { t, fail: 1 };
     const items = (j && j.items) || [];
-    if (!items.length) return null;
+    if (!items.length) return { t, fail: 1 };
     const avg = Math.round(items.reduce((a, x) => a + (+x.views || 0), 0) / items.length);
     return { t, avg };
   }));
-  let n = 0;
+  let n = 0, bad = 0;
   for (const g of got) {
     if (!g) continue;
+    if (g.fail) {
+      /* ══ [v4.65] 실패도 기억한다 ═══════════════════════════════════════════
+         문서명이 틀렸거나 위키에 문서가 없으면 계속 404 가 난다. 그런데 실패를
+         기억하지 않으니, 실패한 종목이 다음 회차에도 대기열 앞자리를 그대로 차지해
+         새 종목이 들어올 자리를 막았다 — 순위가 55종에서 멈춘 진짜 이유다.
+         실패는 짧게(6시간) 기억해 두어 대기열에서 비켜 준다. */
+      bag[g.t] = { at: Date.now(), v: 0, bad: 1 }; bad++;
+      continue;
+    }
     out[g.t] = g.avg; bag[g.t] = { at: Date.now(), v: g.avg }; n++;
   }
   /* 쓰기는 한 번뿐 — 오래된 항목은 정리해 키가 무한정 커지지 않게 한다 */
-  if (n && KV) {
+  if ((n || bad) && KV) {
     try {
       const cut = Date.now() - 48 * 3600e3;
       for (const k in bag) if (!bag[k] || !(bag[k].at > cut)) delete bag[k];
       await KV.put("wikv:all", JSON.stringify(bag), { expirationTtl: 172800 });
     } catch (e) { }
   }
-  diag.push("wiki-art:" + n + "/" + take.length);
+  diag.push("wiki-art:" + n + "/" + take.length + (bad ? "-bad" + bad : ""));
   return out;
 }
 /* ③ 야후 파이낸스에서 가장 많이 검색된 종목 */
@@ -11991,7 +12027,8 @@ async function uspopular_default(req2){
   const all = [...score.values()];
   const withV = all.filter(x => (wikiV[x.t] || 0) > 0).sort((a, b) => wikiV[b.t] - wikiV[a.t]);
   const noV = all.filter(x => !(wikiV[x.t] > 0)).sort((a, b) => b.sc - a.sc);
-  const items = withV.concat(noV).slice(0, 130)
+  /* [v4.66] 딱 100위까지만 — 그 이상은 '조회수 TOP 100' 이 아니다 */
+  const items = withV.concat(noV).slice(0, 100)
     .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, origin: x.origin,
       wiki: wikiV[x.t] || 0, views: Math.round(vt.map[x.t] || 0) }));
   const basis = {
@@ -12075,7 +12112,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.64.0";
+var APP_VER = "4.66.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
