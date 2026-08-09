@@ -8122,7 +8122,9 @@ function usPopLoad(cb){
       const t=String(it.t||'').toUpperCase(); if(!t)continue;
       if(!usMeta[t]){
         if(!it.sfx)continue;                       // 거래소를 모르면 시세를 못 받는다 → 건너뜀
-        usRegister({t,sfx:it.sfx,kr:it.kr||it.en||t,en:it.en||t});
+        /* [v4.76] 한글 자리에 영문·티커를 넣지 않는다 — 그래서 'MS · MS' 가 나왔다.
+           한글은 한글일 때만 넘기고, 없으면 usRegister 가 표에서 찾거나 영문을 정리해 쓴다. */
+        usRegister({t,sfx:it.sfx,kr:/[가-힣]/.test(String(it.kr||''))?it.kr:'',en:it.en||''});
       }
       out.push({t,views:it.views||0,wiki:it.wiki||0,origin:it.origin||[]});
       if(out.length>=100)break;
@@ -12234,16 +12236,30 @@ function usRegister(it){
   const sfx=/^[ONA]$/.test(it.sfx)?it.sfx:'O';
   /* [v4.73] 한글명이 없으면 영문명이라도 쓴다 — 'SPCX · SPCX' 처럼 티커가 두 번
      나오면 무슨 종목인지 알 수 없다. 흔히 붙는 법인 꼬리표는 떼어 읽기 좋게 만든다. */
-  const clean=(v)=>String(v||'')
-    /* 'Fluence Energy Inc - Ordinary Shares - Class A' 처럼 뒤에 붙는 증권 형태 설명을 떼어낸다 */
-    .replace(/\s*[-–]\s*(Ordinary|Common|Class|Depositary|American|Registered)[^-–]*$/gi,'')
-    .replace(/\s*[-–]\s*ADR\s*$/i,' (ADR)')
-    .replace(/,?\s*(Inc\.?|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|Limited|plc|PLC|N\.V\.|S\.A\.|Holdings?|Group|The)\b\.?/g,'')
-    .replace(/\s{2,}/g,' ').replace(/[\s,]+$/,'').trim();
+  /* ══ [v4.76] 영문 회사명 정리 ═══════════════════════════════════════════
+     'United Parcel Service, Inc.' · 'Fluence Energy Inc - Ordinary Shares - Class A'
+     처럼 법인 형태와 증권 종류가 뒤에 길게 붙어 화면을 어지럽혔다.
+     레버리지 표기는 국내식으로 2X·3X 로 맞춘다. */
+  const LEGAL='(?:Inc|Corp|Corporation|Company|Co|Ltd|Limited|plc|PLC|N\\.V|S\\.A|LP|LLC|AG|SE)';
+  const clean=(v)=>{
+    let x=String(v||'');
+    /* 순서가 중요하다 — 증권 종류 꼬리표를 먼저 떼고, 그 다음 법인 형태를 뗀다.
+       거꾸로 하면 'Fluence Energy Inc - Ordinary Shares' 에서 Inc 가 살아남는다. */
+    x=x.replace(/\s*[-–]\s*(Ordinary|Common|Class|Depositary|American|Registered)[\s\S]*$/i,'');
+    x=x.replace(/\s*[-–]\s*ADR\s*$/i,'\u0001ADR');
+    x=x.replace(/\b(\d)\s*(?:x|X|배)\b/g,'$1X');          // 2배·2 x → 2X (국내 표기와 통일)
+    for(let i=0;i<3;i++)
+      x=x.replace(new RegExp(',?\\s+'+LEGAL+'\\.?(?=\\s|\\u0001|$)','g'),'');
+    x=x.replace(/\s+(Holdings?|Group|Trust|Fund)\.?(?=\s|\u0001|$)/gi,'');
+    x=x.replace(/\u0001ADR/,' (ADR)');
+    return x.replace(/\s{2,}/g,' ').replace(/[\s,.]+$/,'').trim();
+  };
   const en=clean(it.en)||String(it.en||'').trim();
-  /* [v4.74] 한글 이름이 있으면 그걸 쓴다 — 화면에 영문만 늘어놓지 않는다 */
-  const krFromAlias=(typeof US_KRNAME!=='undefined'&&US_KRNAME[t])||'';
-  const rec={t,sfx,kr:it.kr||krFromAlias||en||t,en:en||t,theme:'etc',etf:it.etf?1:0,
+  /* 이름 정하기 — ① 한글 표 ② 넘겨받은 한글 ③ 정리한 영문. 티커는 이름으로 쓰지 않는다.
+     (HPSP 처럼 원래 알파벳인 회사는 영문 그대로 두는 게 맞다) */
+  const krFromMap=(typeof US_KRNAME!=='undefined'&&US_KRNAME[t])||'';
+  const krIn=/[가-힣]/.test(String(it.kr||''))?String(it.kr).trim():'';
+  const rec={t,sfx,kr:krFromMap||krIn||en||t,en:en||t,theme:'etc',etf:it.etf?1:0,
     reu:t.replace('.','/')+'.'+sfx,dyn:1};
   usMeta[t]=rec; usDyn[t]={sfx,kr:rec.kr,en:rec.en,etf:rec.etf};
   try{ const keys=Object.keys(usDyn); if(keys.length>400)delete usDyn[keys[0]];
@@ -12349,13 +12365,65 @@ function usAllMatch(q){
   }
   return out;
 }
+/* ══ [v4.76] 티커 → 한글 이름 표 ═══════════════════════════════════════════
+   [무엇이 문제였나] 한글 이름이 없으면 티커를 그대로 이름 자리에 넣어
+   'MS · MS', 'BLK · BLK' 처럼 티커가 두 번 찍혔다. 무슨 회사인지 알 수 없다.
+   [원칙] ① 한국에서 통용되는 한글 이름이 있으면 그걸 쓴다
+          ② 없으면 영문 회사명을 쓴다(HPSP 처럼 원래 알파벳인 이름은 그대로 둔다)
+          ③ 티커를 이름 자리에 넣지 않는다
+   레버리지 배수는 국내 표기를 따라 '2배'가 아니라 2X·3X 로 적는다. */
+var US_KRMAP = {
+  MS:'모건스탠리', 'BRK-B':'버크셔해서웨이 B', 'BRK.B':'버크셔해서웨이 B', BLK:'블랙록', AXP:'아메리칸익스프레스', WFC:'웰스파고', SCHW:'찰스슈왑',
+  C:'씨티그룹', COP:'코노코필립스', OXY:'옥시덴탈페트롤리엄', SLB:'슐럼버거', DE:'디어',
+  HON:'허니웰', 'BRK-B':'버크셔해서웨이 B', RTX:'RTX', UPS:'UPS', BMY:'브리스톨마이어스스퀴브',
+  REGN:'리제네론', VRTX:'버텍스파마슈티컬스', JPM:'JP모건', BAC:'뱅크오브아메리카',
+  GS:'골드만삭스', V:'비자', MA:'마스터카드', CVX:'셰브론', XOM:'엑슨모빌', BA:'보잉',
+  CAT:'캐터필러', GE:'GE 에어로스페이스', LMT:'록히드마틴', NOC:'노스럽그러먼', GD:'제너럴다이내믹스',
+  MMM:'쓰리엠', FDX:'페덱스', F:'포드', GM:'제너럴모터스', T:'AT&T', VZ:'버라이즌',
+  TMUS:'T모바일', CSCO:'시스코', ORCL:'오라클', CRM:'세일즈포스', ADBE:'어도비', NOW:'서비스나우',
+  INTU:'인튜이트', IBM:'IBM', QCOM:'퀄컴', TXN:'텍사스인스트루먼트', ADI:'아나로그디바이스',
+  LRCX:'램리서치', AMAT:'어플라이드머티리얼즈', KLAC:'KLA', MRVL:'마벨테크놀로지',
+  KO:'코카콜라', PEP:'펩시코', PG:'프록터앤드갬블', WMT:'월마트', COST:'코스트코',
+  TGT:'타깃', HD:'홈디포', MCD:'맥도날드', SBUX:'스타벅스', NKE:'나이키', LULU:'룰루레몬',
+  CMG:'치폴레', LLY:'일라이릴리', UNH:'유나이티드헬스', JNJ:'존슨앤드존슨', PFE:'화이자',
+  MRNA:'모더나', NVO:'노보노디스크', ABBV:'애브비', MRK:'머크', NEE:'넥스트에라에너지',
+  DUK:'듀크에너지', SO:'서던컴퍼니', VST:'비스트라', CEG:'컨스텔레이션에너지', GEV:'GE 버노바',
+  ETN:'이튼', PWR:'콴타서비스', NFLX:'넷플릭스', DIS:'월트디즈니', UBER:'우버',
+  ABNB:'에어비앤비', SHOP:'쇼피파이', SQ:'블록', PYPL:'페이팔', CRWD:'크라우드스트라이크',
+  PANW:'팔로알토네트웍스', SNOW:'스노우플레이크', NET:'클라우드플레어', DDOG:'데이터독',
+  MDB:'몽고DB', ZS:'지스케일러', OKTA:'옥타', TEAM:'아틀라시안', WDAY:'워크데이',
+  SNPS:'시놉시스', CDNS:'케이던스', ON:'온세미컨덕터', MCHP:'마이크로칩', NXPI:'NXP반도체',
+  BABA:'알리바바', JD:'징둥닷컴', PDD:'PDD홀딩스', BIDU:'바이두', NIO:'니오', LI:'리오토',
+  XPEV:'샤오펑', SONY:'소니', TM:'도요타', ASML:'ASML', TSM:'TSMC', ARM:'ARM홀딩스',
+  INTC:'인텔', MU:'마이크론', AVGO:'브로드컴', AMD:'AMD', SMCI:'슈퍼마이크로',
+  NVDA:'엔비디아', TSLA:'테슬라', AAPL:'애플', MSFT:'마이크로소프트', GOOGL:'알파벳 A',
+  GOOG:'알파벳 C', AMZN:'아마존', META:'메타플랫폼스', PLTR:'팔란티어', COIN:'코인베이스',
+  MSTR:'스트래티지', HOOD:'로빈후드', SOFI:'소파이', RBLX:'로블록스', SPOT:'스포티파이',
+  DASH:'도어대시', ROKU:'로쿠', WBD:'워너브라더스디스커버리', PARA:'파라마운트',
+  GME:'게임스톱', AMC:'AMC엔터테인먼트', CHWY:'츄이', DKNG:'드래프트킹스', APP:'앱러빈',
+  VRT:'버티브', IONQ:'아이온큐', RGTI:'리게티컴퓨팅', QBTS:'디웨이브퀀텀', SPCX:'스페이스X',
+  RKLB:'로켓랩', ASTS:'AST 스페이스모바일', ACHR:'아처에비에이션', JOBY:'조비에비에이션',
+  LUNR:'인튜이티브머신스', OKLO:'오클로', SMR:'뉴스케일파워', LEU:'센트루스에너지',
+  MP:'MP 머티리얼즈', UUUU:'에너지퓨얼스', ELV:'엘리번스헬스', ZTS:'조에티스', BIIB:'바이오젠',
+  HXSCL:'SK하이닉스(ADR)', RDDT:'레딧', NTDOY:'닌텐도(ADR)', WRD:'위라이드(ADR)',
+  FLNC:'플루언스에너지', INOD:'이노데이터', CRMD:'코메딕스', OCUL:'오큘러테라퓨틱스',
+  REPL:'리플리뮨', AAOI:'어플라이드옵토일렉트로닉스', CRML:'크리티컬메탈스', DRTS:'알파타우메디컬',
+  /* ETF — 배수는 국내 표기대로 2X·3X 로 적는다 */
+  SPY:'S&P500 ETF', QQQ:'나스닥100 ETF', SOXX:'반도체 ETF', SCHD:'슈왑 배당주 ETF',
+  SOXL:'반도체 3X', SOXS:'반도체 -3X', TQQQ:'나스닥100 3X', SQQQ:'나스닥100 -3X',
+  QLD:'나스닥100 2X', UPRO:'S&P500 3X', SPXL:'S&P500 3X', TSLL:'테슬라 2X',
+  NVDL:'엔비디아 2X', CONL:'코인베이스 2X', BITX:'비트코인 2X', SPAL:'스페이스X 2X',
+  SNK:'스페이스X -2X', VGT:'IT섹터 ETF', JEPQ:'JP모건 나스닥 커버드콜',
+  TLT:'미국 장기국채 ETF', SGOV:'미국 단기국채 ETF', GLD:'금 ETF', IBIT:'비트코인 현물 ETF'
+};
 /* [v4.74] 별칭 표를 뒤집어 '티커 → 한글 이름'을 만든다.
    같은 티커에 별칭이 여럿이면 가장 자연스러운(길이가 중간인) 것을 고른다. */
 var US_KRNAME=(function(){
-  const m={};
+  const m=Object.assign({},US_KRMAP);
   Object.keys(US_ALIAS).forEach(k=>{
     if(!/[가-힣]/.test(k))return;                       // 한글 별칭만
     const t=US_ALIAS[k];
+    if(US_KRMAP[t])return;                       // 표에 있는 정식 이름이 우선
     if(!m[t]||Math.abs(k.length-4)<Math.abs(m[t].length-4))m[t]=k;
   });
   /* 내장 목록의 한글명이 있으면 그쪽이 정확하다 */
@@ -12363,6 +12431,17 @@ var US_KRNAME=(function(){
     if(kr&&/[가-힣]/.test(kr))m[t]=kr; }); }catch(e){}
   return m;
 })();
+/* [v4.76] 예전에 티커나 영문으로 저장된 이름을 표에 맞춰 되살린다.
+   (한 번 'MS · MS' 로 저장된 종목이 계속 그렇게 보이는 것을 막는다) */
+try{
+  let ch=0;
+  Object.keys(usMeta).forEach(t=>{ const nm=US_KRNAME[t];
+    if(nm&&usMeta[t].kr!==nm){ usMeta[t].kr=nm; if(usDyn[t]){usDyn[t].kr=nm;ch++;} } });
+  /* 이름 자리에 티커가 들어간 것도 바로잡는다 */
+  Object.keys(usMeta).forEach(t=>{ const m2=usMeta[t];
+    if(m2&&m2.kr===t&&m2.en&&m2.en!==t){ m2.kr=m2.en; if(usDyn[t]){usDyn[t].kr=m2.en;ch++;} } });
+  if(ch)localStorage.setItem('usDyn1',JSON.stringify(usDyn));
+}catch(e){}
 /* 내장 + 별칭 + 등록분 통합 매칭 */
 function usLocalMatch(q){
   const qs=String(q||'').trim(); if(!qs)return [];

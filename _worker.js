@@ -12151,21 +12151,31 @@ async function uspopular_default(req2){
        3층 : 한국 유니버스에 있으나 오늘 신호가 안 잡힌 종목 (기본 차례로 채움)
        4층 : 거래 활발 등 나머지
      이렇게 하면 신호가 막힌 날에도 록히드마틴이 1위로 올라오지 않는다. */
+  /* [v4.76] 배수 표기를 국내식(2X·3X)으로 맞추고, 이름이 비면 위키 문서명에서 만든다.
+     이름 없이 티커만 내려보내면 화면에 티커가 두 번 찍힌다. */
+  const fixX = (v) => String(v || "").replace(/\b(\d)\s*(?:x|X|배)\b/g, "$1X");
+  const artName = (t) => {
+    const a = WIKI_ART[t]; if (!a) return "";
+    return decodeURIComponent(a).replace(/_/g, " ")
+      .replace(/\s*\((company|game engine)\)$/i, "").trim();
+  };
   const inKR = (t) => KR_RANK[t] != null;
   const attnOf = (x) => x.origin.some(o => ATTN.has(o));
   const t1 = all.filter(x => attnOf(x) && inKR(x.t)).sort((a, b) => b.sc - a.sc);
   const t2 = all.filter(x => attnOf(x) && !inKR(x.t)).sort((a, b) => b.sc - a.sc);
   const seen1 = new Set(t1.concat(t2).map(x => x.t));
+  /* [v4.76] 유니버스로 채우는 종목도 이름을 붙여 보낸다 — 이름이 비면 화면이
+     티커를 두 번 찍는다(MS · MS). 위키 문서명에서 사람이 읽는 이름을 만든다. */
   const t3 = KR_UNIV.filter(t => !seen1.has(t))
-    .map(t => ({ t, sfx: null, kr: "", en: "", cap: 0, sc: 0, origin: ["kr-univ"] }));
+    .map(t => ({ t, sfx: null, kr: "", en: artName(t), cap: 0, sc: 0, origin: ["kr-univ"] }));
   const seen2 = new Set(t1.concat(t2, t3).map(x => x.t));
   const t4 = all.filter(x => !attnOf(x) && !seen2.has(x.t))
     .sort((a, b) => (b.cap || 0) - (a.cap || 0));
   let ranked = t1.concat(t2, t3, t4);
   const fallback = t1.length < 8 ? 1 : 0;
   const items = ranked.slice(0, 100)
-    .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, cap: x.cap || 0,
-      origin: x.origin, views: Math.round(vt.map[x.t] || 0) }));
+    .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: fixX(x.kr), en: fixX(x.en || artName(x.t)),
+      cap: x.cap || 0, origin: x.origin, views: Math.round(vt.map[x.t] || 0) }));
   const basis = { n: items.length, src: lists.map(l => ({ k: l.name, n: l.arr.length })),
     attn: t1.length, attnEtc: t2.length, fill: t3.length + t4.length, fallback,
     app: vEntries.length, appTotal: Math.round(vt.total), wiki: wEnt.length, diag };
