@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=352">
+<link rel="stylesheet" href="/app.css?v=354">
 </head>
 <body>
 
@@ -574,13 +574,25 @@
     <div class="hero-assets">
       <button class="hero-go" id="heroGo">내 계좌 상세 →</button>
       <div class="k">내 총자산 · 실시간 평가</div>
-      <div class="big-row"><div class="big num" id="homeAssets">—</div>
-        <div class="home-usd-top" id="homeUsdTop" hidden></div></div>
+      <div class="big num" id="homeAssets">—</div>
       <div class="row">
         <span><span class="lab">평가손익</span><b class="num" id="homePnl">—</b></span>
         <span><span class="lab">수익률</span><b class="num" id="homeRate">—</b></span>
-        <span><span class="lab">예수금</span><b class="num" id="homeCash">—</b></span>
-        <span id="homeUsdWrap" hidden><span class="lab">달러</span><b class="num" id="homeUsd">—</b></span>
+      </div>
+      <!-- [v4.72] 국내·해외를 각각의 상자로 갈라 보여 준다 -->
+      <div class="hm-split" id="hmSplit">
+        <div class="hm-box kr">
+          <div class="hm-h">🇰🇷 국내</div>
+          <div class="hm-v num" id="hmKrTot">—</div>
+          <div class="hm-s">예수금 <b class="num" id="hmKrCash">—</b></div>
+          <div class="hm-s">보유 <b class="num" id="hmKrHold">—</b></div>
+        </div>
+        <div class="hm-box us">
+          <div class="hm-h">🇺🇸 해외</div>
+          <div class="hm-v num" id="hmUsTot">—</div>
+          <div class="hm-s">달러 예수금 <b class="num" id="hmUsCash">—</b></div>
+          <div class="hm-s">보유 <b class="num" id="hmUsHold">—</b></div>
+        </div>
       </div>
       <div class="asset-split" id="assetSplit" hidden></div>
       <canvas id="heroEq" height="52"></canvas>
@@ -1332,6 +1344,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=352"></script>
+<script type="module" src="/app.js?v=354"></script>
 </body>
 </html>

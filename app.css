@@ -4037,3 +4037,21 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
 .eq-lg em{display:inline-block;width:9px;height:2.5px;border-radius:2px;margin:0 4px 0 8px;vertical-align:middle}
 .eq-lg em.kr{background:#8fd3ff}
 .eq-lg em.us{background:#ff9db0}
+
+/* ══ [v4.72] 홈 총자산 — 국내·해외 분리 상자 ═══════════════════════════════ */
+.hm-split{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.hm-box{padding:13px 14px;border-radius:14px;background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.10);min-width:0}
+.hm-box.us{background:rgba(255,207,87,.10);border-color:rgba(255,207,87,.22)}
+.hm-h{font-size:11.5px;font-weight:800;color:rgba(255,255,255,.72);margin-bottom:6px}
+.hm-v{font-size:21px;font-weight:900;letter-spacing:-.6px;color:#fff;
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-s{margin-top:5px;font-size:11px;font-weight:600;color:rgba(255,255,255,.58);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-s b{font-weight:800;color:rgba(255,255,255,.86)}
+.hm-usKrw{margin-top:3px}
+@media (max-width:520px){
+  .hm-split{gap:8px}
+  .hm-v{font-size:18px}
+  .hm-box{padding:11px 12px}
+}

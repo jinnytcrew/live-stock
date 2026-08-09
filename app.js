@@ -10433,26 +10433,39 @@ function renderPortfolioNumbers(){
   const usdKrw=Math.round(((+usdCash)||0)*(usFx()||0));            // [v4.29] 달러 예수금 원화 환산
   const pnl=te-tc,assets=te+cash+usdKrw,rate=tc?pnl/tc*100:0,dir=dirOf(pnl);
   const set=(id,txt,cls)=>{const e=$(id);if(!e)return;e.textContent=txt;if(cls!==undefined)e.className='num '+cls;};
-  set('homeAssets',KRW(assets)+'원');set('homePnl',signed(pnl),dir);set('homeRate',pctS(rate),dir);set('homeCash',KRW(cash)+'원');
-  /* ══ [v4.61] 총자산 줄 오른쪽에 달러 자산을 함께 ═══════════════════════════
-     원화 합계만 크게 띄우니 '해외에 얼마가 들어가 있는지'가 한 줄 아래로 밀렸다.
-     달러 예수금 + 해외 보유 평가액을 달러로 환산해 같은 줄 끝에 붙인다. */
+  set('homeAssets',KRW(assets)+'원');set('homePnl',signed(pnl),dir);set('homeRate',pctS(rate),dir);
+  /* ══ [v4.72] 국내·해외를 각각의 상자로 ═══════════════════════════════════
+     합계 한 줄 옆에 달러를 덧붙이니 어느 쪽이 얼마인지 여전히 애매했다.
+     원화 자산과 달러 자산을 아예 갈라 각자의 예수금·보유 평가액까지 보여 준다. */
   try{
-    const usdBox=$('homeUsdTop');
-    if(usdBox){
-      const fx=usFx()||0;
-      let usHold=0; (holdings||[]).forEach(h=>{ if(h&&h.us)usHold+=hEvalKRW(h); });
-      const usdTotal=(+usdCash||0)+(fx>0?usHold/fx:0);
-      if(usdTotal>0.004){
-        usdBox.hidden=false;
-        usdBox.innerHTML=`<b class="num">$${USD2(usdTotal)}</b><span>해외 자산</span>`;
-      } else usdBox.hidden=true;
+    const fx=usFx()||0;
+    let usHold=0, krHold=0;
+    (holdings||[]).forEach(h=>{ if(!h)return; const v=hEvalKRW(h); if(h.us)usHold+=v; else krHold+=v; });
+    const usCashKrw=(+usdCash||0)*(fx>0?fx:0);
+    const krTot=intOf(cash,0)+krHold, usTot=usCashKrw+usHold;
+    const set2=(id,txt)=>{const e=$(id); if(e)e.textContent=txt;};
+    set2('hmKrTot',KRW(Math.round(krTot))+'원');
+    set2('hmKrCash',KRW(intOf(cash,0))+'원');
+    set2('hmKrHold',KRW(Math.round(krHold))+'원');
+    /* 해외는 달러가 기준 — 원화 환산은 아래 작은 글씨로 곁들인다 */
+    const usdTotal=(+usdCash||0)+(fx>0?usHold/fx:0);
+    set2('hmUsTot',fx>0?('$'+USD2(usdTotal)):'—');
+    set2('hmUsCash','$'+USD2(+usdCash||0));
+    set2('hmUsHold',fx>0?('$'+USD2(usHold/fx)):'—');
+    const box=$('hmSplit');
+    if(box){
+      const kv=box.querySelector('.hm-box.us .hm-v');
+      if(kv)kv.title=usTot>0?('≈ '+KRW(Math.round(usTot))+'원'):'';
+      let sub=box.querySelector('.hm-usKrw');
+      if(!sub&&kv){ sub=document.createElement('div'); sub.className='hm-s hm-usKrw'; kv.after(sub); }
+      if(sub)sub.innerHTML=usTot>0?`≈ <b class="num">${KRW(Math.round(usTot))}원</b>`:'&nbsp;';
     }
   }catch(e){}
   /* ══ [v4.41] 홈 총자산을 국내·해외로 나눠 보여 준다 ═══════════════════════
      해외 종목과 달러 예수금이 생겼는데 화면은 합계 하나만 보여 줘서
      어디에 얼마가 들어가 있는지 알 수 없었다. 달러 예수금을 따로 띄우고,
      보유 평가액을 국내/해외로 갈라 비중 막대로 보여 준다. */
+  /* [v4.72] 예수금·달러 줄은 국내/해외 상자로 옮겨 갔다 — 없으면 조용히 건너뛴다 */
   {const uw=$('homeUsdWrap');
    if(uw){ uw.hidden=!(usdCash>0);
      if(usdCash>0)set('homeUsd','$'+USD2(usdCash)+' · '+KRW(usdKrw)+'원'); }}
@@ -12211,7 +12224,12 @@ function usRegister(it){
   const t=String(it.t).toUpperCase();
   if(usMeta[t])return t;
   const sfx=/^[ONA]$/.test(it.sfx)?it.sfx:'O';
-  const rec={t,sfx,kr:it.kr||t,en:it.en||t,theme:'etc',etf:it.etf?1:0,reu:t.replace('.','/')+'.'+sfx,dyn:1};
+  /* [v4.73] 한글명이 없으면 영문명이라도 쓴다 — 'SPCX · SPCX' 처럼 티커가 두 번
+     나오면 무슨 종목인지 알 수 없다. 흔히 붙는 법인 꼬리표는 떼어 읽기 좋게 만든다. */
+  const clean=(v)=>String(v||'').replace(/,?\s*(Inc\.?|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|plc|Holdings?|Group|The)\b\.?/gi,'')
+    .replace(/\s{2,}/g,' ').trim();
+  const en=clean(it.en)||String(it.en||'').trim();
+  const rec={t,sfx,kr:it.kr||en||t,en:en||t,theme:'etc',etf:it.etf?1:0,reu:t.replace('.','/')+'.'+sfx,dyn:1};
   usMeta[t]=rec; usDyn[t]={sfx,kr:rec.kr,en:rec.en,etf:rec.etf};
   try{ const keys=Object.keys(usDyn); if(keys.length>400)delete usDyn[keys[0]];
     localStorage.setItem('usDyn1',JSON.stringify(usDyn)); }catch(e){}
@@ -12518,7 +12536,20 @@ ARKK:'ark-funds.com',IBIT:'ishares.com',TQQQ:'proshares.com',SQQQ:'proshares.com
 SOXL:'direxion.com',SOXS:'direxion.com',UPRO:'proshares.com',TSLL:'direxion.com',
 NVDL:'graniteshares.com',TLT:'ishares.com',TMF:'direxion.com',SGOV:'ishares.com',
 GLD:'ssga.com',
-};
+  /* [v4.73] 로고가 비던 종목 보강 — 특히 새로 상장한 곳과 인기 ETF */
+  SPCX:'spacex.com', QBTS:'dwavequantum.com', ACHR:'archer.com', JOBY:'jobyaviation.com',
+  ASTS:'ast-science.com', QLD:'proshares.com', APP:'applovin.com', VRT:'vertiv.com',
+  GEV:'gevernova.com', CRML:'criticalmetalscorp.com', SPAL:'graniteshares.com', SNK:'graniteshares.com',
+  LEU:'centrusenergy.com', UUUU:'energyfuels.com', MP:'mpmaterials.com', NXE:'nexgenenergy.ca',
+  DNN:'denisonmines.com', UEC:'uraniumenergy.com', INOD:'innodata.com', CIFR:'ciphermining.com', AFRM:'affirm.com', UPST:'upstart.com', DKNG:'draftkings.com',
+  ROKU:'roku.com', WBD:'wbd.com', PARA:'paramount.com', LYV:'livenation.com', CONL:'graniteshares.com', BITX:'volatilityshares.com',
+  SPXL:'direxion.com',
+  ETN:'eaton.com', PWR:'quantaservices.com', ANET:'arista.com', MDB:'mongodb.com',
+  NET:'cloudflare.com', DDOG:'datadoghq.com', ZS:'zscaler.com', OKTA:'okta.com',
+  TEAM:'atlassian.com', WDAY:'workday.com', SNPS:'synopsys.com', CDNS:'cadence.com', ON:'onsemi.com', MCHP:'microchip.com', NXPI:'nxp.com', ADI:'analog.com',
+  LULU:'lululemon.com', CMG:'chipotle.com', CHWY:'chewy.com', DECK:'deckers.com',
+  OXY:'oxy.com', REGN:'regeneron.com', VRTX:'vrtx.com', BIIB:'biogen.com',
+  HXSCL:'skhynix.com'};
 /* 상태: 1=성공(소스 인덱스), 0=실패 — 세션 간 유지 */
 var usLgOk={}, usLgNo={}, _usLgBusy=new Set(), _usLgQ=[], _usLgLive=0;
 /* [v4.30] 실패 기록은 짧게 — 통신 상태나 CDN 사정으로 한 번 실패했다고

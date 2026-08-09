@@ -11628,6 +11628,40 @@ async function ussearch_default(req2){
       diag.push("s:parse");
     }catch(e){ diag.push("s:"+String(e).slice(0,12)); }
   }
+  /* ══ [v4.73] 야후 검색을 함께 쓴다 ═══════════════════════════════════════
+     [왜] 네이버 자동완성만으로는 갓 상장한 종목이 한동안 안 잡힌다. 스페이스X는
+     2026년 6월 나스닥에 SPCX 로 상장했는데 검색해도 나오지 않았다.
+     야후 검색은 상장 당일부터 잡히고, 거래소 정보(sfx)와 영문명도 함께 준다.
+     네이버 결과를 앞에 두고(한글 종목명이 있어 보기 좋다) 야후로 빈 곳을 메운다. */
+  let yh=null;
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),5000);
+    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/search?q="+eq
+      +"&quotesCount=12&newsCount=0&enableFuzzyQuery=true",
+      {headers:{ "User-Agent": UA20, Accept:"application/json" },signal:c.signal});
+    clearTimeout(t);
+    if(r.ok){
+      const j=await r.json();
+      const rows=(j&&j.quotes)||[];
+      yh=[];
+      for(const x of rows){
+        const t2=String(x.symbol||"").toUpperCase();
+        if(!/^[A-Z][A-Z0-9]{0,5}(-[A-Z])?$/.test(t2))continue;
+        const ex=String(x.exchDisp||x.exchange||"").toUpperCase();
+        const qt=String(x.quoteType||"").toUpperCase();
+        if(qt&&qt!=="EQUITY"&&qt!=="ETF")continue;
+        const sfx=usExchSfx(ex)||(/NAS|NMS|NCM|NGM/.test(ex)?"O":/NYQ|NYS/.test(ex)?"N":/ASE|PCX|AMX/.test(ex)?"A":null);
+        if(!sfx)continue;
+        yh.push({t:t2,sfx,kr:"",en:String(x.shortname||x.longname||"").trim(),etf:qt==="ETF"?1:0});
+      }
+      diag.push("yh-search:"+yh.length);
+    } else diag.push("yh-search:"+r.status);
+  }catch(e){ diag.push("yh-search:"+String(e).slice(0,10)); }
+  /* 두 결과를 합친다 — 같은 티커는 네이버 쪽(한글명)을 남긴다 */
+  const merged=[]; const seenT=new Set();
+  for(const it of (items||[])){ const k=String(it.t||"").toUpperCase(); if(!k||seenT.has(k))continue; seenT.add(k); merged.push(it); }
+  for(const it of (yh||[])){ if(seenT.has(it.t))continue; seenT.add(it.t); merged.push(it); }
+  items=merged.length?merged:null;
   if(items){ try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),items}),{expirationTtl:21600}); }catch(e){} }
   return new Response(JSON.stringify({ok:!!items,items:items||[],diag}),
     {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
@@ -11851,46 +11885,75 @@ function usExchSfx(ex){
    검산을 통과하지 못하면 아예 쓰지 않는다. 틀린 순위를 1위로 올리는 것보다 낫다. */
 var KR_FAV = ["NVDA","TSLA","AAPL","PLTR","MU","AVGO","AMD","GOOGL","GOOG","AMZN","META","TSM",
   "SOXL","TQQQ","QLD","SCHD","QQQ","SPY","INTC","IONQ","MSFT","COIN","MSTR","SMCI","ARM","RGTI"];
+/* ══ [v4.72] 한국 투자자 관심 유니버스 ═══════════════════════════════════════
+   [왜 필요한가] 야후·Stocktwits 는 미국 개인투자자 기준이라, 그대로 쓰면 한국
+   증권 앱에서 보는 목록과 딴판이 된다(록히드마틴·노키아 같은 이름이 올라온다).
+   한국 투자자가 실제로 많이 보고 담는 종목을 유니버스로 두고, 실시간 관심 신호로
+   그 안에서 순서를 매긴다. 신호가 막힌 날에도 '그럴듯한 이름들'이 남는다.
+   순서는 서학개미 보유·거래 상위에서 흔히 보이는 차례를 기본값으로 깔아 둔다. */
+var KR_UNIV = ("NVDA TSLA AAPL PLTR MU AVGO GOOGL AMZN META MSFT TSM AMD IONQ SMCI ARM INTC "
+  + "SOXL TQQQ QLD SCHD QQQ SPY SOXX SPXL UPRO TSLL NVDL CONL BITX "
+  + "COIN MSTR HOOD SOFI RGTI QBTS SPCX RKLB ASTS ACHR JOBY LUNR OKLO SMR LEU "
+  + "NFLX DIS UBER ABNB SHOP SQ PYPL CRWD PANW SNOW NET DDOG MDB ZS OKTA "
+  + "LLY UNH JNJ PFE MRNA NVO ABBV MRK BMY REGN VRTX "
+  + "JPM BAC V MA GS MS BRK-B BLK SCHW AXP C WFC "
+  + "XOM CVX COP OXY SLB BA LMT RTX GE CAT DE HON UPS "
+  + "KO PEP PG WMT COST TGT HD MCD SBUX NKE LULU CMG "
+  + "BABA JD PDD NIO LI XPEV BIDU SONY TM ASML NVS AZN SHEL "
+  + "F GM RIVN LCID VST CEG NEE DUK GEV ETN PWR "
+  + "T VZ TMUS CSCO ORCL CRM ADBE NOW INTU IBM QCOM TXN ADI LRCX AMAT KLAC MRVL "
+  + "APP RBLX SPOT DASH ROKU WBD PARA GME AMC BB CHWY DKNG").split(/\s+/).filter(Boolean);
+var KR_RANK = (function(){ const m={}; KR_UNIV.forEach((t,i)=>{ if(m[t]==null)m[t]=i; }); return m; })();
 function looksLikePopular(arr){
   if(!arr||arr.length<8)return false;
   const head=arr.slice(0,20).map(x=>String(x.t||"").toUpperCase());
   let hit=0; for(const t of head)if(KR_FAV.includes(t))hit++;
   return hit>=3;
 }
-/* JSON 을 훑어 '인기 목록'처럼 보이는 배열을 찾는다 */
-function findPopularArray(node,depth){
-  if(!node||depth>8)return null;
-  if(Array.isArray(node))return null;
-  if(typeof node!=="object")return null;
-  const KEY=/(popular|rank|top|hot|interest|인기)/i;
-  for(const k of Object.keys(node)){
-    const v=node[k];
-    if(Array.isArray(v)&&KEY.test(k)){
-      const out=[];
-      for(const it of v){
-        if(!it||typeof it!=="object")continue;
-        const reu=String(it.reutersCode||it.symbolCode||it.code||"").toUpperCase();
-        const m=reu.match(/^([A-Z0-9.\-]{1,10})\.([ONA])$/);
-        if(!m)continue;
-        out.push({t:m[1],sfx:m[2],
-          kr:String(it.stockNameKor||it.stockName||it.nameKor||"").trim(),
-          en:String(it.stockNameEng||it.nameEng||"").trim()});
-      }
-      if(out.length>=8)return out;
+/* ══ [v4.71] 키 이름에 기대지 않는다 ═══════════════════════════════════════
+   앞 버전은 키 이름에 popular·rank 가 들어간 배열만 찾았다. 그런데 실제 페이지는
+   키 이름이 그렇지 않았고(진단: 200인데 목록 0건), 결국 아무것도 못 찾았다.
+   → JSON 안의 '종목 배열'을 전부 모아 놓고, 이름이 아니라 '내용'으로 고른다.
+     검산(looksLikePopular)이 통과시키는 것만 쓰므로 엉뚱한 목록은 알아서 걸러진다. */
+function collectStockArrays(node,depth,out){
+  if(!node||depth>9||typeof node!=="object")return out;
+  if(Array.isArray(node)){
+    const rows=[];
+    for(const it of node){
+      if(!it||typeof it!=="object")continue;
+      const reu=String(it.reutersCode||it.symbolCode||it.code||"").toUpperCase();
+      const m=reu.match(/^([A-Z0-9.\-]{1,10})\.([ONA])$/);
+      if(!m)continue;
+      rows.push({t:m[1],sfx:m[2],
+        kr:String(it.stockNameKor||it.stockName||it.nameKor||"").trim(),
+        en:String(it.stockNameEng||it.nameEng||"").trim()});
     }
+    if(rows.length>=8)out.push(rows);
+    for(const it of node)collectStockArrays(it,depth+1,out);
+    return out;
   }
-  for(const k of Object.keys(node)){
-    const got=findPopularArray(node[k],(depth||0)+1);
-    if(got)return got;
+  for(const k of Object.keys(node))collectStockArrays(node[k],depth+1,out);
+  return out;
+}
+function findPopularArray(root){
+  const arrs=collectStockArrays(root,0,[]);
+  /* 키 이름 대신 '한국인이 많이 보는 종목이 앞에 몰려 있는가'로 고른다 */
+  let best=null,bestHit=0;
+  for(const a of arrs){
+    const head=a.slice(0,20).map(x=>x.t.toUpperCase());
+    let hit=0; head.forEach(t=>{ if(KR_FAV.includes(t))hit++; });
+    if(hit>bestHit){ bestHit=hit; best=a; }
   }
-  return null;
+  return best;
 }
 async function naverWorldPopular(diag,budget){
   const urls=[
     "https://m.stock.naver.com/worldstock",
     "https://m.stock.naver.com/worldstock/home/USA/index",
+    "https://m.stock.naver.com/worldstock/home/TOTAL/index",
     "https://m.stock.naver.com/api/stocks/interestTop/worldStock",
-    "https://m.stock.naver.com/front-api/v1/worldStock/popular"
+    "https://m.stock.naver.com/front-api/v1/worldStock/popular",
+    "https://finance.naver.com/world/"
   ];
   for(const u of urls){
     if(budget&&budget.left<=1)break;
@@ -11904,11 +11967,14 @@ async function naverWorldPopular(diag,budget){
       const txt=await r.text();
       let arr=null;
       /* HTML 이면 심긴 JSON 을 꺼내고, JSON 이면 그대로 쓴다 */
-      const mNext=txt.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
       const cands=[];
+      const mNext=txt.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
       if(mNext){ try{ cands.push(JSON.parse(mNext[1])); }catch(e){} }
-      if(!cands.length){ try{ cands.push(JSON.parse(txt)); }catch(e){} }
-      for(const j of cands){ arr=findPopularArray(j,0); if(arr)break; }
+      try{ cands.push(JSON.parse(txt)); }catch(e){}
+      /* 자바스크립트 안에 조각조각 심긴 JSON 도 훑는다 */
+      const blobs=txt.match(/\{"[\s\S]{200,200000}?\}(?=[;,<\)])/g)||[];
+      for(const b of blobs.slice(0,12)){ try{ cands.push(JSON.parse(b)); }catch(e){} }
+      for(const j of cands){ arr=findPopularArray(j); if(arr)break; }
       if(!arr){ diag.push("nv-pop:no-list"); continue; }
       if(!looksLikePopular(arr)){ diag.push("nv-pop:not-rank"+arr.length); continue; }
       diag.push("nv-pop:"+arr.length);
@@ -12024,24 +12090,30 @@ async function uspopular_default(req2){
     if (x.t === "TEST" || x.t === "NONE") return false;
     return true;
   });
-  const tier1 = all.filter(x => x.origin.some(o => ATTN.has(o))).sort((a, b) => b.sc - a.sc);
-  const tier2 = all.filter(x => !x.origin.some(o => ATTN.has(o)))
-    .sort((a, b) => (b.cap || 0) - (a.cap || 0));      // 뒷자리는 규모 순으로 안정되게
-  let ranked = tier1.concat(tier2);
-  let fallback = 0;
-  /* 실시간 관심 신호가 하나도 안 잡힌 날 — 순위라고 부를 수 없는 목록을 1위에 올리지 않는다.
-     한국 투자자가 늘 상위에 두는 종목을 기본 순서로 깔고, 그렇다고 화면에 밝힌다. */
-  if (tier1.length < 8) {
-    fallback = 1;
-    const seen = new Set(ranked.map(x => x.t));
-    const base = KR_FAV.filter(t => !seen.has(t)).map(t => ({ t, sfx: null, kr: "", en: "", cap: 0, sc: 0, origin: ["base"] }));
-    ranked = base.concat(ranked);
-  }
+  /* ══ [v4.72] 한국 투자자가 보는 화면에 맞춘다 ═══════════════════════════════
+     같은 '관심 신호'라도 한국에서 많이 보는 종목을 앞에 세운다.
+       1층 : 관심 신호가 있고 + 한국 유니버스에 있는 종목  (순위의 얼굴)
+       2층 : 관심 신호는 있으나 한국에서는 덜 보는 종목
+       3층 : 한국 유니버스에 있으나 오늘 신호가 안 잡힌 종목 (기본 차례로 채움)
+       4층 : 거래 활발 등 나머지
+     이렇게 하면 신호가 막힌 날에도 록히드마틴이 1위로 올라오지 않는다. */
+  const inKR = (t) => KR_RANK[t] != null;
+  const attnOf = (x) => x.origin.some(o => ATTN.has(o));
+  const t1 = all.filter(x => attnOf(x) && inKR(x.t)).sort((a, b) => b.sc - a.sc);
+  const t2 = all.filter(x => attnOf(x) && !inKR(x.t)).sort((a, b) => b.sc - a.sc);
+  const seen1 = new Set(t1.concat(t2).map(x => x.t));
+  const t3 = KR_UNIV.filter(t => !seen1.has(t))
+    .map(t => ({ t, sfx: null, kr: "", en: "", cap: 0, sc: 0, origin: ["kr-univ"] }));
+  const seen2 = new Set(t1.concat(t2, t3).map(x => x.t));
+  const t4 = all.filter(x => !attnOf(x) && !seen2.has(x.t))
+    .sort((a, b) => (b.cap || 0) - (a.cap || 0));
+  let ranked = t1.concat(t2, t3, t4);
+  const fallback = t1.length < 8 ? 1 : 0;
   const items = ranked.slice(0, 100)
     .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, cap: x.cap || 0,
       origin: x.origin, views: Math.round(vt.map[x.t] || 0) }));
   const basis = { n: items.length, src: lists.map(l => ({ k: l.name, n: l.arr.length })),
-    attn: tier1.length, fill: tier2.length, fallback,
+    attn: t1.length, attnEtc: t2.length, fill: t3.length + t4.length, fallback,
     app: vEntries.length, appTotal: Math.round(vt.total), wiki: wEnt.length, diag };
   try { if (KV && items.length) await KV.put(CK, JSON.stringify({ at: Date.now(), items, basis }), { expirationTtl: 900 }); } catch (e) { }
   await usvFlush(true);
@@ -12085,7 +12157,7 @@ async function uspopdiag_default(){
     (t) => { /* 인기 '순위'로 쓸 수 있는 목록이 실제로 있는지까지 판정한다 */
       const mN = t.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
       let arr = null;
-      if (mN) { try { arr = findPopularArray(JSON.parse(mN[1]), 0); } catch (e) { } }
+      if (mN) { try { arr = findPopularArray(JSON.parse(mN[1])); } catch (e) { } }
       if (!arr) return 0;
       return looksLikePopular(arr) ? arr.length : 0;
     });
@@ -12130,7 +12202,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.70.0";
+var APP_VER = "4.73.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
