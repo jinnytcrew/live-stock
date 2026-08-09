@@ -12802,7 +12802,7 @@ var US_LG_MAX=6, US_LG_TTL=3*3600e3, US_LG_TTL_ALL=20*60e3;
 function usLgTtl(){ return (Object.keys(usLgOk).length===0&&Object.keys(usLgNo).length>=8)?US_LG_TTL_ALL:US_LG_TTL; }
 try{
   const s=JSON.parse(localStorage.getItem('usLg3')||'null');
-  if(s&&s.v===3){ usLgOk=s.ok||{};
+  if(s&&s.v===4){ usLgOk=s.ok||{};
     const now=Date.now(), okN=Object.keys(usLgOk).length;
     const ttl=(okN===0&&Object.keys(s.no||{}).length>=8)?20*60e3:3*3600e3;
     Object.keys(s.no||{}).forEach(k=>{ if(now-s.no[k]<ttl)usLgNo[k]=s.no[k]; }); }
@@ -12810,7 +12810,7 @@ try{
 let _usLgSaveT=null;
 function usLgSave(){ if(_usLgSaveT)return;
   _usLgSaveT=setTimeout(()=>{_usLgSaveT=null;
-    try{localStorage.setItem('usLg3',JSON.stringify({v:3,ok:usLgOk,no:usLgNo}));}catch(e){}},600); }
+    try{localStorage.setItem('usLg3',JSON.stringify({v:4,ok:usLgOk,no:usLgNo}));}catch(e){}},600); }
 /* 후보 주소 — 서로 다른 제공자를 섞어 한 곳이 막혀도 다른 곳이 뚫리게 한다 */
 function usLgUrls(t){
   /* [v4.31] 검색으로 새로 등록된 종목은 도메인 매핑이 없다. 그런 종목도 로고가 나오도록
@@ -12948,28 +12948,51 @@ function usLgPaint(t){
   });
 }
 /* 로고 배지 — 로고를 알면 바로 이미지로, 모르면 색 배지 + 뒤에서 탐색 */
+/* ══ [v4.83] 로고가 통째로 사라지던 진짜 이유 ═══════════════════════════════
+   [무엇이 잘못됐나] 예전 방식은 배지에 배경 이미지를 깔고, 그림이 있으면 'on'
+   클래스로 글자를 투명하게 만들었다. 그림을 못 받으면 onerror 로 'on' 만 지웠는데
+   — 인라인으로 박아 둔 background-color:#fff 는 그대로 남는다.
+   글자색은 흰색이므로 결국 '흰 배경에 흰 글자'가 되어 아무것도 안 보였다.
+   색 배지도 아니고 로고도 아닌, 빈 자리만 남은 것이다(첨부 사진).
+   [바꾼 방식] 색 배지를 '바탕'으로 항상 깔고, 로고는 그 위에 <img> 로 얹는다.
+     · 그림이 뜨면  → 로고가 보이고 글자가 가려진다
+     · 그림이 실패하면 → 그 자리에서 스스로 사라지고 색 배지가 그대로 남는다
+   인라인 스타일을 되돌릴 필요가 없으므로 어긋날 여지가 없다. */
 function usTick(t,size){
   const PAL=(typeof US_PAL!=='undefined'&&US_PAL)?US_PAL:['#2563eb'];
   const c=PAL[(t.charCodeAt(0)+t.charCodeAt(t.length-1))%PAL.length];
   let u=''; try{ u=usLgUrl(t); }catch(e){}
   if(!u)try{usLgWant(t);}catch(e){}
-  /* ══ [v4.35 · 로고가 잘리던 진짜 이유] ═══════════════════════════════════
-     인라인에 background 단축속성을 썼다. 단축속성은 background-size 를 auto 로
-     되돌리는데, 인라인이 스타일시트를 이기므로 CSS 의 background-size:contain 이
-     통째로 무효가 됐다. 그래서 로고가 원본 크기로 그려져 배지 밖으로 잘렸다.
-     → 색과 이미지를 각각 개별 속성으로 지정하고 크기도 인라인에 함께 박는다. */
-  /* [v4.75] 로고가 끝내 없으면 색 배지에 티커를 새긴다 — 빈 네모는 남기지 않는다.
-     그림이 있다고 표시해도 실제로 못 그려지면(onerror) 글자가 되살아나게 한다. */
-  const cls='us-tick'+(size?' '+size:'')+(u?' on':'');
-  const st=u
-    ? `background-color:#fff;background-image:url('${u}');background-size:contain;background-position:center;background-repeat:no-repeat`
-    : `background-color:${c}`;
-  const lbl=t.length>5?t.slice(0,5):t;
-  return `<span class="${cls}" data-uslg="${t}" style="${st}">${lbl}`
-    +(u?`<img class="us-tick-probe" src="${u}" alt="" aria-hidden="true"
-        onerror="this.closest('.us-tick').classList.remove('on')">`:'')
+  const lbl=htmlEsc(t.length>5?t.slice(0,5):t);
+  const cls='us-tick'+(size?' '+size:'');
+  return `<span class="${cls}" data-uslg="${t}" style="background-color:${c}">`
+    +`<em class="ut-lb">${lbl}</em>`
+    +(u?`<img class="ut-im" src="${htmlEsc(u)}" alt="" aria-hidden="true" loading="lazy"
+        onload="usTickOk(this)" onerror="usTickBad(this)">`:'')
     +`</span>`;
 }
+/* 인라인 핸들러가 막히는 환경(엄격한 보안 정책)에서도 동작하도록 함수로 빼 둔다 */
+function usTickOk(im){
+  try{ if((im.naturalWidth||0)>=16&&(im.naturalHeight||0)>=16){ im.parentNode.classList.add('on'); }
+       else usTickBad(im); }catch(e){}
+}
+function usTickBad(im){
+  try{ const p=im.parentNode; im.remove(); if(p)p.classList.remove('on'); }catch(e){}
+}
+/* 인라인 핸들러가 실행되지 않는 경우를 대비해, 그려진 뒤 한 번 훑어 직접 묶는다 */
+function usTickBind(root){
+  try{
+    (root||document).querySelectorAll('img.ut-im:not([data-b])').forEach(im=>{
+      im.dataset.b='1';
+      if(im.complete){ (im.naturalWidth>=16)?usTickOk(im):usTickBad(im); return; }
+      im.addEventListener('load',()=>usTickOk(im));
+      im.addEventListener('error',()=>usTickBad(im));
+    });
+  }catch(e){}
+}
+try{ if(typeof MutationObserver!=='undefined'){
+  new MutationObserver(()=>{ usTickBind(); }).observe(document.documentElement,{childList:true,subtree:true});
+} }catch(e){}
 /* ══ [v4.77] 해외 종목 로고 정밀 검사 ═══════════════════════════════════════
    국내에만 있던 검사를 해외에도 붙인다. 저장된 판정을 믿지 않고 후보를 실제로
    내려받아 어디서 나오는지, 빈 그림인지, 아예 없는지를 가려낸다.

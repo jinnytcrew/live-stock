@@ -3226,14 +3226,10 @@ html[data-theme="dark"] .us-chip.on{background:#4f8cf5;color:#0b1120;border-colo
    로고를 찾기 전에는 색 배지(티커 글자), 찾으면 그 자리에서 이미지로 승격된다. */
 /* [v4.33] 로고가 배지를 넘쳐 잘리던 문제 — 세로 기준이 없어 정사각 로고가 잘렸다.
    contain 으로 가로·세로 모두 상자 안에 맞추고, 여백을 줘 테두리에 닿지 않게 한다. */
-.us-tick{overflow:hidden;background-position:center;background-repeat:no-repeat;
-  background-size:contain;transition:background-color .2s;box-sizing:border-box}
-.us-tick.on{color:transparent !important;
-  box-shadow:inset 0 0 0 1px rgba(16,26,45,.12);
-  padding:4px;background-origin:content-box !important;background-clip:padding-box !important}
-html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa !important;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
-.us-star .us-tick{width:38px;height:30px;font-size:10px}
+/* [v4.83] 배경 이미지 방식은 걷어냈다 — 아래 .ut-im 으로 대체 */
+html[data-theme="dark"] .us-tick.on{box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.us-star .us-tick{width:38px;height:30px}
+.us-star .us-tick .ut-lb{font-size:10px}
 
 /* ── [v4.32] 계좌 종류 ─────────────────────────────────────────────────── */
 .acct-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:7px;margin-bottom:9px}
@@ -4056,8 +4052,7 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
   .hm-box{padding:11px 12px}
 }
 /* [v4.75] 로고 로드 실패를 감지하기 위한 숨은 그림 — 화면에는 보이지 않는다 */
-.us-tick-probe{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-.us-tick{position:relative}
+
 /* [v4.77] 해외 로고 검사 결과 */
 .ea-fh{font-size:12.5px;font-weight:800;color:var(--text);margin:10px 0 7px}
 .ea-fh small{font-weight:600;color:var(--sub-2)}
@@ -4104,3 +4099,18 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
 .fin-table.ustr td{font-variant-numeric:tabular-nums}
 .fin-table.ustr td.up{color:var(--up);font-weight:800}
 .fin-table.ustr td.down{color:var(--down);font-weight:800}
+
+
+/* ══ [v4.83] 해외 종목 배지 — 색 바탕 + 그 위에 얹는 로고 ═══════════════════
+   그림이 실패하면 <img> 가 스스로 사라지고 색 배지가 남는다. 빈 자리는 생기지 않는다. */
+.us-tick{position:relative;overflow:hidden;isolation:isolate}
+.us-tick .ut-lb{font-style:normal;font-weight:900;color:#fff;letter-spacing:-.3px;line-height:1}
+.us-tick .ut-im{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+  background:#fff;padding:3px;box-sizing:border-box;opacity:0;transition:opacity .12s;
+  border-radius:inherit}
+.us-tick.on .ut-im{opacity:1}
+.us-tick.on .ut-lb{opacity:0}
+.us-tick.on{box-shadow:inset 0 0 0 1px rgba(16,26,45,.12)}
+html[data-theme="dark"] .us-tick.on .ut-im{background:#f4f6fa}
+.us-tick.sm .ut-lb{font-size:9.5px}
+.us-tick.xs .ut-lb{font-size:8px}
