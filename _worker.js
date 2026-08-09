@@ -11215,6 +11215,41 @@ async function usquote_default(req2){
       }
     }catch(e){}
   }
+  /* ══ [v4.56] 시가총액 보충 ═══════════════════════════════════════════════
+     [왜 비었나] 네이버 배치가 시세를 다 채우면 miss 가 비어 CNBC 를 아예 안 불렀다.
+     그런데 배치 응답에는 시가총액 항목이 없다 → '기업 규모'가 늘 '—' 였다.
+     [해법] 시세와 별개로 '시총이 없는 종목'만 모아 CNBC 배치를 한 번 더 부른다.
+     시총은 하루 안에 크게 안 변하므로 KV 에 오래 담아 두고, 다음부터는 호출 없이 쓴다.
+     KV 에서 먼저 복원하고, 그래도 없는 게 있을 때만 외부 호출 1회를 쓴다. */
+  if(KV){
+    try{
+      const need=Object.keys(out).filter(c=>out[c]&&!(out[c].cap>0));
+      if(need.length){
+        const got=await Promise.all(need.slice(0,20).map(c=>KV.get("uscap:"+c,"json").catch(()=>null)));
+        need.slice(0,20).forEach((c,i)=>{ const v=got[i];
+          if(v&&v.cap>0&&Date.now()-v.at<36*3600e3)out[c].cap=v.cap; });
+      }
+    }catch(e){}
+  }
+  {
+    const noCap=Object.keys(out).filter(c=>out[c]&&!(out[c].cap>0)).slice(0,18);
+    if(noCap.length&&budget.left>1&&Date.now()-T0<8000){
+      const cm=await cnbcBatch(noCap,diag,budget);
+      let n=0;
+      for(const c of noCap){
+        const q=cm[c];
+        if(!q)continue;
+        if(q.cap>0){ out[c].cap=q.cap; n++;
+          try{ if(KV)await KV.put("uscap:"+c,JSON.stringify({at:Date.now(),cap:q.cap}),{expirationTtl:172800}); }catch(e){}
+        }
+        /* 온 김에 52주 고저도 비어 있으면 함께 채운다 — 추가 호출이 아니다 */
+        if(out[c].w52h==null&&q.w52h!=null)out[c].w52h=q.w52h;
+        if(out[c].w52l==null&&q.w52l!=null)out[c].w52l=q.w52l;
+        USQ_MEM.set(c,{at:Date.now(),q:out[c]});
+      }
+      diag.push("cap:"+n+"/"+noCap.length);
+    }
+  }
   const body={ ok:Object.keys(out).length>0, n:Object.keys(out).length, asked:codes.length,
                codes:out, diag:diag.slice(0,12) };
   if(u.searchParams.get("fx")==="1")body.fx=await usFx(diag);
@@ -11532,6 +11567,373 @@ ROUTES["ussearchdiag"]=ussearchdiag_default;
 ROUTES["usfxdiag"]=usfxdiag_default;
 ROUTES["usquote"]=usquote_default;
 ROUTES["uscandle"]=uscandle_default;
+/* ══ [v4.58] 해외 '조회수 TOP 100' ═══════════════════════════════════════════
+   [무엇이 문제였나] 지금까지 해외 '조회수' 탭은 조회수가 아니라 거래대금(가격×거래량)
+   순서였다. 상단에 그렇게 적어 두긴 했지만, 탭 이름이 조회수인데 다른 걸 보여 주는 건
+   결국 거짓말이다. 게다가 50위까지만 나왔고, 유니버스가 113종이라 '113개 중 50등'을
+   매기는 셈이라 순위로서 의미도 약했다.
+   [어떻게 진짜 조회수를 만드나] 미국 주식은 '몇 명이 봤는지'를 공개하는 곳이 없다.
+   그래서 밖에서 구해 오는 대신, 이 앱이 직접 센다.
+     · 사용자가 해외 종목 화면을 열 때마다 /api/usview 로 1 을 올린다
+     · 서버는 그 수를 KV 에 모아 두고, 최근 7일 가중치를 얹어 순위를 만든다
+   이게 이 앱에서 말할 수 있는 유일하게 정직한 '조회수'다.
+   [초반에 데이터가 없을 때] 아무도 안 본 상태에서는 순위가 비므로,
+   바깥의 관심도 신호(네이버 해외 인기·Stocktwits 트렌딩·나스닥 활발종목)를 섞어
+   자리를 채우고, 무엇을 근거로 매겼는지 화면에 그대로 밝힌다.
+   조회가 쌓일수록 자체 집계 비중이 자연히 커진다. */
+var USVIEW_MEM = /* @__PURE__ */ new Map();   // 아이솔레이트 안 임시 누적
+var _usvFlush = 0;
+function usvKey(){                              // 주 단위 버킷 — 오래된 인기가 영원히 남지 않게
+  const d = new Date(Date.now() + 9 * 3600e3);
+  const y = d.getUTCFullYear();
+  const w = Math.floor((Date.UTC(y, d.getUTCMonth(), d.getUTCDate()) - Date.UTC(y, 0, 1)) / 6048e5);
+  return "usvw:" + y + "w" + w;
+}
+async function usvFlush(force){
+  if (!KV || !USVIEW_MEM.size) return;
+  if (!force && Date.now() - _usvFlush < 45e3) return;   // KV 쓰기 한도 보호
+  _usvFlush = Date.now();
+  const k = usvKey();
+  try {
+    const cur = (await KV.get(k, "json")) || {};
+    for (const [t, n] of USVIEW_MEM) cur[t] = (cur[t] || 0) + n;
+    USVIEW_MEM.clear();
+    await KV.put(k, JSON.stringify(cur), { expirationTtl: 60 * 24 * 3600 });
+  } catch (e) { }
+}
+async function usview_default(req2){
+  const u = new URL(req2.url);
+  const t = String(u.searchParams.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+  if (t) USVIEW_MEM.set(t, (USVIEW_MEM.get(t) || 0) + 1);
+  await usvFlush(false);
+  return new Response(JSON.stringify({ ok: !!t }), {
+    headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
+}
+/* 최근 2주치 조회를 합산 — 이번 주에 가중치를 더 준다 */
+async function usvTop(){
+  if (!KV) return { map: {}, total: 0 };
+  const d = new Date(Date.now() + 9 * 3600e3);
+  const y = d.getUTCFullYear();
+  const w = Math.floor((Date.UTC(y, d.getUTCMonth(), d.getUTCDate()) - Date.UTC(y, 0, 1)) / 6048e5);
+  const keys = ["usvw:" + y + "w" + w, "usvw:" + y + "w" + (w - 1)];
+  const out = {}; let total = 0;
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      const v = await KV.get(keys[i], "json"); if (!v) continue;
+      const wgt = i === 0 ? 1 : 0.45;
+      for (const t in v) { const n = (+v[t] || 0) * wgt; if (n > 0) { out[t] = (out[t] || 0) + n; total += n; } }
+    } catch (e) { }
+  }
+  for (const [t, n] of USVIEW_MEM) { out[t] = (out[t] || 0) + n; total += n; }
+  return { map: out, total };
+}
+/* 바깥 관심도 신호 — 어느 하나가 막혀도 나머지로 굴러간다 */
+async function usPopExternal(diag, budget){
+  const lists = [];
+  const grab = async (name, url, pick, hdr) => {
+    if (budget && budget.left <= 1) return;
+    if (budget) budget.left--;
+    try {
+      const c = new AbortController(); const t = setTimeout(() => c.abort(), 4500);
+      const r = await fetch(url, { headers: hdr || HDRS, signal: c.signal }); clearTimeout(t);
+      if (!r.ok) { diag.push(name + ":" + r.status); return; }
+      const arr = pick(await r.text());
+      if (arr && arr.length) { lists.push({ name, arr }); diag.push(name + ":" + arr.length); }
+      else diag.push(name + ":parse");
+    } catch (e) { diag.push(name + ":" + String(e).slice(0, 10)); }
+  };
+  /* ① 네이버 해외 인기 — 이 앱에서 유일하게 응답이 확인된 호스트라 여러 경로를 시도한다 */
+  const nvPick = (txt) => {
+    try {
+      const j = JSON.parse(txt);
+      const cand = j.stocks || j.datas || j.items || (j.result && (j.result.stocks || j.result.items))
+        || (Array.isArray(j) ? j : null);
+      if (!Array.isArray(cand)) return null;
+      const out = [];
+      for (const it of cand) {
+        const reu = String(it.reutersCode || it.symbolCode || it.code || "").toUpperCase();
+        const m = reu.match(/^([A-Z0-9.\-]{1,8})\.([ONA])$/);
+        if (!m) continue;
+        out.push({ t: m[1], sfx: m[2],
+          kr: String(it.stockNameKor || it.stockName || it.nameKor || "").trim(),
+          en: String(it.stockNameEng || it.nameEng || "").trim() });
+        if (out.length >= 60) break;
+      }
+      return out.length ? out : null;
+    } catch (e) { return null; }
+  };
+  for (const u of [
+    "https://m.stock.naver.com/api/stocks/marketValue/worldStock?page=1&pageSize=60",
+    "https://m.stock.naver.com/api/worldstock/home/popular",
+    "https://m.stock.naver.com/api/stocks/searchTop/worldStock?pageSize=60"
+  ]) { if (lists.length) break; await grab("naver-pop", u, nvPick); }
+  /* ② Stocktwits 트렌딩 — 이야기가 많이 오가는 종목. 거래소 정보가 없어 티커만 쓴다 */
+  await grab("stocktwits", "https://api.stocktwits.com/api/2/trending/symbols.json?limit=30",
+    (txt) => { try {
+      const j = JSON.parse(txt); const s = j.symbols || [];
+      return s.filter(x => x && x.symbol && /^[A-Z]{1,5}$/.test(x.symbol))
+        .map(x => ({ t: x.symbol, sfx: null, en: String(x.title || "").trim(), kr: "" }));
+    } catch (e) { return null; } },
+    { "User-Agent": UA20, Accept: "application/json" });
+  /* ③ 나스닥 활발종목 */
+  await grab("nasdaq", "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=40&offset=0&download=false",
+    (txt) => { try {
+      const j = JSON.parse(txt); const rows = (j.data && (j.data.rows || j.data.table && j.data.table.rows)) || [];
+      return rows.filter(r => r && r.symbol && /^[A-Z]{1,5}$/.test(r.symbol))
+        .map(r => ({ t: r.symbol, sfx: null, en: String(r.name || "").trim(), kr: "" }));
+    } catch (e) { return null; } },
+    { "User-Agent": UA20, Accept: "application/json" });
+  return lists;
+}
+/* ══ [v4.59] 바깥 사이트의 '실제 조회수' 를 가져온다 ═════════════════════════
+   [무엇을 찾았나] 미국 주식의 조회수를 공개하는 곳은 없지만, '그 회사 문서를
+   몇 번 봤는지'를 숫자로 공개하는 곳은 있다 — 위키미디어 조회수 API 다.
+   문서별 일자별 조회수를 공개 API 로 그대로 내주고, 인증이 없고 봇도 막지 않는다.
+   이건 대체 지표가 아니라 말 그대로 '조회수' 다.
+   [함께 쓰는 것]
+     · 야후 파이낸스 trending — 야후에서 가장 많이 '검색된' 종목
+     · Stocktwits trending    — 관심 종목에 담은 사람이 급증한 종목
+     · 네이버 해외 인기        — 네이버에서 많이 찾은 해외 종목
+   넷 다 서로 다른 사이트의 실제 이용자 행동 수치다. 하나가 막혀도 나머지로 굴러가고,
+   어느 곳에서 왔는지 화면에 그대로 밝힌다.
+   [호출 수] 위키 인기문서 1 + 야후 1 + Stocktwits 1 + 네이버 1 + 문서별 보충 12
+   = 최대 16회. Cloudflare 무료 한도(★11 50회) 안에 넉넉히 들어온다. */
+var WIKI_UA = "LIVEjeungkwon/4.59 (educational paper-trading app; contact via github.com/jinnytcrew)";
+/* 티커 → 영문 위키백과 문서명. 회사명이 곧 문서명이 아닌 경우가 많아 표로 둔다. */
+var WIKI_ART = {
+  AAPL:"Apple_Inc.", MSFT:"Microsoft", NVDA:"Nvidia", GOOGL:"Alphabet_Inc.", GOOG:"Alphabet_Inc.",
+  AMZN:"Amazon_(company)", META:"Meta_Platforms", TSLA:"Tesla,_Inc.", AVGO:"Broadcom",
+  AMD:"Advanced_Micro_Devices", INTC:"Intel", MU:"Micron_Technology", QCOM:"Qualcomm",
+  TXN:"Texas_Instruments", ARM:"Arm_Holdings", TSM:"TSMC", ASML:"ASML_Holding",
+  SMCI:"Supermicro", DELL:"Dell_Technologies", HPQ:"HP_Inc.", IBM:"IBM", ORCL:"Oracle_Corporation",
+  CRM:"Salesforce", ADBE:"Adobe_Inc.", NOW:"ServiceNow", PLTR:"Palantir_Technologies",
+  SNOW:"Snowflake_Inc.", NFLX:"Netflix", DIS:"The_Walt_Disney_Company", CMCSA:"Comcast",
+  UBER:"Uber", LYFT:"Lyft", ABNB:"Airbnb", BKNG:"Booking_Holdings", DASH:"DoorDash",
+  SHOP:"Shopify", SQ:"Block,_Inc.", PYPL:"PayPal", COIN:"Coinbase", HOOD:"Robinhood_Markets",
+  V:"Visa_Inc.", MA:"Mastercard", AXP:"American_Express", JPM:"JPMorgan_Chase",
+  BAC:"Bank_of_America", WFC:"Wells_Fargo", GS:"Goldman_Sachs", MS:"Morgan_Stanley",
+  C:"Citigroup", BLK:"BlackRock", SCHW:"Charles_Schwab_Corporation", BRK_B:"Berkshire_Hathaway",
+  "BRK.B":"Berkshire_Hathaway", WMT:"Walmart", COST:"Costco", TGT:"Target_Corporation",
+  HD:"The_Home_Depot", LOW:"Lowe's", NKE:"Nike,_Inc.", SBUX:"Starbucks", MCD:"McDonald's",
+  KO:"Coca-Cola", PEP:"PepsiCo", PG:"Procter_&_Gamble", CL:"Colgate-Palmolive",
+  UL:"Unilever", MDLZ:"Mondelez_International", KHC:"Kraft_Heinz", GIS:"General_Mills",
+  JNJ:"Johnson_&_Johnson", PFE:"Pfizer", MRK:"Merck_%26_Co.", ABBV:"AbbVie", LLY:"Eli_Lilly_and_Company",
+  BMY:"Bristol_Myers_Squibb", AMGN:"Amgen", GILD:"Gilead_Sciences", MRNA:"Moderna",
+  NVO:"Novo_Nordisk", UNH:"UnitedHealth_Group", CVS:"CVS_Health", ISRG:"Intuitive_Surgical",
+  XOM:"ExxonMobil", CVX:"Chevron_Corporation", COP:"ConocoPhillips", SLB:"SLB",
+  BA:"Boeing", LMT:"Lockheed_Martin", RTX:"RTX_Corporation", NOC:"Northrop_Grumman",
+  GD:"General_Dynamics", GE:"General_Electric", CAT:"Caterpillar_Inc.", DE:"John_Deere",
+  HON:"Honeywell", MMM:"3M", UPS:"United_Parcel_Service", FDX:"FedEx", F:"Ford_Motor_Company",
+  GM:"General_Motors", RIVN:"Rivian", LCID:"Lucid_Motors", NIO:"Nio_Inc.", LI:"Li_Auto",
+  XPEV:"XPeng", BABA:"Alibaba_Group", JD:"JD.com", PDD:"PDD_Holdings", BIDU:"Baidu",
+  T:"AT%26T", VZ:"Verizon", TMUS:"T-Mobile_US", CSCO:"Cisco", ANET:"Arista_Networks",
+  PANW:"Palo_Alto_Networks", CRWD:"CrowdStrike", ZS:"Zscaler", DDOG:"Datadog",
+  SPOT:"Spotify", RBLX:"Roblox_Corporation", EA:"Electronic_Arts", TTWO:"Take-Two_Interactive",
+  SONY:"Sony", TM:"Toyota", HMC:"Honda", LIN:"Linde_plc", NEE:"NextEra_Energy",
+  DUK:"Duke_Energy", SO:"Southern_Company", VST:"Vistra_Corp", CEG:"Constellation_Energy",
+  OKLO:"Oklo_Inc.", SMR:"NuScale_Power", MSTR:"Strategy_(company)", GME:"GameStop", AMC:"AMC_Theatres"
+};
+function wikiDate(back){
+  const d = new Date(Date.now() - back * 864e5);
+  const y = d.getUTCFullYear(), m = String(d.getUTCMonth() + 1).padStart(2, "0"), dd = String(d.getUTCDate()).padStart(2, "0");
+  return { y, m, d: dd, s: "" + y + m + dd };
+}
+async function wikiGet(url, ms){
+  const c = new AbortController(); const t = setTimeout(() => c.abort(), ms || 5000);
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": WIKI_UA, Accept: "application/json" }, signal: c.signal });
+    clearTimeout(t);
+    if (!r.ok) return { err: "HTTP" + r.status };
+    return { j: await r.json() };
+  } catch (e) { clearTimeout(t); return { err: String(e).slice(0, 14) }; }
+}
+/* ① 인기문서 1000위 — 한 번의 호출로 큰 회사들의 실제 조회수를 통째로 얻는다 */
+async function wikiTopViews(diag, budget){
+  const out = {};
+  const art2t = {};
+  for (const k in WIKI_ART) { const a = WIKI_ART[k]; if (!art2t[a]) art2t[a] = k; }
+  for (const back of [2, 3]) {
+    if (budget && budget.left <= 0) break;
+    budget && budget.left--;
+    const d = wikiDate(back);
+    const { j, err } = await wikiGet(
+      `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${d.y}/${d.m}/${d.d}`, 5000);
+    if (err) { diag.push("wiki-top:" + err); continue; }
+    const arr = (j && j.items && j.items[0] && j.items[0].articles) || [];
+    let n = 0;
+    for (const a of arr) {
+      const t = art2t[a.article];
+      if (t && !out[t]) { out[t] = +a.views || 0; n++; }
+    }
+    diag.push("wiki-top:" + n);
+    if (n) break;
+  }
+  return out;
+}
+/* ② 문서별 조회수 — 최근 한 주치를 한 호출로 받는다. KV 에 12시간 담아 재사용한다. */
+async function wikiArticleViews(tickers, have, diag, budget){
+  const out = {};
+  const need = [];
+  for (const t of tickers) {
+    if (have[t] != null || !WIKI_ART[t]) continue;
+    need.push(t);
+  }
+  /* 먼저 KV 에서 꺼낸다 — 외부 호출을 쓰지 않는다 */
+  const still = [];
+  for (const t of need) {
+    let hit = null;
+    try { hit = KV ? await KV.get("wikv:" + t, "json") : null; } catch (e) { }
+    if (hit && hit.at && Date.now() - hit.at < 12 * 3600e3) out[t] = hit.v;
+    else still.push(t);
+  }
+  diag.push("wiki-kv:" + (need.length - still.length));
+  const s = wikiDate(8), e = wikiDate(2);
+  let got = 0;
+  for (const t of still.slice(0, 14)) {
+    if (budget && budget.left <= 2) break;
+    budget && budget.left--;
+    const { j, err } = await wikiGet(
+      `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/`
+      + encodeURIComponent(WIKI_ART[t]) + `/daily/${s.s}/${e.s}`, 4500);
+    if (err) { diag.push("wiki-a:" + err); continue; }
+    const items = (j && j.items) || [];
+    if (!items.length) continue;
+    const sum = items.reduce((a, x) => a + (+x.views || 0), 0);
+    const avg = Math.round(sum / items.length);
+    out[t] = avg; got++;
+    try { if (KV) await KV.put("wikv:" + t, JSON.stringify({ at: Date.now(), v: avg }), { expirationTtl: 86400 }); } catch (e) { }
+  }
+  diag.push("wiki-art:" + got);
+  return out;
+}
+/* ③ 야후 파이낸스에서 가장 많이 검색된 종목 */
+async function yahooTrending(diag, budget){
+  if (budget && budget.left <= 0) return null;
+  budget && budget.left--;
+  try {
+    const c = new AbortController(); const t = setTimeout(() => c.abort(), 4500);
+    const r = await fetch("https://query1.finance.yahoo.com/v1/finance/trending/US?count=40",
+      { headers: { "User-Agent": UA20, Accept: "application/json" }, signal: c.signal });
+    clearTimeout(t);
+    if (!r.ok) { diag.push("yh-trend:" + r.status); return null; }
+    const j = await r.json();
+    const q = (j && j.finance && j.finance.result && j.finance.result[0] && j.finance.result[0].quotes) || [];
+    const arr = q.map(x => String(x.symbol || "")).filter(x => /^[A-Z]{1,5}$/.test(x));
+    diag.push("yh-trend:" + arr.length);
+    return arr.length ? arr : null;
+  } catch (e) { diag.push("yh-trend:" + String(e).slice(0, 10)); return null; }
+}
+async function uspopular_default(req2){
+  const diag = [], budget = { left: 22 };
+  const CK = "uspop:v2";
+  const fresh = new URL(req2.url).searchParams.get("fresh") === "1";
+  if (!fresh) {
+    try {
+      const c = KV ? await KV.get(CK, "json") : null;
+      if (c && c.at && Date.now() - c.at < 10 * 60e3 && Array.isArray(c.items) && c.items.length) {
+        return new Response(JSON.stringify({ ok: true, items: c.items, basis: c.basis, cached: 1 }),
+          { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
+      }
+    } catch (e) { }
+  }
+  const score = new Map();
+  const bump = (t, sfx, add, origin, kr, en) => {
+    if (!t) return;
+    const cur = score.get(t);
+    if (cur) { cur.sc += add; if (cur.origin.indexOf(origin) < 0) cur.origin.push(origin);
+      if (!cur.sfx && sfx) cur.sfx = sfx; if (!cur.kr && kr) cur.kr = kr; if (!cur.en && en) cur.en = en; }
+    else score.set(t, { t, sfx: sfx || null, kr: kr || "", en: en || "", sc: add, origin: [origin] });
+  };
+  /* ══ 주 신호 : 위키백과 문서 실제 조회수 ══════════════════════════════════
+     '그 회사를 몇 번 찾아봤는가' 를 숫자로 그대로 주는 유일한 공개 원천이다.
+     인기문서 1000위(1콜)로 큰 회사를 훑고, 빠진 종목만 문서별로 보충한다. */
+  const topV = await wikiTopViews(diag, budget);
+  const uni = Object.keys(WIKI_ART);
+  const artV = await wikiArticleViews(uni, topV, diag, budget);
+  const wikiV = Object.assign({}, artV, topV);
+  const wEntries = Object.entries(wikiV).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  /* [v4.59 · 정정] 처음엔 조회수를 로그로 눌러 다른 신호와 섞었는데, 로그가 너무
+     압축한 나머지 조회수 61,000 인 종목이 12,000 인 종목보다 아래로 밀렸다.
+     탭 이름이 '조회수'인 이상 조회수 많은 순서가 그대로 나와야 한다.
+     → 조회수가 있는 종목은 '조회수 내림차순'을 절대 우선으로 두고(1000점대),
+       조회수를 못 구한 종목만 보조 신호 점수(최대 100점대)로 그 아래에 붙인다.
+     보조 신호는 순서를 뒤집는 데 쓰이지 않고, 빈자리를 채우는 데만 쓰인다. */
+  wEntries.forEach(([t, v]) => bump(t, null, 0, "wiki"));
+  diag.push("wiki:" + wEntries.length);
+  /* ══ 보조 신호 : 다른 사이트의 검색·관심 순위 ══════════════════════════ */
+  const yh = await yahooTrending(diag, budget);
+  if (yh) yh.forEach((t, i) => bump(t, null, 90 * (1 - i / yh.length), "yahoo"));
+  const lists = await usPopExternal(diag, budget);
+  lists.forEach(({ name, arr }) => {
+    const n = arr.length || 1;
+    const w = name === "naver-pop" ? 80 : 60;
+    arr.forEach((it, i) => bump(it.t, it.sfx, w * (1 - i / n), name, it.kr, it.en));
+  });
+  /* ══ 이 앱에서 실제로 열어 본 횟수 — 있으면 얹는다(없어도 순위는 나온다) ══ */
+  const vt = await usvTop();
+  const vEntries = Object.entries(vt.map).sort((a, b) => b[1] - a[1]);
+  const vMax = vEntries.length ? vEntries[0][1] : 0;
+  vEntries.slice(0, 120).forEach(([t, n]) => bump(t, null, 50 * (n / (vMax || 1)), "app"));
+  /* 두 무리를 완전히 갈라 정렬한다 — 보조 신호가 조회수 순서를 절대 뒤집지 못하게.
+     ① 조회수를 구한 종목 : 조회수 많은 순
+     ② 조회수를 못 구한 종목 : 보조 신호 점수 순 (항상 ① 아래) */
+  const all = [...score.values()];
+  const withV = all.filter(x => (wikiV[x.t] || 0) > 0).sort((a, b) => wikiV[b.t] - wikiV[a.t]);
+  const noV = all.filter(x => !(wikiV[x.t] > 0)).sort((a, b) => b.sc - a.sc);
+  const items = withV.concat(noV).slice(0, 130)
+    .map(x => ({ t: x.t, sfx: x.sfx, kr: x.kr, en: x.en, origin: x.origin,
+      wiki: wikiV[x.t] || 0, views: Math.round(vt.map[x.t] || 0) }));
+  const basis = {
+    wiki: wEntries.length, wikiTop: wEntries.length ? wEntries[0][0] : null,
+    yahoo: yh ? yh.length : 0, ext: lists.map(l => l.name),
+    app: vEntries.length, appTotal: Math.round(vt.total), diag
+  };
+  try { if (KV && items.length) await KV.put(CK, JSON.stringify({ at: Date.now(), items, basis }), { expirationTtl: 900 }); } catch (e) { }
+  await usvFlush(true);
+  return new Response(JSON.stringify({ ok: items.length > 0, items, basis }),
+    { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
+}
+/* 어느 조회수 원천이 살아 있는지 화면에서 바로 확인한다 */
+async function uspopdiag_default(){
+  const out = { at: new Date().toISOString(), ver: APP_VER, tried: [] };
+  const probe = async (label, url, hdr, pick) => {
+    const rec = { label, url };
+    try {
+      const c = new AbortController(); const t = setTimeout(() => c.abort(), 6000);
+      const r = await fetch(url, { headers: hdr, signal: c.signal }); clearTimeout(t);
+      rec.status = r.status;
+      const txt = await r.text(); rec.len = txt.length;
+      rec.sample = txt.slice(0, 160).replace(/\s+/g, " ");
+      try { rec.parsed = pick(txt); } catch (e) { rec.parsed = 0; }
+    } catch (e) { rec.err = String(e).slice(0, 60); }
+    out.tried.push(rec);
+  };
+  const WH = { "User-Agent": WIKI_UA, Accept: "application/json" };
+  const d2 = wikiDate(2), d8 = wikiDate(8);
+  await probe("wiki-top(문서 조회수 1000위)",
+    `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${d2.y}/${d2.m}/${d2.d}`,
+    WH, (t) => { const j = JSON.parse(t); return ((j.items || [])[0] || {}).articles ? j.items[0].articles.length : 0; });
+  await probe("wiki-article(Apple 조회수)",
+    `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/Apple_Inc./daily/${d8.s}/${d2.s}`,
+    WH, (t) => (JSON.parse(t).items || []).length);
+  await probe("yahoo-trending(검색 급상승)",
+    "https://query1.finance.yahoo.com/v1/finance/trending/US?count=40",
+    { "User-Agent": UA20, Accept: "application/json" },
+    (t) => { const j = JSON.parse(t); return (((j.finance || {}).result || [])[0] || {}).quotes ? j.finance.result[0].quotes.length : 0; });
+  await probe("stocktwits-trending(관심 급증)",
+    "https://api.stocktwits.com/api/2/trending/symbols.json?limit=30",
+    { "User-Agent": UA20, Accept: "application/json" },
+    (t) => (JSON.parse(t).symbols || []).length);
+  await probe("naver-popular(해외 인기)",
+    "https://m.stock.naver.com/api/stocks/marketValue/worldStock?page=1&pageSize=60",
+    HDRS, (t) => { const j = JSON.parse(t); const a = j.stocks || j.datas || j.items || []; return a.length; });
+  out.usable = out.tried.filter(x => x.parsed > 0).map(x => x.label);
+  return new Response(JSON.stringify(out, null, 2),
+    { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+}
+ROUTES["uspopdiag"]=uspopdiag_default;
+ROUTES["usview"]=usview_default;
+ROUTES["uspopular"]=uspopular_default;
 ROUTES["usdiag"]=usdiag_default;
 
 
@@ -11562,7 +11964,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.54.0";
+var APP_VER = "4.59.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

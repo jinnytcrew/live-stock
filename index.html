@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=338">
+<link rel="stylesheet" href="/app.css?v=341">
 </head>
 <body>
 
@@ -948,9 +948,9 @@
             <button data-uinfo="consensus">컨센서스</button>
             <button data-uinfo="finance">재무 정보</button>
           </div>
+          <!-- [v4.57] 해외 차트는 국내 차트 카드를 그대로 옮겨 와 쓴다(모양·기능 100% 동일) -->
           <div id="usChartCard" hidden>
-            <div class="us-chart-h"><b>일봉 차트</b><div class="us-ranges" id="usRanges"></div></div>
-            <div class="us-canvas-wrap"><canvas id="usCanvas"></canvas></div>
+            <div id="usChartHost"></div>
             <div class="us-chart-note" id="usChartNote"></div>
           </div>
           <div class="info-body" id="usInfoBody"></div>
@@ -1166,6 +1166,8 @@
         <div class="detail-hint">🔻 자세한 종목 정보는 아래에서 조회하실 수 있습니다. 🔻</div>
       </div>
       <div class="panel">
+        <!-- [v4.56] 주문 계좌 선택 — 어느 계좌로 사고파는지 주문 직전에 바꾼다 -->
+        <div class="ord-acct" id="ordAcct"></div>
         <div class="ord-tabs"><button class="buy on" data-side="buy">매수</button><button class="sell" data-side="sell">매도</button></div>
         <div class="tg-wrap" id="tradeGate"></div>
         <div class="ord-body">
@@ -1194,6 +1196,7 @@
         <button data-info="consensus">컨센서스</button>
         <button data-info="finance">재무 정보</button>
       </div>
+      <div id="chartHome"><!-- [v4.57] 차트 카드의 원래 자리. 해외 화면에서는 usChartHost 로 옮겨 간다 -->
       <div id="chartCard" hidden>
         <div class="chart-tools">
           <div class="tf-seg" id="tfSeg"></div>
@@ -1201,7 +1204,7 @@
           <div class="zoom"><button class="cc-gear" id="ccGear" title="차트 설정" aria-label="차트 설정">⚙</button><button id="zoomOut" aria-label="줄이기">－</button><button id="zoomIn" aria-label="늘리기">＋</button><button id="zoomReset" title="맨 앞으로" aria-label="새로고침">⟳</button></div>
         </div>
         <div class="chart-box"><div class="chart-legend" id="chartLegend"></div><div class="chart-ma" id="chartMa"></div><div class="chart-vplg"><b>매물대</b><span><i class="poc"></i>최대 거래</span><span><i class="cur"></i>현재가 구간</span></div><div class="chart-tip" id="chartTip" hidden></div><canvas id="chart"></canvas></div><div class="chart-hint2">드래그 이동 · 휠·핀치 확대축소 · 마우스를 올리면 값 표시</div>
-      </div>
+      </div></div>
       <div class="info-body" id="infoBody"></div>
     </div>
   </section>
@@ -1302,6 +1305,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=338"></script>
+<script type="module" src="/app.js?v=341"></script>
 </body>
 </html>

@@ -1387,6 +1387,11 @@ html.reduce-motion{scroll-behavior:auto}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
 ::-webkit-scrollbar-thumb:hover{background:var(--sub-2)}
 .sec{contain:content}
+/* [v4.56] 내 계좌의 환전·송금 코너는 렌더러가 통째로 그려 넣는 블록이라,
+   index.html 에 style="margin-top:16px" 을 직접 단 다른 코너들과 달리 위 여백이 없었다.
+   블록 자체에 여백을 줘서 어느 코너든 같은 간격으로 보이게 한다. */
+#acctFxSec .sec,#acctSendSec .sec{margin-top:18px}
+#acctFxSec .sec-title,#acctSendSec .sec-title{margin-bottom:10px}
 
 /* ── 헤더: 스티키 + 블러 ── */
 .topbar{position:sticky;top:0;z-index:900}
@@ -3537,12 +3542,15 @@ html[data-theme="dark"] .uz-chip.on{background:#fff;color:#111}
 /* ── 인기 종목 가로 카드 ── */
 .uz-stars{display:flex;gap:9px;overflow-x:auto;padding:2px 2px 10px;-webkit-overflow-scrolling:touch}
 .uz-stars::-webkit-scrollbar{display:none}
-.uz-star{flex-shrink:0;width:112px;padding:12px 11px;border-radius:15px;cursor:pointer;text-align:left;
+/* [v4.55] 카드 폭을 이름 길이에 맞춘다 — 112px 로 못 박아 두어 '마이크로소프트',
+   '메타 플랫폼스' 같은 긴 이름이 잘렸다. 최소 폭만 지키고 내용만큼 늘어나게 한다. */
+.uz-star{flex-shrink:0;width:auto;min-width:112px;max-width:210px;
+  padding:12px 13px;border-radius:15px;cursor:pointer;text-align:left;
   border:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;gap:5px;
   transition:transform .12s,box-shadow .12s}
 .uz-star:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
 .uz-star .t{display:flex;align-items:center;gap:6px;min-width:0}
-.uz-star .t b{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.uz-star .t b{font-size:12px;font-weight:800;white-space:nowrap;color:var(--text)}
 .uz-star .p{font-size:15px;font-weight:900;letter-spacing:-.4px;color:var(--text)}
 .uz-star .r{font-size:11.5px;font-weight:800}
 
@@ -3836,3 +3844,65 @@ html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
 .usdg-s{flex-shrink:0;font-weight:800;color:var(--sub);font-variant-numeric:tabular-nums}
 .usdg-l{flex-shrink:0;width:56px;text-align:right;font-size:11px;font-weight:700;color:var(--sub-2)}
 .usdg-note{margin:11px 0 13px;font-size:11px;font-weight:600;color:var(--sub-2);text-align:center}
+
+/* ══ [v4.56] 주문 계좌 선택 ═══════════════════════════════════════════════ */
+.ord-acct{padding:0 0 10px}
+.oa-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 12px;border-radius:12px;background:var(--border-soft)}
+.oa-wrap label{flex-shrink:0;font-size:11px;font-weight:800;color:var(--sub-2)}
+.oa-wrap select{flex:1;min-width:0;height:34px;padding:0 8px;border-radius:9px;cursor:pointer;
+  border:1px solid var(--border);background:var(--panel);color:var(--text);
+  font-size:12.5px;font-weight:800}
+.oa-no{width:100%;font-size:10.5px;font-weight:700;color:var(--sub-2);
+  letter-spacing:.3px;font-variant-numeric:tabular-nums}
+#usOrder .oa-wrap{margin-bottom:2px}
+
+/* ══ [v4.56] 계좌 해지 ═══════════════════════════════════════════════════ */
+.ab-add.close{background:transparent;border:1px solid var(--border);color:var(--sub)}
+.ab-add.close:hover{border-color:var(--down);color:var(--down)}
+.ac-list{display:flex;flex-direction:column;gap:7px;margin:12px 0}
+.ac-row{display:flex;align-items:center;gap:10px;width:100%;padding:12px 13px;cursor:pointer;
+  border:1.5px solid var(--border);border-radius:13px;background:var(--panel);text-align:left}
+.ac-row.on{border-color:var(--text)}
+.ac-row.no{opacity:.62}
+.ac-ic{flex-shrink:0;font-size:19px}
+.ac-nm{flex:1;min-width:0}
+.ac-nm b{display:block;font-size:13px;font-weight:800;color:var(--text)}
+.ac-nm i{display:block;margin-top:2px;font-style:normal;font-size:11px;font-weight:700;
+  color:var(--sub-2);font-variant-numeric:tabular-nums}
+.ac-cash{flex-shrink:0;font-size:12.5px;font-weight:800;color:var(--sub)}
+.ac-st{flex-shrink:0;padding:3px 8px;border-radius:7px;font-size:10.5px;font-weight:900;
+  background:rgba(18,183,106,.14);color:#0d8a52}
+.ac-row.no .ac-st{background:rgba(229,72,77,.12);color:var(--up)}
+.ac-block{padding:14px;border-radius:13px;background:rgba(229,72,77,.07);
+  border:1px solid rgba(229,72,77,.24)}
+.ac-block b{display:block;font-size:13px;font-weight:900;color:var(--text);margin-bottom:8px}
+.ac-block ul{margin:0;padding-left:18px}
+.ac-block li{font-size:12px;line-height:1.75;color:var(--sub);font-weight:600}
+.ac-tip{display:block;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft);
+  font-size:11.5px;line-height:1.7;color:var(--sub-2);font-weight:600}
+.ac-ok{padding:14px;border-radius:13px;background:var(--border-soft)}
+.ac-ok b{font-size:14px;font-weight:900;color:var(--text)}
+.ac-ok>span{margin-left:8px;font-size:12px;font-weight:700;color:var(--sub-2);
+  font-variant-numeric:tabular-nums}
+.ac-ok p{margin:9px 0 12px;font-size:12px;line-height:1.7;color:var(--sub);font-weight:600}
+.ac-agree{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:12.5px;
+  font-weight:700;color:var(--text);user-select:none}
+.modal-btn.danger{background:var(--down);color:#fff}
+
+/* ══ [v4.56] 최근 본 종목 — 국내·해외 통합 ═══════════════════════════════ */
+.sh-chip .sh-fl{font-style:normal;font-size:11px;margin-left:1px;opacity:.9}
+.sh-chip.us .us-tick{width:22px;height:22px;font-size:8.5px;border-radius:6px;flex-shrink:0}
+
+/* ══ [v4.57] 해외 차트는 국내 카드를 그대로 옮겨 쓴다 ═══════════════════ */
+#usChartHost{margin:0}
+#usChartHost .chart-tools{margin-top:2px}
+
+/* ══ [v4.58] 조회수 표시 ═══════════════════════════════════════════════════ */
+.us-vw{font-style:normal;margin-left:7px;padding:1px 6px;border-radius:5px;
+  font-size:10px;font-weight:800;background:var(--border-soft);color:var(--sub-2)}
+.us-rank-note small{display:block;margin-top:4px;font-size:11px;font-weight:600;
+  color:var(--sub-2);line-height:1.6}
+.rank-retry.mini{display:inline-block;margin-top:7px;padding:4px 10px;font-size:11px;
+  border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
+.rank-retry.mini:hover{border-color:var(--sub-2);color:var(--text)}

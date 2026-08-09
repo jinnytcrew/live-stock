@@ -2077,6 +2077,7 @@ function acctSwitch(id){
   try{sanitizeAccount(true);}catch(e){}
   try{renderPortfolioNumbers();}catch(e){}
   try{if(currentView==='account'){renderAcctFx();renderAcctSend();}}catch(e){}
+  try{renderOrdAcct();}catch(e){}
   try{renderAcctBar();}catch(e){}
   const a=acctCur();
   toast('buy','계좌 전환',(a?ACCT_TYPES[a.type].n:'')+' · 예수금 '+KRW(cash)+'원');
@@ -2195,6 +2196,129 @@ function fmtCur(v,c){ const d=curInfo(c).dec;
   return (+v||0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function fmtRate(r,c){ const i=curInfo(c);
   return i.per?KRW(Math.round(r*i.per))+'원/'+i.per+i.c : KRW(Math.round(r*100)/100)+'원'; }
+/* ══ [v4.56] 계좌 해지 ═════════════════════════════════════════════════════
+   [용어] 실제 증권사에서는 '해지'라고 한다(폐설·폐지·삭제가 아니다).
+     계약을 끝낸다는 뜻이고, 카드는 '해지', 계좌도 '해지'로 통일한다.
+   [실제 규칙을 그대로 따른다]
+     · 보유 주식이 남아 있으면 해지할 수 없다 — 먼저 팔거나 옮겨야 한다
+     · 예수금·외화가 남아 있으면 해지할 수 없다 — 다른 계좌로 송금하거나 환전해야 한다
+     · 마지막 남은 하나뿐인 계좌는 해지할 수 없다(거래 자체가 막히므로)
+     · 계좌 비밀번호로 본인 확인을 거친다
+   해지해도 그 계좌에서 만든 매매일지는 지우지 않고 보관한다 — 기록은 남아야 한다. */
+function acctCloseBlockers(id){
+  const a=acctList.find(x=>x.id===id); if(!a)return ['계좌를 찾을 수 없습니다'];
+  const bk=(id===acctActive)
+    ? {cash,usdCash,holdings,usdSettling,fx:fxLive}
+    : (acctBooks[id]||{});
+  const out=[];
+  if(acctList.length<=1)out.push('마지막 남은 계좌는 해지할 수 없습니다. 다른 계좌를 먼저 개설해 주세요.');
+  const hd=(bk.holdings||[]).filter(h=>h&&h.qty>0);
+  if(hd.length)out.push(`보유 종목 ${hd.length}개가 남아 있습니다. 전부 매도한 뒤 해지할 수 있습니다.`);
+  const c=intOf(bk.cash,0);
+  if(c>0)out.push(`예수금 ${KRW(c)}원이 남아 있습니다. 다른 계좌로 송금한 뒤 해지해 주세요.`);
+  const ud=+(bk.usdCash||0);
+  if(ud>0)out.push(`달러 예수금 $${USD2(ud)}가 남아 있습니다. 원화로 환전한 뒤 해지해 주세요.`);
+  if((bk.usdSettling||[]).length)out.push('정산 대기 중인 해외 매도 대금이 있습니다. 정산 후 해지할 수 있습니다.');
+  const fx=bk.fx||{};
+  const cur=Object.keys(fx).filter(k=>+fx[k]>0);
+  if(cur.length)out.push(`외화 잔고(${cur.join(', ')})가 남아 있습니다. 원화로 환전한 뒤 해지해 주세요.`);
+  return out;
+}
+function acctCloseDo(id){
+  const i=acctList.findIndex(a=>a.id===id);
+  if(i<0)return false;
+  const a=acctList[i];
+  acctList.splice(i,1);
+  delete acctBooks[id];
+  /* 해지 이력은 남긴다 — 나중에 '어떤 계좌를 언제 닫았는지' 확인할 수 있게 */
+  if(!Array.isArray(window._acctClosed))window._acctClosed=[];
+  if(id===acctActive){ const nx=acctList[0]; if(nx)acctLoad(nx.id); }
+  saveState();
+  toast('warn','계좌 해지 완료',`${acctLabel(a)} (${a.no||''}) 계좌를 해지했습니다`);
+  return true;
+}
+function openAcctClose(){
+  if(!acctOpened())return;
+  const cur=acctCur();
+  const rows=acctList.map(a=>{
+    const t=ACCT_TYPES[a.type]||ACCT_TYPES.general;
+    const bk=(a.id===acctActive)?{cash}:(acctBooks[a.id]||{});
+    const bad=acctCloseBlockers(a.id);
+    return `<button type="button" class="ac-row ${bad.length?'no':''}" data-acid="${a.id}">
+      <span class="ac-ic">${t.ic}</span>
+      <span class="ac-nm"><b>${t.n}</b><i>${a.no||'번호 없음'}</i></span>
+      <span class="ac-cash num">${KRW(intOf(bk.cash,0))}원</span>
+      <span class="ac-st">${bad.length?'해지 불가':'해지 가능'}</span></button>`;}).join('');
+  openLiteGate('계좌 해지',`<div class="acclose">
+    <p class="ae-d">해지할 계좌를 고르세요. 실제 증권사와 같이 <b>남은 자산이 없어야</b> 해지할 수 있습니다.
+      매매일지는 해지 후에도 보관됩니다.</p>
+    <div class="ac-list">${rows}</div>
+    <div id="acDetail"></div></div>`);
+  document.querySelectorAll('[data-acid]').forEach(b=>b.onclick=()=>acctClosePick(b.dataset.acid));
+  if(cur)acctClosePick(cur.id);
+}
+function acctClosePick(id){
+  document.querySelectorAll('[data-acid]').forEach(b=>b.classList.toggle('on',b.dataset.acid===id));
+  const box=$('acDetail'); if(!box)return;
+  const a=acctList.find(x=>x.id===id); if(!a)return;
+  const t=ACCT_TYPES[a.type]||ACCT_TYPES.general;
+  const bad=acctCloseBlockers(id);
+  if(bad.length){
+    box.innerHTML=`<div class="ac-block"><b>이 계좌는 지금 해지할 수 없습니다</b>
+      <ul>${bad.map(x=>`<li>${x}</li>`).join('')}</ul>
+      <span class="ac-tip">💡 예수금은 <b>송금</b>으로 다른 계좌에 옮기고, 외화는 <b>환전</b>으로 원화로 바꾼 뒤 다시 시도해 주세요.</span></div>`;
+    return;
+  }
+  box.innerHTML=`<div class="ac-ok">
+    <b>${t.ic} ${t.n}</b><span>${a.no||''}</span>
+    <p>해지하면 이 계좌는 목록에서 사라지고 되돌릴 수 없습니다. 계좌번호도 다시 쓸 수 없습니다.</p>
+    <label class="ac-agree" id="acAgree"><span class="ae-ck"></span>위 내용을 확인했으며 해지에 동의합니다</label>
+    <div class="ae-msg" id="acMsg"></div>
+    <button class="modal-btn danger" id="acGo">계좌 해지하기</button></div>`;
+  let agreed=false;
+  const ag=$('acAgree');
+  ag.onclick=()=>{ agreed=!agreed; ag.classList.toggle('on',agreed);
+    ag.querySelector('.ae-ck').textContent=agreed?'✓':''; };
+  $('acGo').onclick=()=>{
+    const m=$('acMsg'); m.style.color='var(--down)';
+    if(!agreed){ m.textContent='해지 동의에 체크해 주세요.'; return; }
+    askAcctPw('계좌 해지 확인',`${t.n} 계좌를 해지합니다`,(ok)=>{
+      if(!ok){ toast('warn','비밀번호가 올바르지 않습니다','계좌 비밀번호를 다시 확인해 주세요'); return; }
+      acctCloseDo(id);
+      closeLiteGate();
+      renderAcctBar(); try{renderAcctFx();renderAcctSend();renderPortfolioNumbers();renderHoldings();renderOrdAcct();}catch(e){}
+    });
+  };
+}
+/* ══ [v4.56] 주문 계좌 선택 ═══════════════════════════════════════════════
+   [왜] 계좌를 여러 개 열 수 있게 해 놓고, 정작 주문 화면에서는 어느 계좌로
+   체결되는지 보이지도 바꾸지도 못했다. 내 계좌 화면까지 갔다 와야 했다.
+   → 매수·매도 탭 바로 위에 계좌를 놓고, 여기서 바꾸면 즉시 전환된다.
+   국내·해외 주문 박스가 같은 조각을 쓰므로 한 곳만 고치면 둘 다 반영된다. */
+function ordAcctHTML(id){
+  if(!acctOpened())return '';
+  const cur=acctCur(); if(!cur)return '';
+  const t=ACCT_TYPES[cur.type]||ACCT_TYPES.general;
+  return `<div class="oa-wrap">
+    <label for="${id}">주문 계좌</label>
+    <select id="${id}">${acctList.map(a=>{
+      const ty=ACCT_TYPES[a.type]||ACCT_TYPES.general;
+      const bk=(a.id===acctActive)?{cash}:(acctBooks[a.id]||{});
+      return `<option value="${a.id}" ${a.id===acctActive?'selected':''}>${ty.ic} ${ty.n} · ${KRW(intOf(bk.cash,0))}원</option>`;
+    }).join('')}</select>
+    <span class="oa-no">${cur.no||''}</span></div>`;
+}
+function wireOrdAcct(id,after){
+  const el=$(id); if(!el)return;
+  el.onchange=(e)=>{ acctSwitch(e.target.value); try{after&&after();}catch(x){} };
+}
+function renderOrdAcct(){
+  const box=$('ordAcct'); if(!box)return;
+  box.innerHTML=ordAcctHTML('ordAcctSel');
+  wireOrdAcct('ordAcctSel',()=>{ try{renderOrdAcct();}catch(e){}
+    try{if(typeof renderOrder==='function')renderOrder();}catch(e){}
+    try{if(typeof updateSummary==='function')updateSummary();}catch(e){} });
+}
 /* ══ [v4.51] 송금 ══════════════════════════════════════════════════════════
    [왜 필요했나] 계좌를 여러 개 열 수 있는데 그 사이에 돈을 옮길 방법이 없었다.
    ISA 에 예수금을 몰아넣었다가 해외 계좌로 옮기고 싶어도, 예수금을 손으로 고쳐
@@ -2457,9 +2581,11 @@ function renderAcctBar(){
       <div class="ab-kv"><span>국내</span><b>${(FEE_RATE_BASE*t.feeKr*100).toFixed(4)}%</b></div>
       <div class="ab-kv"><span>해외</span><b>${(US_FEE_BASE*t.feeUs*100).toFixed(2)}%</b></div>
       <div class="ab-kv"><span>환전우대</span><b>${Math.round((t.fxPref!=null?t.fxPref:0.95)*100)}%</b></div>
-      <button class="ab-add" id="acctAddBtn">+ 계좌 개설</button></div></div>`;
+      <button class="ab-add" id="acctAddBtn">+ 계좌 개설</button>
+      <button class="ab-add close" id="acctCloseBtn">계좌 해지</button></div></div>`;
   $('acctSelect').onchange=(e)=>acctSwitch(e.target.value);
   $('acctAddBtn').onclick=()=>openAcctOpenSheet();
+  {const cb=$('acctCloseBtn'); if(cb)cb.onclick=()=>openAcctClose();}
 }
 function renderAeTypes(){
   const box=$('aeTypes'); if(!box)return;
@@ -4128,6 +4254,8 @@ function _showView(name){
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.bv===name));   // 모바일 하단 내비 동기화
   $('mainNav').classList.remove('open');window.scrollTo(0,0);
   {const cta=$('usCta'); if(cta)cta.hidden=(name!=='ustrade');}   // [v4.50] 주문바는 상세에서만
+  if(name!=='ustrade'){ try{usChartMount(false);}catch(e){}        // [v4.57] 차트 카드 제자리로
+    try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{b.style.display='';}); }catch(e){} }
   // [수정] 화면별 렌더러가 예외를 던져도 탭 전환 자체는 성공하도록 격리
   if(name==='home'){safeRun('home',renderHome);safeRun('market',renderMarket);safeRun('aiBrief',()=>{renderAiBrief();aiSchedule();});}
   if(name==='watch')safeRun('watch',renderWatch);
@@ -4174,6 +4302,7 @@ function openTrade(code){
   safeRun('openTrade:quote',()=>ensureQuote(code));
   safeRun('openTrade:nxt',()=>ensureNxt(code));
   safeRun('openTrade:ex',()=>loadExchange(code));
+  safeRun('openTrade:acct',()=>renderOrdAcct());          // [v4.56] 주문 계좌 선택
   safeRun('openTrade:detail',()=>renderDetail());
   safeRun('openTrade:exch',()=>configOrderExchanges());
   safeRun('openTrade:price',()=>syncPriceField(true));
@@ -7673,10 +7802,17 @@ function renderViewHist(){
   if(!viewHist.length){el.hidden=true;return;}
   el.hidden=false;
   el.innerHTML=`<div class="sh-head"><span>최근 본 종목</span><button id="vhClear">전체 삭제</button></div>
-    <div class="sh-chips">${viewHist.map((h,i)=>`<span class="sh-chip" data-i="${i}">${stockLogo(h.code,h.name,'xs')}<b>${h.name}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
+    <div class="sh-chips">${viewHist.map((h,i)=>{
+      const us=h.us||!!usMeta[h.code];
+      /* 한 목록에 국내·해외가 섞이므로 어느 시장인지 한눈에 보이게 국기를 붙인다 */
+      const logo=us?(typeof usTick==='function'?usTick(h.code):''):stockLogo(h.code,h.name,'xs');
+      return `<span class="sh-chip${us?' us':''}" data-i="${i}">${logo}<b>${h.name}</b>${us?'<i class="sh-fl">🇺🇸</i>':''}<i class="sh-x" data-x="${i}">✕</i></span>`;
+    }).join('')}</div>`;
   el.querySelectorAll('.sh-chip').forEach(c=>c.onclick=(e)=>{
     if(e.target.classList.contains('sh-x'))return;
-    const h=viewHist[+c.dataset.i]; if(h){ensureStock(h.code,h.name,h.market);openTrade(h.code);}
+    const h=viewHist[+c.dataset.i]; if(!h)return;
+    if(h.us||usMeta[h.code]){ openUS(h.code); return; }        // [v4.56] 해외는 해외 화면으로
+    ensureStock(h.code,h.name,h.market); openTrade(h.code);
   });
   el.querySelectorAll('.sh-x').forEach(x=>x.onclick=(e)=>{e.stopPropagation();viewHist.splice(+x.dataset.x,1);saveViewHist();renderViewHist();});
   const cl=$('vhClear'); if(cl)cl.onclick=()=>{viewHist=[];saveViewHist();renderViewHist();};
@@ -7731,34 +7867,119 @@ function bindRankRetry(){
   if(b)b.addEventListener('click',(e)=>{e.stopPropagation();rankRetry(b.dataset.tab||searchRankTab);});
   const u=$('usRankRetry'); /* [v4.48] 해외 순위 다시 시도 */
   if(u)u.addEventListener('click',(e)=>{e.stopPropagation();_usQFail=0;
+    usPop=null; usPopAt=0;                       // [v4.58] 인기 목록도 새로 받는다
     $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();});
+  const pd=$('usPopDiag');                       // [v4.59] 어느 사이트에서 왔는지 직접 확인
+  if(pd)pd.addEventListener('click',(e)=>{e.stopPropagation();openUsPopDiag();});
 }
 /* ══ [v4.38] 해외 순위 — 국내와 같은 세 가지 기준으로 정렬한다 ═══════════════
    조회수는 미국 종목에 공개 지표가 없어, 거래대금(가격×거래량)으로 대신한다.
    실제 증권사도 해외는 '거래대금 상위'를 인기 지표로 쓴다. */
+/* ══ [v4.58] 해외 순위 — '조회수'는 진짜 조회수로 ═══════════════════════════
+   예전에는 조회수 탭이 거래대금 순서였다. 상단에 그렇게 밝히긴 했지만, 탭 이름과
+   내용이 다른 건 결국 사용자를 속이는 일이다. 이제 서버가 세는 실제 조회수를 쓴다.
+   목록도 유니버스 113종 안에서만 뽑지 않고, 서버가 준 인기 종목 중 모르는 티커는
+   즉석에서 등록해(usRegister) 시세까지 받아 온다 → 진짜 TOP 100 이 된다. */
+var usPop=null, usPopAt=0, usPopBusy=false, usPopBasis=null;
+/* [v4.59] 조회수 원천 진단 — 어느 사이트가 응답하는지 화면에서 바로 본다 */
+async function openUsPopDiag(){
+  openLiteGate('조회수 원천 확인','<div class="usdg"><div class="usdg-wait">각 사이트를 직접 두드리는 중… 최대 30초</div></div>');
+  let j=null,err='';
+  try{ const r=await fetch('/api/uspopdiag',{cache:'no-store'}); j=await r.json(); }
+  catch(e){ err=String(e).slice(0,80); }
+  const body=$('liteBody'); if(!body)return;
+  if(!j){ body.innerHTML=`<div class="usdg"><div class="usdg-bad">진단 서버에 연결하지 못했습니다<br><small>${htmlEsc(err)}</small></div></div>`; return; }
+  const rows=(j.tried||[]).map(t=>{
+    const ok=(t.parsed||0)>0;
+    return `<div class="usdg-r ${ok?'ok':'no'}">
+      <span class="usdg-b">${ok?'정상':'실패'}</span>
+      <span class="usdg-n">${htmlEsc(t.label||'')}</span>
+      <span class="usdg-s">${htmlEsc(String(t.err?'ERR':(t.status!=null?t.status:'—')))}</span>
+      <span class="usdg-l">${ok?t.parsed+'건':''}</span></div>`;}).join('');
+  const u=j.usable||[];
+  body.innerHTML=`<div class="usdg">
+    <div class="usdg-sum ${u.length?'ok':'no'}">${u.length
+      ?`조회수를 가져올 수 있는 곳 <b>${u.length}곳</b><br><small>${htmlEsc(u.join(' · '))}</small>`
+      :'조회수 원천에 <b>하나도</b> 연결하지 못했습니다.'}</div>
+    <div class="usdg-list">${rows||'<div class="usdg-bad">응답이 비었습니다</div>'}</div>
+    <div class="usdg-note">검사 시각 ${htmlEsc(String(j.at||'').slice(0,19))}</div>
+    <button class="modal-btn" id="usdgCopy">결과 복사</button></div>`;
+  const cp=$('usdgCopy');
+  if(cp)cp.onclick=()=>{try{navigator.clipboard.writeText(JSON.stringify(j,null,1).slice(0,4000));cp.textContent='복사됨';}catch(e){}};
+}
+function usPopLoad(cb){
+  if(usPopBusy)return;
+  if(usPop&&Date.now()-usPopAt<180e3){cb&&cb();return;}
+  usPopBusy=true;
+  fetch('/api/uspopular',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    usPopBusy=false;
+    if(!j||!j.ok||!Array.isArray(j.items))return;
+    usPopBasis=j.basis||null;
+    /* 내장 목록에 없는 종목은 즉석 등록 — 거래소를 아는 것만 받는다(로이터코드가 필요) */
+    const out=[];
+    for(const it of j.items){
+      const t=String(it.t||'').toUpperCase(); if(!t)continue;
+      if(!usMeta[t]){
+        if(!it.sfx)continue;                       // 거래소를 모르면 시세를 못 받는다 → 건너뜀
+        usRegister({t,sfx:it.sfx,kr:it.kr||it.en||t,en:it.en||t});
+      }
+      out.push({t,views:it.views||0,wiki:it.wiki||0,origin:it.origin||[]});
+      if(out.length>=100)break;
+    }
+    usPop=out; usPopAt=Date.now();
+    cb&&cb();
+  }).catch(()=>{usPopBusy=false;});
+}
 function usRankSection(){
   const tab=searchRankTab;
+  const redraw=()=>{ if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
+    $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); } };
+
+  /* ── 조회수 탭 ── 서버가 센 실제 조회수 순서 ── */
+  if(tab==='조회수'){
+    if(!usPop){ usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true).then(redraw); redraw(); });
+      return '<div class="empty">해외 인기 종목을 불러오는 중…</div>'; }
+    if(!usPop.length)
+      return '<div class="empty">아직 조회 기록이 쌓이지 않았습니다<br>'
+        +'<small style="color:var(--sub-2)">해외 종목을 몇 개 열어 보면 순위가 만들어집니다</small><br>'
+        +'<button class="rank-retry" id="usRankRetry">다시 시도</button></div>';
+    const miss=usPop.map(x=>x.t).filter(t=>!(usQ[t]&&usQ[t].price!=null));
+    if(miss.length)usEnsureQuotes(usPop.map(x=>x.t),true).then(redraw);
+    const b=usPopBasis||{};
+    /* 무엇을 근거로 매겼는지 숨기지 않는다 — 어느 사이트의 어떤 수치인지 밝힌다 */
+    const parts=[];
+    if(b.wiki>0)parts.push(`위키백과 기업 문서 <b>실제 조회수</b> ${b.wiki}종`);
+    if(b.yahoo>0)parts.push(`야후 검색 급상승 ${b.yahoo}종`);
+    if(b.ext&&b.ext.length)parts.push(b.ext.map(x=>x==='naver-pop'?'네이버 해외 인기':x==='stocktwits'?'Stocktwits 관심 급증':x).join(' · '));
+    if(b.app>0)parts.push(`앱 내 조회 ${KRW(b.appTotal||0)}회`);
+    const src=parts.length?parts.join(' + '):'원천에 연결하지 못했습니다';
+    const ses=usSession();
+    const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
+      · 조회수 상위 <b>${usPop.length}종</b><br><small>${src}</small>
+      <button class="rank-retry mini" id="usPopDiag">조회수 원천 확인</button></div>`;
+    return note+`<div class="us-ranklist">${usPop.map((x,i)=>{
+      const t=x.t, m=usMeta[t]||{}, q=usQ[t]||{};
+      const vv=x.wiki>0?`<i class="us-vw">조회 ${KRW(x.wiki)}</i>`
+        :(x.views>0?`<i class="us-vw">앱 ${KRW(x.views)}</i>`:'');
+      return `<div class="us-row" data-us="${t}"><span class="us-rk num">${i+1}</span>${usTick(t)}
+        <div class="us-nm"><b>${m.kr||t}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en||''}${vv}</span></div>
+        <div class="us-px">${q.price!=null?'$'+USD2(q.price):'<i class="uz-wait">시세 대기</i>'}<small>${q.price!=null?USDKR(q.price):''}</small></div>
+        <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
+  }
+
+  /* ── 상승률·하락률 탭 ── 시세가 필요하므로 유니버스 기준 ── */
   const pool=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
   if(!pool.length){
-    if(_usQFail>=2) /* [v4.48] 무한 대기 → 실패·다시시도 상태 */
+    if(_usQFail>=2)
       return '<div class="empty">해외 시세 서버가 지금 응답하지 않습니다<br><button class="rank-retry" id="usRankRetry">다시 시도</button></div>';
-    usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{
-      if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
-        $('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();
-      }});
+    usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(redraw);
     return '<div class="empty">해외 시세를 불러오는 중…</div>';
   }
   const rate=t=>{const q=usQ[t];return (q.prev)?(q.price-q.prev)/q.prev*100:0;};
-  const val=t=>{const q=usQ[t];return (q.price||0)*(q.vol||0);};
-  let list;
-  if(tab==='상승률')list=pool.slice().sort((a,b)=>rate(b)-rate(a));
-  else if(tab==='하락률')list=pool.slice().sort((a,b)=>rate(a)-rate(b));
-  else list=pool.slice().sort((a,b)=>val(b)-val(a));
-  list=list.slice(0,50);
+  let list=pool.slice().sort((a,b)=>tab==='상승률'?rate(b)-rate(a):rate(a)-rate(b)).slice(0,100);
   const ses=usSession();
   const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
-    · ${tab==='조회수'?`거래대금 상위 <b>${list.length}종</b> (미국은 조회수 지표를 공개하지 않아 거래대금으로 대신합니다)`
-      :`${tab} 상위 <b>${list.length}종</b>`} · 유니버스 ${US_UNI.length}종 기준</div>`;
+    · ${tab} 상위 <b>${list.length}종</b> · 유니버스 ${US_UNI.length}종 기준</div>`;
   return note+`<div class="us-ranklist">${list.map((t,i)=>{
     const m=usMeta[t],q=usQ[t];
     return `<div class="us-row" data-us="${t}"><span class="us-rk num">${i+1}</span>${usTick(t)}
@@ -10201,6 +10422,7 @@ function minuteSeries(code,mins){
 function resetView(){const n=curCandles.length;view.count=Math.min(n||60,isMinute(chartTf)?140:90);view.end=n-1;view.follow=true;}
 let chartLoading=false;
 async function loadCandles(retry){
+  if(currentView==='ustrade')return usLoadIntoChart();     // [v4.57] 해외는 전용 적재기
   if(currentView!=='trade')return;
   const code=selected,tf=chartTf;
   if(isMinute(tf)){
@@ -10400,7 +10622,9 @@ function openChartCfg(){
 }
 
 function drawChart(){
-  if(currentView!=='trade')return;
+  /* [v4.57] 해외 거래 화면에서도 같은 엔진으로 그린다 — 아래 usChartMount() 가
+     이 차트 카드를 해외 정보 패널로 옮겨 놓으므로, 화면 제약만 풀어 주면 된다. */
+  if(currentView!=='trade'&&currentView!=='ustrade')return;
   const _cc=$('chartCard');if(_cc&&_cc.hidden)return;
   const dpr=window.devicePixelRatio||1,box=canvas.parentElement.getBoundingClientRect();
   if(box.width===0)return;
@@ -12252,7 +12476,8 @@ function renderUsLounge(){
 }
 function renderUsRankTabs(){
   const el=$('usRankTabs'); if(!el)return;
-  el.innerHTML=[['up','상승률'],['down','하락률'],['val','거래대금'],['cap','시가총액']].map(([k,l])=>
+  /* [v4.58] 조회수를 맨 앞에 — 종목검색 화면과 같은 기준으로 통일한다 */
+  el.innerHTML=[['view','조회수'],['up','상승률'],['down','하락률'],['val','거래대금'],['cap','시가총액']].map(([k,l])=>
     `<button type="button" class="uz-chip ${usRankTab===k?'on':''}" data-usrank="${k}">${l}</button>`).join('');
   el.querySelectorAll('[data-usrank]').forEach(b=>b.onclick=()=>{
     usRankTab=b.dataset.usrank; renderUsRankTabs(); renderUsRankBody();});
@@ -12312,8 +12537,26 @@ function renderUsRankBody(){
   if(usRankTab==='up'){list=rated.slice().sort((a,b)=>rate(b)-rate(a));note='오늘 가장 많이 오른 순서';}
   else if(usRankTab==='down'){list=rated.slice().sort((a,b)=>rate(a)-rate(b));note='오늘 가장 많이 내린 순서';}
   else if(usRankTab==='cap'){list=pool.filter(t=>usQ[t].cap).slice().sort((a,b)=>usQ[b].cap-usQ[a].cap);note='시가총액이 큰 순서';}
+  else if(usRankTab==='view'){
+    /* 서버가 센 실제 조회수 순서. 아직 안 왔으면 받아 오고 다시 그린다. */
+    if(!usPop){ usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
+        .then(()=>{ if(currentView==='us')renderUsRankBody(); });
+      if(currentView==='us')renderUsRankBody(); });
+      box.innerHTML='<div class="uz-empty"><b>인기 종목을 불러오는 중…</b></div>';
+      if(bd)bd.innerHTML='<div class="uz-note">이 앱에서 조회된 횟수를 세는 중입니다</div>';
+      return; }
+    const known=usPop.filter(x=>usMeta[x.t]);
+    const miss=known.map(x=>x.t).filter(t=>!(usQ[t]&&usQ[t].price!=null));
+    if(miss.length)usEnsureQuotes(known.map(x=>x.t),true).then(()=>{ if(currentView==='us')renderUsRankBody(); });
+    const b2=usPopBasis||{};
+    list=known.map(x=>x.t).slice(0,100);
+    const extN=(b2.ext||[]).length+(b2.yahoo>0?1:0);
+    note=(b2.wiki>0)
+      ?`위키백과 기업 문서 실제 조회수가 많은 순서 · ${b2.wiki}종`
+      :(extN?`외부 사이트 검색·관심 순위 기준`:`조회수 원천에 연결하지 못했습니다`);
+  }
   else {list=pool.filter(t=>usQ[t].vol).slice().sort((a,b)=>val(b)-val(a));
-        note='거래대금(가격×거래량) 순서 — 미국은 조회수 지표를 공개하지 않습니다';}
+        note='거래대금(가격×거래량)이 큰 순서';}
   if(bd){const b=usBreadth();
     bd.innerHTML=`<div class="uz-note">${note} · <b>${list.length}종</b>${b.none?` · ${b.none}종은 아직 시세 대기`:''}</div>`;}
   /* [v4.50] 정렬 기준이 된 값을 행에도 적어 준다 — 왜 이 순서인지 보이게 */
@@ -12504,29 +12747,77 @@ function usAgg(cs,tf){
   if(cur)out.push(cur);
   return out;
 }
+/* ══ [v4.57] 해외 차트를 국내 차트와 같은 것으로 만든다 ═══════════════════
+   [무엇이 달랐나] 국내 차트에는 봉 종류(일·주·월·분), 이동평균 4개, 확대·축소,
+   드래그 이동, 툴팁, 매물대, 차트 설정(캔들/선/하이킨아시)이 있는데
+   해외 차트는 캔버스 하나에 기간 버튼만 있었다. 같은 앱에서 두 화면이 딴판이었다.
+   [어떻게 했나] 해외용 차트를 새로 만들지 않는다 — 국내 차트 카드(#chartCard)를
+   해외 정보 패널로 '옮겨' 같은 엔진이 그리게 한다. 화면에는 어차피 하나만 보이므로
+   충돌하지 않고, 기능·모양·조작이 자동으로 100% 같아진다.
+   앞으로 국내 차트를 고치면 해외도 함께 좋아진다. */
+function usChartMount(on){
+  const card=$('chartCard'); if(!card)return;
+  const host=on?$('usChartHost'):$('chartHome');
+  if(host&&card.parentElement!==host)host.appendChild(card);
+  card.hidden=!on&&currentView!=='trade';
+}
+/* 해외 일봉을 국내 엔진이 읽는 모양(d: 'YYYYMMDD')으로 바꾼다 */
+function usToEngine(cs){
+  return (cs||[]).map(c=>({d:String(c.t),o:+c.o,h:+c.h,l:+c.l,c:+c.c,v:+c.v||0}));
+}
+var usTfMap={D:'D',W:'W',M:'M'};
+async function usLoadIntoChart(){
+  if(currentView!=='ustrade'||!usSel)return;
+  const lg=$('chartLegend');
+  /* 봉 종류는 국내 세그먼트(chartTf)를 따른다. 해외는 분봉이 없으므로 일봉으로 내린다. */
+  if(isMinute(chartTf))chartTf='D';
+  if(!usCandles||!usCandles.length){
+    chartLoading=true; if(lg)lg.textContent='차트 불러오는 중…'; drawChart();
+    try{
+      const r=await fetch('/api/uscandle?code='+encodeURIComponent(usMeta[usSel].reu)+'&n=560',{cache:'no-store'});
+      const j=await r.json();
+      usCandles=(j&&j.ok&&Array.isArray(j.candles))?j.candles:[];
+      if(usCandles.length)usApplyCandleExtras(j);
+    }catch(e){ usCandles=[]; }
+    chartLoading=false;
+  }
+  curCandles=usToEngine(usAgg(usCandles||[],usTfMap[chartTf]||'D'));
+  resetView(); drawChart();
+  if(!curCandles.length&&lg)lg.textContent='차트 데이터를 받지 못했어요 · ⟳ 로 다시 시도';
+}
+/* 52주 고저 보강 + 원천 표시 — 예전 loadUsCandles 가 하던 일을 여기서 이어받는다 */
+function usApplyCandleExtras(j){
+  try{
+    const y=(usCandles||[]).slice(-252);
+    if(y.length){
+      const cur=usQ[usSel]||{};
+      usQ[usSel]=Object.assign(cur,{w52h:cur.w52h!=null?cur.w52h:Math.max(...y.map(c=>c.h)),
+        w52l:cur.w52l!=null?cur.w52l:Math.min(...y.map(c=>c.l)),w52n:y.length});
+      if(usInfoTab==='summary')renderUsInfo();
+    }
+  }catch(e){}
+}
 function openUS(t){ if(!usMeta[t])return;
   usSel=t; usSide='buy'; usOrdPx=null; usOrdQty=1; usCandles=null;
+  /* [v4.56] 해외도 '최근 본 종목'에 국내와 같은 목록으로 남긴다 —
+     예전에는 해외만 '최근 검색'으로 따로 놀아서, 방금 본 미국 종목을
+     종목검색 화면에서 다시 찾을 수가 없었다. */
+  /* [v4.58] 조회수 집계 — 이 앱의 '조회수 TOP 100'을 만드는 유일한 실제 근거다 */
+  safeRun('openUS:count',()=>{ fetch('/api/usview?t='+encodeURIComponent(t),{cache:'no-store'}).catch(()=>{}); });
+  safeRun('openUS:view',()=>{ const m=usMeta[t]||{};
+    viewHist=viewHist.filter(x=>x.code!==t);
+    viewHist.unshift({code:t,name:m.kr||t,market:'US',us:1,t:Date.now()});
+    viewHist=viewHist.slice(0,12); saveViewHist();
+    if(currentView==='search')safeRun('vh',()=>renderViewHist());
+  });
   showView('ustrade');
 }
 var usInfoTab='summary';
 function renderUsTrade(){
   if(!usSel){showView('us');return;}
   renderUsHead(); renderUsOrder();
-  /* [v4.42] 국내 차트처럼 봉 종류(일/주/월)와 기간을 함께 고른다 */
-  $('usRanges').innerHTML=
-    `<span class="us-tf">${[['D','일봉'],['W','주봉'],['M','월봉']].map(([k,l])=>
-      `<button class="${usTF===k?'on':''}" data-ustf="${k}">${l}</button>`).join('')}</span>`
-   +`<span class="us-rg">${(usTF==='D'?[[66,'3개월'],[132,'6개월'],[260,'1년'],[520,'전체']]
-      :usTF==='W'?[[26,'6개월'],[52,'1년'],[104,'2년'],[520,'전체']]
-      :[[12,'1년'],[24,'2년'],[60,'5년'],[520,'전체']]).map(([n,l])=>
-      `<button class="${usRange===n?'on':''}" data-usrange="${n}">${l}</button>`).join('')}</span>`;
-  document.querySelectorAll('[data-usrange]').forEach(b2=>b2.onclick=()=>{usRange=+b2.dataset.usrange;
-    document.querySelectorAll('[data-usrange]').forEach(x=>x.classList.toggle('on',x===b2));drawUsChart();});
-  document.querySelectorAll('[data-ustf]').forEach(b2=>b2.onclick=()=>{
-    usTF=b2.dataset.ustf;
-    usRange=(usTF==='D')?132:(usTF==='W')?52:24;      // 봉을 바꾸면 기본 기간도 맞춘다
-    renderUsTrade();
-  });
+  /* [v4.57] 봉 종류·이동평균·확대축소는 국내 차트 카드가 그대로 들고 온다 —
+     해외 전용 세그먼트를 따로 그리지 않는다(그게 두 화면이 달라진 원인이었다). */
   document.querySelectorAll('#usInfoTabs button').forEach(b2=>b2.onclick=()=>{
     usInfoTab=b2.dataset.uinfo;
     document.querySelectorAll('#usInfoTabs button').forEach(x=>x.classList.toggle('on',x===b2));
@@ -12535,7 +12826,6 @@ function renderUsTrade(){
   renderUsInfo();
   usEnsureQuotes([usSel],true).then(()=>{renderUsHead();renderUsOrder();renderUsInfo();renderUsCta();});
   usPollStart([usSel]);
-  loadUsCandles();
   /* [v4.50] 하단 고정 주문바 — 모듈이라 inline onclick 을 쓸 수 없어 여기서 묶는다 */
   {const b=$('usCtaBuy'), sl=$('usCtaSell');
    if(b&&!b._w){b._w=1;b.addEventListener('click',()=>usCtaGo('buy'));}
@@ -12546,8 +12836,16 @@ function renderUsTrade(){
 function renderUsInfo(){
   const el=$('usInfoBody'), cc=$('usChartCard');
   if(usInfoTab==='chart'){ if(cc)cc.hidden=false; el.style.display='none';
-    requestAnimationFrame(()=>requestAnimationFrame(()=>drawUsChart())); return; }
+    usChartMount(true);                                    // [v4.57] 국내 차트 카드를 이리로
+    try{ if(isMinute(chartTf))chartTf='D'; buildTfSeg(); buildMaSeg(); }catch(e){}
+    /* 해외는 분봉을 제공하지 않으므로 분봉 버튼은 감춘다 */
+    try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{
+      b.style.display=isMinute(b.dataset.tf)?'none':''; }); }catch(e){}
+    usLoadIntoChart();
+    requestAnimationFrame(()=>requestAnimationFrame(()=>drawChart()));
+    return; }
   if(cc)cc.hidden=true; el.style.display='';
+  usChartMount(false);                                     // 다른 탭으로 가면 제자리로
   const f={summary:renderUsSummary,ai:renderUsAi,sise:renderUsSiseTab,news:renderUsNews,
            holders:renderUsHolders,consensus:renderUsConsensus,finance:renderUsFinance}[usInfoTab];
   (f||renderUsSummary)(el);
@@ -12655,6 +12953,9 @@ function renderUsAi(el){
 function renderUsSiseTab(el){
   const cs=usCandles;
   if(!cs||!cs.length){el.innerHTML=usNoData('일별 시세를 불러오는 중입니다','잠시만 기다려 주세요.');return;}
+  /* [v4.57] 시세 표도 차트와 같은 봉 종류를 따른다 — 차트에서 주봉을 골랐는데
+     시세 표만 일별이면 두 화면이 다른 이야기를 하게 된다. */
+  usTF=(chartTf==='W'||chartTf==='M')?chartTf:'D';
   const agg=usAgg(cs,usTF);
   const rows=agg.slice(-30).reverse();
   const unit=usTF==='D'?'거래일':usTF==='W'?'주':'개월';
@@ -12752,92 +13053,9 @@ function renderUsHead(){
     ${q.at?` · <span class="num">${new Date(q.at).toTimeString().slice(0,5)} 수신</span>`:''}</div>`;
 }
 /* [v4.37] renderUsStats / renderUsSise 는 종목요약·시세 탭으로 대체되어 제거했습니다 */
-async function loadUsCandles(){
-  $('usChartNote').textContent='차트 데이터를 불러오는 중…';
-  try{
-    const r=await fetch('/api/uscandle?code='+encodeURIComponent(usMeta[usSel].reu)+'&n=560',{cache:'no-store'});
-    const j=await r.json();
-    if(j&&j.ok&&Array.isArray(j.candles)&&j.candles.length){
-      usCandles=j.candles;
-      /* [v4.49] '차트가 잘 나오는지' 를 사용자도 확인할 수 있게 근거를 적는다 —
-         받은 봉 수와 첫 날짜를 밝히면, 5년 월봉을 골랐는데 2년치만 그려질 때
-         차트가 고장난 건지 데이터가 거기까지인 건지 헷갈리지 않는다. */
-      {const n=j.candles.length, f=String(j.candles[0].t);
-       const src=(j.diag&&j.diag[0])||(j.cached?'캐시':'');
-       $('usChartNote').textContent=`일봉 ${n}개 · ${f.slice(0,4)}.${f.slice(4,6)}.${f.slice(6,8)}부터`
-         +(src?` · 원천 ${src}`:'');}
-      /* 52주 고저를 캔들에서 직접 계산해 보강 — 시세 API 가 안 줄 때 대비 */
-      /* [v4.35] 52주 고저가 '—' 로 비던 문제 — 시세 API 가 안 주면 캔들에서 직접 계산한다.
-         기간이 짧으면 있는 만큼으로라도 채워 빈칸을 남기지 않는다. */
-      try{
-        const y=usCandles.slice(-252);
-        if(y.length){
-          const w52h=Math.max(...y.map(c=>c.h)), w52l=Math.min(...y.map(c=>c.l));
-          const cur=usQ[usSel]||{};
-          usQ[usSel]=Object.assign(cur,{w52h:cur.w52h!=null?cur.w52h:w52h,
-                                        w52l:cur.w52l!=null?cur.w52l:w52l,
-                                        w52n:y.length});
-          if(usInfoTab==='summary')renderUsInfo();
-        }
-      }catch(e){}
-      drawUsChart(); if(usInfoTab==='sise')renderUsInfo(); return;
-    }
-    $('usChartNote').textContent='차트 데이터를 받지 못했습니다'+(j&&j.diag?' · '+j.diag.slice(0,2).join(' / '):'');
-  }catch(e){$('usChartNote').textContent='차트 서버에 연결하지 못했습니다';}
-  drawUsChart();
-}
-function drawUsChart(){
-  const cv=$('usCanvas'); if(!cv)return;
-  const dpr=window.devicePixelRatio||1, box=cv.parentElement.getBoundingClientRect();
-  cv.width=box.width*dpr; cv.height=box.height*dpr;
-  const x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0);
-  const W=box.width,H=box.height; x.clearRect(0,0,W,H);
-  const all=usAgg(usCandles||[],usTF);
-  const cs=all.slice(-usRange);
-  if(cs.length<3){x.fillStyle='#9aa5b5';x.font='12.5px Pretendard';x.textAlign='center';
-    x.fillText(cs.length?'차트 데이터가 '+cs.length+'일치만 확인됩니다':'차트 데이터를 불러오지 못했습니다',W/2,H/2-8);
-    x.font='11px Pretendard';
-    x.fillText('시장이 열리면 자동으로 채워집니다',W/2,H/2+12);x.textAlign='left';return;}
-  const padL=8,padR=56,padT=10,volH=H*0.18,priceH=H-padT-volH-22;
-  const lo=Math.min(...cs.map(c=>c.l)),hi=Math.max(...cs.map(c=>c.h));
-  const vmax=Math.max(...cs.map(c=>c.v),1);
-  const X=i=>padL+(i+0.5)*(W-padL-padR)/cs.length;
-  const Y=v=>padT+(1-(v-lo)/(hi-lo||1))*priceH;
-  const bw=Math.max(1.5,Math.min(9,(W-padL-padR)/cs.length*0.62));
-  /* 격자 + 가격축 */
-  x.font='10px Pretendard';x.textAlign='left';
-  for(let g=0;g<=4;g++){const v=lo+(hi-lo)*g/4,y=Y(v);
-    x.strokeStyle='rgba(128,140,160,.16)';x.setLineDash([3,4]);
-    x.beginPath();x.moveTo(padL,y);x.lineTo(W-padR,y);x.stroke();x.setLineDash([]);
-    x.fillStyle='#8b95a7';x.fillText('$'+USD2(v),W-padR+5,y+3);}
-  /* MA20 */
-  if(cs.length>=20){x.strokeStyle='#f5a30d';x.lineWidth=1.4;x.beginPath();
-    for(let i=19;i<cs.length;i++){let s=0;for(let k=i-19;k<=i;k++)s+=cs[k].c;
-      const y=Y(s/20);i===19?x.moveTo(X(i),y):x.lineTo(X(i),y);}x.stroke();}
-  /* 캔들 + 거래량 */
-  cs.forEach((c,i)=>{const up=c.c>=c.o,col=up?'#e5484d':'#2f7ae5',cx=X(i);
-    x.strokeStyle=col;x.lineWidth=1;
-    x.beginPath();x.moveTo(cx,Y(c.h));x.lineTo(cx,Y(c.l));x.stroke();
-    x.fillStyle=col;
-    const y1=Y(Math.max(c.o,c.c)),y2=Y(Math.min(c.o,c.c));
-    x.fillRect(cx-bw/2,y1,bw,Math.max(1,y2-y1));
-    x.globalAlpha=.35;
-    const vh=(c.v/vmax)*volH;
-    x.fillRect(cx-bw/2,H-20-vh,bw,vh);
-    x.globalAlpha=1;});
-  /* 현재가 라인 */
-  const last=cs[cs.length-1].c,ly=Y(last);
-  x.strokeStyle='#f5a30d';x.setLineDash([4,3]);x.beginPath();x.moveTo(padL,ly);x.lineTo(W-padR,ly);x.stroke();x.setLineDash([]);
-  x.fillStyle='#f5a30d';x.fillRect(W-padR+1,ly-8,padR-2,16);
-  x.fillStyle='#fff';x.font='bold 10px Pretendard';x.fillText('$'+USD2(last),W-padR+5,ly+3);
-  /* 날짜축 */
-  x.fillStyle='#8b95a7';x.font='9.5px Pretendard';x.textAlign='center';
-  [0,Math.floor(cs.length/2),cs.length-1].forEach(i=>{const t=String(cs[i].t);
-    x.fillText(t.slice(2,4)+'.'+t.slice(4,6),X(i),H-6);});
-  x.textAlign='left';
-}
-
-/* ── 8. 주문 ── */
+/* [v4.57] 해외 전용 차트(loadUsCandles·drawUsChart)는 걷어냈다 —
+   국내 차트 카드를 그대로 옮겨 쓰므로 별도 구현이 필요 없고,
+   두 벌을 유지하면 한쪽만 고쳐져 다시 어긋난다. */
 var US_FEE_BASE=0.0025, US_SEC_FEE=0.0000278;
 function US_FEE_OF(){return US_FEE_BASE*acctFeeUs();}
 var US_FEE=US_FEE_BASE;   // SEC Fee: 매도금액의 0.00278% (미국 증권거래위원회)
@@ -12923,6 +13141,7 @@ function renderUsOrder(){
       <span style="font-size:11.5px">주가손익 <b class="num ${dirOf(pxPnl)}">${signed(pxPnl)}</b> · 환손익 <b class="num ${dirOf(fxPnl)}">${signed(fxPnl)}</b> · 합계 <b class="num ${dirOf(tot)}">${signed(tot)}원</b></span></div>`;
   }
   $('usOrder').innerHTML=`
+    ${ordAcctHTML('usOrdAcctSel')}
     <div class="us-ord-t"><button class="buy ${usSide==='buy'?'on':''}" data-usside="buy">매수</button>
       <button class="sell ${usSide==='sell'?'on':''}" data-usside="sell">매도</button></div>
     ${heldBox}
@@ -12969,7 +13188,8 @@ function updateUsSum(){
   }
 }
 function wireUsOrder(){
-  document.querySelectorAll('[data-usside]').forEach(b=>b.onclick=()=>{usSide=b.dataset.usside;renderUsOrder();});
+  document.querySelectorAll('[data-usside]').forEach(b=>b.onclick=()=>{usSide=b.dataset.usside;renderUsOrder();renderUsCta();});
+  wireOrdAcct('usOrdAcctSel',()=>{ renderUsOrder(); try{renderUsHead();}catch(e){} });   // [v4.56]
   document.querySelectorAll('[data-uspay]').forEach(b=>b.onclick=()=>{usPay=b.dataset.uspay;renderUsOrder();});
   const pxIn=$('usPxIn'),qIn=$('usQtyIn');
   const step=(d)=>{const v=Math.max(0.01,(parseFloat(pxIn.value)||0)+d*0.01);pxIn.value=v.toFixed(2);usOrdPx=v;updateUsSum();};
