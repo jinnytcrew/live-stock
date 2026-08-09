@@ -4121,11 +4121,19 @@ html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa!important}
 
 /* ══ [v4.86] 로고 최후 표시 — 회색 바탕 + 시장 이름 ═══════════════════════════
    빈 칸을 남기지 않는다. 어느 시장 종목인지라도 알려 준다. */
-.lgo.mk{background:var(--lgc)!important}
-.lgo.mk>i{font-size:9px;font-weight:800;letter-spacing:-.4px;color:#fff;white-space:nowrap}
-.lgo.mk.sm>i{font-size:8px}
-.lgo.mk.xs>i{font-size:7px}
-.lgo.mk.on>i{opacity:0}
+/* ══ [v4.89] 국내 로고가 통째로 사라지던 진짜 이유 ═══════════════════════════
+   여기에 background 를 '단축 속성'으로 썼다. 단축 속성은 background-image 까지
+   함께 초기화한다. 게다가 !important 라서 인라인으로 넣은 로고 이미지를 이겼다.
+   → 모든 국내 로고의 그림이 지워지고, 'on' 이라 글자까지 숨겨져
+     '아무것도 없는 회색 사각형'만 남았다(첨부 사진).
+   [고침] 색만 바꾸는 longhand(background-color)를 쓰고, 로고가 붙은 상태(on)에서는
+   이 규칙이 끼어들지 않게 한다. */
+/* 색은 변수에 기대지 않고 직접 지정한다 — 변수가 못 풀리는 환경에서도 회색이 나온다 */
+.lgo.mk:not(.on){background-color:#8b95a4}
+.lgo.mk:not(.on)>i{font-size:9px;font-weight:800;letter-spacing:-.4px;color:#fff;
+  white-space:nowrap;visibility:visible;opacity:1}
+.lgo.mk.sm:not(.on)>i{font-size:8px}
+.lgo.mk.xs:not(.on)>i{font-size:7px}
 .us-tick .ut-lb{font-size:9px;letter-spacing:-.4px;white-space:nowrap}
 .us-tick.sm .ut-lb{font-size:8px}
 .us-tick.xs .ut-lb{font-size:7px}

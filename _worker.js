@@ -12057,8 +12057,14 @@ async function yahooScreen(scrId,count,diag,budget){
     for(const x of q){
       const t2=String(x.symbol||"").toUpperCase();
       if(!/^[A-Z][A-Z0-9]{0,5}([.\-][A-Z])?$/.test(t2))continue;   // 숫자·클래스주(BRK.B) 허용
+      /* [v4.89] 이름이 티커와 똑같이 오는 응답이 있다(NASA·USO·BE…).
+         그대로 두면 화면에 'USO · USO' 처럼 티커가 두 번 찍힌다.
+         긴 이름(longName)을 우선 쓰고, 그것도 티커와 같으면 이름을 비워 보낸다
+         — 화면 쪽 한글 표에서 채우도록 넘긴다. */
+      const nm0=String(x.longName||x.shortName||"").trim();
+      const en0=(nm0&&nm0.toUpperCase()!==t2)?nm0:"";
       out.push({t:t2.replace(/\./g,"-"),sfx:usExchSfx(x.fullExchangeName||x.exchange),
-        kr:"",en:String(x.shortName||x.longName||"").trim(),cap:+x.marketCap||0});
+        kr:"",en:en0,cap:+x.marketCap||0});
     }
     diag.push(scrId+":"+out.length);
     return out.length?out:null;

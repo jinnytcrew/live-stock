@@ -1676,7 +1676,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=369';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=370';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -12212,7 +12212,13 @@ function usRegister(it){
      (HPSP 처럼 원래 알파벳인 회사는 영문 그대로 두는 게 맞다) */
   const krFromMap=(typeof US_KRNAME!=='undefined'&&US_KRNAME[t])||'';
   const krIn=/[가-힣]/.test(String(it.kr||''))?String(it.kr).trim():'';
-  const rec={t,sfx,kr:krFromMap||krIn||en||t,en:en||t,theme:'etc',etf:it.etf?1:0,
+  /* [v4.89] 이름이 비었으면 전 종목 목록에서 찾아 채운다 — 티커가 두 번 찍히지 않게.
+     (다시 usRegister 를 부르지 않는다 — 되돌아가면 끝없이 반복될 수 있다) */
+  let en2=en;
+  if(!en2&&typeof usAll!=='undefined'&&usAll){
+    try{ const hit=usAll.find(r=>r[0]===t); if(hit&&hit[1])en2=clean(hit[1])||hit[1]; }catch(e){}
+  }
+  const rec={t,sfx,kr:krFromMap||krIn||en2||t,en:en2||t,theme:'etc',etf:it.etf?1:0,
     reu:t.replace('.','/')+'.'+sfx,dyn:1};
   usMeta[t]=rec; usDyn[t]={sfx,kr:rec.kr,en:rec.en,etf:rec.etf};
   try{ const keys=Object.keys(usDyn); if(keys.length>400)delete usDyn[keys[0]];
