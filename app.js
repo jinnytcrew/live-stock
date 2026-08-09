@@ -4335,6 +4335,10 @@ function _showView(name){
   if(name==='pro')safeRun('pro',()=>setProTab(proTab));
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
+    /* [v4.81] 국내가 전 종목을 미리 받아 두듯 해외도 미리 받는다.
+       예전에는 '검색어를 입력했을 때'만 받아서, 화면만 열어서는 목록이 없었다. */
+    safeRun('usAll',()=>usAllLoad(()=>{ if(currentView==='search'){ try{renderUsAllStat();}catch(e){} } }));
+    safeRun('usAllStat',()=>{ try{renderUsAllStat();}catch(e){} });
     safeRun('searchEtf',()=>{if(!etfList)loadEtfList();});
     safeRun('searchAll',()=>{if(!stockAll&&!stockLoading)loadStockAll(()=>{if(currentView==='search')renderSearch();}).then(()=>{if(currentView==='search')renderSearch();}).catch(()=>{});});
     safeRun('search',renderSearch);safeRun('hist',renderHist);safeRun('viewHist',renderViewHist);safeRun('short',renderSearchShortcuts);
@@ -12170,7 +12174,12 @@ function usRegister(it){
     let x=String(v||'');
     /* 순서가 중요하다 — 증권 종류 꼬리표를 먼저 떼고, 그 다음 법인 형태를 뗀다.
        거꾸로 하면 'Fluence Energy Inc - Ordinary Shares' 에서 Inc 가 살아남는다. */
+    /* 'Ord Shs' · 'Cl A' 같은 줄임 표기와, ' - ' 뒤에 붙는 상품 설명을 떼어낸다 */
     x=x.replace(/\s*[-–]\s*(Ordinary|Common|Class|Depositary|American|Registered)[\s\S]*$/i,'');
+    x=x.replace(/\s+(Ord|Com|Cl)\.?\s+(Shs|Shares|Stk|[A-Z])\b[\s\S]*$/i,'');
+    x=x.replace(/\s+(Shs|Shares)\s+(of\s+)?(Beneficial\s+Interest|Common\s+Stock)[\s\S]*$/i,'');
+    /* 운용사 신탁명이 앞에 붙고 뒤에 진짜 상품명이 오는 ETF 는 뒤쪽을 쓴다 */
+    x=x.replace(/^[A-Za-z.\s]+(?:ETF\s+Trust|Trust\s+[IVX]+|Funds?\s+Trust)\s*[-–]\s*/i,'');
     x=x.replace(/\s*[-–]\s*ADR\s*$/i,'\u0001ADR');
     x=x.replace(/\b(\d)\s*(?:x|X|배)\b/g,'$1X');          // 2배·2 x → 2X (국내 표기와 통일)
     for(let i=0;i<3;i++)
@@ -12806,23 +12815,20 @@ function usLgSave(){ if(_usLgSaveT)return;
 function usLgUrls(t){
   /* [v4.31] 검색으로 새로 등록된 종목은 도메인 매핑이 없다. 그런 종목도 로고가 나오도록
      '티커 기반' 소스를 항상 뒤에 붙인다(도메인이 있으면 후보가 그만큼 더 많아진다). */
+  /* ══ [v4.80] 로고는 서버가 고른 것만 쓴다 ═══════════════════════════════
+     [왜 바꿨나] 바깥 사이트에서 직접 받으면 브라우저가 다른 출처라는 이유로
+     그림 내용을 읽지 못한다(CORS). 그래서 '흰 빈 그림'인지 확인할 방법이 없었고,
+     검사에서는 '로고 있음'으로 세어도 화면에는 빈 네모가 남았다(니오가 그 경우다).
+     서버는 그 제약이 없고 이미 내용까지 검사한다. 게다가 같은 출처라 화면 쪽
+     확인도 그대로 통한다. → 후보를 서버 한 곳으로 모은다.
+     서버가 못 찾으면 색 배지에 티커가 찍히므로 빈 네모는 생기지 않는다. */
   const d=US_DOMAIN[t]; const out=[];
-  if(d){
-    out.push('https://logo.clearbit.com/'+d);
-    out.push('https://www.google.com/s2/favicons?sz=128&domain='+d);
-    out.push('https://icons.duckduckgo.com/ip3/'+d+'.ico');
-    out.push('/api/uslogo?d='+encodeURIComponent(d));          // 서버 중계(차단망 대비)
-  }
   const tk=t.replace('.','-');
   /* ══ [v4.75] 서버가 고른 로고를 먼저 쓴다 ═══════════════════════════════════
      바깥 사이트에서 직접 받으면 브라우저가 캔버스로 내용을 읽을 수 없어(다른 출처)
      '흰 빈 그림'인지 확인할 방법이 없다. 서버는 그 제약이 없고, 후보를 두드려
      내용까지 확인한 뒤 돌려준다. 게다가 같은 출처라 화면 쪽 확인도 그대로 통한다. */
-  out.push('/api/uslogo?t='+encodeURIComponent(tk));
-  out.push('https://financialmodelingprep.com/image-stock/'+tk+'.png');
-  out.push('https://assets.parqet.com/logos/symbol/'+tk+'?format=png&size=128');
-  out.push('https://s3-symbol-logo.tradingview.com/'+tk.toLowerCase()+'.svg');
-  out.push('https://logos.stockanalysis.com/'+tk.toLowerCase()+'.png');
+  out.push('/api/uslogo?t='+encodeURIComponent(tk)+(d?'&d='+encodeURIComponent(d):''));
   return out;
 }
 function usLgUrl(t){ const i=usLgOk[t]; return i==null?'':usLgUrls(t)[i]||''; }
@@ -12951,6 +12957,16 @@ function usTick(t,size){
    내려받아 어디서 나오는지, 빈 그림인지, 아예 없는지를 가려낸다.
    결과는 곧바로 캐시에 반영돼 검사 직후부터 화면에 그대로 뜬다. */
 var _ulaRun=false;
+/* [v4.81] 해외 종목 수를 화면에 적는다 — '몇 종이 검색되는지' 알 수 없어
+   309종이 전부인 것처럼 보였다. 로고 검사 대상(등록분)과 전체를 구분해 보여 준다. */
+function renderUsAllStat(){
+  const el=$('usAllStat'); if(!el)return;
+  const n=(usAll&&usAll.length)||0;
+  const reg=Object.keys(usMeta).length;
+  el.innerHTML=n
+    ? `검색 가능한 해외 종목 <b>${KRW(n)}종</b> <small>(ETF 포함) · 화면에 등록된 종목 ${KRW(reg)}종</small>`
+    : `해외 전 종목 목록을 불러오는 중… <small>처음 한 번만 받아 3일간 보관합니다</small>`;
+}
 function ulaTargets(){
   /* 화면에 실제로 등장하는 해외 종목 전부 — 내장 + 검색 등록 + 인기 목록 */
   const set=new Set(Object.keys(usMeta));
@@ -13619,7 +13635,8 @@ function renderUsInfo(){
   if(cc)cc.hidden=true; el.style.display='';
   usChartMount(false);                                     // 다른 탭으로 가면 제자리로
   const f={summary:renderUsSummary,ai:renderUsAi,sise:renderUsSiseTab,news:renderUsNews,
-           holders:renderUsHolders,consensus:renderUsConsensus,finance:renderUsFinance}[usInfoTab];
+           company:renderUsCompany,consensus:renderUsCons,finance:renderUsFin,
+           dividend:renderUsDividend}[usInfoTab];
   (f||renderUsSummary)(el);
 }
 function usNoData(t,d){return `<div class="us-nodata"><b>${t}</b><span>${d}</span></div>`;}
@@ -13756,55 +13773,200 @@ function renderUsNews(el){
     <div class="us-sum-note">해외 종목 뉴스는 원문 매체에서 직접 확인하는 편이 정확합니다. 새 탭으로 열립니다.</div>`;
 }
 /* ⑤ 투자자별 — 미국은 기관 보유 공시 개념 */
-function renderUsHolders(el){
-  const m=usMeta[usSel]||{};
-  el.innerHTML=`<div class="us-sec2">투자자 구성</div>
-    <div class="us-note-box"><b>미국 시장은 국내와 공시 방식이 다릅니다</b>
-      <p>한국거래소처럼 <b>일별 기관·외국인 순매수</b>를 공개하지 않습니다. 대신 기관투자자가 분기마다
-      보유 현황을 <b>13F</b> 보고서로 제출하고, 임원·대주주 매매는 <b>Form 4</b>로 공시합니다.</p>
-      <p>따라서 이 앱에서는 일별 수급 대신 아래 원문 공시로 연결합니다.</p></div>
-    <div class="us-news-list">
-      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=13F" target="_blank" rel="noopener"><b>13F · 기관 보유</b><span>분기별 기관투자자 보유 현황</span><i>↗</i></a>
-      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=4" target="_blank" rel="noopener"><b>Form 4 · 내부자 거래</b><span>임원·대주주 매매 신고</span><i>↗</i></a>
-      <a class="us-news-a" href="https://finance.yahoo.com/quote/${usSel}/holders" target="_blank" rel="noopener"><b>보유자 요약</b><span>기관·내부자 지분 비율</span><i>↗</i></a>
-    </div>`;
+/* ══ [v4.80] 해외 종목 정보 코너 ═══════════════════════════════════════════
+   [무엇을 걷어냈나] 투자자별·컨센서스·재무정보 세 탭은 미국 주식에 맞는 자료를
+   구할 수 없어 늘 비어 있었다. 빈 탭을 남겨 두는 건 없는 기능을 있는 척하는 것이다.
+   [무엇을 넣었나] 증권 앱이 실제로 보여 주는 것 중 우리가 받을 수 있는 것 —
+   기업 개요(대표·주소·홈페이지·상장), 주요 지표(PER·PBR·EPS·ROE), 배당(금액·수익률·
+   배당락일·지급일). 못 받은 항목은 자리를 비우지 않고 아예 감춘다. */
+var usInfoCache={}, _usInfoBusy={};
+function usInfoLoad(t,cb){
+  if(!t||!usMeta[t])return;
+  if(usInfoCache[t]){cb&&setTimeout(cb,0);return;}
+  if(_usInfoBusy[t])return;
+  _usInfoBusy[t]=1;
+  fetch('/api/usinfo?code='+encodeURIComponent(usMeta[t].reu),{cache:'no-store'})
+    .then(r=>r.json()).then(j=>{ _usInfoBusy[t]=0; usInfoCache[t]=j||{};
+      if(cb)setTimeout(cb,0); })
+    .catch(()=>{ _usInfoBusy[t]=0; usInfoCache[t]={ok:false}; if(cb)setTimeout(cb,0); });
 }
-/* ⑥ 컨센서스 */
-function renderUsConsensus(el){
-  const m=usMeta[usSel]||{}, q=usQ[usSel]||{};
-  el.innerHTML=`<div class="us-sec2">애널리스트 컨센서스</div>
-    <div class="us-note-box"><b>목표주가·투자의견은 유료 데이터입니다</b>
-      <p>국내 종목은 증권사 리포트가 공개 집계되지만, 미국 종목의 컨센서스는 대부분 유료로 제공되어
-      이 앱에서는 직접 표시하지 않습니다. 아래에서 무료 공개 범위로 확인할 수 있습니다.</p></div>
-    <div class="us-stat-g">
-      <div class="us-stat"><small>현재가</small><b class="num">$${USD2(q.price)}</b></div>
-      <div class="us-stat"><small>52주 최고 대비</small><b class="num">${q.w52h&&q.price?((q.price-q.w52h)/q.w52h*100).toFixed(1)+'%':'—'}</b></div>
-      <div class="us-stat"><small>52주 최저 대비</small><b class="num">${q.w52l&&q.price?'+'+((q.price-q.w52l)/q.w52l*100).toFixed(1)+'%':'—'}</b></div>
-    </div>
-    <div class="us-news-list">
-      <a class="us-news-a" href="https://finance.yahoo.com/quote/${usSel}/analysis" target="_blank" rel="noopener"><b>애널리스트 전망</b><span>실적 추정·목표주가 요약</span><i>↗</i></a>
-    </div>`;
+function usKvRows(rows){
+  const on=rows.filter(r=>r[1]!=null&&r[1]!=='');
+  if(!on.length)return '';
+  return `<div class="uinf-kv">${on.map(r=>
+    `<div class="uinf-r"><span>${r[0]}</span><b>${htmlEsc(String(r[1]))}</b></div>`).join('')}</div>`;
 }
-/* ⑦ 재무 정보 */
-function renderUsFinance(el){
-  const m=usMeta[usSel]||{}, q=usQ[usSel]||{};
-  const capS=q.cap==null?'—':(q.cap>=1e12?'$'+(q.cap/1e12).toFixed(2)+'T':q.cap>=1e9?'$'+(q.cap/1e9).toFixed(1)+'B':'$'+(q.cap/1e6).toFixed(0)+'M');
-  const fx=usFx();
-  el.innerHTML=`<div class="us-sec2">기업 규모</div>
-    <div class="us-stat-g">
-      <div class="us-stat"><small>시가총액</small><b class="num">${capS}</b></div>
-      <div class="us-stat"><small>원화 환산</small><b class="num">${(q.cap&&fx)?KRW(Math.round(q.cap*fx/1e8))+'억원':'—'}</b></div>
-      <div class="us-stat"><small>거래소</small><b>${{O:'NASDAQ',N:'NYSE',A:'AMEX'}[m.sfx]||'—'}</b></div>
-      <div class="us-stat"><small>구분</small><b>${m.etf?'ETF':'개별 종목'}</b></div>
+function renderUsCompany(el){
+  const t=usSel, m=usMeta[t]||{}, q=usQ[t]||{};
+  const info=usInfoCache[t];
+  if(!info){ usInfoLoad(t,()=>{ if(currentView==='ustrade'&&usInfoTab==='company')renderUsInfo(); });
+    el.innerHTML=usNoData('기업 정보를 불러오는 중입니다','잠시만 기다려 주세요.'); return; }
+  const p=info.profile||{}, k=info.metrics||{};
+  const ex=m.sfx==='O'?'나스닥':m.sfx==='N'?'뉴욕증권거래소':'아멕스·아카';
+  const head=`<div class="uinf-head">
+    <div class="uinf-nm"><b>${m.kr||t}</b><span>${t} · ${m.en||''}</span></div>
+    <div class="uinf-tag">${p.exch||ex}</div></div>`;
+  const basic=usKvRows([
+    ['영문명',p.nameEn||m.en],
+    ['상장 시장',p.exch||ex],
+    ['업종',p.sector||''],
+    ['대표이사',p.ceo||''],
+    ['상장일',p.listed||''],
+    ['임직원 수',p.emp?KRW(p.emp)+'명':''],
+    ['주소',p.addr||''],
+  ]);
+  const home=p.home?`<a class="uinf-link" href="${htmlEsc(p.home)}" target="_blank" rel="noopener">홈페이지 열기 →</a>`:'';
+  const met=usKvRows([
+    ['시가총액',q.cap>0?usBigNum(q.cap,'$'):(k.cap||'')],
+    ['PER',k.per],['PBR',k.pbr],['EPS',k.eps],['BPS',k.bps],['ROE',k.roe!=null?k.roe+'%':''],
+    ['52주 최고',q.w52h!=null?'$'+USD2(q.w52h):''],
+    ['52주 최저',q.w52l!=null?'$'+USD2(q.w52l):''],
+  ]);
+  const desc=p.desc?`<div class="uinf-desc">${htmlEsc(String(p.desc)).slice(0,900)}</div>`:'';
+  const body=[basic&&`<div class="uinf-sec">기업 개요</div>${basic}${home}`,
+              desc&&`<div class="uinf-sec">사업 내용</div>${desc}`,
+              met&&`<div class="uinf-sec">주요 지표</div>${met}`].filter(Boolean).join('');
+  el.innerHTML=head+(body||usNoData('기업 정보를 받지 못했습니다',
+    '시세 제공처가 이 종목의 기업 자료를 제공하지 않습니다.'));
+}
+/* ══ [v4.81] 해외 컨센서스 — 국내와 같은 레이아웃·같은 클래스 ═══════════════
+   국내 화면(renderConsensus)이 쓰는 gauge-wrap · cons-cards · final-target ·
+   fin-table 을 그대로 쓴다. 두 화면이 같은 모양이어야 배우는 사람이 헷갈리지 않는다.
+   자료는 시세 제공처가 주는 애널리스트 의견·목표주가를 쓰고, 없으면 없다고 밝힌다. */
+function usConsPick(c){
+  if(!c||typeof c!=='object')return null;
+  const num=(v)=>{ const n=parseFloat(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isFinite(n)?n:null; };
+  const dig=(o,re,d)=>{ if(!o||d>4)return null;
+    if(Array.isArray(o)){ for(const x of o){ const r=dig(x,re,d+1); if(r!=null)return r; } return null; }
+    if(typeof o!=='object')return null;
+    for(const k of Object.keys(o)){ if(re.test(k)){ const v=num(o[k]); if(v!=null)return v; } }
+    for(const k of Object.keys(o)){ const r=dig(o[k],re,d+1); if(r!=null)return r; }
+    return null; };
+  return {
+    score: dig(c,/(opinion|rating|recommend|투자의견)/i,0),
+    target:dig(c,/(target|목표)/i,0),
+    high:  dig(c,/(high|최고)/i,0),
+    low:   dig(c,/(low|최저)/i,0),
+    num:   dig(c,/(count|analyst|기관|증권사)/i,0),
+    eps:   dig(c,/(eps)/i,0),
+    per:   dig(c,/(per)/i,0)
+  };
+}
+function renderUsCons(el){
+  const t=usSel, q=usQ[t]||{}, info=usInfoCache[t];
+  if(!info){ usInfoLoad(t,()=>{ if(currentView==='ustrade'&&usInfoTab==='consensus')renderUsInfo(); });
+    el.innerHTML=usNoData('컨센서스를 불러오는 중입니다','잠시만 기다려 주세요.'); return; }
+  const c=usConsPick(info.consensus)||{};
+  const price=q.price;
+  /* 애널리스트 점수(1~5)가 없으면 게이지를 그리지 않는다 — 없는 의견을 지어내지 않는다 */
+  let html='';
+  if(c.score!=null&&c.score>=1&&c.score<=5){
+    const pos=Math.max(0,Math.min(100,(c.score-1)/4*100));
+    const col=c.score>=3.4?'var(--up)':c.score<=2.6?'var(--down)':'#8a95a5';
+    const lbl=c.score>=4.2?'강력매수':c.score>=3.4?'매수':c.score>=2.6?'중립':c.score>=1.8?'매도':'강력매도';
+    html+=`<div class="cons-head">애널리스트 투자의견 <span style="font-size:11px;color:var(--sub-2);font-weight:600">· 해외 증권사 컨센서스</span></div>
+    <div class="gauge-wrap">
+      <div class="gauge-bar"><div class="gauge-pin" style="left:${pos}%"><div class="gauge-bubble" style="background:${col}">${c.score.toFixed(1)}</div></div></div>
+      <div class="gauge-scale"><span>강력매도</span><span>매도</span><span>중립</span><span>매수</span><span>강력매수</span></div>
+      <div class="gauge-verdict" style="color:${col}">${lbl}</div>
     </div>
-    <div class="us-note-box"><b>상세 재무제표는 원문 공시가 정확합니다</b>
-      <p>미국 상장사는 분기마다 <b>10-Q</b>, 연간 <b>10-K</b> 보고서를 SEC에 제출합니다.
-      매출·영업이익·현금흐름을 원문에서 바로 확인할 수 있습니다.</p></div>
-    <div class="us-news-list">
-      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=10-K" target="_blank" rel="noopener"><b>10-K · 연간 보고서</b><span>연간 실적·사업 현황</span><i>↗</i></a>
-      <a class="us-news-a" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${usSel}&type=10-Q" target="_blank" rel="noopener"><b>10-Q · 분기 보고서</b><span>분기 실적</span><i>↗</i></a>
-      <a class="us-news-a" href="https://finance.yahoo.com/quote/${usSel}/financials" target="_blank" rel="noopener"><b>재무 요약</b><span>손익·재무상태 표</span><i>↗</i></a>
-    </div>`;
+    <div class="cons-sub">애널리스트 컨센서스 <b>${c.score.toFixed(1)}</b>${c.num?` · ${Math.round(c.num)}개 기관`:''}</div>`;
+  }
+  /* 52주 범위 — 국내와 같은 막대 */
+  if(q.w52h!=null&&q.w52l!=null&&q.w52h>q.w52l&&price!=null){
+    const p2=Math.max(0,Math.min(100,(price-q.w52l)/(q.w52h-q.w52l)*100));
+    html+=`<div style="font-weight:800;margin:18px 0 10px">목표주가</div>
+    <div class="w52"><div class="w52-t">52주 범위 <i>현재 ${p2.toFixed(0)}% 지점</i></div>
+      <div class="w52-bar"><i style="left:${p2}%"></i></div>
+      <div class="w52-lb"><span>$${USD2(q.w52l)}</span><span>$${USD2(q.w52h)}</span></div></div>`;
+  } else html+=`<div style="font-weight:800;margin:18px 0 10px">목표주가</div>`;
+  const up=(c.target&&price)?((c.target-price)/price):null;
+  html+=`<div class="final-target"><span>종합 목표주가${c.num?` (${Math.round(c.num)}개 평균)`:''}</span>
+    <b>${c.target?'$'+USD2(c.target):'<span style="font-size:14px;color:var(--sub-2)">제공되지 않음</span>'}</b></div>
+  <div class="cons-cards two">
+    <div class="cons-card"><div class="k">현재가 대비</div><div class="v ${up==null?'':(up>0?'up':'down')}">${up==null?'—':pctS(up*100)}</div></div>
+    <div class="cons-card"><div class="k">최고 / 최저</div><div class="v" style="font-size:15px">${c.high?'$'+USD2(c.high):'—'} / ${c.low?'$'+USD2(c.low):'—'}</div></div>
+  </div>`;
+  /* 주요 투자지표 — 국내 inv-grid 와 같은 모양 */
+  const k=info.metrics||{};
+  const cells=[['시가총액',q.cap>0?usBigNum(q.cap,'$'):(k.cap||null)],['PER',k.per],['PBR',k.pbr],
+    ['EPS',k.eps],['BPS',k.bps],['ROE',k.roe!=null?k.roe+'%':null],
+    ['추정 EPS',c.eps],['추정 PER',c.per]].filter(x=>x[1]!=null&&x[1]!=='');
+  if(cells.length)html+=`<div style="font-weight:800;margin:20px 0 10px">주요 투자지표</div>
+    <div class="inv-grid">${cells.map(x=>`<div class="inv-cell"><div class="n">${x[0]}</div><div class="v">${htmlEsc(String(x[1]))}</div></div>`).join('')}</div>`;
+  if(!html.includes('gauge-wrap')&&!c.target&&!cells.length){
+    el.innerHTML=usNoData('컨센서스 자료가 없습니다',
+      '이 종목은 시세 제공처가 애널리스트 의견·목표주가를 제공하지 않습니다.'); return;
+  }
+  html+=`<div style="margin-top:14px;font-size:11px;color:var(--sub-2)">※ 투자의견·목표주가는 해외 증권사 추정치이며 투자 권유가 아닙니다.</div>`;
+  el.innerHTML=html;
+}
+/* 재무 정보 — 국내 fin-table 과 같은 표 */
+function renderUsFin(el){
+  const t=usSel, info=usInfoCache[t];
+  if(!info){ usInfoLoad(t,()=>{ if(currentView==='ustrade'&&usInfoTab==='finance')renderUsInfo(); });
+    el.innerHTML=usNoData('재무 정보를 불러오는 중입니다','잠시만 기다려 주세요.'); return; }
+  const rows=usFinRows(info.finance);
+  const k=info.metrics||{}, q=usQ[t]||{};
+  let html='';
+  if(rows&&rows.cols.length){
+    html+=`<div class="fin-sub">연간 실적 <span>단위: 백만 달러</span></div>
+    <div style="overflow:auto"><table class="fin-table"><thead><tr><th>항목</th>${rows.cols.map(c=>`<th>${htmlEsc(c)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.items.map(r=>`<tr><td style="text-align:left">${htmlEsc(r.k)}</td>${r.v.map(v=>`<td>${v==null?'—':htmlEsc(String(v))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  const cells=[['시가총액',q.cap>0?usBigNum(q.cap,'$'):(k.cap||null)],['PER',k.per],['PBR',k.pbr],
+    ['EPS',k.eps],['BPS',k.bps],['ROE',k.roe!=null?k.roe+'%':null]].filter(x=>x[1]!=null&&x[1]!=='');
+  if(cells.length)html+=`<div class="fin-sub" style="margin-top:18px">주요 지표</div>
+    <div class="inv-grid">${cells.map(x=>`<div class="inv-cell"><div class="n">${x[0]}</div><div class="v">${htmlEsc(String(x[1]))}</div></div>`).join('')}</div>`;
+  if(!html){ el.innerHTML=usNoData('재무 정보가 없습니다',
+    '이 종목은 시세 제공처가 재무제표를 제공하지 않습니다. ETF·ETN은 재무제표가 없습니다.'); return; }
+  el.innerHTML=html;
+}
+/* 재무 응답의 구조가 제각각이라, 기간·항목처럼 보이는 것을 찾아 표로 만든다 */
+function usFinRows(f){
+  if(!f||typeof f!=='object')return null;
+  let arr=null;
+  const dig=(o,d)=>{ if(!o||d>4||arr)return;
+    if(Array.isArray(o)){ if(o.length&&typeof o[0]==='object'&&Object.keys(o[0]).length>=3)arr=o; 
+      o.forEach(x=>dig(x,d+1)); return; }
+    if(typeof o==='object')Object.keys(o).forEach(k=>dig(o[k],d+1)); };
+  dig(f,0);
+  if(!arr||arr.length<1)return null;
+  const cols=arr.slice(0,5).map((r,i)=>String(r.yearMonth||r.period||r.date||r.term||('기간'+(i+1))));
+  const KEYS=[['매출액',/revenue|sales|매출/i],['영업이익',/operat.*(income|profit)|영업이익/i],
+    ['당기순이익',/net.*(income|profit)|순이익/i],['영업이익률',/operat.*margin|영업이익률/i],
+    ['자산총계',/total.*asset|자산총계/i],['부채총계',/total.*liab|부채총계/i],
+    ['자본총계',/total.*equity|자본총계/i],['EPS',/(^|\W)eps/i],['ROE',/roe/i]];
+  const items=[];
+  for(const [label,re] of KEYS){
+    const v=arr.slice(0,5).map(r=>{ for(const k of Object.keys(r))if(re.test(k))return r[k]; return null; });
+    if(v.some(x=>x!=null&&x!==''))items.push({k:label,v});
+  }
+  return items.length?{cols,items}:null;
+}
+function renderUsDividend(el){
+  const t=usSel, q=usQ[t]||{};
+  const info=usInfoCache[t];
+  if(!info){ usInfoLoad(t,()=>{ if(currentView==='ustrade'&&usInfoTab==='dividend')renderUsInfo(); });
+    el.innerHTML=usNoData('배당 정보를 불러오는 중입니다','잠시만 기다려 주세요.'); return; }
+  const d=info.dividend||{};
+  const rows=usKvRows([
+    ['주당 배당금',d.amount!=null?'$'+d.amount:''],
+    ['배당수익률',d.yield!=null?d.yield+'%':''],
+    ['배당락일',d.exDate||''],
+    ['지급 예정일',d.payDate||''],
+  ]);
+  if(!rows){ el.innerHTML=usNoData('배당 정보가 없습니다',
+    '배당을 하지 않는 종목이거나, 시세 제공처가 배당 자료를 주지 않습니다.'); return; }
+  /* 배당수익률을 현재가로 환산해 연간 예상 배당금을 곁들인다 */
+  let extra='';
+  if(d.yield!=null&&q.price!=null){
+    const y=parseFloat(String(d.yield).replace(/[^0-9.]/g,''));
+    if(y>0){ const per=q.price*y/100;
+      extra=`<div class="uinf-note">지금 1주를 사면 1년에 약 <b>$${USD2(per)}</b>
+        (≈ ${USDKR(per)})을 배당으로 받게 됩니다. 배당은 회사가 정하는 것이라 늘어날 수도 줄어들 수도 있습니다.</div>`; }
+  }
+  el.innerHTML=`<div class="uinf-sec">배당</div>${rows}${extra}`;
 }
 function renderUsTradeLive(){ if(currentView!=='ustrade')return;
   renderUsHead(); renderUsCta(); if(usInfoTab==='summary'||usInfoTab==='ai')renderUsInfo();

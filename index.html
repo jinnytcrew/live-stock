@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=360">
+<link rel="stylesheet" href="/app.css?v=362">
 </head>
 <body>
 
@@ -831,13 +831,14 @@
 
     <!-- [v4.77] 해외 종목도 같은 검사를 할 수 있게 -->
     <div class="sec" style="margin-top:16px">
-      <div class="sec-title">🇺🇸 해외 종목 로고 검사 <span class="sec-sub">· 등록된 해외 종목의 로고를 실제로 내려받아 확인</span></div>
+      <div class="sec-title">🇺🇸 해외 종목 <span class="sec-sub">· 검색 범위와 로고 상태</span></div>
       <div class="panel etf-audit">
+        <div class="ea-stat" id="usAllStat" style="margin:0 0 10px"></div>
         <div class="ea-top">
           <button id="ulaStart">해외 로고 검사 시작</button>
           <button id="ulaStop" hidden>중단</button>
           <button id="ulaReset">캐시 비우고 다시 찾기</button>
-          <span class="ea-note">종목마다 로고를 실제로 요청해 어느 소스에서 나오는지, 빈 그림인지, 아예 없는지를 가려냅니다. 결과는 바로 화면에 반영됩니다.</span>
+          <span class="ea-note">검사는 <b>화면에 등록된 종목</b>만 대상으로 합니다. 전 종목(1만여 종)의 로고를 한 번에 내려받으면 시간이 너무 오래 걸리기 때문입니다. 검색으로 새 종목을 열면 그 종목의 로고는 그때 자동으로 찾습니다.</span>
         </div>
         <div class="ea-bar" id="ulaBarWrap" hidden><i id="ulaBar"></i></div>
         <div class="ea-stat" id="ulaStat" hidden></div>
@@ -999,9 +1000,12 @@
             <button data-uinfo="chart">차트</button>
             <button data-uinfo="sise">시세</button>
             <button data-uinfo="news">뉴스</button>
-            <button data-uinfo="holders">투자자별</button>
+            <!-- [v4.80] 해외에는 투자자별 매매 자료가 없다 — 대신 증권 앱이 보여 주는
+                 기업 개요·배당·주요 지표 코너를 둔다. -->
+            <button data-uinfo="company">기업정보</button>
             <button data-uinfo="consensus">컨센서스</button>
             <button data-uinfo="finance">재무 정보</button>
+            <button data-uinfo="dividend">배당</button>
           </div>
           <!-- [v4.57] 해외 차트는 국내 차트 카드를 그대로 옮겨 와 쓴다(모양·기능 100% 동일) -->
           <div id="usChartCard" hidden>
@@ -1360,6 +1364,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=360"></script>
+<script type="module" src="/app.js?v=362"></script>
 </body>
 </html>

@@ -4065,3 +4065,25 @@ html[data-theme="dark"] .afx-g.on{background:#fff;color:#111}
 .ea-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:8px;
   background:var(--border-soft);font-size:11.5px;font-weight:800;color:var(--sub)}
 .ea-chip i{font-style:normal;font-weight:600;color:var(--sub-2);font-size:10.5px}
+
+/* ══ [v4.80] 해외 기업정보·배당 코너 ═══════════════════════════════════════ */
+.uinf-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:2px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:12px}
+.uinf-nm b{display:block;font-size:16px;font-weight:900;color:var(--text)}
+.uinf-nm span{display:block;margin-top:3px;font-size:11.5px;font-weight:600;color:var(--sub-2)}
+.uinf-tag{flex-shrink:0;padding:5px 10px;border-radius:8px;font-size:11px;font-weight:800;
+  background:var(--border-soft);color:var(--sub)}
+.uinf-sec{font-size:12.5px;font-weight:900;color:var(--text);margin:16px 0 8px}
+.uinf-sec:first-child{margin-top:4px}
+.uinf-kv{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--panel)}
+.uinf-r{display:flex;justify-content:space-between;gap:12px;padding:10px 13px;
+  border-bottom:1px solid var(--border-soft);font-size:12.5px}
+.uinf-r:last-child{border-bottom:0}
+.uinf-r span{flex-shrink:0;color:var(--sub-2);font-weight:700}
+.uinf-r b{min-width:0;text-align:right;font-weight:800;color:var(--text);word-break:break-word}
+.uinf-link{display:inline-block;margin-top:9px;font-size:12px;font-weight:800;color:var(--brand-2,#2f7ae5)}
+.uinf-desc{padding:13px;border-radius:12px;background:var(--border-soft);
+  font-size:12.5px;line-height:1.8;color:var(--sub);font-weight:600}
+.uinf-note{margin-top:11px;padding:12px 13px;border-radius:12px;font-size:12px;line-height:1.75;
+  font-weight:600;background:rgba(47,122,229,.07);border:1px solid rgba(47,122,229,.2);color:var(--sub)}
+.uinf-note b{color:var(--text);font-weight:900}

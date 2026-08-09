@@ -11526,7 +11526,7 @@ async function uslogo_default(req2){
   const u=new URL(req2.url);
   const d=String(u.searchParams.get("d")||"").toLowerCase().replace(/[^a-z0-9.-]/g,"").slice(0,64);
   const tk=String(u.searchParams.get("t")||"").toUpperCase().replace(/[^A-Z0-9.-]/g,"").slice(0,10);
-  if(!d&&tk){
+  if(tk){                                   /* [v4.80] 티커가 있으면 도메인 후보까지 함께 본다 */
     /* ══ [v4.75] 티커 로고를 서버가 고르고 검사한다 ═════════════════════════
        [왜 서버인가] 브라우저는 다른 출처의 그림을 캔버스로 읽을 수 없어(CORS)
        '흰 빈 그림'인지 확인할 방법이 없었다. 서버는 그 제약이 없다.
@@ -11534,13 +11534,16 @@ async function uslogo_default(req2){
        가장 나은 것을 돌려준다. 결과는 KV 에 담아 다음부터는 바로 내보낸다.
        화면 쪽에서도 같은 출처(우리 도메인)라 픽셀 검사가 그대로 통한다. */
     const TK=tk.replace(".","-"), tkl=TK.toLowerCase();
-    const CKT="uslgt:"+TK;
+    const CKT="uslgt2:"+TK;
     try{ if(KV){ const c=await KV.get(CKT,"json");
       if(c&&c.b64)return new Response(Uint8Array.from(atob(c.b64),ch=>ch.charCodeAt(0)),
         {headers:{"content-type":c.ct||"image/png","cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
       if(c&&c.no)return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
     }}catch(e){}
     const cands=[
+      ...(d?["https://logo.clearbit.com/"+d,
+             "https://icons.duckduckgo.com/ip3/"+d+".ico",
+             "https://www.google.com/s2/favicons?sz=128&domain="+d]:[]),
       "https://financialmodelingprep.com/image-stock/"+TK+".png",
       "https://assets.parqet.com/logos/symbol/"+TK+"?format=png&size=128",
       "https://s3-symbol-logo.tradingview.com/"+tkl+".svg",
@@ -12155,7 +12158,7 @@ async function uspopular_default(req2){
   const ATTN = new Set(["naver-pop","yahoo-trend","stocktwits","app","wiki"]);
   const all = [...score.values()].filter(x => {
     if (!/^[A-Z][A-Z0-9]{0,5}(-[A-Z])?$/.test(x.t)) return false;
-    if (x.t === "TEST" || x.t === "NONE") return false;
+    if (/^(TEST|ZZZ|ZXYZ|ZVZZ|ZWZZ|ZBZX|ZJZZ|NTEST|NONE)/.test(x.t)) return false;
     return true;
   });
   /* ══ [v4.72] 한국 투자자가 보는 화면에 맞춘다 ═══════════════════════════════
@@ -12269,9 +12272,14 @@ async function usall_default(){
   } catch (e) { }
   const diag = [], map = new Map();
   /* rows: [티커, 이름, ETF여부, 거래소(O/N/A)] */
+  /* [v4.80] 거래소가 시험용으로 올려둔 종목(ZZZT·TEST 등)은 실제 종목이 아니다.
+     화면에 섞이면 '무슨 회사인지 알 수 없는 항목'이 되므로 아예 걸러낸다. */
+  const BAD = /^(TEST|ZZZ|ZXYZ|ZVZZ|ZWZZ|ZBZX|ZJZZ|IBM_|NTEST)/;
   const add = (t, en, etf, sfx) => {
     const k = String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
     if (!k || k.length > 6) return;
+    if (BAD.test(k)) return;
+    if (/\btest\b/i.test(String(en || ""))) return;
     const cur = map.get(k);
     if (cur) { if (!cur[1] && en) cur[1] = String(en).slice(0, 60); if (!cur[3] && sfx) cur[3] = sfx; return; }
     map.set(k, [k, String(en || "").slice(0, 60), etf ? 1 : 0, sfx || ""]);
@@ -12318,6 +12326,24 @@ async function usall_default(){
     }
     diag.push("other:" + n);
   }
+  /* ══ [v4.81] 나스닥 파일이 막히면 대안으로 채운다 ═══════════════════════
+     원천이 하나뿐이면 그곳이 막힌 날 목록이 통째로 비어 검색이 죽는다.
+     같은 파일을 담아 두는 공개 거울(깃허브 데이터셋)과 SEC 파일을 함께 둔다. */
+  if (map.size < 2000) {
+    const alt = await grab("mirror",
+      "https://raw.githubusercontent.com/datasets/nasdaq-listings/main/data/nasdaq-listed-symbols.csv",
+      { "User-Agent": SEC_UA, Accept: "text/csv,text/plain" }, 12000);
+    if (alt) {
+      let n = 0;
+      for (const line of alt.split("\n")) {
+        const c2 = line.split(",");
+        if (c2.length < 2 || c2[0] === "Symbol") continue;
+        add(c2[0].replace(/"/g, ""), nameOfSec(c2.slice(1).join(",").replace(/"/g, "")), 0, "O");
+        n++;
+      }
+      diag.push("mirror:" + n);
+    }
+  }
   /* 회사명 보강 — 나스닥 파일의 이름은 증권 형태가 길게 붙어 있어 SEC 이름이 더 깔끔하다 */
   const sec = await grab("sec", "https://www.sec.gov/files/company_tickers.json",
     { "User-Agent": SEC_UA, Accept: "application/json" }, 9000);
@@ -12327,14 +12353,15 @@ async function usall_default(){
       for (const k in j) { const it = j[k]; if (!it || !it.ticker) continue;
         const cur = map.get(String(it.ticker).toUpperCase());
         if (cur) { cur[1] = String(it.title || cur[1]).slice(0, 60); n++; }
-        else add(it.ticker, it.title, 0, "");
+        else { add(it.ticker, it.title, 0, ""); n++; }
       }
       diag.push("sec:" + n);
     } catch (e) { diag.push("sec:parse"); }
   }
   const rows = [...map.values()];
   try { if (KV && rows.length > 2000) await KV.put(CK, JSON.stringify({ at: Date.now(), rows }), { expirationTtl: 172800 }); } catch (e) { }
-  return new Response(JSON.stringify({ ok: rows.length > 0, n: rows.length, rows, diag }),
+  return new Response(JSON.stringify({ ok: rows.length > 0, n: rows.length,
+    etf: rows.filter(r => r[2]).length, rows, diag }),
     { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
 }
 /* 나스닥 파일의 이름에서 증권 형태 설명을 떼어낸다 */
@@ -12343,6 +12370,106 @@ function nameOfSec(v){
     .replace(/\s+(Common Stock|Class [A-Z]|Ordinary Shares|American Depositary Shares?)\s*$/i, "")
     .trim();
 }
+/* ══ [v4.80] 해외 종목의 기업·재무·컨센서스 정보 ═══════════════════════════
+   증권 앱(미래에셋 등)이 보여 주는 해외 종목 정보는 대부분 FnGuide·Refinitiv 자료다.
+   네이버 해외증시도 같은 자료를 쓴다 — 그리고 m.stock.naver.com 은 이 앱에서
+   응답이 확인된 호스트다. 여러 경로를 차례로 두드려 얻어지는 것만 모아 돌려준다.
+   [설계 원칙] 없는 항목은 만들어 내지 않는다. 받은 것만 담고, 무엇을 못 받았는지
+   diag 에 남겨 화면에서 확인할 수 있게 한다. */
+async function usinfo_default(req2){
+  const u=new URL(req2.url);
+  const reu=String(u.searchParams.get("code")||"").trim().slice(0,16);
+  if(!reu)return new Response(JSON.stringify({ok:false,err:"code"}),
+    {headers:{"content-type":"application/json"}});
+  const CK="usinfo:"+reu;
+  try{ const c=KV?await KV.get(CK,"json"):null;
+    if(c&&c.at&&Date.now()-c.at<6*3600e3)
+      return new Response(JSON.stringify({ok:true,...c.data,cached:1}),
+        {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+  }catch(e){}
+  const diag=[], out={};
+  const grab=async(nm,path)=>{
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),5000);
+      const r=await fetch("https://m.stock.naver.com/api/stock/"+encodeURIComponent(reu)+path,
+        {headers:HDRS,signal:c.signal});
+      clearTimeout(t);
+      if(!r.ok){ diag.push(nm+":"+r.status); return null; }
+      const txt=await r.text();
+      let j=null; try{ j=JSON.parse(txt); }catch(e){ diag.push(nm+":parse"); return null; }
+      diag.push(nm+":ok");
+      return j;
+    }catch(e){ diag.push(nm+":"+String(e).slice(0,10)); return null; }
+  };
+  const pick=(o,...ks)=>{ for(const k of ks){ if(o&&o[k]!=null&&o[k]!=="")return o[k]; } return null; };
+  /* ① 기업 개요·배당 — basic / integration 에 함께 담겨 오는 경우가 많다 */
+  const basic=await grab("basic","/basic");
+  const intg =await grab("intg","/integration");
+  const src=Object.assign({},basic||{},intg||{});
+  const prof={};
+  const put=(k,v)=>{ if(v!=null&&v!=="")prof[k]=v; };
+  put("name",  pick(src,"stockName","stockNameKor"));
+  put("nameEn",pick(src,"stockNameEng"));
+  put("exch",  pick(src,"stockExchangeName","exchangeName","nationName"));
+  put("sector",pick(src,"industryCodeType","sectorName","industryName"));
+  put("ceo",   pick(src,"ceoName","ceo"));
+  put("addr",  pick(src,"address"));
+  put("home",  pick(src,"homePageUrl","homepage","siteUrl"));
+  put("listed",pick(src,"listingDate","ipoDate"));
+  put("emp",   pick(src,"employeeCount","employees"));
+  put("desc",  pick(src,"summary","companySummary","description","outline"));
+  /* 배당 — 항목 이름이 제각각이라 넓게 훑는다 */
+  const div={};
+  const dv=(k,v)=>{ if(v!=null&&v!=="")div[k]=v; };
+  dv("amount", pick(src,"dividendAmount","dps","dividend"));
+  dv("yield",  pick(src,"dividendYieldRatio","dividendRatio","dividendYield"));
+  dv("exDate", pick(src,"dividendExDate","exDividendDate"));
+  dv("payDate",pick(src,"dividendPayDate","paymentDate"));
+  /* 주요 지표 — 종목요약 표에 함께 담겨 오는 값들 */
+  const key={};
+  const kv=(k,v)=>{ if(v!=null&&v!=="")key[k]=v; };
+  kv("per", pick(src,"per","peRatio"));
+  kv("pbr", pick(src,"pbr","pbRatio"));
+  kv("eps", pick(src,"eps"));
+  kv("bps", pick(src,"bps"));
+  kv("roe", pick(src,"roe"));
+  kv("cap", pick(src,"marketValue","marketCap"));
+  /* stockItemTotalInfos 안에 이름표가 붙은 값들이 더 들어 있다 */
+  try{
+    const arr=src.stockItemTotalInfos||src.totalInfos||[];
+    for(const it of (Array.isArray(arr)?arr:[])){
+      const k=String(it.key||it.code||""), v=it.value;
+      if(!k||v==null||v==="")continue;
+      if(/per/i.test(k)&&!key.per)key.per=v;
+      else if(/pbr/i.test(k)&&!key.pbr)key.pbr=v;
+      else if(/^eps$/i.test(k)&&!key.eps)key.eps=v;
+      else if(/^bps$/i.test(k)&&!key.bps)key.bps=v;
+      else if(/roe/i.test(k)&&!key.roe)key.roe=v;
+      else if(/divid/i.test(k)&&!div.yield)div.yield=v;
+      else if(/market.?value|시가총액/i.test(k)&&!key.cap)key.cap=v;
+    }
+  }catch(e){}
+  /* ② 재무·컨센서스 — 있으면 그대로 담는다(구조가 제각각이라 원본을 넘긴다) */
+  /* 경로 이름이 버전마다 달라 여러 개를 차례로 두드린다 — 하나라도 되면 그걸 쓴다 */
+  let fin=null;
+  for(const p2 of ["/finance","/finance/annual","/financeSummary","/financialStatement"]){
+    fin=await grab("fin"+p2.replace(/\//g,"_"),p2); if(fin)break;
+  }
+  let cons=null;
+  for(const p2 of ["/consensus","/analystOpinion","/estimate","/investmentOpinion"]){
+    cons=await grab("cons"+p2.replace(/\//g,"_"),p2); if(cons)break;
+  }
+  if(Object.keys(prof).length)out.profile=prof;
+  if(Object.keys(div).length)out.dividend=div;
+  if(Object.keys(key).length)out.metrics=key;
+  if(fin)out.finance=fin;
+  if(cons)out.consensus=cons;
+  out.diag=diag;
+  try{ if(KV)await KV.put(CK,JSON.stringify({at:Date.now(),data:out}),{expirationTtl:43200}); }catch(e){}
+  return new Response(JSON.stringify({ok:true,...out}),
+    {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
+}
+ROUTES["usinfo"]=usinfo_default;
 ROUTES["usall"]=usall_default;
 ROUTES["usview"]=usview_default;
 ROUTES["uspopular"]=uspopular_default;
