@@ -12967,8 +12967,12 @@ function usTick(t,size){
   const cls='us-tick'+(size?' '+size:'');
   return `<span class="${cls}" data-uslg="${t}" style="background-color:${c}">`
     +`<em class="ut-lb">${lbl}</em>`
-    +(u?`<img class="ut-im" src="${htmlEsc(u)}" alt="" aria-hidden="true" loading="lazy"
-        onload="usTickOk(this)" onerror="usTickBad(this)">`:'')
+    /* ══ [v4.84] 인라인 핸들러를 쓰지 않는다 ═══════════════════════════════
+       app.js 는 모듈로 불러온다. 모듈 안의 함수는 전역이 아니므로,
+       HTML 에 적은 onload="usTickOk(this)" 는 전역에서 실행되며 함수를 찾지 못한다
+       → 그림 하나마다 ReferenceError 가 터져 오류가 수천 건 쌓였다.
+       아래 usTickBind() 가 addEventListener 로 직접 묶는다(모듈 안에서 실행되므로 안전). */
+    +(u?`<img class="ut-im" src="${htmlEsc(u)}" alt="" aria-hidden="true" loading="lazy">`:'')
     +`</span>`;
 }
 /* 인라인 핸들러가 막히는 환경(엄격한 보안 정책)에서도 동작하도록 함수로 빼 둔다 */
@@ -12990,9 +12994,20 @@ function usTickBind(root){
     });
   }catch(e){}
 }
+/* 화면이 바뀔 때마다 새로 그려진 그림에 핸들러를 묶는다.
+   변화가 몰아칠 때 매번 전체를 훑지 않도록 한 프레임에 한 번만 실행한다. */
+var _utqQ=0;
+function usTickSweep(){
+  if(_utqQ)return; _utqQ=1;
+  const run=()=>{ _utqQ=0; usTickBind(); };
+  (typeof requestAnimationFrame==='function')?requestAnimationFrame(run):setTimeout(run,16);
+}
 try{ if(typeof MutationObserver!=='undefined'){
-  new MutationObserver(()=>{ usTickBind(); }).observe(document.documentElement,{childList:true,subtree:true});
+  new MutationObserver(usTickSweep).observe(document.documentElement,{childList:true,subtree:true});
 } }catch(e){}
+try{ document.addEventListener('DOMContentLoaded',usTickSweep); usTickSweep(); }catch(e){}
+/* 혹시 남아 있는 예전 화면 조각이 이 이름들을 부르더라도 오류가 나지 않게 전역에도 둔다 */
+try{ window.usTickOk=usTickOk; window.usTickBad=usTickBad; window.usTickBind=usTickBind; }catch(e){}
 /* ══ [v4.77] 해외 종목 로고 정밀 검사 ═══════════════════════════════════════
    국내에만 있던 검사를 해외에도 붙인다. 저장된 판정을 믿지 않고 후보를 실제로
    내려받아 어디서 나오는지, 빈 그림인지, 아예 없는지를 가려낸다.
