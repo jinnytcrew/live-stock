@@ -8038,7 +8038,7 @@ async function openUsPopDiag(){
 /* [v4.60] 100위를 첫 방문에 채운다 — 서버는 한 번에 38개 문서까지만 조회수를
    받아올 수 있어(요청당 외부 호출 한도) 처음엔 40여 종만 나왔다. 목록이 100에
    못 미치면 화면을 그린 채로 조용히 한 번 더 받아 이어 붙인다(최대 4회). */
-var _usPopTry=0;
+var _usPopTry=0, _usPopQueued=false;
 /* ══ [v4.65] 해외 목록을 국내처럼 '들어가자마자' 띄운다 ═══════════════════
    국내는 종목 목록을 브라우저에 담아 두어 진입 즉시 그린다. 해외만 매번
    서버 응답을 기다리느라 빈 화면을 보여 줬다 — 같은 방식을 해외에도 쓴다.
@@ -8066,10 +8066,17 @@ function usPopRestore(){
     return true;
   }catch(e){ return false; }
 }
+/* ══ [v4.67] 무한 재귀로 화면이 멈추던 문제 ═════════════════════════════════
+   [무엇이 잘못됐나] 더 받을 게 없을 때 콜백을 '그 자리에서' 불렀다. 그 콜백은
+   화면을 다시 그리고, 다시 그린 화면은 또 usPopLoad 를 부른다 →
+   usPopLoad → cb → 화면 그리기 → usPopLoad → … 끝없이 되돌아가
+   'Maximum call stack size exceeded' 로 앱이 멈췄다.
+   [고친 방법] ① 더 받을 게 없으면 콜백을 아예 부르지 않는다(그릴 것도 없다)
+                ② 화면 쪽에서도 이미 최신이면 다시 요청하지 않는다 */
 function usPopLoad(cb){
   if(usPopBusy)return;
-  if(usPop&&usPop.length>=100&&Date.now()-usPopAt<180e3){cb&&cb();return;}
-  if(usPop&&Date.now()-usPopAt<180e3&&_usPopTry>=8){cb&&cb();return;}
+  if(usPop&&usPop.length>=100&&Date.now()-usPopAt<180e3)return;   // 완성됨 — 되돌아가지 않는다
+  if(usPop&&Date.now()-usPopAt<180e3&&_usPopTry>=8)return;        // 더 받을 게 없음
   usPopBusy=true;
   const again=_usPopTry>0;
   fetch('/api/uspopular'+(again?'?fresh=1':''),{cache:'no-store'}).then(r=>r.json()).then(j=>{
@@ -8092,6 +8099,7 @@ function usPopLoad(cb){
     /* 아직 100위에 못 미치면 곧바로 한 번 더 — 서버가 다음 묶음을 받아 온다 */
     if(out.length<100&&_usPopTry<8)setTimeout(()=>usPopLoad(cb),350);
   }).catch(()=>{usPopBusy=false;_usPopTry++;});
+  return;
 }
 function usRankSection(){
   const tab=searchRankTab;
@@ -8101,9 +8109,15 @@ function usRankSection(){
   /* ── 조회수 탭 ── 서버가 센 실제 조회수 순서 ── */
   if(tab==='조회수'){
     if(!usPop)usPopRestore();                     // [v4.65] 저장해 둔 목록이 있으면 즉시 사용
-    if(!usPop){ usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true).then(redraw); redraw(); });
-      return '<div class="empty">해외 인기 종목을 불러오는 중…</div>'; }
-    usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true).then(()=>{try{usPopSave();}catch(e){} redraw();}); redraw(); });
+    /* [v4.67] 화면을 그리는 함수 안에서 '다시 그리기'를 부르는 건 재귀의 씨앗이다.
+       아직 100종이 아닐 때만, 그것도 한 번만 예약한다. */
+    if((usPop||[]).length<100&&!usPopBusy&&!_usPopQueued){
+      _usPopQueued=true;
+      setTimeout(()=>{ _usPopQueued=false;
+        usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
+          .then(()=>{try{usPopSave();}catch(e){} redraw();}); }); },0);
+    }
+    if(!usPop)return '<div class="empty">해외 인기 종목을 불러오는 중…</div>';
     if(!usPop.length)
       return '<div class="empty">아직 조회 기록이 쌓이지 않았습니다<br>'
         +'<small style="color:var(--sub-2)">해외 종목을 몇 개 열어 보면 순위가 만들어집니다</small><br>'
@@ -10883,7 +10897,7 @@ function drawChart(){
         const hm=d.slice(8,10)+':'+d.slice(10,12);
         const pd=String(prev||'').replace(/[^0-9]/g,'');
         const newDay=!pd||pd.slice(0,8)!==d.slice(0,8);
-        return newDay?(md+'  '+hm):hm;                                // 날짜 + 2칸 + 시각
+        return newDay?(md+' '+hm):hm;                                 // 날짜 + 한 칸 + 시각
       }
       return String(dstr).slice(-5);
     }
@@ -10925,7 +10939,10 @@ function drawChart(){
     ctx.restore();
     return out.length?out:[Math.max(0,m-1)];
   })();
-  if(m>1&&(m-1)-xTicks[xTicks.length-1]>=xEvery*0.55)xTicks.push(m-1);   // 오른쪽 끝(최신 봉)도 여유 있으면 표기
+  /* [v4.67] 예전에는 여기서 '오른쪽 끝 봉'을 억지로 덧붙였다. 새 눈금 고르기는
+     이미 마지막 봉을 후보에 넣고 폭까지 따져 넣으므로 이 줄은 필요 없다.
+     그런데 지우면서 이 한 줄을 남겨 xEvery(삭제된 변수)를 참조해 버렸고,
+     차트를 그릴 때마다 ReferenceError 로 화면 전체가 멈췄다. */
   ctx.setLineDash([3,4]);
   xTicks.forEach(i=>{const x=X(i);ctx.strokeStyle=PAL.gridV;ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
   ctx.setLineDash([]);
@@ -11059,7 +11076,7 @@ function drawChart(){
       const up=c.c>=c.o,cc=up?'up':'down',chg=c.c-c.o,cp=c.o?chg/c.o*100:0;
       const tip=$('chartTip');
       tip.innerHTML=`<div class="d">${(()=>{const q=String(c.d||'').replace(/[^0-9]/g,'');
-        return q.length>=12?(+q.slice(4,6))+'/'+(+q.slice(6,8))+'  '+q.slice(8,10)+':'+q.slice(10,12):c.d;})()}</div>
+        return q.length>=12?(+q.slice(4,6))+'/'+(+q.slice(6,8))+' '+q.slice(8,10)+':'+q.slice(10,12):c.d;})()}</div>
         <div class="r"><span>시</span><span>${KRW(c.o)}</span></div>
         <div class="r"><span>고</span><span class="up">${KRW(c.h)}</span></div>
         <div class="r"><span>저</span><span class="down">${KRW(c.l)}</span></div>
@@ -12785,11 +12802,17 @@ function renderUsRankBody(){
     list=pool.filter(t=>usQ[t].cap).slice().sort((a,b)=>usQ[b].cap-usQ[a].cap);note='시가총액이 큰 순서';}
   else if(usRankTab==='view'){
     /* 서버가 센 실제 조회수 순서. 아직 안 왔으면 받아 오고 다시 그린다. */
-    if(!usPop){ usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
-        .then(()=>{ if(currentView==='us')renderUsRankBody(); });
-      if(currentView==='us')renderUsRankBody(); });
+    if(!usPop)usPopRestore();
+    /* [v4.67] 여기서도 콜백 안에서 곧바로 다시 그리면 재귀가 된다 — 타이머로 미룬다 */
+    if((usPop||[]).length<100&&!usPopBusy&&!_usPopQueued){
+      _usPopQueued=true;
+      setTimeout(()=>{ _usPopQueued=false;
+        usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
+          .then(()=>{ try{usPopSave();}catch(e){} if(currentView==='us')renderUsRankBody(); }); }); },0);
+    }
+    if(!usPop){
       box.innerHTML='<div class="uz-empty"><b>인기 종목을 불러오는 중…</b></div>';
-      if(bd)bd.innerHTML='<div class="uz-note">이 앱에서 조회된 횟수를 세는 중입니다</div>';
+      if(bd)bd.innerHTML='<div class="uz-note">조회수를 모으는 중입니다</div>';
       return; }
     const known=usPop.filter(x=>usMeta[x.t]);
     const miss=known.map(x=>x.t).filter(t=>!(usQ[t]&&usQ[t].price!=null));

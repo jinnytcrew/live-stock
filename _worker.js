@@ -12028,8 +12028,14 @@ async function uspopular_default(req2){
   const withV = all.filter(x => (wikiV[x.t] || 0) > 0).sort((a, b) => wikiV[b.t] - wikiV[a.t]);
   const noV = all.filter(x => !(wikiV[x.t] > 0)).sort((a, b) => b.sc - a.sc);
   /* [v4.66] 딱 100위까지만 — 그 이상은 '조회수 TOP 100' 이 아니다 */
+  /* [v4.67] 이름이 비면 화면에 티커만 두 번 나온다(AVAV · AVAV). 위키 문서명을
+     사람이 읽는 형태로 되돌려 영문명으로 쓴다 — Eli_Lilly_and_Company → Eli Lilly and Company */
+  const artName = (t) => {
+    const a = WIKI_ART[t]; if (!a) return "";
+    return decodeURIComponent(a).replace(/_/g, " ").replace(/\s*\((company|game engine)\)$/i, "").trim();
+  };
   const items = withV.concat(noV).slice(0, 100)
-    .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, origin: x.origin,
+    .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en || artName(x.t), origin: x.origin,
       wiki: wikiV[x.t] || 0, views: Math.round(vt.map[x.t] || 0) }));
   const basis = {
     wiki: wEntries.length, wikiTop: wEntries.length ? wEntries[0][0] : null,
@@ -12112,7 +12118,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.66.0";
+var APP_VER = "4.67.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
