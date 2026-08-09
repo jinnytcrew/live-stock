@@ -10513,10 +10513,15 @@ function buildMinuteCandles(ticks,mins){
 function dtToMs(d){d=String(d);const y=+d.slice(0,4),mo=+d.slice(4,6)-1,da=+d.slice(6,8),h=+(d.slice(8,10)||0),mi=+(d.slice(10,12)||0);return new Date(y,mo,da,h,mi).getTime();}
 const intradayBase={}; // code -> [{t,o,h,l,c,v}] 1분봉(실제)
 let minuteDiag='';
+/* [v4.63] 봉 크기를 서버에 알려 준다 — 큰 봉일수록 더 먼 과거를 이어 붙여 준다.
+   봉을 바꾸면 그에 맞는 데이터를 새로 받아야 하므로 봉별로 따로 보관한다. */
+var _intraBkt={};
+function intraBucket(mins){ return mins>=60?60:mins>=30?30:mins>=5?5:mins>=3?3:1; }
 async function ensureIntraday(code){
-  if(intradayBase[code]&&intradayBase[code].length)return; // 이미 받았으면 유지
+  const bkt=intraBucket(minutesOf(chartTf)||1);
+  if(intradayBase[code]&&intradayBase[code].length&&_intraBkt[code]===bkt)return;
   try{const mkt=(byCode[code]&&byCode[code].market==='코스닥')?'KOSDAQ':'KOSPI';
-    const r=await fetch(`/api/chart?code=${code}&tf=MIN&mkt=${mkt}`,{cache:'default'});const j=await r.json();
+    const r=await fetch(`/api/chart?code=${code}&tf=MIN&m=${bkt}&mkt=${mkt}`,{cache:'default'});const j=await r.json();
     // OHLC 복구: 빠지거나 0인 값은 종가로 보정(캔들이 세로로 꽉 차는 버그 방지)
     let arr=(j.candles||[]).map(c=>{const cl=+c.c;if(!(cl>0))return null;
       let o=+c.o,h=+c.h,l=+c.l;if(!(o>0))o=cl;if(!(h>0))h=Math.max(o,cl);if(!(l>0))l=Math.min(o,cl);
@@ -10525,7 +10530,7 @@ async function ensureIntraday(code){
     // 가격대(중앙값) 밖 이상치 제거 — 축이 0/음수로 튀는 것 방지
     const cl=arr.map(c=>c.c).sort((a,b)=>a-b);const md=cl.length?cl[Math.floor(cl.length/2)]:0;
     if(md>0)arr=arr.filter(c=>c.c>=md*0.5&&c.c<=md*2&&c.h<=md*2&&c.l>=md*0.5);
-    intradayBase[code]=arr;
+    intradayBase[code]=arr; _intraBkt[code]=bkt;
     minuteDiag=(arr.length?'':'분봉 서버응답 ')+`[${j.src||'?'}]`;}
   catch(e){intradayBase[code]=intradayBase[code]||[];minuteDiag='분봉 로드 실패';}
 }
@@ -10538,13 +10543,18 @@ function minuteSeries(code,mins){
   live.forEach(c=>{const ex=map.get(c.t);if(!ex)map.set(c.t,{t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v});
     else{ex.h=Math.max(ex.h,c.h);ex.l=Math.min(ex.l,c.l);ex.c=c.c;ex.v=Math.max(ex.v,c.v);}});
   const one=[...map.values()].sort((a,b)=>a.t-b.t);
-  if(mins===1)return one.map(c=>({d:new Date(c.t).toTimeString().slice(0,5),o:c.o,h:c.h,l:c.l,c:c.c,v:c.v,t:c.t}));
+  /* [v4.62] 라벨을 시:분만 남기면 며칠치가 섞였을 때 축이 뒤죽박죽으로 보인다.
+     날짜까지 담아 두고(YYYYMMDDHHMM), 화면에 찍을 때 날이 바뀌면 날짜를 함께 보여 준다. */
+  const lbl=(t)=>{const d=new Date(t);
+    return ''+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')
+      +String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');};
+  if(mins===1)return one.map(c=>({d:lbl(c.t),o:c.o,h:c.h,l:c.l,c:c.c,v:c.v,t:c.t}));
   const ms=mins*60000,out=[];let cur=null;
   for(const c of one){const bk=Math.floor(c.t/ms)*ms;
     if(!cur||cur.t!==bk){if(cur)out.push(cur);cur={t:bk,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v};}
     else{cur.h=Math.max(cur.h,c.h);cur.l=Math.min(cur.l,c.l);cur.c=c.c;cur.v+=c.v;}}
   if(cur)out.push(cur);
-  return out.map(c=>({d:new Date(c.t).toTimeString().slice(0,5),o:c.o,h:c.h,l:c.l,c:c.c,v:c.v,t:c.t}));
+  return out.map(c=>({d:lbl(c.t),o:c.o,h:c.h,l:c.l,c:c.c,v:c.v,t:c.t}));
 }
 function resetView(){const n=curCandles.length;view.count=Math.min(n||60,isMinute(chartTf)?140:90);view.end=n-1;view.follow=true;}
 let chartLoading=false;
@@ -10553,7 +10563,10 @@ async function loadCandles(retry){
   if(currentView!=='trade')return;
   const code=selected,tf=chartTf;
   if(isMinute(tf)){
-    if(!intradayBase[code]){chartLoading=true;$('chartLegend').textContent='분봉 불러오는 중…';drawChart();await ensureIntraday(code);chartLoading=false;}
+    /* [v4.63] 봉을 바꾸면 그에 맞는 기간을 새로 받는다(60분봉은 1년, 1분봉은 원천 한계까지) */
+    if(!intradayBase[code]||_intraBkt[code]!==intraBucket(minutesOf(chartTf)||1)){
+      chartLoading=true;$('chartLegend').textContent='분봉 불러오는 중…';drawChart();
+      await ensureIntraday(code);chartLoading=false;}
     if(selected!==code||chartTf!==tf)return;
     curCandles=minuteSeries(code,minutesOf(tf));resetView();drawChart();return;
   }
@@ -10813,8 +10826,20 @@ function drawChart(){
     ctx.fillStyle=PAL.label;ctx.fillText(KRW(v),padL+plotW+6,y);
   }
   /* [추가] 시간축 눈금 위치 계산 + 세로 그리드(연한 선). 라벨은 거래량 아래에 그린다. */
+  /* ══ [v4.62] 분봉 축이 뒤죽박죽으로 보이던 이유 ═══════════════════════════
+     분봉 라벨을 HH:MM 만 찍었다. 며칠치가 이어 붙으면 09:00 → 14:01 → 13:02 처럼
+     시간이 거꾸로 가는 것처럼 보인다(첨부 사진). 실제로는 날이 바뀐 것뿐이다.
+     → 날짜가 바뀌는 지점에는 'M.D 09:00' 처럼 날짜를 함께 찍어 구분해 준다. */
   const fmtAxis=(dstr,prev)=>{const d=String(dstr||'').replace(/[^0-9]/g,'');
-    if(isMinute(chartTf)){return d.length>=12?d.slice(8,10)+':'+d.slice(10,12):String(dstr).slice(-5);}
+    if(isMinute(chartTf)){
+      if(d.length>=12){
+        const hm=d.slice(8,10)+':'+d.slice(10,12);
+        const pd=String(prev||'').replace(/[^0-9]/g,'');
+        const newDay=!pd||pd.slice(0,8)!==d.slice(0,8);
+        return newDay?((+d.slice(4,6))+'.'+(+d.slice(6,8))+' '+hm):hm;
+      }
+      return String(dstr).slice(-5);
+    }
     if(chartTf==='M')return d.slice(0,4)+'.'+d.slice(4,6);
     if(chartTf==='Y')return d.slice(0,4);
     const md=(+d.slice(4,6))+'.'+(+d.slice(6,8));                     // 일·주: M.D
@@ -10822,10 +10847,26 @@ function drawChart(){
     return md;};
   const xEvery=Math.max(1,Math.ceil(m/6));
   const xTicks=[];for(let i=0;i<m;i+=xEvery){xTicks.push(i);}
+  /* 분봉에서 날이 바뀌는 자리에는 눈금을 강제로 하나 두어 경계가 보이게 한다 */
+  let dayEdges=[];
+  if(isMinute(chartTf)&&m>1){
+    for(let i=1;i<m;i++){
+      const a=String((vis[i-1]||{}).d||'').replace(/[^0-9]/g,'');
+      const b=String((vis[i]||{}).d||'').replace(/[^0-9]/g,'');
+      if(a.length>=8&&b.length>=8&&a.slice(0,8)!==b.slice(0,8))dayEdges.push(i);
+    }
+    if(dayEdges.length<=6)dayEdges.forEach(i=>{ if(!xTicks.includes(i))xTicks.push(i); });
+    xTicks.sort((a,b)=>a-b);
+  }
   if(m>1&&(m-1)-xTicks[xTicks.length-1]>=xEvery*0.55)xTicks.push(m-1);   // 오른쪽 끝(최신 봉)도 여유 있으면 표기
   ctx.setLineDash([3,4]);
   xTicks.forEach(i=>{const x=X(i);ctx.strokeStyle=PAL.gridV;ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
   ctx.setLineDash([]);
+  if(dayEdges.length&&dayEdges.length<=40){
+    ctx.save();ctx.strokeStyle=(PAL&&PAL.axis)||'#94a3b8';ctx.globalAlpha=.34;ctx.lineWidth=1;
+    dayEdges.forEach(i=>{const x=X(i);ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
+    ctx.restore();
+  }
   /* [수정] 매물대 재설계 — ①봉과 덜 겹치도록 오른쪽(가격축 쪽) 정렬 ②차분한 슬레이트 기본색,
        최대 매물대=앰버, 현재가 구간=파랑만 강조 ③막대 높이를 칸의 62%로 줄이고 모서리 라운드
        ④% 라벨은 의미 있는 곳(최대·현재가·8%↑)만 — 색 설명은 캔버스 글자 대신 HTML 범례 칩으로 */
@@ -10948,7 +10989,8 @@ function drawChart(){
       ctx.setLineDash([]);
       const up=c.c>=c.o,cc=up?'up':'down',chg=c.c-c.o,cp=c.o?chg/c.o*100:0;
       const tip=$('chartTip');
-      tip.innerHTML=`<div class="d">${c.d}</div>
+      tip.innerHTML=`<div class="d">${(()=>{const q=String(c.d||'').replace(/[^0-9]/g,'');
+        return q.length>=12?(+q.slice(4,6))+'.'+(+q.slice(6,8))+' '+q.slice(8,10)+':'+q.slice(10,12):c.d;})()}</div>
         <div class="r"><span>시</span><span>${KRW(c.o)}</span></div>
         <div class="r"><span>고</span><span class="up">${KRW(c.h)}</span></div>
         <div class="r"><span>저</span><span class="down">${KRW(c.l)}</span></div>
@@ -12235,7 +12277,9 @@ function usApplyQuote(reu,q){
     w52h:usQ[t].w52h,w52l:usQ[t].w52l,ex:usMeta[t].sfx};
   return true;
 }
-async function usEnsureQuotes(tickers,withFx){
+/* [v4.62] cap 은 필요한 화면에서만 요청한다 — 목록에서는 시가총액을 쓰지 않으므로
+   불필요한 외부 호출을 기다릴 이유가 없다. */
+async function usEnsureQuotes(tickers,withFx,wantCap){
   const need=[...new Set(tickers.filter(t=>usMeta[t]))];
   if(!need.length)return 0;
   let gained=0;
@@ -12251,7 +12295,8 @@ async function usEnsureQuotes(tickers,withFx){
   for(let i=0;i<need.length;i+=18)batches.push(need.slice(i,i+18));
   await Promise.all(batches.map(async(batch,bi)=>{
     try{
-      const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(','))+((withFx&&bi===0)?'&fx=1':''),
+      const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(','))
+          +((withFx&&bi===0)?'&fx=1':'')+(wantCap?'&cap=1':''),
         {cache:'no-store'});
       const j=await r.json();
       if(j&&j.fx)usFxSet(j.fx);
@@ -12520,7 +12565,7 @@ function usRowSkel(t,rank){
 }
 
 /* ── 6. 라운지 ── */
-var usRankTab='up', usThemeSel='ai', usPane='find';
+var usRankTab='up', usThemeSel='ai', usPane='find', _usCapAsked=false;
 /* 분야 칩 = 테마 10 + ETF 그룹 5. 예전에는 테마 목록과 ETF 목록이 서로 다른
    섹션에 따로 있어 같은 종목이 두 번 나왔다 — 한 줄로 합친다. */
 function usChipList(){ return US_THEMES.concat(US_ETF_GROUPS); }
@@ -12663,7 +12708,12 @@ function renderUsRankBody(){
   let list,note;
   if(usRankTab==='up'){list=rated.slice().sort((a,b)=>rate(b)-rate(a));note='오늘 가장 많이 오른 순서';}
   else if(usRankTab==='down'){list=rated.slice().sort((a,b)=>rate(a)-rate(b));note='오늘 가장 많이 내린 순서';}
-  else if(usRankTab==='cap'){list=pool.filter(t=>usQ[t].cap).slice().sort((a,b)=>usQ[b].cap-usQ[a].cap);note='시가총액이 큰 순서';}
+  else if(usRankTab==='cap'){
+    /* [v4.62] 시가총액 탭에서만 cap 을 따로 받아 온다 */
+    const noCap=pool.filter(t=>!(usQ[t]&&usQ[t].cap>0));
+    if(noCap.length&&!_usCapAsked){ _usCapAsked=true;
+      usEnsureQuotes(pool,false,true).then(()=>{ if(currentView==='us')renderUsRankBody(); }); }
+    list=pool.filter(t=>usQ[t].cap).slice().sort((a,b)=>usQ[b].cap-usQ[a].cap);note='시가총액이 큰 순서';}
   else if(usRankTab==='view'){
     /* 서버가 센 실제 조회수 순서. 아직 안 왔으면 받아 오고 다시 그린다. */
     if(!usPop){ usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
@@ -12915,17 +12965,21 @@ function usEnsureCandles(){
   return _usCdBusy;
 }
 /* 분봉 — 야후 1분봉을 받아 두고 3·5·10·30·60 분은 여기서 묶는다 */
-var usMinRaw=null, _usMinFor=null, _usMinBusy=null;
+var usMinRaw=null, usMinSpan=null, _usMinFor=null, _usMinBusy=null, _usMinBkt=0;
+/* [v4.62] 요청하는 봉 크기에 따라 서버가 더 먼 과거를 준다 — 봉별로 따로 보관한다 */
+function usMinBucket(mins){ return mins>=60?60:mins>=30?30:mins>=5?5:mins>=3?3:1; }
 function usEnsureMinutes(){
   if(!usSel)return Promise.resolve();
-  if(_usMinFor===usSel&&usMinRaw)return Promise.resolve();
+  const bkt=usMinBucket(minutesOf(chartTf)||1);
+  if(_usMinFor===usSel&&usMinRaw&&_usMinBkt===bkt)return Promise.resolve();
   if(_usMinBusy)return _usMinBusy;
   const want=usSel;
-  _usMinBusy=fetch('/api/uscandle?tf=MIN&code='+encodeURIComponent(usMeta[want].reu),{cache:'no-store'})
+  _usMinBusy=fetch('/api/uscandle?tf=MIN&m='+bkt+'&code='+encodeURIComponent(usMeta[want].reu),{cache:'no-store'})
     .then(r=>r.json()).then(j=>{
       if(usSel!==want)return;
       usMinRaw=(j&&j.ok&&Array.isArray(j.candles))?j.candles:[];
-      _usMinFor=want;
+      usMinSpan=(j&&j.span)||null;
+      _usMinFor=want; _usMinBkt=usMinBucket(minutesOf(chartTf)||1);
     }).catch(()=>{ if(usSel===want){usMinRaw=[];_usMinFor=want;} })
     .then(()=>{ _usMinBusy=null; if(currentView==='ustrade'&&usInfoTab==='chart')usLoadIntoChart(); });
   return _usMinBusy;
@@ -12941,19 +12995,25 @@ function usMinAgg(mins){
   if(cur)out.push(cur);
   /* 국내 엔진은 d(라벨)로 축을 그린다 — 분봉은 시:분으로 준다 */
   return out.map(c=>{ const d=new Date(c.t);
-    const hh=String(d.getHours()).padStart(2,'0'), mm=String(d.getMinutes()).padStart(2,'0');
-    return {d:hh+':'+mm,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}; });
+    const lb=''+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')
+      +String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');
+    return {d:lb,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v,t:c.t}; });
 }
 async function usLoadIntoChart(){
   if(currentView!=='ustrade'||!usSel)return;
   const lg=$('chartLegend');
   if(isMinute(chartTf)){
-    if(_usMinFor!==usSel||!usMinRaw){
+    if(_usMinFor!==usSel||!usMinRaw||_usMinBkt!==usMinBucket(minutesOf(chartTf)||1)){
       chartLoading=true; if(lg)lg.textContent='분봉 불러오는 중…'; drawChart();
       await usEnsureMinutes(); chartLoading=false;
     }
     curCandles=usMinAgg(minutesOf(chartTf));
     resetView(); drawChart();
+    /* [v4.63] 실제로 확보한 기간을 숨기지 않고 적는다 — 1분봉은 원천이 7일씩만 주므로
+       아무리 이어 붙여도 두 달 남짓이 한계다. 1년인 척하지 않는다. */
+    {const nt=$('usChartNote'), sp=usMinSpan;
+     if(nt)nt.innerHTML=sp?`${TFLABEL[chartTf]||''}봉 · 최근 <b>${sp.days}일</b> (${KRW(curCandles.length)}봉)`
+       +(sp.note?` <span class="uc-note">· ${sp.note}</span>`:''):'';}
     if(!curCandles.length&&lg)lg.textContent='분봉 데이터를 받지 못했어요 · ⟳ 로 다시 시도';
     return;
   }
@@ -12963,6 +13023,7 @@ async function usLoadIntoChart(){
   }
   curCandles=usToEngine(usAgg(usCandles||[],usTfMap[chartTf]||'D'));
   resetView(); drawChart();
+  {const nt=$('usChartNote'); if(nt)nt.innerHTML='';}
   if(!curCandles.length&&lg)lg.textContent='차트 데이터를 받지 못했어요 · ⟳ 로 다시 시도';
 }
 /* 52주 고저 보강 + 원천 표시 — 예전 loadUsCandles 가 하던 일을 여기서 이어받는다 */
@@ -12979,7 +13040,7 @@ function usApplyCandleExtras(j){
 }
 function openUS(t){ if(!usMeta[t])return;
   usSel=t; usSide='buy'; usOrdPx=null; usOrdQty=1; usCandles=null;
-  usMinRaw=null; _usMinFor=null;                       // [v4.60] 분봉 캐시도 종목별
+  usMinRaw=null; usMinSpan=null; _usMinFor=null;        // [v4.60] 분봉 캐시도 종목별
   /* [v4.56] 해외도 '최근 본 종목'에 국내와 같은 목록으로 남긴다 —
      예전에는 해외만 '최근 검색'으로 따로 놀아서, 방금 본 미국 종목을
      종목검색 화면에서 다시 찾을 수가 없었다. */
@@ -13005,7 +13066,7 @@ function renderUsTrade(){
     renderUsInfo();});
   document.querySelectorAll('#usInfoTabs button').forEach(x=>x.classList.toggle('on',x.dataset.uinfo===usInfoTab));
   renderUsInfo();
-  usEnsureQuotes([usSel],true).then(()=>{renderUsHead();renderUsOrder();renderUsInfo();renderUsCta();});
+  usEnsureQuotes([usSel],true,true).then(()=>{renderUsHead();renderUsOrder();renderUsInfo();renderUsCta();});
   usEnsureCandles();          // [v4.60] 탭과 무관하게 바로 — 시세 탭도 이 데이터를 쓴다
   usPollStart([usSel]);
   /* [v4.50] 하단 고정 주문바 — 모듈이라 inline onclick 을 쓸 수 없어 여기서 묶는다 */

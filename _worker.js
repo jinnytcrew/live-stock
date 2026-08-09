@@ -5021,33 +5021,61 @@ async function yahooIndex(sym) {
   return out;
 }
 var pad2 = (n) => String(n).padStart(2, "0");
-async function yahooMinute(code, mkt) {
+async function yahooMinute(code, mkt, want) {
+  /* ══ [v4.63] 국내 분봉도 1년까지 이어 붙인다 ═══════════════════════════════
+     예전에는 range=5d 한 번이라 닷새치가 전부였다. 해외와 같은 방식으로
+     period1·period2 창을 옮겨 가며 여러 번 받아 잇는다.
+     야후가 한 번에 주는 기간은 1분봉 7일 · 5~30분봉 60일 · 60분봉 2년이라,
+     1분봉만 아무리 이어도 두 달 남짓이 한계다(없는 데이터를 지어내지 않는다). */
+  /* [v4.64] 국내도 같은 계단 — 1분 7일 · 3분 28일 · 5분 이상 1년 */
+  const bkt = want >= 60 ? 60 : want >= 30 ? 30 : want >= 5 ? 5 : want >= 3 ? 3 : 1;
+  const IV = { 1: "1m", 3: "1m", 5: "5m", 30: "30m", 60: "60m" }[bkt];
+  const WIN = { 1: 7, 3: 7, 5: 59, 30: 59, 60: 365 }[bkt];
+  const WANT_DAYS = { 1: 7, 3: 28, 5: 365, 30: 365, 60: 365 }[bkt];
+  const winCount = Math.min(8, Math.max(1, Math.ceil(WANT_DAYS / WIN)));
+  const now = Math.floor(Date.now() / 1e3), DAY = 86400;
   const order = mkt === "KOSDAQ" ? [".KQ", ".KS"] : [".KS", ".KQ"];
   for (const sfx of order) {
     try {
-      const u = `https://query1.finance.yahoo.com/v8/finance/chart/${code}${sfx}?interval=1m&range=5d`;
-      const txt = await fetchText2(u, 6e3, { "User-Agent": UA2, "Accept": "application/json" });
-      const j = JSON.parse(txt);
-      const r = j && j.chart && j.chart.result && j.chart.result[0];
-      if (!r || !r.timestamp) continue;
-      const ts = r.timestamp;
-      const q = r.indicators && r.indicators.quote && r.indicators.quote[0] || {};
-      const out = [];
-      for (let i = 0; i < ts.length; i++) {
-        const c = q.close && q.close[i];
-        if (c == null) continue;
-        const d = new Date(ts[i] * 1e3 + 9 * 36e5);
-        const dd = `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}`;
-        out.push({ d: dd, o: q.open && q.open[i] != null ? q.open[i] : c, h: q.high && q.high[i] != null ? q.high[i] : c, l: q.low && q.low[i] != null ? q.low[i] : c, c, v: q.volume && q.volume[i] || 0 });
+      const jobs = [];
+      for (let i = 0; i < winCount; i++) {
+        const p2 = now - i * WIN * DAY, p1 = p2 - WIN * DAY;
+        jobs.push(`https://query1.finance.yahoo.com/v8/finance/chart/${code}${sfx}`
+          + `?interval=${IV}&period1=${p1}&period2=${p2}`);
       }
-      if (out.length > 2) return { candles: out, src: "yahoo" + sfx + ":" + out.length };
+      const parts = await Promise.all(jobs.map(async (u) => {
+        try {
+          const txt = await fetchText2(u, 6e3, { "User-Agent": UA2, "Accept": "application/json" });
+          const j = JSON.parse(txt);
+          const r = j && j.chart && j.chart.result && j.chart.result[0];
+          if (!r || !r.timestamp) return null;
+          return r;
+        } catch (e) { return null; }
+      }));
+      const map = new Map();
+      for (const r of parts) {
+        if (!r) continue;
+        const ts = r.timestamp;
+        const q = r.indicators && r.indicators.quote && r.indicators.quote[0] || {};
+        for (let i = 0; i < ts.length; i++) {
+          const c = q.close && q.close[i];
+          if (c == null) continue;
+          const d = new Date(ts[i] * 1e3 + 9 * 36e5);
+          const dd = `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}`;
+          if (map.has(dd)) continue;
+          map.set(dd, { d: dd, o: q.open && q.open[i] != null ? q.open[i] : c, h: q.high && q.high[i] != null ? q.high[i] : c, l: q.low && q.low[i] != null ? q.low[i] : c, c, v: q.volume && q.volume[i] || 0 });
+        }
+      }
+      let out = [...map.values()].sort((a, b) => a.d < b.d ? -1 : 1);
+      if (out.length > 26000) out = out.slice(-26000);
+      if (out.length > 2) return { candles: out, src: "yahoo" + sfx + ":" + IV + ":" + out.length };
     } catch (e) {
     }
   }
   return null;
 }
-async function getMinute(code, mkt) {
-  const y = await yahooMinute(code, mkt);
+async function getMinute(code, mkt, want) {
+  const y = await yahooMinute(code, mkt, want || 1);
   if (y) return y;
   return await naverMinute(code);
 }
@@ -5069,7 +5097,7 @@ var chart_default = async (req2) => {
       const mkt = String(url.searchParams.get("mkt") || "").toUpperCase();
       let r = { candles: [], src: "none" };
       try {
-        r = await getMinute(code, mkt);
+        r = await getMinute(code, mkt, Math.max(1, parseInt(url.searchParams.get("m") || "1") || 1));
       } catch (e) {
         r = { candles: [], src: "err:" + String(e).slice(0, 40) };
       }
@@ -11232,7 +11260,14 @@ async function usquote_default(req2){
     }catch(e){}
   }
   {
-    const noCap=Object.keys(out).filter(c=>out[c]&&!(out[c].cap>0)).slice(0,18);
+    /* ══ [v4.62] 시가총액 보충을 '요청할 때만' 한다 ═══════════════════════════
+       [무엇이 느렸나] v4.56 부터 모든 시세 요청이 끝에 CNBC 를 한 번 더 불렀다.
+       네이버 배치가 200ms 에 끝나도 CNBC 를 최대 6.5초 기다린 뒤에야 응답했고,
+       목록 화면은 7묶음이라 그 지연을 7번 겪었다 — 해외만 유독 느리던 진짜 이유다.
+       시가총액이 필요한 곳은 종목 상세와 시가총액 순위뿐이므로, 그때만 cap=1 로
+       요청하게 한다. 목록 화면은 네이버 배치 한 번으로 곧장 끝난다. */
+    const wantCap=u.searchParams.get("cap")==="1";
+    const noCap=wantCap?Object.keys(out).filter(c=>out[c]&&!(out[c].cap>0)).slice(0,18):[];
     if(noCap.length&&budget.left>1&&Date.now()-T0<8000){
       const cm=await cnbcBatch(noCap,diag,budget);
       let n=0;
@@ -11279,26 +11314,52 @@ async function uscandle_default(req2){
      → 야후 차트의 1분봉(최근 5일)을 한 번에 받아 두고, 3·5·10·30·60분은
        클라이언트에서 묶어 만든다. 국내와 같은 봉 종류를 해외에서도 쓸 수 있다. */
   if(String(u.searchParams.get("tf")||"")==="MIN"){
-    const MK="usmin:"+reu;
+    /* ══ [v4.63] 분봉을 1년치까지 이어 붙인다 ═══════════════════════════════
+       [원천의 한계를 먼저 밝힌다] 야후는 한 번에 주는 기간이 봉 크기마다 정해져 있다.
+         · 1분봉  : 최대 7일   ← 1년치는 어떤 무료 원천도 주지 않는다
+         · 5·30분 : 최대 60일
+         · 60분   : 2년까지
+       [그래서 이렇게 한다] period1·period2 로 창을 옮겨 가며 여러 번 받아 이어 붙인다.
+       60·30·5분은 이렇게 1년을 채울 수 있고, 1분은 창이 7일이라 여러 번 받아도
+       두 달 남짓이 한계다. 없는 데이터를 지어내지 않고, 실제로 확보한 기간을
+       span 으로 함께 돌려줘 화면에 그대로 적는다. */
+    const want=Math.max(1,parseInt(u.searchParams.get("m")||"1")||1);
+    const bkt=want>=60?60:want>=30?30:want>=5?5:want>=3?3:1;
+    const MK="usmin:"+reu+":"+bkt;
     try{ const c=KV?await KV.get(MK,"json"):null;
-      if(c&&c.at&&Date.now()-c.at<3*60*1000&&Array.isArray(c.candles)&&c.candles.length)
-        return new Response(JSON.stringify({ok:true,tf:"MIN",candles:c.candles,cached:1}),
+      if(c&&c.at&&Date.now()-c.at<5*60*1000&&Array.isArray(c.candles)&&c.candles.length)
+        return new Response(JSON.stringify({ok:true,tf:"MIN",m:bkt,candles:c.candles,span:c.span,cached:1}),
           {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
     }catch(e){}
     const tk=usSymDot(reu);
-    for(const [nm,url] of [
-      ["yh1m","https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(tk)+"?interval=1m&range=5d&includePrePost=false"],
-      ["yh5m","https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(tk)+"?interval=5m&range=1mo&includePrePost=false"]
-    ]){
+    /* ══ [v4.64] 봉마다 '쓸모 있는' 기간을 따로 정한다 ═══════════════════════
+       무조건 1년으로 밀면 1·3분봉은 원천이 못 주고, 억지로 늘려도 봉만 무거워진다.
+       봉이 맡는 구간이 서로 겹치지 않도록 계단을 만든다.
+         1분  : 7일   — 원천이 한 번에 주는 최대치. 딱 한 번만 받아 가장 빠르다
+         3분  : 28일  — 1분(7일)과 5분(1년) 사이를 메운다. 7일 창 4개를 동시에 받는다
+         5·10분: 1년
+         30·60분: 1년 */
+    const IV={1:"1m",3:"1m",5:"5m",30:"30m",60:"60m"}[bkt];
+    const WIN={1:7,3:7,5:59,30:59,60:365}[bkt];      // 한 번에 받을 수 있는 일수
+    const WANT_DAYS={1:7,3:28,5:365,30:365,60:365}[bkt];
+    const winCount=Math.min(8,Math.max(1,Math.ceil(WANT_DAYS/WIN)));
+    const now=Math.floor(Date.now()/1000), DAY=86400;
+    const jobs=[];
+    for(let i=0;i<winCount;i++){
+      const p2=now-i*WIN*DAY, p1=p2-WIN*DAY;
+      jobs.push(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(tk)}`
+        +`?interval=${IV}&period1=${p1}&period2=${p2}&includePrePost=false`);
+    }
+    const pull=async(url)=>{
       try{
         const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
         const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"application/json" },signal:c.signal});
         clearTimeout(t);
-        if(!r.ok){ diag.push(nm+":"+r.status); continue; }
+        if(!r.ok)return {err:"HTTP"+r.status};
         const j=await r.json();
         const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
         const ts=res&&res.timestamp, q=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0];
-        if(!ts||!q){ diag.push(nm+":shape"); continue; }
+        if(!ts||!q)return {err:"shape"};
         const out=[];
         for(let i=0;i<ts.length;i++){
           const cl=+q.close[i]; if(!(cl>0))continue;
@@ -11306,14 +11367,29 @@ async function uscandle_default(req2){
           if(!(o>0))o=cl; if(!(h>0))h=Math.max(o,cl); if(!(l>0))l=Math.min(o,cl);
           out.push({t:ts[i]*1000,o,h:Math.max(h,o,cl),l:Math.min(l,o,cl),c:cl,v:+q.volume[i]||0});
         }
-        if(out.length<10){ diag.push(nm+":thin"); continue; }
-        diag.push(nm+":"+out.length);
-        try{ if(KV)await KV.put(MK,JSON.stringify({at:Date.now(),candles:out}),{expirationTtl:300}); }catch(e){}
-        return new Response(JSON.stringify({ok:true,tf:"MIN",candles:out,src:nm,diag}),
-          {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
-      }catch(e){ diag.push(nm+":"+String(e).slice(0,10)); }
+        return {rows:out};
+      }catch(e){ return {err:String(e).slice(0,12)}; }
+    };
+    const res=await Promise.all(jobs.map(pull));
+    const map=new Map(); let errs=0;
+    res.forEach(r=>{ if(r.err){errs++;return;} (r.rows||[]).forEach(c=>{ if(!map.has(c.t))map.set(c.t,c); }); });
+    let rows=[...map.values()].sort((a,b)=>a.t-b.t);
+    diag.push(IV+":"+rows.length+(errs?"/err"+errs:""));
+    /* 화면과 저장소가 감당할 만큼만 — 최근 것부터 남긴다 */
+    const CAP=26000;
+    if(rows.length>CAP)rows=rows.slice(-CAP);
+    if(!rows.length){
+      return new Response(JSON.stringify({ok:false,tf:"MIN",m:bkt,candles:[],diag}),
+        {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
     }
-    return new Response(JSON.stringify({ok:false,tf:"MIN",candles:[],diag}),
+    const days=Math.round((rows[rows.length-1].t-rows[0].t)/DAY/1000);
+    /* 목표만큼 받았는지 화면이 구분할 수 있게 — 1년인 척하지 않는다 */
+    const span={days,from:rows[0].t,to:rows[rows.length-1].t,want:WANT_DAYS,
+      full:days>=WANT_DAYS*0.85,
+      note:bkt===1?"시세 제공처가 1분 데이터를 이레까지만 제공합니다"
+        :bkt===3?"3분봉은 1분 데이터로 만들어 한 달까지 제공합니다":""};
+    try{ if(KV)await KV.put(MK,JSON.stringify({at:Date.now(),candles:rows,span}),{expirationTtl:600}); }catch(e){}
+    return new Response(JSON.stringify({ok:true,tf:"MIN",m:bkt,candles:rows,span,diag}),
       {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
   }
   const CK="uscd:"+reu;
@@ -11793,12 +11869,19 @@ async function wikiArticleViews(tickers, have, diag, budget){
     if (have[t] != null || !WIKI_ART[t]) continue;
     need.push(t);
   }
-  /* 먼저 KV 에서 꺼낸다 — 외부 호출을 쓰지 않는다 */
+  /* ══ [v4.62] 조회수 캐시를 '한 덩어리'로 ═════════════════════════════════
+     [무엇이 문제였나] 종목마다 wikv:AAPL 처럼 따로 저장했다. 한 번에 38개면
+     쓰기도 38번이다. 무료 KV 는 하루 쓰기 1,000회라 몇 번 새로고침하면 한도에
+     걸리고, 그 뒤로는 저장이 조용히 실패해 캐시가 영영 안 쌓인다.
+     → 다음 방문에도 같은 38개만 다시 받게 되어 순위가 40여 종에서 멈췄다.
+     한 키에 전부 담으면 읽기 1번·쓰기 1번으로 끝난다. */
+  let bag = null;
+  try { bag = KV ? await KV.get("wikv:all", "json") : null; } catch (e) { }
+  if (!bag || typeof bag !== "object") bag = {};
   const still = [];
   for (const t of need) {
-    let hit = null;
-    try { hit = KV ? await KV.get("wikv:" + t, "json") : null; } catch (e) { }
-    if (hit && hit.at && Date.now() - hit.at < 12 * 3600e3) out[t] = hit.v;
+    const hit = bag[t];
+    if (hit && hit.at && Date.now() - hit.at < 24 * 3600e3) out[t] = hit.v;
     else still.push(t);
   }
   diag.push("wiki-kv:" + (need.length - still.length));
@@ -11821,8 +11904,15 @@ async function wikiArticleViews(tickers, have, diag, budget){
   let n = 0;
   for (const g of got) {
     if (!g) continue;
-    out[g.t] = g.avg; n++;
-    try { if (KV) await KV.put("wikv:" + g.t, JSON.stringify({ at: Date.now(), v: g.avg }), { expirationTtl: 86400 }); } catch (e) { }
+    out[g.t] = g.avg; bag[g.t] = { at: Date.now(), v: g.avg }; n++;
+  }
+  /* 쓰기는 한 번뿐 — 오래된 항목은 정리해 키가 무한정 커지지 않게 한다 */
+  if (n && KV) {
+    try {
+      const cut = Date.now() - 48 * 3600e3;
+      for (const k in bag) if (!bag[k] || !(bag[k].at > cut)) delete bag[k];
+      await KV.put("wikv:all", JSON.stringify(bag), { expirationTtl: 172800 });
+    } catch (e) { }
   }
   diag.push("wiki-art:" + n + "/" + take.length);
   return out;
@@ -11985,7 +12075,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.61.0";
+var APP_VER = "4.64.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
