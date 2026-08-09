@@ -8165,11 +8165,16 @@ function usRankSection(){
     if(miss.length)usEnsureQuotes(usPop.map(x=>x.t),true).then(redraw);
     const b=usPopBasis||{};
     /* 무엇을 근거로 매겼는지 숨기지 않는다 — 어느 사이트의 어떤 수치인지 밝힌다 */
+    /* [v4.70] 무엇으로 매긴 순위인지 숨기지 않는다 */
     const LBL={'naver-pop':'네이버 해외 인기','yahoo-trend':'야후 검색 급상승',
-      'stocktwits':'Stocktwits 관심 급증','yahoo-active':'거래 활발'};
+      'stocktwits':'Stocktwits 관심 급증','yahoo-active':'거래 활발(뒷자리 채움)'};
     const parts=(b.src||[]).map(x=>`${LBL[x.k]||x.k} ${x.n}종`);
     if(b.app>0)parts.push(`앱 내 조회 ${KRW(b.appTotal||0)}회`);
-    const src=parts.length?parts.join(' · '):'원천에 연결하지 못했습니다';
+    const src=b.fallback
+      ? `⚠ 실시간 인기 순위를 받지 못해 <b>기본 목록</b>으로 표시합니다`
+        +(parts.length?` · ${parts.join(' · ')}`:'')
+      : (parts.length?`관심 신호 <b>${b.attn||0}종</b> 기준 · ${parts.join(' · ')}`
+                     :'원천에 연결하지 못했습니다');
     const ses=usSession();
     const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
       · 조회수 상위 <b>${usPop.length}종</b><br><small>${src}</small>
@@ -12858,9 +12863,11 @@ function renderUsRankBody(){
     if(miss.length)usEnsureQuotes(known.map(x=>x.t),true).then(()=>{ if(currentView==='us')renderUsRankBody(); });
     const b2=usPopBasis||{};
     list=known.map(x=>x.t).slice(0,100);
-    note=(b2.src&&b2.src.length)
-      ?`많이 찾아본 순서 · ${(b2.src||[]).map(x=>x.k==='naver-pop'?'네이버 인기':x.k==='yahoo-trend'?'야후 검색':x.k==='stocktwits'?'커뮤니티':'거래 활발').join(' · ')}`
-      :`조회수 원천에 연결하지 못했습니다`;
+    note=b2.fallback
+      ?`실시간 인기 순위를 받지 못해 기본 목록으로 표시합니다`
+      :(b2.src&&b2.src.length)
+        ?`많이 찾아본 순서 · ${(b2.src||[]).map(x=>x.k==='naver-pop'?'네이버 인기':x.k==='yahoo-trend'?'야후 검색':x.k==='stocktwits'?'커뮤니티':'거래 활발').join(' · ')}`
+        :`조회수 원천에 연결하지 못했습니다`;
   }
   else {list=pool.filter(t=>usQ[t].vol).slice().sort((a,b)=>val(b)-val(a));
         note='거래대금(가격×거래량)이 큰 순서';}

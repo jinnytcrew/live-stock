@@ -11838,10 +11838,59 @@ function usExchSfx(ex){
   return null;
 }
 /* 네이버 해외증시 인기 종목 — 화면에 심긴 초기 데이터에서 로이터코드를 순서대로 긁는다 */
+/* ══ [v4.70] '인기 순위'인지 확인하고 쓴다 ═══════════════════════════════════
+   [지난 잘못] 네이버 화면 HTML 에서 종목 코드를 나오는 순서대로 전부 긁어
+   그걸 인기 순위로 썼다. 그 페이지에는 인기 목록 말고도 여러 목록이 섞여 있어,
+   결과는 '아무 순서의 미국 종목 100개'였다. 거기에 최고 가중치를 줬으니
+   록히드마틴이 1위로 올라온 것이다. 데이터가 온다고 맞는 데이터가 아니다.
+   [이번 방식]
+     ① 페이지에 심긴 JSON(__NEXT_DATA__)을 실제로 파싱한다
+     ② 키 이름에 popular·rank·top·hot·interest 가 들어간 '목록'만 고른다
+     ③ 그래도 맞는지 검산한다 — 한국인이 많이 보는 미국 종목(엔비디아·테슬라·
+        애플·팔란티어…)이 상위 20 안에 셋 이상 없으면 인기 순위가 아니라고 보고 버린다
+   검산을 통과하지 못하면 아예 쓰지 않는다. 틀린 순위를 1위로 올리는 것보다 낫다. */
+var KR_FAV = ["NVDA","TSLA","AAPL","PLTR","MU","AVGO","AMD","GOOGL","GOOG","AMZN","META","TSM",
+  "SOXL","TQQQ","QLD","SCHD","QQQ","SPY","INTC","IONQ","MSFT","COIN","MSTR","SMCI","ARM","RGTI"];
+function looksLikePopular(arr){
+  if(!arr||arr.length<8)return false;
+  const head=arr.slice(0,20).map(x=>String(x.t||"").toUpperCase());
+  let hit=0; for(const t of head)if(KR_FAV.includes(t))hit++;
+  return hit>=3;
+}
+/* JSON 을 훑어 '인기 목록'처럼 보이는 배열을 찾는다 */
+function findPopularArray(node,depth){
+  if(!node||depth>8)return null;
+  if(Array.isArray(node))return null;
+  if(typeof node!=="object")return null;
+  const KEY=/(popular|rank|top|hot|interest|인기)/i;
+  for(const k of Object.keys(node)){
+    const v=node[k];
+    if(Array.isArray(v)&&KEY.test(k)){
+      const out=[];
+      for(const it of v){
+        if(!it||typeof it!=="object")continue;
+        const reu=String(it.reutersCode||it.symbolCode||it.code||"").toUpperCase();
+        const m=reu.match(/^([A-Z0-9.\-]{1,10})\.([ONA])$/);
+        if(!m)continue;
+        out.push({t:m[1],sfx:m[2],
+          kr:String(it.stockNameKor||it.stockName||it.nameKor||"").trim(),
+          en:String(it.stockNameEng||it.nameEng||"").trim()});
+      }
+      if(out.length>=8)return out;
+    }
+  }
+  for(const k of Object.keys(node)){
+    const got=findPopularArray(node[k],(depth||0)+1);
+    if(got)return got;
+  }
+  return null;
+}
 async function naverWorldPopular(diag,budget){
   const urls=[
     "https://m.stock.naver.com/worldstock",
-    "https://m.stock.naver.com/worldstock/home/USA/index"
+    "https://m.stock.naver.com/worldstock/home/USA/index",
+    "https://m.stock.naver.com/api/stocks/interestTop/worldStock",
+    "https://m.stock.naver.com/front-api/v1/worldStock/popular"
   ];
   for(const u of urls){
     if(budget&&budget.left<=1)break;
@@ -11853,20 +11902,17 @@ async function naverWorldPopular(diag,budget){
       clearTimeout(t);
       if(!r.ok){ diag.push("nv-pop:"+r.status); continue; }
       const txt=await r.text();
-      /* 구조가 바뀌어도 견디도록, 로이터코드가 나오는 순서 그대로 뽑는다 */
-      const seen=new Set(), out=[];
-      const re=/"reutersCode"\s*:\s*"([A-Z0-9.\-]{1,10}\.(?:O|N|A))"([\s\S]{0,320}?)(?="reutersCode"|$)/g;
-      let m2;
-      while((m2=re.exec(txt))&&out.length<60){
-        const reu=m2[1], tail=m2[2]||"";
-        const tk=reu.split(".")[0], sfx=reu.split(".")[1];
-        if(seen.has(tk))continue; seen.add(tk);
-        const kr=(tail.match(/"stockNameKor"\s*:\s*"([^"]{1,40})"/)||tail.match(/"stockName"\s*:\s*"([^"]{1,40})"/)||[])[1]||"";
-        const en=(tail.match(/"stockNameEng"\s*:\s*"([^"]{1,60})"/)||[])[1]||"";
-        out.push({t:tk,sfx,kr,en});
-      }
-      if(out.length>=5){ diag.push("nv-pop:"+out.length); return out; }
-      diag.push("nv-pop:thin"+out.length);
+      let arr=null;
+      /* HTML 이면 심긴 JSON 을 꺼내고, JSON 이면 그대로 쓴다 */
+      const mNext=txt.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      const cands=[];
+      if(mNext){ try{ cands.push(JSON.parse(mNext[1])); }catch(e){} }
+      if(!cands.length){ try{ cands.push(JSON.parse(txt)); }catch(e){} }
+      for(const j of cands){ arr=findPopularArray(j,0); if(arr)break; }
+      if(!arr){ diag.push("nv-pop:no-list"); continue; }
+      if(!looksLikePopular(arr)){ diag.push("nv-pop:not-rank"+arr.length); continue; }
+      diag.push("nv-pop:"+arr.length);
+      return arr.slice(0,60);
     }catch(e){ diag.push("nv-pop:"+String(e).slice(0,10)); }
   }
   return null;
@@ -11943,8 +11989,12 @@ async function uspopular_default(req2){
       if (!cur.cap && cap) cur.cap = cap; }
     else score.set(t, { t, sfx: sfx || null, kr: kr || "", en: en || "", cap: cap || 0, sc: add, origin: [origin] });
   };
-  /* 원천마다 '조회수에 얼마나 가까운가'로 무게를 준다.
-     네이버 인기(한국 사용자 실제 조회) > 야후 검색 급상승 > 커뮤니티 관심 > 거래 활발 */
+  /* ══ [v4.70] 계층으로 나눈다 — 점수 합산은 순서를 뒤집는다 ═══════════════
+     가중치만으로는 '거래 활발 100종'이 합계에서 상위를 먹는 일을 못 막는다.
+     원천을 계층으로 갈라 앞 계층이 무조건 위에 오게 한다.
+       1층: 실제 관심 신호(네이버 인기 · 야후 검색 · 커뮤니티 · 앱 조회)
+       2층: 거래 활발 — 1층으로 못 채운 뒷자리만 메운다
+     같은 층 안에서만 점수로 겨룬다. */
   /* ══ [v4.69] 상위권은 '실제로 많이 본 종목'만 ═══════════════════════════════
      거래 활발(yahoo-active)은 거래대금 순서라 조회수와 다르다. 그런데 100종이나
      되다 보니 점수 총합에서 상위를 차지해 버렸다 — 화면에 록히드마틴·맥도날드가
@@ -11967,10 +12017,31 @@ async function uspopular_default(req2){
   try { wikiV = await wikiTopViews(diag, budget); } catch (e) { }
   const wEnt = Object.entries(wikiV).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   wEnt.forEach(([t], i) => { if (score.has(t)) bump(t, null, 400 * (1 - i / wEnt.length), "wiki"); });
-  const items = [...score.values()].sort((a, b) => b.sc - a.sc).slice(0, 100)
+  /* 쓰레기 티커 거르기 — 이름이 티커와 같고 어떤 관심 신호에도 안 걸린 것은 뺀다 */
+  const ATTN = new Set(["naver-pop","yahoo-trend","stocktwits","app","wiki"]);
+  const all = [...score.values()].filter(x => {
+    if (!/^[A-Z][A-Z0-9]{0,5}(-[A-Z])?$/.test(x.t)) return false;
+    if (x.t === "TEST" || x.t === "NONE") return false;
+    return true;
+  });
+  const tier1 = all.filter(x => x.origin.some(o => ATTN.has(o))).sort((a, b) => b.sc - a.sc);
+  const tier2 = all.filter(x => !x.origin.some(o => ATTN.has(o)))
+    .sort((a, b) => (b.cap || 0) - (a.cap || 0));      // 뒷자리는 규모 순으로 안정되게
+  let ranked = tier1.concat(tier2);
+  let fallback = 0;
+  /* 실시간 관심 신호가 하나도 안 잡힌 날 — 순위라고 부를 수 없는 목록을 1위에 올리지 않는다.
+     한국 투자자가 늘 상위에 두는 종목을 기본 순서로 깔고, 그렇다고 화면에 밝힌다. */
+  if (tier1.length < 8) {
+    fallback = 1;
+    const seen = new Set(ranked.map(x => x.t));
+    const base = KR_FAV.filter(t => !seen.has(t)).map(t => ({ t, sfx: null, kr: "", en: "", cap: 0, sc: 0, origin: ["base"] }));
+    ranked = base.concat(ranked);
+  }
+  const items = ranked.slice(0, 100)
     .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: x.kr, en: x.en, cap: x.cap || 0,
       origin: x.origin, views: Math.round(vt.map[x.t] || 0) }));
   const basis = { n: items.length, src: lists.map(l => ({ k: l.name, n: l.arr.length })),
+    attn: tier1.length, fill: tier2.length, fallback,
     app: vEntries.length, appTotal: Math.round(vt.total), wiki: wEnt.length, diag };
   try { if (KV && items.length) await KV.put(CK, JSON.stringify({ at: Date.now(), items, basis }), { expirationTtl: 900 }); } catch (e) { }
   await usvFlush(true);
@@ -12011,7 +12082,13 @@ async function uspopdiag_default(){
   await probe("naver-popular(한국인 조회 상위)",
     "https://m.stock.naver.com/worldstock",
     { "User-Agent": UA25, Accept: "text/html", "Accept-Language": "ko-KR,ko;q=0.9", Referer: "https://m.stock.naver.com/" },
-    (t) => (t.match(/"reutersCode"\s*:\s*"[A-Z0-9.\-]{1,10}\.(?:O|N|A)"/g) || []).length);
+    (t) => { /* 인기 '순위'로 쓸 수 있는 목록이 실제로 있는지까지 판정한다 */
+      const mN = t.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      let arr = null;
+      if (mN) { try { arr = findPopularArray(JSON.parse(mN[1]), 0); } catch (e) { } }
+      if (!arr) return 0;
+      return looksLikePopular(arr) ? arr.length : 0;
+    });
   await probe("yahoo-active(거래 활발 100종)",
     "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=100&start=0",
     { "User-Agent": UA20, Accept: "application/json" },
@@ -12053,7 +12130,7 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.69.0";
+var APP_VER = "4.70.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
