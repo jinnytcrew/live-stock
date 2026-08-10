@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=392';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=393';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2681,35 +2681,49 @@ function renderAcctSend(){
 }
 /* ══ [v5.8] 다른 사람에게 보내기 — 내 계좌끼리 이체 아래에 붙인다 ═══════════ */
 function acctSendOutHtml(){
+  /* ══ [v6.0] 내 계좌 송금과 같은 모양으로 맞춘다 ═══════════════════════════
+     [무엇이 어긋났나] ① 확인 버튼이 44px 고정 칸에 들어가 '확 인' 처럼 세로로 접혔다
+     ② 출금 계좌 상자·화살표가 없어 위쪽 코너와 생김새가 달랐다
+     같은 화면에서 두 코너가 다르게 생기면 다른 기능처럼 보인다. */
+  const me=acctCur()||{};
+  const today=sendTodayTotal();
   return `<div class="sec" style="margin-top:14px">
-    <div class="sec-title">다른 사람에게 송금 <span class="sec-sub">· 계좌번호로 보내기</span></div>
+    <div class="sec-title">다른 사람에게 송금 <span class="sec-sub">· 계좌번호로 보내기 · 1회 ${KRW(SEND_LIMIT_ONE)}원 · 1일 ${KRW(SEND_LIMIT_DAY)}원</span></div>
     <div class="panel asend">
+      <div class="asend-from"><small>출금 계좌</small>
+        <b>${acctLabel(me)}</b><i class="num">${me.no||'번호 없음'}</i>
+        <span class="num">출금가능 ${KRW(cash)}원</span></div>
+      <div class="asend-arrow">↓</div>
       <div class="us-fld"><label><span>받는 계좌번호</span>
-        <small>친구에게 계좌번호를 받아 입력하세요</small></label>
+        <span class="num">오늘 이체 ${KRW(today)}원 / ${KRW(SEND_LIMIT_DAY)}원</span></label>
         <div class="us-inrow"><input id="xoNo" inputmode="numeric" placeholder="900-01-123456-7"
           maxlength="20" autocomplete="off">
-          <button type="button" class="uz-retry" id="xoCheck">확인</button></div>
-        <div class="xo-who" id="xoWho"></div></div>
-      <div class="us-fld"><label><span>보낼 금액</span><small>1,000원 이상 · 1회 ${KRW(SEND_LIMIT_ONE)}원까지</small></label>
-        <input id="xoAmt" class="num" inputmode="numeric" placeholder="예: 100000"></div>
-      <div class="us-fld"><label><span>메모 (선택)</span></label>
-        <input id="xoMemo" maxlength="30" placeholder="용돈, 정산 등"></div>
-      <button class="modal-btn" id="xoGo">송금하기</button>
-      <div class="asend-note">보낸 돈은 상대가 접속할 때 계좌에 들어갑니다. 되돌릴 수 없으니 계좌번호를 꼭 확인하세요.</div>
+          <button id="xoCheck" style="width:96px;font-size:12px">확인</button></div></div>
+      <div class="asend-to" id="xoWho"></div>
+      <div class="us-fld"><label><span>보낼 금액</span><span class="num">보유 ${KRW(cash)}원</span></label>
+        <div class="us-inrow"><input id="xoAmt" class="num" inputmode="numeric" placeholder="0">
+          <button id="xoAll" style="width:96px;font-size:12px">전액</button></div></div>
+      <div class="us-fld"><label><span>메모 (선택)</span><span class="num">30자까지</span></label>
+        <div class="us-inrow"><input id="xoMemo" maxlength="30" placeholder="용돈, 정산 등" style="text-align:left"></div></div>
+      <div class="asend-msg" id="xoMsg"></div>
+      <button class="modal-btn asend-go" id="xoGo">송금하기</button>
+      <div class="asend-note">※ 상대가 접속할 때 계좌에 들어갑니다. 보낸 뒤에는 되돌릴 수 없으니 계좌번호를 꼭 확인하세요.<br>
+        ※ 예수금(원화)만 이동하며, 보유 주식은 함께 옮겨지지 않습니다.</div>
     </div></div>`;
 }
+
 function bindSendOut(){
   const chk=$('xoCheck'), who=$('xoWho');
   if(chk)chk.onclick=async()=>{
     const no=($('xoNo').value||'').replace(/[^0-9]/g,'');
-    if(no.length<10){who.className='xo-who bad';who.textContent='계좌번호를 정확히 입력해 주세요';return;}
-    who.className='xo-who';who.textContent='확인하는 중…';
+    if(no.length<10){who.innerHTML='<div class="asend-bad">계좌번호를 정확히 입력해 주세요</div>';return;}
+    who.innerHTML='<div class="asend-ok" style="opacity:.6">확인하는 중…</div>';
     const r=await xferCall('lookup',{no});
-    if(r&&r.ok){ who.className='xo-who ok';
-      who.innerHTML=`받는 분 <b>${htmlEsc(r.name)}</b>${r.type?` · ${htmlEsc(r.type)}`:''}`; }
-    else { who.className='xo-who bad';
-      who.textContent=r&&r.err==='nouser'?'그런 계좌번호를 찾지 못했습니다':'확인하지 못했습니다'; }
+    if(r&&r.ok){ who.innerHTML=`<div class="asend-ok"><b>${htmlEsc(r.name)}</b><span>${htmlEsc(r.type||'계좌')}</span></div>`; }
+    else { who.innerHTML=`<div class="asend-bad">${r&&r.err==='nouser'?'등록되지 않은 계좌번호입니다':'확인하지 못했습니다'}</div>`; }
   };
+  const all=$('xoAll');
+  if(all)all.onclick=()=>{ const a=$('xoAmt'); if(a){a.value=String(Math.min(cash,SEND_LIMIT_ONE));} };
   const go=$('xoGo');
   if(go)go.onclick=async()=>{
     const no=($('xoNo').value||''), amt=($('xoAmt').value||'').replace(/[^0-9]/g,'');
@@ -2723,7 +2737,8 @@ function bindSendOut(){
     const r=await doSendOut(no,amt,memo);
     go.disabled=false;
     toast(r.ok?'buy':'warn',r.ok?'송금 완료':'송금 실패',r.msg);
-    if(r.ok){ $('xoAmt').value=''; $('xoMemo').value=''; $('xoWho').textContent='';
+    {const mg=$('xoMsg'); if(mg){mg.className='asend-msg '+(r.ok?'ok':'bad'); mg.textContent=r.msg;}}
+    if(r.ok){ $('xoAmt').value=''; $('xoMemo').value=''; $('xoWho').innerHTML='';
       try{renderPortfolioNumbers();renderAcctSend();}catch(e){} }
   };
 }
@@ -3710,11 +3725,16 @@ function renderPmStats(){
        그래서 예전 사용자가 쓰던 브라우저에서 새로 가입하면, 그 브라우저의 옛 날짜를
        그대로 물려받아 하루 만에 7일·30일 배지가 붙었다.
        → 계정에 기록된 가입일(created)을 쓴다. 없으면 오늘 가입한 것으로 본다. */
+    /* ══ [v6.0] 여기서 계정이 통째로 날아가고 있었다 ═══════════════════════════
+       accounts()[currentUser] 가 없으면 빈 객체 {} 를 받는데, 그것을 그대로
+       계정 자리에 저장했다. 비밀번호(pass)가 사라진 계정이 만들어지고,
+       그 뒤로 서버가 나를 알아보지 못해 클랜·친구·송금이 전부 'auth' 로 막혔다.
+       → 이미 있는 계정에만 가입일을 덧붙이고, 없으면 저장하지 않는다. */
     let d0=0;
-    try{ const acc=accounts()[currentUser]||{};
-      d0=+acc.created||0;
-      if(!d0){ d0=Date.now(); acc.created=d0;
-        const a2=accounts(); a2[currentUser]=acc; store.set('accounts',a2); }
+    try{ const all=accounts(), acc=all[currentUser];
+      d0=(acc&&+acc.created)||0;
+      if(!d0&&acc){ d0=Date.now(); acc.created=d0; all[currentUser]=acc; store.set('accounts',all); }
+      if(!d0)d0=Date.now();
     }catch(e){ d0=Date.now(); }
     const days=d0?Math.max(1,Math.ceil((Date.now()-d0)/86400000)):0;
     set('psDays',days?('D+'+days+'일'):'—');
@@ -3858,11 +3878,16 @@ function openProfile(){
        그래서 예전 사용자가 쓰던 브라우저에서 새로 가입하면, 그 브라우저의 옛 날짜를
        그대로 물려받아 하루 만에 7일·30일 배지가 붙었다.
        → 계정에 기록된 가입일(created)을 쓴다. 없으면 오늘 가입한 것으로 본다. */
+    /* ══ [v6.0] 여기서 계정이 통째로 날아가고 있었다 ═══════════════════════════
+       accounts()[currentUser] 가 없으면 빈 객체 {} 를 받는데, 그것을 그대로
+       계정 자리에 저장했다. 비밀번호(pass)가 사라진 계정이 만들어지고,
+       그 뒤로 서버가 나를 알아보지 못해 클랜·친구·송금이 전부 'auth' 로 막혔다.
+       → 이미 있는 계정에만 가입일을 덧붙이고, 없으면 저장하지 않는다. */
     let d0=0;
-    try{ const acc=accounts()[currentUser]||{};
-      d0=+acc.created||0;
-      if(!d0){ d0=Date.now(); acc.created=d0;
-        const a2=accounts(); a2[currentUser]=acc; store.set('accounts',a2); }
+    try{ const all=accounts(), acc=all[currentUser];
+      d0=(acc&&+acc.created)||0;
+      if(!d0&&acc){ d0=Date.now(); acc.created=d0; all[currentUser]=acc; store.set('accounts',all); }
+      if(!d0)d0=Date.now();
     }catch(e){ d0=Date.now(); }
       const days=d0?Math.max(1,Math.ceil((Date.now()-d0)/86400000)):1;
       hero.innerHTML='<div class="pmh-top"><b>'+KRW(Math.round(tot))+'원</b><span>총자산</span></div>'
@@ -6653,6 +6678,15 @@ function clanErrMsg(r){
 var _ensureAt=0, _ensureBusy=false;
 async function ensureServerAccount(){
   if(!currentUser)return false;
+  /* [v6.0] 비밀번호가 사라진 계정은 되살릴 수 없다 — 다시 로그인해야 한다.
+     (예전 판의 버그로 pass 가 지워진 계정이 있을 수 있다) */
+  {const a=accounts()[currentUser];
+   if(!a||!a.pass){
+     toast('warn','다시 로그인해 주세요','계정 정보가 손상되어 서버와 연결할 수 없습니다');
+     try{ store.del('session'); }catch(e){}
+     try{ requireAuth(); }catch(e){}
+     return false;
+   }}
   if(_ensureBusy||Date.now()-_ensureAt<60e3)return false;
   _ensureBusy=true; _ensureAt=Date.now();
   try{

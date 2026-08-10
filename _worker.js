@@ -8310,7 +8310,11 @@ async function yahooOnly(sym) {
       STOOQ_IDX[sym] ? settle2(stooqHist30(STOOQ_IDX[sym])) : Promise.resolve(null)
     ]);
     if (cur && cur.price) {
-      const h = (hist || []).slice(-30);
+      let h = (hist || []).slice(-30);
+      /* [v6.0] 여기에도 대체 경로가 없어 VIX·니케이·항셍·원유·금 그래프가 비어 있었다 */
+      if (h.length < 3) {
+        try { const y = await yahooIndexHist(sym); if (y && y.length >= 3) h = y.slice(-30); } catch {}
+      }
       if (h.length && h[h.length - 1] !== cur.price) h.push(cur.price);
       cur.history = h; return cur;
     }
@@ -8318,7 +8322,12 @@ async function yahooOnly(sym) {
       return { price: hist[hist.length - 1], change: hist[hist.length - 1] - hist[hist.length - 2], rate: (hist[hist.length - 1] - hist[hist.length - 2]) / hist[hist.length - 2] * 100, history: hist };
   }
   try {
-    return await yahooIndex2(sym);
+    const y = await yahooIndex2(sym);
+    /* [v6.0] 야후 시세만 받고 이력이 비면 그래프가 사라진다 — 차트에서 흐름을 받아 붙인다 */
+    if (y && y.price && (!y.history || y.history.length < 3)) {
+      try { const h = await yahooIndexHist(sym); if (h && h.length >= 3) y.history = h.slice(-30); } catch {}
+    }
+    return y;
   } catch {
     return null;
   }
@@ -12952,7 +12961,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "5.9.0";
+var APP_VER = "6.0.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
