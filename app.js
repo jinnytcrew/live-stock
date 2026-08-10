@@ -1689,7 +1689,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=376';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=379';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3324,9 +3324,21 @@ $('doSignup').onclick=async()=>{
     return;
   }
   const accs=accounts(); accs[id]={pass:passH,name,email,acctPass:acctH,created:Date.now()}; store.set('accounts',accs);
-  store.set('user:'+id,{watchlist:['005930','000660','035420'],holdings:[],cash:cashV,ipoPlans:[],acctPass:acctH});
+  /* ══ [v4.96] 새 계정에 남의 흔적이 남던 두 가지 ═══════════════════════════
+     ① 관심종목에 삼성전자·SK하이닉스·NAVER 를 기본으로 심고 있었다. 가입한 적도
+        없는 사람 눈에는 '내가 넣지도 않은 종목'이라 이상하다. 빈 채로 시작한다.
+     ② 계좌가 두 개 생겼다. loadState() 안의 acctMigrate() 가 '예전 사용자'로 보고
+        계좌를 하나 만들고, 곧이어 아래 acctOpen() 이 또 하나를 만들었다.
+        → 계좌 정보를 미리 저장해 두어 loadState 가 '이미 개설됨'으로 인식하게 하고,
+          여기서는 계좌를 새로 만들지 않는다. */
+  const _aid='ac'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  store.set('user:'+id,{
+    watchlist:[], watchFolders:[], holdings:[], cash:cashV, ipoPlans:[], acctPass:acctH,
+    acctType:'general', acctActive:_aid,
+    acctList:[{id:_aid,type:'general',openedAt:Date.now(),pw:acctH}],
+    acctBooks:{[_aid]:{cash:cashV,usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]}}
+  });
   applyUser(id); unlockApp(); initApp();
-  try{ acctOpen(acctType,cashV,acctPassHash); }catch(e){}       // [v4.46] 첫 계좌 + 계좌 비밀번호
   toast('buy','가입 완료 · '+name+'님','계정이 서버에 저장되어 어느 기기에서든 같은 아이디로 로그인할 수 있어요');
 };
 /* ===== 프로필 메뉴 ===== */

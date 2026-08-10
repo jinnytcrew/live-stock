@@ -7,7 +7,7 @@
   <link rel="manifest" href="/manifest.webmanifest" id="manifestLink">
   <meta name="theme-color" content="#101a2e">
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5.0">
 <meta name="description" content="실시간 시세로 연습하는 국내·해외 주식 모의투자 — 미국 주식·ETF, 실시간 환전, 관심종목 폴더, AI 브리핑, 추천주, NXT 프리마켓까지">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fb">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1420">
@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=376">
+<link rel="stylesheet" href="/app.css?v=379">
 </head>
 <body>
 
@@ -60,7 +60,10 @@
 #bootGate{position:fixed;inset:0;
   z-index:2000000;display:grid;grid-template-rows:minmax(0,1fr) auto auto;
   justify-items:center;align-content:stretch;
-  overflow:hidden;box-sizing:border-box;max-width:100vw;
+  /* [v4.97] 축소해도 뚫리지 않도록 넉넉히 덮는다. 화면보다 조금 크게 잡고
+     넘치는 부분은 잘라내면, 확대·축소 어느 쪽에서도 틈이 생기지 않는다. */
+  overflow:hidden;box-sizing:border-box;width:100%;
+  min-width:100vw;min-height:100vh;min-height:100dvh;
   background:#0b1120;color:#eaf0fa;
   font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
   transition:opacity .55s ease;
@@ -567,6 +570,9 @@
     </div>
     <div class="mysum" id="myWatchSum" hidden></div>
     <div class="home-strip">
+    <!-- [v4.96] 국기 탭을 단축키 줄 맨 오른쪽으로 옮겼다.
+         전에는 인기 목록과 같은 줄에 있어 목록 폭을 뺏었고(해외 종목이 잘렸다),
+         단축키 줄은 오른쪽이 허전했다. 한 번에 두 문제가 풀린다. -->
     <div class="home-jump" id="homeJump">
       <button data-j="idxGrid">📈 지수·선물</button>
       <button data-j="aiBrief">🤖 AI 브리핑</button>
@@ -574,10 +580,10 @@
       <button data-j="fxRow">💱 환율</button>
       <button data-j="calGrid">📅 캘린더</button>
       <button data-j="ipoCards">🎯 공모주</button>
+      <div class="hh-mkt" id="homeHotMkt"><button data-hmkt="kr" class="on">🇰🇷</button><button data-hmkt="us">🇺🇸</button></div>
     </div>
     <!-- [v4.41] 인기 순위 · 국내/해외 -->
     <div class="home-hot-wrap" id="homeHotWrap" hidden>
-      <div class="hh-mkt" id="homeHotMkt"><button data-hmkt="kr" class="on">🇰🇷</button><button data-hmkt="us">🇺🇸</button></div>
       <div class="home-hot" id="homeHot"></div>
     </div>
     </div>
@@ -1379,6 +1385,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=376"></script>
+<script type="module" src="/app.js?v=379"></script>
 </body>
 </html>
