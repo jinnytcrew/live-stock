@@ -931,6 +931,10 @@ function eqSplitNow(){
   return Math.round(us);
 }
 function recordEquity(){
+  /* ══ [v5.5] 계좌가 없으면 자산 추이를 기록하지 않는다 ═══════════════════════
+     계좌를 만들기 전에도 예수금 변화가 기록되어, 가입 직후 '-96.35%' 같은
+     그래프가 그려졌다(첨부 사진). 계좌가 있어야 자산이라는 것이 존재한다. */
+  try{ if(!acctOpened())return; }catch(e){}
   if(!currentUser)return;
   const total=Math.round(eqTotalNow());
   if(!(total>0))return;
@@ -1689,7 +1693,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=386';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=387';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -7604,6 +7608,9 @@ function eqSpanLabel(){
 }
 /* [v4.79] 자산 추이 그래프는 화면에서 걷어냈다 — 호출부가 남아 있어도 조용히 넘어간다. */
 function drawHeroEq(){ return; }
+/* [v5.5] 계좌가 없으면 자산 추이도 그리지 않는다.
+   계좌를 만들지 않았는데 '-96.35%' 같은 그래프가 뜨면 사용자가 오해한다. */
+function eqHasAccount(){ try{ return acctOpened(); }catch(e){ return false; } }
 let _hhTry=0;
 var homeHotMkt='kr';
 async function renderHomeHot(){
@@ -8698,7 +8705,15 @@ function renderSearch(){
      자체 블록으로 감싸 세로로 쌓이게 한다. */
   const usBlock=usHit.length?`<div class="us-searchblk"><div class="us-sec"><b>🇺🇸 해외 주식</b><span>탭하면 해외 거래 화면이 열립니다</span></div>`
     +usHit.map(u=>usRow(u[0])).join('')+`</div>`:'';
-  usHit.length&&usEnsureQuotes(usHit.map(u=>u[0]),true).then(()=>{ if(currentView==='search')usPaintRows($('searchResults')); });
+  /* ══ [v5.5] 검색이 느리게 느껴지던 이유 ═══════════════════════════════════
+     결과 줄은 이미 그려져 있는데 시세가 늦게 도착해 오래 '뼈대'만 보였다.
+     해외 시세는 한 번에 최대 18종씩 나눠 받는데, 검색 결과 8종이면 한 번이면 된다.
+     환율까지 함께 받느라 늦어지므로, 환율은 따로 받고 시세를 먼저 채운다. */
+  if(usHit.length){
+    const tks=usHit.map(u=>u[0]);
+    usEnsureQuotes(tks,false).then(()=>{ if(currentView==='search')usPaintRows($('searchResults')); });
+    setTimeout(()=>{ usEnsureQuotes(tks,true).then(()=>{ if(currentView==='search')usPaintRows($('searchResults')); }); },0);
+  }
 /* [v4.36] 해외만 국기 라벨이 붙어 있어 국내 결과가 무엇인지 모호했다 — 국내도 같은 방식으로 구분한다 */
   const krHead=`<div class="kr-searchblk"><div class="us-sec"><b>🇰🇷 국내 주식</b><span>코스피·코스닥·NXT</span></div></div>`;
   /* ══ [v4.60] 검색 결과를 좌우 2단으로 ═══════════════════════════════════
@@ -12030,6 +12045,11 @@ $('submitBtn').onclick=()=>{
       _why+(_nx?` · 다음 주문 가능 ${_nx}`:'')+' · 주문 폼 위 배너에서 제한을 바로 끌 수 있습니다.');
     try{renderTradeGate();}catch(e){}
     return;}
+  /* ══ [v5.5] 계좌 확인을 맨 앞으로 ═══════════════════════════════════════════
+     계좌를 안 만들었으면 예수금이 0인 게 당연한데, 예수금 검사가 먼저 돌아
+     '예수금 0원 · 230,035원 모자랍니다' 라는 엉뚱한 안내가 나갔다(첨부 사진).
+     무엇 때문에 막혔는지 정확히 짚어야 무엇을 해야 할지 알 수 있다. */
+  if(!acctRequire('주문'))return;
   const price=getOrderPrice(),qty=getQty();if(qty<=0){toast('warn','수량을 확인하세요','1주 이상');return;}
   if(!(price>0)){toast('warn','주문가격을 확인하세요','1원 이상');return;}
   /* [v4.5] 체결 함수와 똑같은 orderCost 로 검증한다 — 화면 표시와 실제 판정이 어긋나지 않게. */
@@ -12073,6 +12093,10 @@ function executeOrderCore(s,o,tag){
      비밀번호 입력 중 시세·보유가 바뀌었거나 호출 경로가 늘어나도 잔고가 깨지지 않게 한다.
      [v4.5] 성공 여부를 boolean 으로 돌려준다 — 예약주문이 실패를 알아채야 하기 때문. */
   if(_settling)return false;
+  /* ══ [v5.5] 계좌가 없는데 '예수금 부족'이라고 하면 안 된다 ═══════════════════
+     계좌를 안 만들었으면 예수금이 0인 게 당연하다. 그런데 검사 순서가 뒤에 있어
+     '예수금 0원 · 230,035원 모자랍니다' 라는 엉뚱한 안내가 먼저 나갔다.
+     원인을 정확히 짚어 줘야 무엇을 해야 할지 알 수 있다. */
   if(!acctRequire('주문'))return false;                 // [v4.40] 미개설 차단
   const price=intOf(o&&o.price,0), qty=intOf(o&&o.qty,0);
   if(!s||!s.code||!o||qty<=0||price<=0){toast('warn','주문 실패','주문 정보를 확인하세요');return false;}

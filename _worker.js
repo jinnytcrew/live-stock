@@ -9738,8 +9738,31 @@ function normalize(d) {
     open: num9(d.openPriceRaw ?? d.openPrice ?? d.ov),
     high: num9(d.highPriceRaw ?? d.highPrice ?? d.hv),
     low: num9(d.lowPriceRaw ?? d.lowPrice ?? d.lv),
-    volume: num9(d.accumulatedTradingVolumeRaw ?? d.accumulatedTradingVolume ?? d.aq),
-    value: num9(d.accumulatedTradingValueRaw ?? d.accumulatedTradingValue ?? d.aa),
+    /* ══ [v5.5] 거래량이 실제와 크게 어긋나던 이유 ═══════════════════════════
+       네이버 응답에는 세 벌의 거래량이 들어 있다.
+         · 기본(accumulatedTradingVolume)  = KRX 정규장 누적
+         · overMarketPriceInfo            = NXT 시간외 누적
+         · integratedPriceInfo            = KRX+NXT 통합 누적
+       그런데 통합 정보에서 '가격'만 뽑고 거래량은 기본값을 그대로 쓰고 있었다.
+       그래서 NXT 시간대에는 KRX 값만 보여 실제 거래량과 크게 달랐다.
+       → 통합 값이 있으면 그것을 쓰고, 없으면 기본 + 시간외를 더한다. */
+    volume: (function(){
+      const base=num9(d.accumulatedTradingVolumeRaw ?? d.accumulatedTradingVolume ?? d.aq);
+      const iv=ip?num9(ip.accumulatedTradingVolumeRaw ?? ip.accumulatedTradingVolume ?? ip.aq):0;
+      if(iv>0)return iv;
+      const ov=om?num9(om.accumulatedTradingVolumeRaw ?? om.accumulatedTradingVolume ?? om.aq):0;
+      return (ov>0?base+ov:base);
+    })(),
+    value: (function(){
+      const base=num9(d.accumulatedTradingValueRaw ?? d.accumulatedTradingValue ?? d.aa);
+      const ivv=ip?num9(ip.accumulatedTradingValueRaw ?? ip.accumulatedTradingValue ?? ip.aa):0;
+      if(ivv>0)return ivv;
+      const ovv=om?num9(om.accumulatedTradingValueRaw ?? om.accumulatedTradingValue ?? om.aa):0;
+      return (ovv>0?base+ovv:base);
+    })(),
+    /* 어느 쪽 값인지 화면에서 구분할 수 있게 함께 보낸다 */
+    volKrx: num9(d.accumulatedTradingVolumeRaw ?? d.accumulatedTradingVolume ?? d.aq),
+    volNxt: om?num9(om.accumulatedTradingVolumeRaw ?? om.accumulatedTradingVolume ?? om.aq):0,
     marketStatus: String(ms).toUpperCase().includes("OPEN") ? "OPEN" : "CLOSE",
     time: d.localTradedAt ?? "",
     // NXT 신호: nxtMember=자격(통합시세 존재), nxtHas=활동 구조, nxtLive=실제 NXT 체결가
@@ -11661,7 +11684,7 @@ async function uslogo_default(req2){
        가장 나은 것을 돌려준다. 결과는 KV 에 담아 다음부터는 바로 내보낸다.
        화면 쪽에서도 같은 출처(우리 도메인)라 픽셀 검사가 그대로 통한다. */
     const TK=tk.replace(".","-"), tkl=TK.toLowerCase();
-    const CKT="uslgt4:"+TK;
+    const CKT="uslgt5:"+TK;
     try{ if(KV){ const c=await KV.get(CKT,"json");
       if(c&&c.b64)return new Response(Uint8Array.from(atob(c.b64),ch=>ch.charCodeAt(0)),
         {headers:{"content-type":c.ct||"image/png","cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
@@ -11677,7 +11700,10 @@ async function uslogo_default(req2){
       ...(d?["https://logo.clearbit.com/"+d+"?size=256",
              "https://cdn.brandfetch.io/"+d+"/w/256/h/256",
              "https://unavatar.io/"+d+"?fallback=false",
-             "https://"+d+"/apple-touch-icon.png"]:[]),
+             "https://"+d+"/apple-touch-icon.png",
+             "https://"+d+"/apple-touch-icon-precomposed.png",
+             "https://icon.horse/icon/"+d,
+             "https://www.google.com/s2/favicons?sz=256&domain="+d]:[]),
       "https://financialmodelingprep.com/image-stock/"+TK+".png",
       "https://assets.parqet.com/logos/symbol/"+TK+"?format=png&size=128",
       "https://s3-symbol-logo.tradingview.com/"+tkl+".svg",
@@ -11689,6 +11715,11 @@ async function uslogo_default(req2){
       ...(d?["https://icons.duckduckgo.com/ip3/"+d+".ico",
              "https://www.google.com/s2/favicons?sz=128&domain="+d]:[])
     ];
+    /* ══ [v5.5] 도메인을 아는 종목은 도메인 쪽을 끝까지 먼저 본다 ═══════════
+       비자(V)·JP모건(JPM) 같은 대형주가 회색 배지로 나왔다. 티커가 짧으면
+       티커 기반 소스가 엉뚱한 그림을 주거나 아예 없는 경우가 많은데,
+       그 결과가 먼저 캐시되면 도메인 쪽을 시도할 기회조차 사라진다.
+       도메인이 있으면 그 계열을 우선하고, 실패해도 티커 계열로 이어 간다. */
     let best=null;
     for(const url of cands){
       try{
@@ -12808,7 +12839,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "5.4.0";
+var APP_VER = "5.5.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
