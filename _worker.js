@@ -5321,6 +5321,19 @@ var clan_default = async (req2) => {
       if (b.msg !== void 0) m.msg = clip(b.msg, 30);
       if (b.tr != null && isFinite(+b.tr)) m.tr = Math.max(0, Math.min(999999, Math.round(+b.tr)));
       if (b.hold != null && isFinite(+b.hold)) m.hold = Math.max(0, Math.min(999, Math.round(+b.hold)));
+      /* ══ [v5.03] 보유 종목 이름과 BEST/WORST 도 함께 담는다 ═══════════════════
+         지금까지는 '몇 종목'만 보내 무엇을 들고 있는지 알 수 없었다.
+         금액은 담지 않는다 — 자산 규모는 서로 공개하지 않는 것이 이 앱의 원칙이다. */
+      if (Array.isArray(b.holds)) {
+        m.holds = b.holds.slice(0, 12).map((x) => ({
+          n: clip(x && x.n, 14),
+          r: (x && isFinite(+x.r)) ? Math.round(+x.r * 100) / 100 : null,
+          us: (x && x.us) ? 1 : 0
+        })).filter((x) => x.n);
+      }
+      const pick = (o) => (o && o.n) ? { n: clip(o.n, 14), r: isFinite(+o.r) ? Math.round(+o.r * 100) / 100 : null } : null;
+      if (b.best !== void 0) m.best = pick(b.best);
+      if (b.worst !== void 0) m.worst = pick(b.worst);
       m.updatedAt = Date.now();
       c.members[uid] = m;
       await saveClan(c);
@@ -12765,7 +12778,10 @@ async function onRequest(ctx) {
 }
 
 // _worker.js
-var APP_VER = "4.75.0";
+/* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
+   PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
+   아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
+var APP_VER = "5.3.1";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

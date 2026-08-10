@@ -1689,7 +1689,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=379';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=385';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2065,10 +2065,75 @@ var acctType='general';          // [v4.32] 활성 계좌의 종류(호환 유�
 var acctList=[], acctBooks={}, acctActive='';
 function acctOpened(){ return Array.isArray(acctList)&&acctList.length>0; }
 /* 계좌가 없으면 어떤 주문·환전도 진행하지 않는다 — 실제 증권사와 같은 원칙 */
+/* ══ [v5.00] 계좌 개설 안내 — 토스트 대신 눈에 띄는 안내창 ═══════════════════
+   지금까지는 잠깐 나타났다 사라지는 알림이라 놓치기 쉬웠고, 무엇을 해야 하는지도
+   분명하지 않았다. 무엇 때문에 막혔는지 알려 주고, 그 자리에서 개설로 이어 준다. */
+var _acctGateOn=false;
+function acctGateShow(what){
+  if(_acctGateOn)return;
+  _acctGateOn=true;
+  const ov=document.createElement('div');
+  ov.className='overlay acct-gate';
+  ov.innerHTML=`<div class="modal acct-gate-box">
+    <div class="ag-ic">🏦</div>
+    <div class="ag-t">계좌를 먼저 개설해 주세요</div>
+    <div class="ag-d">${htmlEsc(what||'거래')}은(는) 계좌가 있어야 이용할 수 있습니다.<br>
+      실제 증권사처럼 계좌를 열어야 예수금을 넣고 주문할 수 있어요.</div>
+    <div class="ag-steps">
+      <div class="ag-s"><i>1</i><span>계좌 종류 고르기<b>종합위탁·연금저축 등</b></span></div>
+      <div class="ag-s"><i>2</i><span>약관 동의<b>4가지 필수 항목</b></span></div>
+      <div class="ag-s"><i>3</i><span>예수금·비밀번호 설정<b>1분이면 끝나요</b></span></div>
+    </div>
+    <button class="modal-btn" id="agGo">계좌 개설하러 가기</button>
+    <button class="modal-ghost" id="agClose">나중에</button>
+  </div>`;
+  document.body.appendChild(ov);
+  const close=()=>{ _acctGateOn=false; try{ov.remove();}catch(e){} };
+  ov.querySelector('#agGo').onclick=()=>{ close();
+    try{ showView('account'); }catch(e){}
+    /* 개설 화면까지 데려다준다 — '어디서 하는지' 찾게 만들지 않는다 */
+    /* 계좌가 하나도 없으면 개설 안내가 이미 화면에 있으므로 그 자리로 데려간다.
+       계좌가 있는데 막힌 경우(다른 이유)라면 개설 버튼을 눌러 준다. */
+    setTimeout(()=>{ try{
+      const b=$('aeFirstOpen')||$('acctAddBtn');
+      if(b)b.click();
+      else { const el=$('acctGuide'); if(el)el.scrollIntoView({behavior:'smooth',block:'center'}); }
+    }catch(e){} },300);
+  };
+  ov.querySelector('#agClose').onclick=close;
+  ov.onclick=(e)=>{ if(e.target===ov)close(); };
+}
+/* ══ [v5.01] CMA·채권 계좌의 예수금 이자 ═══════════════════════════════════
+   계좌마다 rate(연이율)를 적어 두고도 아무 일이 없으면 '이자가 붙는다'는 설명이
+   거짓말이 된다. 하루가 바뀔 때 하루치를 예수금에 얹는다.
+   [계산] 연이율 ÷ 365 × 예수금. 여러 날 앱을 안 켰으면 그만큼 한 번에 정산한다.
+   [상한] 한 번에 400일치까지만 계산한다 — 기기 시각이 크게 어긋난 경우를 대비한다. */
+function acctInterestTick(){
+  try{
+    if(!acctOpened())return;
+    const a=ACCT_TYPES[acctType];
+    const rate=a&&+a.rate;
+    const today=kstDay();
+    const cur=acctCur(); if(!cur)return;
+    if(!cur.intDay){ cur.intDay=today; saveState(); return; }   // 첫 기록만 남긴다
+    if(cur.intDay===today)return;
+    const days=Math.min(400,Math.max(0,
+      Math.round((new Date(today)-new Date(cur.intDay))/86400000)));
+    cur.intDay=today;
+    if(!rate||rate<=0||days<=0||cash<=0){ saveState(); return; }
+    const add=Math.floor(cash*(rate/100)*(days/365));
+    if(add>0){
+      cash=Math.min(CASH_MAX,cash+add);
+      toast('buy','예수금 이자 '+KRW(add)+'원',
+        `${a.n} · 연 ${rate}% · ${days}일치가 예수금에 더해졌습니다`);
+    }
+    saveState();
+    try{renderPortfolioNumbers();}catch(e){}
+  }catch(e){}
+}
 function acctRequire(what){
   if(acctOpened())return true;
-  toast('warn','계좌를 먼저 개설해 주세요','계좌를 개설해야 '+(what||'거래')+'을(를) 이용할 수 있습니다. 내 계좌 화면에서 1분이면 끝나요.');
-  try{ showView('account'); }catch(e){}
+  acctGateShow(what);
   return false;
 }
 function acctCur(){ return acctList.find(a=>a.id===acctActive)||acctList[0]||null; }
@@ -2083,6 +2148,8 @@ function acctSnap(){
 }
 /* 계좌 장부를 화면 상태로 펼친다 */
 function acctLoad(id){
+  /* 계좌를 열 때 밀린 이자를 먼저 정산한다 */
+  try{ setTimeout(()=>{try{acctInterestTick();}catch(e){}},600); }catch(e){}
   const bk=acctBooks[id]||{};
   cash=intOf(bk.cash,0); usdCash=+(bk.usdCash||0);
   usdSettling=Array.isArray(bk.usdSettling)?bk.usdSettling.slice():[];
@@ -2422,6 +2489,7 @@ function acctCashOf(id){
 }
 /* 실제 이체 — 보내는 쪽에서 빼고 받는 쪽에 더한 뒤 양쪽 장부에 기록을 남긴다 */
 function doSend(toId,amt,memo){
+  if(!acctOpened())return {ok:false,msg:'계좌를 먼저 개설해 주세요'};   // [v5.00]
   const from=acctCur();
   if(!from)return {ok:false,msg:'출금 계좌를 찾을 수 없습니다'};
   if(toId===from.id)return {ok:false,msg:'같은 계좌로는 보낼 수 없습니다'};
@@ -2620,6 +2688,7 @@ function renderAcctFx(){
   sec.querySelectorAll('[data-cur]').forEach(b2=>b2.onclick=()=>{fxSel=b2.dataset.cur;renderAcctFx();});
   sec.querySelectorAll('[data-fxdir]').forEach(b2=>b2.onclick=()=>{fxDir=b2.dataset.fxdir;renderAcctFx();});
   $('afxGo').onclick=()=>{
+    if(!acctRequire('환전'))return;                             // [v5.00]
     if(!krwPer(fxSel)){ toast('warn','환율을 받는 중입니다','잠시 후 자동으로 표시됩니다');
       fxLoadAll(()=>renderAcctFx()); return; }
     const r=fxExchange(fxDir,fxSel,parseFloat(amt.value)||0);
@@ -2633,21 +2702,28 @@ function renderAcctBar(){
   if(!bar||!guide)return;
   if(!acctOpened()){
     bar.innerHTML=''; if(hero)hero.hidden=true;
+    /* ══ [v5.03] 최초 개설도 같은 절차를 밟는다 ═══════════════════════════════
+       [무엇이 잘못됐나] 계좌가 하나도 없을 때는 '옛 화면'이 떴다. 종류·예수금·비밀번호를
+       한 화면에서 받고 곧바로 doAcctOpen() 을 부르는데, 그 함수는 절차 시트가 채워 두는
+       aeForm 을 전제로 한다. 절차를 거치지 않았으니 aeForm 이 null 이라
+       'Cannot read properties of null (reading cash)' 오류가 났다(첨부 사진).
+       게다가 신청인 정보·약관 동의를 건너뛰어 두 번째 계좌와 절차가 달랐다.
+       → 안내만 남기고, 개설은 두 번째 계좌와 똑같이 4단계 시트로 진행한다. */
     guide.innerHTML=`<div class="panel acct-empty">
       <div class="ae-ic">🏦</div>
       <div class="ae-t">아직 개설된 계좌가 없습니다</div>
       <div class="ae-d">주식을 사고팔려면 먼저 계좌를 개설해야 합니다. 종류에 따라 <b>수수료와 환전 우대, 납입한도</b>가 달라요.<br>
         개설은 1분이면 끝나고, 계좌는 <b>여러 개</b> 만들어 목적별로 나눠 쓸 수 있습니다.</div>
-      <div class="acct-pick" id="aeTypes"></div>
-      <div class="acct-detail" id="aeDetail"></div>
-      <div class="fld2" style="margin-top:12px"><label>시작 예수금 (원)</label>
-        <input id="aeCash" class="num" inputmode="numeric" value="10,000,000"></div>
-      <div class="fld2"><label>계좌 비밀번호 <small style="font-weight:600;color:var(--sub-2)">— 주문할 때 입력합니다 (숫자 4자리)</small></label>
-        <input id="aePw" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
-      <div class="ae-msg" id="aeMsg"></div>
-      <button class="modal-btn" id="aeGo">계좌 개설하기</button>
+      <div class="ae-steps3">
+        <div class="ae-s3"><i>1</i><span>계좌 선택</span></div>
+        <div class="ae-s3"><i>2</i><span>신청인 정보</span></div>
+        <div class="ae-s3"><i>3</i><span>약관 동의</span></div>
+        <div class="ae-s3"><i>4</i><span>예수금·비밀번호</span></div>
+      </div>
+      <button class="modal-btn" id="aeFirstOpen">계좌 개설 시작하기</button>
       <div class="ae-note">모의 계좌입니다 · 실제 금융거래가 아니며 개인정보를 요구하지 않습니다.</div>
     </div>`;
+    {const b=$('aeFirstOpen'); if(b)b.onclick=()=>openAcctOpenSheet();}
     renderAeTypes(); return;
   }
   guide.innerHTML=''; if(hero)hero.hidden=false;
@@ -3002,13 +3078,114 @@ var ACCT_TYPES={
     pros:['국내 수수료 30% 우대','납입액 세액공제 13.2~16.5%','과세이연'],cons:['연 1,800만원 한도','중도인출 시 기타소득세 16.5%','개별 해외주식 직접매매 제한(ETF 위주)']},
   irp:{n:'IRP 퇴직연금',ic:'🛡',d:'퇴직금과 개인 납입금을 함께 운용합니다. 안전자산 30% 의무 비중이 있습니다.',
     feeKr:0.7,feeUs:1,taxFree:0,limit:18000000,usOk:1,
-    pros:['국내 수수료 30% 우대','세액공제 한도 900만원','퇴직금 통합 관리'],cons:['안전자산 30% 의무','중도해지 제약']},
+    pros:['국내 수수료 30% 우대','세액공제 한도 900만원','퇴직금 통합 관리'],
+    cons:['안전자산 30% 의무','연 1,800만원 납입한도','중도해지 제약']},
   overseas:{n:'해외주식 전용계좌',ic:'🌎',d:'해외 거래에 특화된 계좌입니다. 환전 우대와 해외 수수료 인하가 적용됩니다.',
     feeKr:1,feeUs:0.4,taxFree:0,limit:0,usOk:1,fxPref:0.98,
     pros:['해외 수수료 60% 인하 (0.10%)','환전 우대 98%','달러 예수금 관리'],cons:['국내 수수료 우대 없음']},
   youth:{n:'첫걸음 우대계좌',ic:'🌱',d:'처음 투자를 배우는 사람을 위한 계좌입니다. 수수료가 가장 저렴한 대신 예수금 한도가 있습니다.',
     feeKr:0.5,feeUs:0.6,taxFree:0,limit:50000000,usOk:1,
     pros:['국내 수수료 50% 인하','해외 수수료 40% 인하','환전 우대 96%'],cons:['예수금 5,000만원 한도'],fxPref:0.96},
+
+  /* ══ [v5.01] 계좌 종류 확대 ═══════════════════════════════════════════════
+     실제 증권사가 취급하는 계좌를 더 옮겨 왔다. 이름만 늘리지 않고 수수료·한도·
+     해외거래 가능 여부를 저마다 다르게 두어, 고르는 선택이 실제로 결과를 바꾸도록 했다.
+       feeKr/feeUs : 수수료 배수(1=기본, 낮을수록 저렴)
+       limit       : 연 납입한도(원, 0=없음)   usOk : 해외주식 직접매매 가능 여부
+       fxPref      : 환전 우대율               taxFree : 해외 양도세 면제
+     [주의] 한도가 있는 계좌는 예수금이 한도를 넘으면 개설·전환이 막힌다(기존 규칙 그대로). */
+
+  isaSeomin:{n:'ISA (서민형)',ic:'🎒',d:'소득 기준을 충족하면 비과세 한도가 400만원으로 늘어나는 ISA입니다. 조건이 맞는다면 일반형보다 유리합니다.',
+    feeKr:0.75,feeUs:1,taxFree:0,limit:20000000,usOk:1,
+    pros:['순이익 400만원 비과세','국내 수수료 25% 우대','손익 통산'],cons:['소득 요건 필요','연 2,000만원 한도','3년 의무가입']},
+
+  isaTrust:{n:'ISA (신탁형)',ic:'🗄',d:'예금·펀드 위주로 담는 ISA입니다. 직접 종목을 고르기보다 안정적으로 굴리고 싶을 때 씁니다.',
+    feeKr:0.9,feeUs:1,taxFree:0,limit:20000000,usOk:0,
+    pros:['순이익 200만원 비과세','예금 편입 가능','안정적 운용'],cons:['개별 주식 직접매매 불가','연 2,000만원 한도']},
+
+  cmaIssue:{n:'CMA (발행어음형)',ic:'💵',d:'맡겨 둔 예수금에 매일 이자가 붙는 계좌입니다. 주식도 거래할 수 있어 대기 자금을 놀리지 않습니다.',
+    feeKr:1,feeUs:1,taxFree:0,limit:0,usOk:1,rate:3.2,
+    pros:['예수금 연 3.2% 이자(일복리)','수시 입출금','주식 거래 가능'],cons:['수수료 우대 없음','예금자보호 대상 아님']},
+
+  cmaRp:{n:'CMA (RP형)',ic:'🧾',d:'국공채를 담보로 굴리는 CMA입니다. 발행어음형보다 이자가 조금 낮은 대신 안정적입니다.',
+    feeKr:1,feeUs:1,taxFree:0,limit:0,usOk:1,rate:2.9,
+    pros:['예수금 연 2.9% 이자','국공채 담보로 안정적','수시 입출금'],cons:['이자가 발행어음형보다 낮음']},
+
+  credit:{n:'신용융자 계좌',ic:'⚡',d:'증거금을 맡기고 돈을 빌려 더 큰 금액을 거래합니다. 수익도 손실도 함께 커지므로 주의가 필요합니다.',
+    feeKr:0.9,feeUs:1,taxFree:0,limit:0,usOk:1,
+    pros:['보유 자금보다 큰 금액 거래','국내 수수료 10% 우대'],cons:['이자 부담','반대매매 위험','손실이 원금을 넘을 수 있음']},
+
+  deriv:{n:'선물·옵션 계좌',ic:'📐',d:'지수 선물과 옵션을 거래하는 파생상품 계좌입니다. 사전 교육과 모의거래 이수가 필요합니다.',
+    feeKr:0.6,feeUs:1,taxFree:0,limit:0,usOk:0,
+    pros:['국내 수수료 40% 우대','하락장에서도 수익 가능'],cons:['해외 주식 거래 불가','원금 초과 손실 가능','사전 교육 필요']},
+
+  bond:{n:'채권 전용계좌',ic:'📜',d:'국채·회사채를 사서 이자를 받는 계좌입니다. 주식보다 흔들림이 적어 안정적으로 굴리고 싶을 때 씁니다.',
+    feeKr:0.5,feeUs:1,taxFree:0,limit:0,usOk:0,rate:3.8,
+    pros:['국내 수수료 50% 우대','예수금 연 3.8% 이자','만기 보유 시 확정 이자'],cons:['해외 주식 거래 불가','중도 매도 시 손실 가능']},
+
+  ktb:{n:'개인투자용 국채계좌',ic:'🇰🇷',d:'개인만 살 수 있는 국채를 담는 계좌입니다. 만기까지 들고 있으면 가산금리와 분리과세 혜택이 있습니다.',
+    feeKr:0.4,feeUs:1,taxFree:0,limit:10000000,usOk:0,rate:4.0,
+    pros:['예수금 연 4.0% 이자','이자소득 분리과세 14%','만기 보유 시 가산금리'],cons:['해외 주식 거래 불가','연 1,000만원 한도','중도환매 시 혜택 소멸']},
+
+  gold:{n:'금 현물계좌',ic:'🥇',d:'한국거래소 금시장에서 1g 단위로 금을 사고팝니다. 실물로 찾을 수도 있고, 매매차익에 세금이 없습니다.',
+    feeKr:0.6,feeUs:1,taxFree:1,limit:0,usOk:0,
+    pros:['매매차익 비과세','부가세 없음','1g 단위 소액 거래'],cons:['해외 주식 거래 불가','실물 인출 시 부가세 10%']},
+
+  taxfree:{n:'비과세 종합저축',ic:'🎗',d:'만 65세 이상·장애인·국가유공자 등이 가입할 수 있는 계좌입니다. 이자·배당에 세금이 붙지 않습니다.',
+    feeKr:0.7,feeUs:0.8,taxFree:1,limit:50000000,usOk:1,fxPref:0.96,
+    pros:['이자·배당 전액 비과세','해외 양도세 면제','환전 우대 96%'],cons:['가입 자격 필요','한도 5,000만원']},
+
+  junior:{n:'주니어 (미성년자)',ic:'🧒',d:'만 19세 미만을 위한 계좌입니다. 적은 금액으로 오래 굴리기 좋도록 수수료를 크게 낮췄습니다.',
+    feeKr:0.3,feeUs:0.5,taxFree:0,limit:20000000,usOk:1,fxPref:0.95,
+    pros:['국내 수수료 70% 인하','해외 수수료 50% 인하','증여 신고 안내'],cons:['연 2,000만원 한도','법정대리인 동의 필요']},
+
+  wrap:{n:'랩어카운트',ic:'🎩',d:'전문가에게 운용을 맡기는 계좌입니다. 직접 고르지 않아도 되는 대신 보수가 붙습니다.',
+    feeKr:1.4,feeUs:1.4,taxFree:0,limit:0,usOk:1,
+    pros:['전문가 일임 운용','포트폴리오 자동 조정'],cons:['수수료 40% 더 비쌈','최소 가입금액 있음']},
+
+  frac:{n:'소수점 투자계좌',ic:'🔬',d:'비싼 주식을 0.01주 단위로 살 수 있는 계좌입니다. 적은 돈으로도 여러 종목에 나눠 담을 수 있습니다.',
+    feeKr:1.1,feeUs:0.7,taxFree:0,limit:30000000,usOk:1,fxPref:0.97,
+    pros:['0.01주 단위 매매','해외 수수료 30% 인하','적은 돈으로 분산'],cons:['국내 수수료 10% 비쌈','의결권 제한','연 3,000만원 한도']},
+
+  dc:{n:'DC형 퇴직연금',ic:'🏢',d:'회사가 넣어 준 퇴직금을 직접 굴리는 계좌입니다. 운용 성과가 그대로 퇴직금이 됩니다.',
+    feeKr:0.65,feeUs:1,taxFree:0,limit:18000000,usOk:1,
+    pros:['국내 수수료 35% 우대','회사 부담금 운용','과세이연'],
+    cons:['안전자산 30% 의무','연 1,800만원 납입한도','퇴직 전 인출 제한']},
+
+  longfund:{n:'청년형 장기펀드',ic:'🌤',d:'만 19~34세 청년이 3년 이상 넣으면 납입액의 40%를 소득공제받는 계좌입니다.',
+    feeKr:0.6,feeUs:1,taxFree:0,limit:6000000,usOk:0,
+    pros:['납입액 40% 소득공제','국내 수수료 40% 우대'],cons:['연 600만원 한도','3년 이상 유지','해외 주식 거래 불가','나이 요건']},
+
+  night:{n:'해외 야간전용',ic:'🌙',d:'미국 정규장 시간에 맞춰 쓰는 계좌입니다. 해외 수수료가 가장 저렴하고 환전 우대가 가장 높습니다.',
+    feeKr:1.2,feeUs:0.3,taxFree:0,limit:0,usOk:1,fxPref:0.99,
+    pros:['해외 수수료 70% 인하 (0.075%)','환전 우대 99%','달러 예수금 이자'],cons:['국내 수수료 20% 비쌈'],rate:2.0},
+
+  /* ══ [v5.02] 실제 증권사 목록과 대조해 빠져 있던 것을 채웠다 ═══════════════ */
+
+  isaGrowth:{n:'ISA (국민성장형)',ic:'🌾',d:'2026년에 새로 생긴 ISA 유형입니다. 기존 ISA보다 비과세 한도가 넓어 절세 효과가 큽니다. (제도 내용은 바뀔 수 있습니다)',
+    feeKr:0.7,feeUs:1,taxFree:0,limit:20000000,usOk:1,
+    pros:['비과세 한도 확대','국내 수수료 30% 우대','손익 통산'],cons:['연 2,000만원 납입한도','3년 의무가입','국내 상품 위주']},
+
+  cmaJonggeum:{n:'CMA (종금형)',ic:'🏛',d:'종합금융회사가 취급하는 CMA로, 예금자보호가 적용되는 유일한 CMA입니다. 안전을 가장 중시할 때 씁니다.',
+    feeKr:1,feeUs:1,taxFree:0,limit:50000000,usOk:1,rate:2.7,
+    pros:['예금자보호 5,000만원','예수금 연 2.7% 이자','수시 입출금'],cons:['이자가 다른 CMA보다 낮음','한도 5,000만원']},
+
+  cmaMmf:{n:'CMA (MMF형)',ic:'🌊',d:'단기 국공채 펀드에 넣어 굴리는 CMA입니다. 이자가 매일 조금씩 달라지고, 출금이 하루 늦을 수 있습니다.',
+    feeKr:1,feeUs:1,taxFree:0,limit:0,usOk:1,rate:3.0,
+    pros:['예수금 연 3.0% 내외','단기 국공채로 운용'],cons:['이율이 매일 달라짐','출금 하루 지연 가능','예금자보호 아님']},
+
+  usDeriv:{n:'해외선물·옵션',ic:'🌐',d:'미국 지수 선물, 원유·금 선물 등을 거래하는 계좌입니다. 24시간 가까이 열려 있고 변동이 큽니다.',
+    feeKr:1,feeUs:0.5,taxFree:0,limit:0,usOk:1,fxPref:0.97,
+    pros:['해외 수수료 50% 인하','거의 24시간 거래','환전 우대 97%'],cons:['원금 초과 손실 가능','사전 교육 필요','국내 수수료 우대 없음']},
+
+  cfd:{n:'CFD (차액결제)',ic:'🔀',d:'실제 주식을 갖지 않고 가격 차이만 정산하는 거래입니다. 전문투자자로 등록해야 쓸 수 있습니다.',
+    feeKr:0.8,feeUs:0.8,taxFree:0,limit:0,usOk:1,
+    pros:['적은 증거금으로 큰 금액 거래','하락장에서도 수익 가능','국내·해외 수수료 20% 우대'],
+    cons:['전문투자자 등록 필요','손실이 증거금을 넘을 수 있음','반대매매 위험']},
+
+  corp:{n:'법인 계좌',ic:'🏭',d:'회사 이름으로 여는 계좌입니다. 자금 규모가 크고 수수료가 낮은 대신 서류 절차가 있습니다.',
+    feeKr:0.45,feeUs:0.55,taxFree:0,limit:0,usOk:1,fxPref:0.97,
+    pros:['국내 수수료 55% 인하','해외 수수료 45% 인하','환전 우대 97%'],cons:['법인 서류 필요','대표자 확인 절차']},
 };
 function acctInfo(){return ACCT_TYPES[acctType]||ACCT_TYPES.general;}
 function acctFeeKr(){return acctInfo().feeKr!=null?acctInfo().feeKr:1;}
@@ -3101,7 +3278,8 @@ function applyUser(u){
   currentUser=u;
   watchlist=d.watchlist||['005930','000660','035420'];
   holdings=d.holdings||[];
-  cash=(d.cash!=null)?d.cash:10000000;
+  /* [v4.99] 저장된 값이 없으면 0원 — 임의로 1,000만원을 넣지 않는다 */
+  cash=(d.cash!=null)?d.cash:0;
   usdCash=(d.usdCash!=null)?+d.usdCash:0;                       // [v4.29]
   acctType=(d.acctType&&ACCT_TYPES[d.acctType])?d.acctType:'general';   // [v4.32]
   /* [v4.40] 계좌 목록 복원. acctList 키 자체가 없는 예전 사용자만 자동 이전하고,
@@ -3304,7 +3482,7 @@ $('doSignup').onclick=async()=>{
   acctType='general';
   acctList=[]; acctBooks={}; acctActive='';
   const name=$('suName').value.trim()||id,email=$('suEmail').value.trim();
-  const cashV=10000000;                       // 기본 예수금 1,000만원
+  const cashV=0;                              // [v4.99] 예수금은 계좌 개설 때 정한다
   const a='0000';                             // 기본 계좌 비밀번호 — 개설·설정에서 바꾼다
   const m=$('suMsg');
   if(id.length<4){m.textContent='아이디는 4자 이상으로 정해 주세요.';return;}
@@ -3331,12 +3509,16 @@ $('doSignup').onclick=async()=>{
         계좌를 하나 만들고, 곧이어 아래 acctOpen() 이 또 하나를 만들었다.
         → 계좌 정보를 미리 저장해 두어 loadState 가 '이미 개설됨'으로 인식하게 하고,
           여기서는 계좌를 새로 만들지 않는다. */
-  const _aid='ac'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  /* ══ [v4.99] 가입은 계정만 만든다 — 계좌는 만들지 않는다 ═══════════════════
+     앞선 판에서 '계좌 중복'을 막으려고 여기서 계좌를 미리 넣었는데, 그건
+     '가입하자마자 계좌가 생기는' 또 다른 문제였다. 실제 증권사는 가입과 계좌 개설이
+     별개이고, 개설 절차(약관 동의·비밀번호 설정 등)를 밟아야 한다.
+     → acctList 를 '빈 배열'로 넣는다. 키가 있으므로 예전 사용자로 오인해
+       자동 이전(acctMigrate)이 돌지 않고, 계좌는 하나도 생기지 않는다.
+     예수금도 0원에서 시작한다 — 계좌를 열 때 사용자가 정한다. */
   store.set('user:'+id,{
-    watchlist:[], watchFolders:[], holdings:[], cash:cashV, ipoPlans:[], acctPass:acctH,
-    acctType:'general', acctActive:_aid,
-    acctList:[{id:_aid,type:'general',openedAt:Date.now(),pw:acctH}],
-    acctBooks:{[_aid]:{cash:cashV,usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]}}
+    watchlist:[], watchFolders:[], holdings:[], cash:0, usdCash:0, ipoPlans:[], acctPass:acctH,
+    acctType:'general', acctActive:'', acctList:[], acctBooks:{}
   });
   applyUser(id); unlockApp(); initApp();
   toast('buy','가입 완료 · '+name+'님','계정이 서버에 저장되어 어느 기기에서든 같은 아이디로 로그인할 수 있어요');
@@ -3388,7 +3570,17 @@ function renderPmStats(){
     set('psCash',KRW(cash)+'원');
     set('psHold',holdings.length+'종목');set('psWatch',watchlist.length+'종목');set('psFolder',watchFolders.length+'개');
     set('psTrades',tradeLog.length.toLocaleString()+'건');   // [v2.5] 실제 체결 기록
-    let d0=0;try{d0=+localStorage.getItem('firstUseAt')||0;}catch(e){}
+    /* ══ [v4.99] 가입 당일인데 '가입 7일차' 배지가 붙던 이유 ═══════════════════
+       firstUseAt 은 '이 브라우저를 처음 쓴 날'이다. 계정 가입일이 아니다.
+       그래서 예전 사용자가 쓰던 브라우저에서 새로 가입하면, 그 브라우저의 옛 날짜를
+       그대로 물려받아 하루 만에 7일·30일 배지가 붙었다.
+       → 계정에 기록된 가입일(created)을 쓴다. 없으면 오늘 가입한 것으로 본다. */
+    let d0=0;
+    try{ const acc=accounts()[currentUser]||{};
+      d0=+acc.created||0;
+      if(!d0){ d0=Date.now(); acc.created=d0;
+        const a2=accounts(); a2[currentUser]=acc; store.set('accounts',a2); }
+    }catch(e){ d0=Date.now(); }
     const days=d0?Math.max(1,Math.ceil((Date.now()-d0)/86400000)):0;
     set('psDays',days?('D+'+days+'일'):'—');
     /* ══ [v4.19] 매매 성적 · 투자 성향 · 배지 ══════════════════════════════
@@ -3526,7 +3718,17 @@ function openProfile(){
       let ev=0;(holdings||[]).forEach(x=>{const st=byCode[x.code]||{};ev+=((st.price!=null?st.price:x.avg)||0)*(x.qty||0);});
       const tot=(cash||0)+ev, base=(holdings||[]).reduce((a,x)=>a+(x.avg||0)*(x.qty||0),0);
       const pnl=ev-base, rate=base?pnl/base*100:0;
-      let d0=0;try{d0=+localStorage.getItem('firstUseAt')||0;}catch(e){}
+      /* ══ [v4.99] 가입 당일인데 '가입 7일차' 배지가 붙던 이유 ═══════════════════
+       firstUseAt 은 '이 브라우저를 처음 쓴 날'이다. 계정 가입일이 아니다.
+       그래서 예전 사용자가 쓰던 브라우저에서 새로 가입하면, 그 브라우저의 옛 날짜를
+       그대로 물려받아 하루 만에 7일·30일 배지가 붙었다.
+       → 계정에 기록된 가입일(created)을 쓴다. 없으면 오늘 가입한 것으로 본다. */
+    let d0=0;
+    try{ const acc=accounts()[currentUser]||{};
+      d0=+acc.created||0;
+      if(!d0){ d0=Date.now(); acc.created=d0;
+        const a2=accounts(); a2[currentUser]=acc; store.set('accounts',a2); }
+    }catch(e){ d0=Date.now(); }
       const days=d0?Math.max(1,Math.ceil((Date.now()-d0)/86400000)):1;
       hero.innerHTML='<div class="pmh-top"><b>'+KRW(Math.round(tot))+'원</b><span>총자산</span></div>'
         +'<div class="pmh-row"><span class="'+dirOf(pnl)+'">'+signed(pnl)+' ('+pctS(rate)+')</span>'
@@ -3686,6 +3888,7 @@ function renderSettingsExtra(){
     if(!await askConfirm('거래내역 초기화','모든 매매일지 기록이 삭제됩니다. 보유종목·예수금은 유지됩니다.',{okLabel:'초기화',danger:true}))return;
     tradeLog=[];tradeArchive={};saveState();toast('warn','거래내역 초기화 완료','');};
   const cr=$('setCashReset');if(cr)cr.onclick=async()=>{
+    if(!acctRequire('예수금 변경'))return;                       // [v5.00]
     const v=await askText('예수금 리셋',{placeholder:'새 예수금(원) 예: 10000000',value:String(cash||0),maxLen:12});
     if(v===null)return;const nv=Math.max(0,Math.round(+String(v).replace(/[^0-9]/g,'')||0));
     cash=nv;saveState();renderPortfolioNumbers&&renderPortfolioNumbers();toast('buy','예수금 변경',KRW(nv)+'원');};
@@ -4418,8 +4621,9 @@ function openTrade(code){
   safeRun('openTrade:view',()=>showView('trade'));          // ① 무조건 먼저 이동
   safeRun('openTrade:market',()=>resolveMarket(code));
   safeRun('openTrade:hist',()=>{const s0=byCode[code];if(s0&&currentView==='search')addHist(code,s0.name,s0.market);});
-  safeRun('openTrade:view',()=>{const s0=byCode[code]||{};viewHist=viewHist.filter(x=>x.code!==code);
-    viewHist.unshift({code,name:s0.name||code,market:s0.market||'',t:Date.now()});viewHist=viewHist.slice(0,12);saveViewHist();});
+  safeRun('openTrade:view',()=>{const s0=byCode[code]||{};
+    /* [v5.03] 열람 기록을 따로 두지 않고 검색 기록에 함께 남긴다 */
+    try{pushHist(code,s0.name||code,s0.market||'');}catch(e){}});
   safeRun('openTrade:feed',()=>{feed&&feed.addCode(code,{pin:true});});
   safeRun('openTrade:quote',()=>ensureQuote(code));
   safeRun('openTrade:nxt',()=>ensureNxt(code));
@@ -6472,7 +6676,13 @@ function paintClan(){
       ||'<div class="empty">아직 멤버가 없어요</div>';
     rk.querySelectorAll('[data-mem]').forEach(b=>b.onclick=()=>openMemberCard(b.dataset.mem));
     $('clanMsgSave').onclick=async()=>{
-      const r=await clanCall('sync',{msg:$('clanMsg').value,rate:monthPerf().rate,ym:monthPerf().ym,tr:tradeLog.length,hold:holdings.length});
+      /* [v5.03] 클랜에는 전 계좌를 합친 값을 보낸다 — 계좌를 바꿔도 기록이 흔들리지 않는다 */
+      const _hp=allHoldingPerf().sort((a,b)=>b.rate-a.rate);
+      const r=await clanCall('sync',{msg:$('clanMsg').value,rate:monthPerf().rate,ym:monthPerf().ym,
+        tr:allTrades().length, hold:_hp.length,
+        holds:_hp.slice(0,12).map(x=>({n:x.name,r:x.rate,us:x.us})),
+        best:_hp[0]?{n:_hp[0].name,r:_hp[0].rate}:null,
+        worst:_hp.length>1?{n:_hp[_hp.length-1].name,r:_hp[_hp.length-1].rate}:null});
       if(r.ok){clanCache=r;paintClan();toast('buy','상태 메시지 저장','');}else toast('warn','저장 실패',clanErrMsg(r));};
     const hof=$('clanHof');
     if(hof)hof.innerHTML=(c.hof&&c.hof.length)?`<div class="sec-title" style="margin-top:18px">명예의 전당 <span class="sec-sub">· 지난 시즌 1위</span></div>
@@ -6552,6 +6762,13 @@ function openMemberCard(id){
       <div class="ps-c"><span>가입</span><b>${m.joinedAt?new Date(m.joinedAt).toLocaleDateString('ko-KR'):'—'}</b></div>
       <div class="ps-c"><span>최근 활동</span><b>${m.updatedAt?agoStr2(m.updatedAt):'—'}</b></div>
     </div>
+    ${(m.best||m.worst)?`<div class="mc-bw">
+      ${m.best?`<div class="mc-b up"><span>🥇 수익률 BEST</span><b>${htmlEsc(m.best.n)}</b><i class="num up">${m.best.r==null?'—':pctS(m.best.r)}</i></div>`:''}
+      ${m.worst?`<div class="mc-b down"><span>🥶 수익률 WORST</span><b>${htmlEsc(m.worst.n)}</b><i class="num down">${m.worst.r==null?'—':pctS(m.worst.r)}</i></div>`:''}
+    </div>`:''}
+    ${(Array.isArray(m.holds)&&m.holds.length)?`<div class="mc-hd">보유 종목 <small>${m.holds.length}종${(m.hold||0)>m.holds.length?` · 상위 ${m.holds.length}종만 표시`:''}</small></div>
+      <div class="mc-holds">${m.holds.map(h=>`<span class="mc-h">
+        ${h.us?'🇺🇸':'🇰🇷'}<b>${htmlEsc(h.n)}</b>${h.r==null?'':`<i class="num ${h.r>=0?'up':'down'}">${pctS(h.r)}</i>`}</span>`).join('')}</div>`:''}
     ${m.msg?`<div class="pm-note">“${m.msg}”</div>`:''}
     ${(staff&&m.id!==c.me&&m.id!==c.leader)?`<div class="lg-row">
       ${isLeader?`<button class="btn-ghost" id="mcRole">${m.role==='sub'?'부리더 해제':'부리더 임명'}</button>
@@ -6630,7 +6847,12 @@ function clanAutoSync(force){
   if(!force&&!moved&&!stale)return;
   if(!force&&Date.now()-_clanAt<25e3)return;
   _clanRate=mp.rate;_clanAt=Date.now();
-  clanCall('sync',{rate:mp.rate,ym:mp.ym,tr:tradeLog.length,hold:holdings.length}).then(r=>{
+  /* [v5.03] 자동 동기화도 전 계좌 합계로 */
+  const hp=allHoldingPerf().sort((a,b)=>b.rate-a.rate);
+  clanCall('sync',{rate:mp.rate,ym:mp.ym,tr:allTrades().length,hold:hp.length,
+    holds:hp.slice(0,12).map(x=>({n:x.name,r:x.rate,us:x.us})),
+    best:hp[0]?{n:hp[0].name,r:hp[0].rate}:null,
+    worst:hp.length>1?{n:hp[hp.length-1].name,r:hp[hp.length-1].rate}:null}).then(r=>{
     if(r&&r.ok){clanCache=r;if(currentView==='clan')paintClan();else paintClanDots();}});
 }
 setInterval(()=>{try{clanAutoSync(false);}catch(e){}},60e3);
@@ -7157,6 +7379,9 @@ function autoWatchCodes(){
 function subscribeAutoCodes(){try{autoWatchCodes().forEach(c=>{ensureStock(c,'','');feed&&feed.addCode(c);});}catch(e){}}
 let _autoLast={};
 function autoOrderTick(){
+  /* [v5.00] 계좌가 없으면 예약 주문·손절·익절도 실행되지 않는다.
+     계좌를 닫은 뒤 남아 있던 예약이 저절로 체결되면 계좌 없이 보유가 생긴다. */
+  if(!acctOpened())return;
   if(!currentUser)return;
   let changed=false;
   /* 예약 지정가 */
@@ -7203,12 +7428,88 @@ function notifyPrice(nm,code,kind,target,cur){
   }catch(e){}
 }
 setInterval(()=>{try{autoOrderTick();}catch(e){}},12e3);
+/* [v5.01] 하루가 바뀌었는지 5분마다 확인해 이자를 정산한다(앱을 켜 둔 채 자정을 넘겨도 반영) */
+setInterval(()=>{try{acctInterestTick();}catch(e){}},300e3);
 setTimeout(subscribeAutoCodes,3000);
 /* ── [v2.5] 월간 수익률(클랜 리그 기준) — 월초 총자산 대비 ── */
 function totalAssetsNow(){ return eqTotalNow(); }   // [v4.5] 계산식 이원화 제거 — 자산 추이와 클랜 리그가 같은 값을 쓴다
+/* ══ [v5.03] 클랜·친구에는 '모든 계좌를 합친' 값을 쓴다 ═══════════════════════
+   [무엇이 잘못됐나] 지금까지는 '활성 계좌' 하나만 보고 수익률·보유·체결 수를 보냈다.
+   그래서 내 계좌에서 계좌를 바꾸면 클랜에 보이는 내 기록이 통째로 달라졌다.
+   계좌는 내가 나눠 쓰는 주머니일 뿐, 남에게 보이는 성적은 전부를 합친 것이어야 한다.
+   [고침] 활성 계좌(지금 화면의 값) + 나머지 계좌 장부를 더해 하나로 만든다. */
+function allBooks(){
+  const out=[];
+  try{
+    const list=Array.isArray(acctList)?acctList:[];
+    for(const a of list){
+      if(a.id===acctActive){
+        out.push({id:a.id,type:a.type,cash,usdCash,holdings:holdings||[],
+          tradeLog:tradeLog||[],tradeArchive:tradeArchive||{}});
+      }else{
+        const b=acctBooks[a.id]||{};
+        out.push({id:a.id,type:a.type,cash:+b.cash||0,usdCash:+b.usdCash||0,
+          holdings:Array.isArray(b.holdings)?b.holdings:[],
+          tradeLog:Array.isArray(b.tradeLog)?b.tradeLog:[],
+          tradeArchive:b.tradeArchive||{}});
+      }
+    }
+  }catch(e){}
+  return out;
+}
+/* 전 계좌 합계 총자산(원화 환산) */
+function allAssetsNow(){
+  const num=(v)=>{const n=Number(v);return isFinite(n)?n:0;};
+  let fx=0; try{ fx=num(usFx()); }catch(e){}
+  let tot=0;
+  for(const b of allBooks()){
+    tot+=Math.max(0,num(b.cash));
+    if(fx>0)tot+=Math.max(0,num(b.usdCash))*fx;
+    for(const h of b.holdings){
+      if(!h)continue;
+      const st=byCode[h.code]||{};
+      const q=num(h.qty), av=num(h.avg);
+      if(q<=0)continue;
+      const px=num(st.price!=null?st.price:av)||av;
+      const krw=h.us?(fx>0?px*q*fx:0):px*q;
+      if(isFinite(krw))tot+=krw;
+    }
+  }
+  return Math.round(tot);
+}
+/* 전 계좌 보유 종목을 하나로 합친다(같은 종목은 수량을 더하고 평단을 다시 계산) */
+function allHoldings(){
+  const map={};
+  for(const b of allBooks())for(const h of (b.holdings||[])){
+    if(!h||!h.code)continue;
+    const q=Number(h.qty)||0; if(q<=0)continue;
+    const cur=map[h.code]||(map[h.code]={code:h.code,qty:0,cost:0,us:h.us?1:0});
+    cur.qty+=q; cur.cost+=(Number(h.avg)||0)*q;
+  }
+  return Object.values(map).map(x=>({code:x.code,qty:x.qty,avg:x.qty?x.cost/x.qty:0,us:x.us}));
+}
+/* 전 계좌 체결 기록 */
+function allTrades(){
+  const out=[];
+  for(const b of allBooks()){
+    out.push(...(b.tradeLog||[]));
+    try{ Object.values(b.tradeArchive||{}).forEach(v=>{ if(Array.isArray(v))out.push(...v); }); }catch(e){}
+  }
+  return out;
+}
+/* 보유 종목별 수익률 — 클랜에 보여 줄 BEST/WORST 를 뽑는 데 쓴다 */
+function allHoldingPerf(){
+  return allHoldings().map(h=>{
+    const st=byCode[h.code]||{};
+    const px=Number(st.price!=null?st.price:h.avg)||h.avg;
+    const rate=h.avg>0?(px/h.avg-1)*100:0;
+    const nm=h.us?((usMeta[h.code]&&usMeta[h.code].kr)||h.code):(st.name||h.code);
+    return {code:h.code,name:nm,qty:h.qty,rate:+rate.toFixed(2),us:h.us?1:0};
+  }).filter(x=>isFinite(x.rate));
+}
 function monthPerf(){
   const ym=kstMonth();
-  const cur=totalAssetsNow();
+  const cur=allAssetsNow();          // [v5.03] 활성 계좌가 아니라 전 계좌 합계
   let mb=userPrefs.monthBase;
   if(!mb||mb.ym!==ym||!(mb.base>0)){mb={ym,base:cur};userPrefs.monthBase=mb;savePrefs();return {ym,rate:0,base:cur};}
   return {ym,rate:mb.base?(cur-mb.base)/mb.base*100:0,base:mb.base};
@@ -8024,45 +8325,30 @@ function fillNamesFromAll(){
 
 /* ===== 최근 검색 기록 ===== */
 let srchHist=[];   // 계정별 값은 reloadPerUser()에서 로드
+/* ══ [v5.03] 검색·열람 기록을 한곳에 모은다 ═══════════════════════════════════
+   국내·해외를 가리지 않고, 검색해서 들어갔든 목록에서 눌러 들어갔든 여기에 남는다.
+   (앞서 '최근 본 종목'을 없애면서 이 함수도 함께 지워졌던 것을 다시 세운다) */
+function pushHist(code,name,market){
+  if(!code)return;
+  srchHist=srchHist.filter(x=>x&&x.code!==code);
+  srchHist.unshift({code,name:name||code,market:market||'',t:Date.now()});
+  srchHist=srchHist.slice(0,20); saveHist();
+  try{ if(currentView==='search')renderHist(); }catch(e){}
+}
+function pushHistQ(q){
+  q=String(q||'').trim(); if(!q)return;
+  srchHist=srchHist.filter(x=>x&&x.q!==q);
+  srchHist.unshift({q,t:Date.now()});
+  srchHist=srchHist.slice(0,20); saveHist();
+}
 /* [D3] 최근 본 종목 — 검색 기록과 별개로, 상세를 연 종목을 최신순으로 보관 */
 let viewHist=[];   // 계정별 값은 reloadPerUser()에서 로드
 function saveViewHist(){pset('viewHist',viewHist.slice(0,12));}
-function renderViewHist(){
-  const el=$('viewHist'); if(!el)return;
-  if(!viewHist.length){el.hidden=true;return;}
-  el.hidden=false;
-  el.innerHTML=`<div class="sh-head"><span>최근 본 종목</span><button id="vhClear">전체 삭제</button></div>
-    <div class="sh-chips">${viewHist.map((h,i)=>{
-      const us=h.us||!!usMeta[h.code];
-      /* 한 목록에 국내·해외가 섞이므로 어느 시장인지 한눈에 보이게 국기를 붙인다 */
-      const logo=us?(typeof usTick==='function'?usTick(h.code):''):anyLogo(h.code,h.name,'xs');
-      return `<span class="sh-chip${us?' us':''}" data-i="${i}">${logo}<b>${h.name}</b>${us?'<i class="sh-fl">🇺🇸</i>':''}<i class="sh-x" data-x="${i}">✕</i></span>`;
-    }).join('')}</div>`;
-  el.querySelectorAll('.sh-chip').forEach(c=>c.onclick=(e)=>{
-    if(e.target.classList.contains('sh-x'))return;
-    const h=viewHist[+c.dataset.i]; if(!h)return;
-    if(h.us||usMeta[h.code]){ openUS(h.code); return; }        // [v4.56] 해외는 해외 화면으로
-    ensureStock(h.code,h.name,h.market); openTrade(h.code);
-  });
-  el.querySelectorAll('.sh-x').forEach(x=>x.onclick=(e)=>{e.stopPropagation();viewHist.splice(+x.dataset.x,1);saveViewHist();renderViewHist();});
-  const cl=$('vhClear'); if(cl)cl.onclick=()=>{viewHist=[];saveViewHist();renderViewHist();};
-}
-function saveHist(){pset('srchHist',srchHist.slice(0,20));}
-function addHist(code,name,market){
-  if(!code)return;
-  srchHist=srchHist.filter(x=>x.code!==code);
-  srchHist.unshift({code,name:name||code,market:market||'',t:Date.now()});
-  srchHist=srchHist.slice(0,20);saveHist();renderHist();
-}
-/* [추가] 쿠팡식 '검색어' 기록 — Enter 로 검색한 키워드도 칩으로 남긴다(종목 칩과 최신순 통합) */
-function addHistQ(q){
-  q=String(q||'').trim(); if(q.length<2)return;
-  srchHist=srchHist.filter(x=>x.q!==q);
-  srchHist.unshift({q,t:Date.now()});
-  srchHist=srchHist.slice(0,20);saveHist();
-}
-function removeHist(code){srchHist=srchHist.filter(x=>x.code!==code);saveHist();renderHist();}
-function clearHist(){srchHist=[];saveHist();renderHist();}
+/* ══ [v5.03] '최근 본 종목'은 걷어냈다 ═══════════════════════════════════════
+   '최근 검색'과 '최근 본 종목'이 나란히 있어 거의 같은 내용이 두 줄로 반복됐다.
+   검색 기록 하나로 합치고, 보기 좋았던 '최근 본 종목'의 칩 모양을 그대로 물려받는다.
+   종목을 열면 검색 기록에도 남으므로 국내·해외가 한곳에 모인다. */
+function renderViewHist(){ const el=$('viewHist'); if(el)el.hidden=true; }
 function renderHist(){
   const el=$('srchHist');if(!el)return;
   const typing=(($('searchInput')||{}).value||'').trim();
@@ -10557,7 +10843,13 @@ function renderPortfolioNumbers(){
 /* 예수금 설정 */
 /* [v4.5] 예수금 직접 설정도 정수·비음수·상한으로 묶는다(깨진 값이 총자산을 오염시키던 통로) */
 const CASH_MAX=1e15;
-function setCash(v){cash=Math.min(CASH_MAX,Math.max(0,intOf(v,0)));saveState();
+/* ══ [v5.00] 계좌가 없으면 돈이 움직이지 않는다 ═══════════════════════════════
+   주문만 막아 두었을 뿐, 예수금 설정·환전·이체는 계좌 없이도 실행됐다.
+   계좌가 없는데 예수금이 생기면 앞뒤가 맞지 않고, 그 돈으로 다음 단계가 열린다.
+   돈이 오가는 모든 길목에서 계좌 개설을 먼저 확인한다. */
+function setCash(v){
+  if(!acctRequire('예수금 설정'))return;
+  cash=Math.min(CASH_MAX,Math.max(0,intOf(v,0)));saveState();
   if($('cashInput'))$('cashInput').value=KRW(cash);
   renderPortfolioNumbers();renderHoldings();syncMaxQty();}
 $('cashSet').onclick=()=>{const v=parseInt(($('cashInput').value||'0').replace(/[^0-9]/g,''))||0;setCash(v);toast('buy','예수금 설정',KRW(cash)+'원');};
@@ -12950,7 +13242,40 @@ function usLgSave(){ if(_usLgSaveT)return;
   _usLgSaveT=setTimeout(()=>{_usLgSaveT=null;
     try{localStorage.setItem('usLg3',JSON.stringify({v:5,ok:usLgOk,no:usLgNo}));}catch(e){}},600); }
 /* 후보 주소 — 서로 다른 제공자를 섞어 한 곳이 막혀도 다른 곳이 뚫리게 한다 */
+/* ══ [v5.03] 개별주 레버리지 ETF는 기초자산 로고를 따른다 ═══════════════════
+   [무엇이 어색했나] '테슬라 2X'·'엔비디아 2X'·'코인베이스 2X' 가 각각 운용사
+   (Direxion·GraniteShares) 로고로 나와, 같은 테슬라를 따르는 상품인데도 로고가
+   제각각이었다. '나스닥100 3X'와 '나스닥100 2X'도 운용사가 달라 모양이 달랐다.
+   [고침] 개별 종목을 따르는 레버리지 ETF는 그 종목의 로고를 그대로 쓴다.
+   지수를 따르는 것(나스닥100·S&P500)은 지수끼리 같은 로고를 쓰도록 묶는다. */
+var US_LEV_BASE={
+  /* 개별 종목 레버리지 → 기초 종목 */
+  TSLL:'TSLA', TSLQ:'TSLA', TSLS:'TSLA', TSDD:'TSLA',
+  NVDL:'NVDA', NVDX:'NVDA', NVD:'NVDA', NVDQ:'NVDA', NVDU:'NVDA',
+  CONL:'COIN', CONI:'COIN',
+  AAPU:'AAPL', AAPD:'AAPL',
+  MSFU:'MSFT', MSFD:'MSFT',
+  AMZU:'AMZN', AMZD:'AMZN',
+  GGLL:'GOOGL', GGLS:'GOOGL',
+  METU:'META', METD:'META',
+  MSTU:'MSTR', MSTX:'MSTR', MSTZ:'MSTR',
+  PLTU:'PLTR', PLTD:'PLTR',
+  AMUU:'AMD', AMDL:'AMD',
+  SPAL:'SPCX', SNK:'SPCX',
+  SMCL:'SMCI', SMCX:'SMCI',
+  AVL :'AVGO', MUU:'MU', ARMU:'ARM',
+  /* 지수 레버리지 → 대표 ETF 로고로 통일 (같은 지수는 같은 모양) */
+  TQQQ:'QQQ', SQQQ:'QQQ', QLD:'QQQ', QID:'QQQ', PSQ:'QQQ',
+  UPRO:'SPY', SPXL:'SPY', SPXU:'SPY', SPXS:'SPY', SSO:'SPY', SDS:'SPY',
+  SOXL:'SOXX', SOXS:'SOXX', USD:'SOXX',
+  BITX:'IBIT', BITU:'IBIT'
+};
 function usLgUrls(t){
+  /* 기초자산이 정해진 레버리지 ETF는 그 종목의 로고를 그대로 쓴다 */
+  {const b=US_LEV_BASE[t]; if(b&&b!==t)return usLgUrlsRaw(b);}
+  return usLgUrlsRaw(t);
+}
+function usLgUrlsRaw(t){
   /* [v4.31] 검색으로 새로 등록된 종목은 도메인 매핑이 없다. 그런 종목도 로고가 나오도록
      '티커 기반' 소스를 항상 뒤에 붙인다(도메인이 있으면 후보가 그만큼 더 많아진다). */
   /* ══ [v4.80] 로고는 서버가 고른 것만 쓴다 ═══════════════════════════════
@@ -12986,7 +13311,13 @@ function usLgUrls(t){
 function usLgUrl(t){ const i=usLgOk[t]; return i==null?'':usLgUrls(t)[i]||''; }
 function usLgWant(t){
   if(!usMeta[t]||usLgOk[t]!=null||_usLgBusy.has(t))return;
-  if(_usLgQ.length>60)return;                                   // 과열 방지 — 스크롤하며 다시 요청된다
+  /* ══ [v4.99] 목록 뒤쪽 로고가 영영 안 나오던 이유 ═══════════════════════════
+     대기열이 60개를 넘으면 요청을 '버리고' 있었다. 100종 목록에서는 뒤쪽 종목이
+     매번 버려져, 화면을 다시 그려도 계속 흰 배지로 남았다.
+     (검색 화면은 결과가 몇 개뿐이라 대기열이 넘치지 않아 잘 나왔던 것이다)
+     → 버리지 않고 뒤에 쌓아 둔다. 한 번에 6개씩 처리하므로 순서대로 채워진다.
+       너무 길어지면 앞쪽(이미 화면에서 사라진 것)을 덜어낸다. */
+  if(_usLgQ.length>400)_usLgQ.splice(0,_usLgQ.length-300);
   if(usLgNo[t]&&Date.now()-usLgNo[t]<usLgTtl())return;
   if(_usLgQ.indexOf(t)<0)_usLgQ.push(t);
   usLgPump();
@@ -13906,12 +14237,8 @@ function openUS(t){ if(!usMeta[t])return;
      종목검색 화면에서 다시 찾을 수가 없었다. */
   /* [v4.58] 조회수 집계 — 이 앱의 '조회수 TOP 100'을 만드는 유일한 실제 근거다 */
   safeRun('openUS:count',()=>{ fetch('/api/usview?t='+encodeURIComponent(t),{cache:'no-store'}).catch(()=>{}); });
-  safeRun('openUS:view',()=>{ const m=usMeta[t]||{};
-    viewHist=viewHist.filter(x=>x.code!==t);
-    viewHist.unshift({code:t,name:m.kr||t,market:'US',us:1,t:Date.now()});
-    viewHist=viewHist.slice(0,12); saveViewHist();
-    if(currentView==='search')safeRun('vh',()=>renderViewHist());
-  });
+  /* [v5.03] 해외도 같은 검색 기록에 남긴다 */
+  safeRun('openUS:view',()=>{ const m=usMeta[t]||{}; pushHist(t,m.kr||t,'US'); });
   showView('ustrade');
 }
 var usInfoTab='summary';
@@ -14287,8 +14614,14 @@ function renderUsCons(el){
   if(cells.length)html+=`<div style="font-weight:800;margin:20px 0 10px">주요 투자지표</div>
     <div class="inv-grid">${cells.map(x=>`<div class="inv-cell"><div class="n">${x[0]}</div><div class="v">${htmlEsc(String(x[1]))}</div></div>`).join('')}</div>`;
   if(!html.includes('gauge-wrap')&&!c.target&&!cells.length){
-    el.innerHTML=usNoData('컨센서스 자료가 없습니다',
-      '이 종목은 시세 제공처가 애널리스트 의견·목표주가를 제공하지 않습니다.'); return;
+    /* [v5.03] 왜 비었는지 알 수 있게 — 자료가 없는 것과 받아오지 못한 것을 구분한다 */
+    const dg=(info&&info.diag)||[];
+    const failed=dg.some(x=>/yh-(crumb|sum)/.test(x)&&!/ok/.test(x));
+    el.innerHTML=usNoData(
+      failed?'컨센서스를 받아오지 못했습니다':'컨센서스 자료가 없습니다',
+      failed?'시세 제공처 연결이 일시적으로 막혔습니다. 잠시 뒤 다시 열어 보세요.'
+            :'소형주·신규 상장·ETF 는 애널리스트 의견과 목표주가가 없는 경우가 많습니다.');
+    return;
   }
   html+=`<div style="margin-top:14px;font-size:11px;color:var(--sub-2)">※ 투자의견·목표주가는 해외 증권사 추정치이며 투자 권유가 아닙니다.</div>`;
   el.innerHTML=html;
@@ -14310,8 +14643,14 @@ function renderUsFin(el){
     ['EPS',k.eps],['BPS',k.bps],['ROE',k.roe!=null?k.roe+'%':null]].filter(x=>x[1]!=null&&x[1]!=='');
   if(cells.length)html+=`<div class="fin-sub" style="margin-top:18px">주요 지표</div>
     <div class="inv-grid">${cells.map(x=>`<div class="inv-cell"><div class="n">${x[0]}</div><div class="v">${htmlEsc(String(x[1]))}</div></div>`).join('')}</div>`;
-  if(!html){ el.innerHTML=usNoData('재무 정보가 없습니다',
-    '이 종목은 시세 제공처가 재무제표를 제공하지 않습니다. ETF·ETN은 재무제표가 없습니다.'); return; }
+  if(!html){
+    const dg=(info&&info.diag)||[];
+    const failed=dg.some(x=>/yh-(crumb|sum)/.test(x)&&!/ok/.test(x));
+    el.innerHTML=usNoData(
+      failed?'재무 정보를 받아오지 못했습니다':'재무 정보가 없습니다',
+      failed?'시세 제공처 연결이 일시적으로 막혔습니다. 잠시 뒤 다시 열어 보세요.'
+            :'ETF·ETN 은 재무제표가 없고, 신규 상장 종목은 아직 공시가 쌓이지 않았습니다.');
+    return; }
   el.innerHTML=html;
 }
 /* 재무 응답의 구조가 제각각이라, 기간·항목처럼 보이는 것을 찾아 표로 만든다 */
@@ -14550,6 +14889,14 @@ function wireUsOrder(){
 function usExecuteOrder(side,o){
   const m=usMeta[usSel]; if(!m)return false;
   if(!acctRequire('해외 주문'))return false;            // [v4.40]
+  /* ══ [v5.01] 해외 거래가 안 되는 계좌를 실제로 막는다 ═══════════════════════
+     usOk 값을 계좌마다 두고도 아무 데서도 확인하지 않아, 채권·금·선물 전용 계좌에서도
+     해외 주식이 사졌다. 계좌를 고르는 의미가 없어진다. */
+  {const a=ACCT_TYPES[acctType];
+   if(a&&a.usOk===0){
+     toast('warn','이 계좌로는 해외 주식을 살 수 없습니다',
+       `${a.n}는 해외 주식 직접매매를 지원하지 않습니다. 내 계좌에서 해외 거래가 되는 계좌로 바꾼 뒤 주문해 주세요.`);
+     return false;}}
   const px=Math.round((+o.price||0)*100)/100, qty=Math.round((+o.qty||0)*100)/100;
   if(!(px>0)||!(qty>=0.01)){toast('warn','주문 실패','가격과 수량(0.01주 이상)을 확인하세요');return false;}
   const fx=usFx();
