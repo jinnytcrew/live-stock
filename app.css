@@ -4645,3 +4645,11 @@ html[data-theme="dark"] .ex-px.na,html[data-theme="dark"] .ex-ch.na{color:var(--
 .xf-sum{margin-bottom:14px;font-size:13px;font-weight:800;color:var(--sub)}
 .xf-sum b{font-size:17px}
 @media (max-width:560px){.xfer-box{padding:22px 18px 14px}.xf-t{font-size:16px}}
+
+/* ══ [v6.1] 송금 코너 탭 ═══════════════════════════════════════════════════ */
+.asend-tabs{display:flex;gap:6px;padding:4px;border-radius:12px;background:var(--border-soft);margin-bottom:14px}
+.asend-tabs button{flex:1;padding:11px 8px;border-radius:9px;font-size:13px;font-weight:800;
+  color:var(--sub-2);background:transparent;min-height:42px}
+.asend-tabs button.on{background:var(--panel);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+html[data-theme="dark"] .asend-tabs button.on{background:rgba(255,255,255,.12)}
+.asend-body[hidden]{display:none}

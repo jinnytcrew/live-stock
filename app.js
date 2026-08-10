@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=393';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=395';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2587,21 +2587,21 @@ function renderAcctSend(){
   const me=acctCur();
   const others=acctList.filter(a=>a.id!==me.id);
   if(!others.length){
-    sec.innerHTML=`<div class="sec"><div class="sec-title">송금 <span class="sec-sub">· 내 계좌 사이 이체</span></div>
-      <div class="panel asend"><div class="asend-empty"><b>지금은 계좌가 하나뿐이라 보낼 곳이 없습니다</b>
-        <span>송금은 <b>내 계좌끼리</b> 예수금을 옮기는 기능입니다.
-          현재 <b>${htmlEsc((ACCT_TYPES[me.type]||{}).n||'계좌')}</b> 하나만 있어 보낼 상대가 없어요.<br>
-          계좌를 하나 더 만들면 계좌번호로 옮길 수 있습니다.</span>
-        <button type="button" class="uz-retry" id="asOpenAcct">계좌 하나 더 개설하기</button></div></div></div>`
-      +acctSendOutHtml();                              /* [v5.8] 남에게 보내기는 계좌 1개여도 된다 */
+    sec.innerHTML=sendShellHtml()
+      .replace('<!--MINE-->',`<div class="asend-body" id="asMineBody">
+        <div class="asend-empty"><b>계좌가 하나뿐이라 보낼 곳이 없습니다</b>
+          <span>내 계좌끼리 옮기려면 계좌가 두 개 이상 있어야 합니다.<br>
+            다른 사람에게 보내려면 위 <b>다른 사람에게</b> 탭을 눌러 주세요.</span>
+          <button type="button" class="uz-retry" id="asOpenAcct">계좌 하나 더 개설하기</button></div></div>`)
+      .replace('<!--OUT-->',acctSendOutHtml());
+    bindSendTabs(); bindSendOut();
     const b=$('asOpenAcct'); if(b)b.onclick=()=>openAcctOpenSheet();
-    bindSendOut();
     return;
   }
   if(!others.some(a=>a.id===sendToId))sendToId='';
   const today=sendTodayTotal();
-  sec.innerHTML=`<div class="sec"><div class="sec-title">송금 <span class="sec-sub">· 내 계좌 사이 이체 · 1회 ${KRW(SEND_LIMIT_ONE)}원 · 1일 ${KRW(SEND_LIMIT_DAY)}원</span></div>
-    <div class="panel asend">
+  sec.innerHTML=sendShellHtml()
+    .replace('<!--MINE-->',`<div class="asend-body" id="asMineBody">
       <div class="asend-from"><small>출금 계좌</small>
         <b>${acctLabel(me)}</b><i class="num">${me.no||'번호 없음'}</i>
         <span class="num">출금가능 ${KRW(cash)}원</span></div>
@@ -2631,8 +2631,9 @@ function renderAcctSend(){
       ${sendLog.length?`<div class="asend-log"><div class="asl-h">최근 이체</div>
         ${sendLog.slice(0,5).map(r=>`<div class="asl-r"><span>${new Date(r.at).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})}</span>
           <b>${htmlEsc(r.to)}</b><i class="num">${KRW(r.amt)}원</i></div>`).join('')}</div>`:''}
-    </div></div>`
-    +acctSendOutHtml();          /* [v5.9] 계좌가 여러 개일 때도 '남에게 보내기'를 함께 보여 준다 */
+    </div>`)
+    .replace('<!--OUT-->',acctSendOutHtml());
+  bindSendTabs(); bindSendOut();
   bindSendOut();
   const noIn=$('asNo'), amt=$('asAmt'), msg=$('asMsg'), toBox=$('asTo');
   const paintTo=()=>{
@@ -2680,16 +2681,26 @@ function renderAcctSend(){
   };
 }
 /* ══ [v5.8] 다른 사람에게 보내기 — 내 계좌끼리 이체 아래에 붙인다 ═══════════ */
+/* ══ [v6.1] 송금 코너를 하나로 합친다 ═══════════════════════════════════════
+   '내게 송금'과 '다른 사람에게 송금'이 따로 떨어져 있어 같은 일을 두 곳에서
+   찾아야 했다. 한 구역에 넣고 탭으로 나눈다 — 화면도 짧아지고 흐름도 자연스럽다. */
+var sendTab='mine';
+/* 송금 코너 껍데기 — 제목 한 줄 + 탭 + 두 본문이 들어갈 자리 */
+function sendShellHtml(){
+  return `<div class="sec"><div class="sec-title">송금
+      <span class="sec-sub">· 1회 ${KRW(SEND_LIMIT_ONE)}원 · 1일 ${KRW(SEND_LIMIT_DAY)}원</span></div>
+    <div class="panel asend">
+      <div class="asend-tabs" id="asTabs">
+        <button data-stab="mine" class="${sendTab==='mine'?'on':''}">내 계좌로</button>
+        <button data-stab="out" class="${sendTab==='out'?'on':''}">다른 사람에게</button>
+      </div>
+      <!--MINE--><!--OUT-->
+    </div></div>`;
+}
 function acctSendOutHtml(){
-  /* ══ [v6.0] 내 계좌 송금과 같은 모양으로 맞춘다 ═══════════════════════════
-     [무엇이 어긋났나] ① 확인 버튼이 44px 고정 칸에 들어가 '확 인' 처럼 세로로 접혔다
-     ② 출금 계좌 상자·화살표가 없어 위쪽 코너와 생김새가 달랐다
-     같은 화면에서 두 코너가 다르게 생기면 다른 기능처럼 보인다. */
   const me=acctCur()||{};
   const today=sendTodayTotal();
-  return `<div class="sec" style="margin-top:14px">
-    <div class="sec-title">다른 사람에게 송금 <span class="sec-sub">· 계좌번호로 보내기 · 1회 ${KRW(SEND_LIMIT_ONE)}원 · 1일 ${KRW(SEND_LIMIT_DAY)}원</span></div>
-    <div class="panel asend">
+  return `<div class="asend-body" id="asOutBody">
       <div class="asend-from"><small>출금 계좌</small>
         <b>${acctLabel(me)}</b><i class="num">${me.no||'번호 없음'}</i>
         <span class="num">출금가능 ${KRW(cash)}원</span></div>
@@ -2709,8 +2720,23 @@ function acctSendOutHtml(){
       <button class="modal-btn asend-go" id="xoGo">송금하기</button>
       <div class="asend-note">※ 상대가 접속할 때 계좌에 들어갑니다. 보낸 뒤에는 되돌릴 수 없으니 계좌번호를 꼭 확인하세요.<br>
         ※ 예수금(원화)만 이동하며, 보유 주식은 함께 옮겨지지 않습니다.</div>
-    </div></div>`;
+    </div>`;
 }
+/* 탭 배선 — 한 번만 걸고, 고른 탭만 보여 준다 */
+function bindSendTabs(){
+  const wrap=$('asTabs'); if(!wrap)return;
+  wrap.querySelectorAll('[data-stab]').forEach(b=>b.onclick=()=>{
+    sendTab=b.dataset.stab;
+    wrap.querySelectorAll('[data-stab]').forEach(x=>x.classList.toggle('on',x===b));
+    const mine=$('asMineBody'), out=$('asOutBody');
+    if(mine)mine.hidden=(sendTab!=='mine');
+    if(out)out.hidden=(sendTab!=='out');
+  });
+  const mine=$('asMineBody'), out=$('asOutBody');
+  if(mine)mine.hidden=(sendTab!=='mine');
+  if(out)out.hidden=(sendTab!=='out');
+}
+
 
 function bindSendOut(){
   const chk=$('xoCheck'), who=$('xoWho');
@@ -5539,9 +5565,11 @@ function lastNightClose(){
 }
 function k200NightOpen(){
   try{
+    /* [v6.2] KRX 야간거래는 18:00 ~ 익일 06:00 이다(05:00 이 아니다).
+       05~06시를 닫힌 것으로 보면 그 시간대 카드가 비어 버린다. */
     const k=kstNow(), h=k.getUTCHours(), wd=k.getUTCDay();   // 0=일
     if(h>=18) return wd>=1&&wd<=5;                            // 월~금 저녁 개장
-    if(h<5)   return wd>=2&&wd<=6;                            // 화~토 새벽까지 이어짐
+    if(h<6)   return wd>=2&&wd<=6;                            // 화~토 새벽 6시까지
     return false;
   }catch(e){ return false; }
 }
@@ -5598,9 +5626,19 @@ function nightFutFromDay(list){
   /* [v4.12] 주간 종가를 야간 카드 숫자로 쓰지 않는다.
      981.15 를 '코스피200 야간선물'로 표기하면 실제(1,008선)와 다른 오정보가 된다.
      값은 비우고, 참고용으로 주간 마감가만 아래에 밝힌다. */
-  const k=(list||[]).find(x=>x&&x.key==='K200F');
-  return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true,
-    dayRef:(k&&k.price!=null)?k.price:null};
+  /* ══ [v6.1] 카드가 계속 비어 있던 문제 ═══════════════════════════════════
+     야간 시세를 못 받으면 값을 통째로 비웠는데, 그러면 카드가 영영 회색으로 남는다.
+     '전날 야간 종가'가 있으면 그것을 보여 주고, 없으면 주간 마감가를 쓰되
+     라벨(dayBasis)로 어느 기준인지 분명히 밝힌다 — 숫자가 없는 것보다 낫다. */
+  /* ══ [v6.2] 주간 마감가를 야간 카드에 싣지 않는다 ═══════════════════════════
+     주간 979 를 '야간선물'로 보여 주면 실제(1,008선)와 달라 오정보가 된다.
+     야간 시세를 실제로 받았을 때만 숫자를 쓰고, 못 받았으면 그 사실을 밝힌다.
+     대신 서버가 여러 경로를 두드리므로 대개는 받아진다. */
+  let nc=null; try{ nc=lastNightClose(); }catch(e){}
+  /* 지난 야간장에서 받아 둔 마감가는 '오늘 야간이 아직 안 열렸을 때'만 쓴다 */
+  if(nc&&nc.price>0&&!k200NightOpen())
+    return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:nc.price,
+      change:nc.change||0,rate:nc.rate||0,history:nc.history||[],dayBasis:'직전 야간 마감'};
   return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true};
 }
 function withNightWait(arr){
@@ -7343,7 +7381,19 @@ async function renderFriend(){
     const r=await frCall('sync',{rate:mp.rate,msg:(frCache&&frCache.me&&frCache.me.msg)||'',tr:tradeLog.length});
     _frBusy=false;
     if(r&&r.ok)frCache=r;
-    else{el.innerHTML=`<div class="empty">친구 서버 연결 실패 (${(r&&r.err)||'net'})<br>잠시 후 다시 시도해 주세요.</div>`;return;}
+    else{
+      /* [v6.1] 무엇 때문에 막혔는지 알려 준다 — 'auth' 만으로는 알 수 없다 */
+      const why=(r&&r.why)==='nouser'?'서버에 이 아이디로 저장된 계정이 없습니다'
+        :(r&&r.why)==='pass'?'비밀번호가 서버와 맞지 않습니다'
+        :(r&&r.err)==='net'?'서버에 연결하지 못했습니다':'연결에 실패했습니다';
+      el.innerHTML=`<div class="empty"><b>${why}</b><br>
+        <span style="font-size:12px">로그아웃 후 다시 로그인하면 계정이 서버에 다시 등록됩니다.</span><br>
+        <button class="btn-primary" id="frFix" style="margin-top:12px">계정 다시 등록</button></div>`;
+      const fb=$('frFix'); if(fb)fb.onclick=async()=>{
+        fb.disabled=true; const ok=await ensureServerAccount();
+        toast(ok?'ok':'warn',ok?'등록 완료':'등록 실패',ok?'다시 불러옵니다':'다시 로그인해 주세요');
+        if(ok){frCache=null;renderFriends();} else fb.disabled=false; };
+      return;}
   }
   const f=frCache||{friends:[],reqIn:[],reqOut:[],me:{}};
   const mp=monthPerf();

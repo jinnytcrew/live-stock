@@ -5209,9 +5209,18 @@ var clan_default = async (req2) => {
     return json2({ ok: true, clans: arr0.slice(0, 30) });
   }
   const db = await st.acc.get("db", { type: "json" }).catch(() => null) || { accounts: {}, users: {} };
-  const user = await verifyUser(db, b.id, b.pass, b.legacy);
-  if (!user) return json2({ ok: false, err: "auth" });
-  const uid = String(b.id);
+  let user = await verifyUser(db, b.id, b.pass, b.legacy);
+  let uidKey = String(b.id || "");
+  /* [v6.1] 아이디 대소문자가 어긋나도 찾아 준다 — 친구와 같은 규칙 */
+  if (!user && uidKey) {
+    const hit = Object.keys(db.accounts || {}).find((k) => k.toLowerCase() === uidKey.toLowerCase());
+    if (hit && hit !== uidKey) { user = await verifyUser(db, hit, b.pass, b.legacy); if (user) uidKey = hit; }
+  }
+  if (!user) {
+    const known = !!(db.accounts && Object.keys(db.accounts).some((k) => k.toLowerCase() === uidKey.toLowerCase()));
+    return json2({ ok: false, err: "auth", why: known ? "pass" : "nouser" });
+  }
+  const uid = uidKey;
   const uname = clip(b.name || user.name || uid, 12);
   const myClanId = user.clanId || null;
   const loadClan = (cid) => st.clan.get("clan:" + cid, { type: "json" }).catch(() => null);
@@ -6435,9 +6444,25 @@ var friends_default = async (req2) => {
     return json4({ ok: false, err: "nostore" });
   }
   const db = await st.acc.get("db", { type: "json" }).catch(() => null) || { accounts: {} };
-  const user = await verifyUser2(db, b.id, b.pass, b.legacy);
-  if (!user) return json4({ ok: false, err: "auth" });
-  const uid = String(b.id);
+  let user = await verifyUser2(db, b.id, b.pass, b.legacy);
+  /* ══ [v6.1] 친구만 계속 'auth' 로 막히던 이유 ═══════════════════════════════
+     아이디 대소문자가 저장된 것과 조금이라도 다르면 계정을 찾지 못한다.
+     클랜은 사용자가 여러 번 들어가며 우연히 맞는 키로 저장됐지만, 친구는
+     한 번 막히면 계속 막혔다. 대소문자를 무시하고 한 번 더 찾아 준다.
+     [진단] 왜 막혔는지 응답에 남긴다 — 계정이 없는 것과 비밀번호가 틀린 것은 다르다. */
+  let uidKey = String(b.id || "");
+  if (!user && uidKey) {
+    const hit = Object.keys(db.accounts || {}).find((k) => k.toLowerCase() === uidKey.toLowerCase());
+    if (hit && hit !== uidKey) {
+      user = await verifyUser2(db, hit, b.pass, b.legacy);
+      if (user) uidKey = hit;
+    }
+  }
+  if (!user) {
+    const known = !!(db.accounts && Object.keys(db.accounts).some((k) => k.toLowerCase() === uidKey.toLowerCase()));
+    return json4({ ok: false, err: "auth", why: known ? "pass" : "nouser" });
+  }
+  const uid = uidKey;
   const uname = clip2(b.name || user.name || uid, 12);
   const load = async (id) => await st.soc.get("fr:" + id, { type: "json" }).catch(() => null) || blank();
   const save = (id, v) => st.soc.setJSON("fr:" + id, v);
@@ -8442,6 +8467,8 @@ async function krFutures() {
   /* [v4.10] 야간값 인메모리 캐시 — 한 번이라도 잡히면 15분간 원천 장애를 버틴다 */
   globalThis.__nfMem = globalThis.__nfMem || { at: 0, q: null };
   const takeNight = (px, src) => {
+    /* [v6.2] 어느 경로에서 받았는지 남긴다 */
+    if (px > 0 && plaus(px)) out.nightSrc = src;
     if (!(px > 0) || !plaus(px)) {
       out.diag.push("night/" + src + ":implausible " + px);
       return false;
@@ -8456,15 +8483,64 @@ async function krFutures() {
     out.diag.push("night/" + src + ":ok " + px);
     return true;
   };
-  for (const nc of ["NFUT", "FUTN", "FUT_NIGHT", "NKF", "K200NF", "CME_FUT", "NIGHTFUT"]) {
+  /* ══ [v6.2] 야간선물 — 찾을 수 있는 길을 모두 두드린다 ═══════════════════════
+     [사실관계] 2025년 6월부터 KRX 가 야간거래를 자체 운영한다(18:00~익일 06:00).
+     주간선물은 m.stock.naver.com/api/index/FUT 로 잘 들어오므로, 야간도 같은
+     체계 어딘가에 있을 가능성이 높다. 다만 코드 이름을 확신할 수 없다.
+     [방법] ① 네이버 지수 코드 후보를 넓게 훑고 ② 선물 전용 API 도 두드리고
+     ③ 그래도 없으면 인베스팅닷컴에서 종목을 찾아 시세를 받는다.
+     성공한 경로는 diag 에 남겨, 어느 길이 살아 있는지 나중에 확인할 수 있게 한다. */
+  const NIGHT_CODES = ["FUTN", "NFUT", "FUT_N", "FUTNIGHT", "NIGHTFUT", "FUT_NIGHT",
+    "K200NF", "KOSPI200FN", "NKF", "CME_FUT", "FUT2", "KPI200FN"];
+  for (const nc of NIGHT_CODES) {
     if (out.night) break;
     try {
       const h = await navIdxSeries(nc);
       if (h.length) takeNight(h[h.length - 1], "m.index/" + nc);
       else out.diag.push("night/m.index/" + nc + ":nodata");
     } catch (e) {
-      out.diag.push("night/m.index/" + nc + ":" + String(e).slice(0, 20));
+      out.diag.push("night/m.index/" + nc + ":" + String(e).slice(0, 16));
     }
+  }
+  /* ② 네이버 지수 basic — price 배열이 아니라 현재가만 주는 경우 */
+  if (!out.night) {
+    for (const nc of NIGHT_CODES) {
+      if (out.night) break;
+      try {
+        const j = await jget8(`https://m.stock.naver.com/api/index/${nc}/basic`, 3000, HDRS);
+        const px = num9(j && (j.closePrice ?? j.nowVal ?? j.currentPrice));
+        if (px > 0) takeNight(px, "m.basic/" + nc);
+      } catch (e) {}
+    }
+  }
+  /* ③ 인베스팅닷컴 — 'KOSPI 200 Night Futures' 종목을 찾아 시세를 받는다 */
+  if (!out.night) {
+    try {
+      const sj = await jget8("https://api.investing.com/api/search/v2/search?q="
+        + encodeURIComponent("KOSPI 200 Night"), 4500,
+        { "User-Agent": UA20, Accept: "application/json" });
+      const cand = ((sj && (sj.quotes || sj.result || [])) || [])
+        .filter(x => /night/i.test(String(x.name || x.description || "")))
+        .slice(0, 3);
+      for (const c of cand) {
+        if (out.night) break;
+        const pid = c.pairId || c.pair_ID || c.id;
+        if (!pid) continue;
+        try {
+          const q = await jget8(`https://api.investing.com/api/financialdata/${pid}/historical/chart/`
+            + `?interval=PT1M&pointscount=60`, 4500,
+            { "User-Agent": UA20, Accept: "application/json" });
+          const rows = (q && q.data) || [];
+          const last = rows.length ? num9(rows[rows.length - 1][4] ?? rows[rows.length - 1][1]) : 0;
+          if (last > 0) {
+            const hs = rows.map(r => num9(r[4] ?? r[1])).filter(v => v > 0).slice(-30);
+            takeNight(last, "investing/" + pid);
+            if (out.night && hs.length >= 3) out.night.history = hs;
+          }
+        } catch (e) {}
+      }
+      if (!out.night) out.diag.push("night/investing:none");
+    } catch (e) { out.diag.push("night/investing:" + String(e).slice(0, 16)); }
   }
   /* ══ [v4.10] 한국경제 markets 야간(EUREX 연계) 프로버 ═══════════════════
      [원인] 기존 야간 소스는 ① 존재하지 않는 네이버 지수코드 추측 7종 ② CME 시절
@@ -8527,6 +8603,24 @@ async function krFutures() {
       } catch (e) {
         out.diag.push("night/page:" + String(e).slice(0, 20));
       }
+    }
+  }
+  /* ══ [v6.1] 네이버 국내선물 시세 API — 야간선물 원천 하나 더 ═══════════════
+     KRX 데이터시스템이 막히는 시간대가 있어 카드가 계속 비어 있었다.
+     네이버가 선물 종목코드로 현재가를 돌려주므로, 야간 종목코드로 물어본다.
+     (야간선물 종목코드는 주간과 달리 끝이 'N' 계열이다) */
+  if (!out.night) {
+    for (const cd of ["KRDRVFUK2I", "101W3000", "101WC000", "KRDRVFUKQ2I"]) {
+      try {
+        const j = await jget8("https://api.stock.naver.com/futures/" + cd + "/basic", 4000, HDRS);
+        const px = num9(j && (j.closePrice ?? j.nowVal ?? j.currentPrice));
+        if (px > 0) {
+          const prev = num9(j.previousClose ?? j.prevClosePrice ?? j.baseValue);
+          out.night = { price: px, change: prev > 0 ? px - prev : num9(j.compareToPreviousClosePrice),
+            rate: num9(j.fluctuationsRatio), history: [] };
+          break;
+        }
+      } catch (e) {}
     }
   }
   /* ══ [v4.13] KRX 정보데이터시스템 — 야간선물 1순위 소스 ════════════════
@@ -12922,6 +13016,23 @@ async function xfer_default(req2){
   }
   return json2({ok:false,err:"action"});
 }
+/* ══ [v6.2] 야간선물 진단 ═══════════════════════════════════════════════════
+   카드가 비어 있을 때 '어느 길이 막혔는지' 눈으로 볼 수 있게 한다.
+   추측으로 고치지 않고, 살아 있는 경로를 확인한 뒤 그것을 쓰기 위한 장치다. */
+async function k200nfdiag_default(){
+  const t0=Date.now();
+  let r=null, err="";
+  try{ r=await krFutures(); }catch(e){ err=String(e).slice(0,80); }
+  return new Response(JSON.stringify({
+    ok:!!(r&&r.night), ms:Date.now()-t0, err,
+    day:r&&r.day?{price:r.day.price,rate:r.day.rate}:null,
+    night:r&&r.night?{price:r.night.price,rate:r.night.rate,src:r.nightSrc||""}:null,
+    diag:(r&&r.diag)||[],
+    now:new Date(Date.now()+9*3600e3).toISOString().slice(0,19).replace("T"," ")+" KST"
+  },null,1),{headers:{"content-type":"application/json; charset=utf-8",
+    "cache-control":"no-store","access-control-allow-origin":"*"}});
+}
+ROUTES["k200nfdiag"]=k200nfdiag_default;
 ROUTES["xfer"]=xfer_default;
 ROUTES["usnews"]=usnews_default;
 ROUTES["usinfo"]=usinfo_default;
@@ -12961,7 +13072,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "6.0.0";
+var APP_VER = "6.2.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
