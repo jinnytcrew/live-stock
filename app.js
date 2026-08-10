@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=391';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=392';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2443,7 +2443,12 @@ async function xferCall(action,extra){
     const r=await fetch('/api/xfer',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({action,id:currentUser,pass:acc.pass,name:acc.name||currentUser,...extra})});
     if(!r.ok)return {ok:false,err:'net'};
-    return await r.json();
+    const j=await r.json();
+    if(j&&j.err==='auth'&&!extra?._retry){
+      const ok=await ensureServerAccount();
+      if(ok)return xferCall(action,{...(extra||{}),_retry:1});
+    }
+    return j;
   }catch(e){ return {ok:false,err:'net'}; }
 }
 /* 내 계좌번호를 서버 장부에 올린다 — 남이 나에게 보낼 수 있게 된다 */
@@ -2626,7 +2631,9 @@ function renderAcctSend(){
       ${sendLog.length?`<div class="asend-log"><div class="asl-h">최근 이체</div>
         ${sendLog.slice(0,5).map(r=>`<div class="asl-r"><span>${new Date(r.at).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})}</span>
           <b>${htmlEsc(r.to)}</b><i class="num">${KRW(r.amt)}원</i></div>`).join('')}</div>`:''}
-    </div></div>`;
+    </div></div>`
+    +acctSendOutHtml();          /* [v5.9] 계좌가 여러 개일 때도 '남에게 보내기'를 함께 보여 준다 */
+  bindSendOut();
   const noIn=$('asNo'), amt=$('asAmt'), msg=$('asMsg'), toBox=$('asTo');
   const paintTo=()=>{
     const a=acctByNo(noIn.value);
@@ -2689,8 +2696,7 @@ function acctSendOutHtml(){
         <input id="xoMemo" maxlength="30" placeholder="용돈, 정산 등"></div>
       <button class="modal-btn" id="xoGo">송금하기</button>
       <div class="asend-note">보낸 돈은 상대가 접속할 때 계좌에 들어갑니다. 되돌릴 수 없으니 계좌번호를 꼭 확인하세요.</div>
-    </div></div>`+acctSendOutHtml();
-  bindSendOut();            /* [v5.8] 계좌가 여러 개일 때도 배선한다 */
+    </div></div>`;
 }
 function bindSendOut(){
   const chk=$('xoCheck'), who=$('xoWho');
@@ -5107,7 +5113,11 @@ function drawSpark(cv,hist,dir){
      시작과 끝을 이은 선일 뿐인데, 화면에서는 진짜 추이처럼 보인다
      (S&P500 선물·다우 선물·니케이가 그 경우다).
      최소 5점은 있어야 흐름이라 부를 수 있다. 모자라면 그리지 않는다. */
-  if(!cv||!hist||hist.length<5){
+  /* ══ [v5.9] 문턱을 5점으로 올렸더니 그래프가 거의 다 사라졌다 ═══════════════
+     해외 지수는 접속 뒤 쌓인 점만 갖고 있어 처음엔 2~4점뿐이다.
+     '2점을 이은 직선'만 막으면 되는데 5점을 요구해 멀쩡한 흐름까지 지웠다.
+     → 3점부터 그린다. 2점일 때만 직선을 만들지 않는다. */
+  if(!cv||!hist||hist.length<3){
     try{ const c0=cv&&cv.getContext&&cv.getContext('2d');
       if(c0)c0.clearRect(0,0,cv.width,cv.height);
       if(cv)cv.dataset.thin='1'; }catch(e){}
@@ -6634,6 +6644,37 @@ function clanErrMsg(r){
   const d=r&&r.detail?String(r.detail).slice(0,60):'';
   return d?`${base}\n(${d})`:base;
 }
+/* ══ [v5.9] 서버에 계정이 없어 클랜·친구·송금이 모두 막히던 문제 ═══════════════
+   [무엇이 문제였나] 로그인 화면에는 '서버가 계정을 못 찾아도 이 기기 기록으로
+   들여보내는' 복구 경로가 있다(계정 잠김을 막기 위한 장치다). 그런데 그 뒤
+   서버에 계정을 되올리는 ensure 가 실패해도 아무도 다시 시도하지 않았다.
+   그 상태로는 서버가 나를 모르므로 클랜·친구·송금이 전부 'auth' 로 막힌다.
+   [고침] 서버 기능이 auth 로 막히면 계정을 한 번 되올린 뒤 다시 시도한다. */
+var _ensureAt=0, _ensureBusy=false;
+async function ensureServerAccount(){
+  if(!currentUser)return false;
+  if(_ensureBusy||Date.now()-_ensureAt<60e3)return false;
+  _ensureBusy=true; _ensureAt=Date.now();
+  try{
+    const acc=accounts()[currentUser]||{};
+    const r=await cloudCall({action:'ensure',id:currentUser,pass:acc.pass,
+      name:acc.name||currentUser,email:acc.email||'',
+      acctPass:acc.acctPass||'',created:acc.created||Date.now(),
+      user:store.get('user:'+currentUser)||{}});
+    return !!(r&&r.ok);
+  }catch(e){ return false; }
+  finally{ _ensureBusy=false; }
+}
+/* 서버 호출이 auth 로 막히면 계정을 되살린 뒤 한 번만 다시 시도한다 */
+async function withAuthRetry(fn){
+  let r=await fn();
+  if(r&&r.err==='auth'){
+    const ok=await ensureServerAccount();
+    if(ok){ r=await fn();
+      if(r&&r.ok)toast('ok','계정 복구 완료','서버에 계정을 다시 등록했습니다'); }
+  }
+  return r;
+}
 async function clanCall(action,extra){
   /* [v4.95] 공개 클랜 탐색은 로그인 전에도 볼 수 있어야 한다 */
   if(!currentUser&&action!=='list')return {ok:false,err:'guest'};
@@ -6644,6 +6685,11 @@ async function clanCall(action,extra){
     if(!r.ok)return {ok:false,err:'net',detail:'HTTP '+r.status};
     const j=await r.json();
     if(j&&!j.ok)try{console.warn('[clan]',action,j.err,j.detail||'');}catch(e){}
+    /* [v5.9] 서버가 나를 모르면 계정을 되살리고 한 번 더 시도한다 */
+    if(j&&j.err==='auth'&&!extra?._retry){
+      const ok=await ensureServerAccount();
+      if(ok)return clanCall(action,{...(extra||{}),_retry:1});
+    }
     return j;
   }catch(e){return {ok:false,err:'net',detail:String(e).slice(0,60)};}
 }
@@ -7235,7 +7281,12 @@ async function frCall(action,extra){
   try{fnBump();
     const r=await fetch('/api/friends',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({action,id:currentUser,pass:acc.pass,name:acc.name||currentUser,...extra})});
-    return await r.json();
+    const j=await r.json();
+    if(j&&j.err==='auth'&&!extra?._retry){
+      const ok=await ensureServerAccount();
+      if(ok)return frCall(action,{...(extra||{}),_retry:1});
+    }
+    return j;
   }catch(e){return {ok:false,err:'net'};}
 }
 function frDot(){

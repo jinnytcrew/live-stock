@@ -8238,13 +8238,35 @@ async function coinIndex(pair){ /* pair: "BTC-USD" — Coinbase 는 워커 IP �
 var CNBC_IDX={ "^IXIC":".IXIC","^GSPC":".SPX","^DJI":".DJI","^VIX":".VIX",
   "^N225":".N225","^HSI":".HSI","NQ=F":"@ND.1","ES=F":"@SP.1","YM=F":"@DJ.1","CL=F":"@CL.1","GC=F":"@GC.1" };
 var STOOQ_IDX={ "^IXIC":"^ndq","^GSPC":"^spx","^DJI":"^dji","^N225":"^nkx","CL=F":"cl.f","GC=F":"gc.f","NQ=F":"nq.f","ES=F":"es.f","YM=F":"ym.f" };
+/* [v5.9] 야후 차트에서 최근 흐름을 받아 온다 — Stooq 가 막힌 날의 대체 경로 */
+async function yahooIndexHist(sym){
+  try{
+    const t=await tget("https://query1.finance.yahoo.com/v8/finance/chart/"
+      +encodeURIComponent(sym)+"?range=5d&interval=30m",4500);
+    const j=JSON.parse(t);
+    const r=j&&j.chart&&j.chart.result&&j.chart.result[0];
+    const c=r&&r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close;
+    if(!Array.isArray(c))return null;
+    return c.filter(v=>typeof v==="number"&&isFinite(v)&&v>0);
+  }catch(e){ return null; }
+}
 async function worldIndex(yahooSym, stooqSym, naverCode) {
   const [cur, hist] = await Promise.all([
     CNBC_IDX[yahooSym] ? settle2(cnbcIndex(CNBC_IDX[yahooSym])) : Promise.resolve(null),
     settle2(stooqHist30(stooqSym))
   ]);
   if (cur && cur.price) {
-    const h = (hist || []).slice(-30);
+    let h = (hist || []).slice(-30);
+    /* ══ [v5.9] 이력이 비면 그래프가 통째로 사라진다 ═══════════════════════════
+       Stooq 가 응답하지 않는 날이 있는데, 그때 history 가 빈 배열로 나가
+       화면에서는 '그래프 없음'이 된다(나스닥·S&P500·다우가 그 경우다).
+       야후 차트로 한 번 더 시도한다 — 여기서도 못 받으면 그때는 그리지 않는다. */
+    if (h.length < 3) {
+      try {
+        const y = await yahooIndexHist(yahooSym);
+        if (y && y.length >= 3) h = y.slice(-30);
+      } catch {}
+    }
     if (h.length && h[h.length - 1] !== cur.price) h.push(cur.price);
     cur.history = h; return cur;
   }
@@ -12930,7 +12952,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "5.8.0";
+var APP_VER = "5.9.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

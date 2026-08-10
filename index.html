@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=391">
+<link rel="stylesheet" href="/app.css?v=392">
 </head>
 <body>
 
@@ -95,7 +95,8 @@
 .bg-mid{position:relative;min-height:0;height:100%;display:flex;flex-direction:column;align-items:center;
   justify-content:center;width:min(560px,94vw);z-index:2;overflow:hidden}
 .bg-logo{display:flex;align-items:center;gap:clamp(14px,3.4vw,22px)}
-.bg-mark{position:relative;width:clamp(80px,16vw,112px);height:clamp(80px,16vw,112px);
+/* [v5.9] 입장 화면 로고·글자를 키운다 — 첫 화면이 작아 심심했다 */
+.bg-mark{position:relative;width:clamp(104px,20vw,148px);height:clamp(104px,20vw,148px);
   border-radius:clamp(22px,4.4vw,30px);
   background:linear-gradient(140deg,#ffc93c,#f5a30d 55%,#e07c05);
   display:grid;place-items:center;font-weight:900;font-size:clamp(46px,9vw,64px);color:#fff;line-height:1;
@@ -104,17 +105,25 @@
 .bg-mark::after{content:'';position:absolute;inset:-14%;border-radius:inherit;
   background:radial-gradient(circle,rgba(245,179,15,.42),transparent 68%);filter:blur(14px);z-index:-1}
 @keyframes bgPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
-.bg-wm{font-size:clamp(42px,8.6vw,60px);font-weight:900;letter-spacing:-1.8px;line-height:1;
+.bg-wm{font-size:clamp(54px,11vw,78px);font-weight:900;letter-spacing:-2.2px;line-height:1;
   text-shadow:0 3px 22px rgba(0,0,0,.5)}
 .bg-wm b{background:linear-gradient(180deg,#ffd166,#f5a30d);-webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:#f5b30f}
-.bg-tag{font-size:clamp(13px,2.8vw,15.5px);font-weight:800;color:#eaf0fa;
+.bg-tag{font-size:clamp(16px,3.6vw,21px);font-weight:900;color:#f2f6ff;letter-spacing:-.3px;
   margin-top:16px;text-align:center;letter-spacing:-.2px}
 .bg-charwrap{position:relative;display:grid;place-items:center;margin-top:clamp(6px,2vw,14px)}
 .bg-charwrap::before{content:'';position:absolute;width:clamp(260px,56vw,400px);aspect-ratio:1.5;border-radius:50%;
   background:radial-gradient(ellipse,rgba(245,160,25,.20),rgba(245,160,25,.06) 52%,transparent 72%)}
-.bg-char{position:relative;width:clamp(230px,46vw,330px);max-height:32vh;object-fit:contain;
-  filter:drop-shadow(0 16px 30px rgba(0,0,0,.5));animation:bgFloat 3.6s ease-in-out infinite}
+/* ══ [v5.9] 차트 그림을 더 또렷하고 부드럽게 ═══════════════════════════════
+   그림자를 한 겹으로만 두면 배경에 묻혀 흐릿해 보인다.
+   따뜻한 색 번짐을 아래에 깔고, 위로 살짝 떠 있게 해 깔끔하게 보이게 한다. */
+.bg-charwrap{position:relative;display:grid;place-items:center;margin-top:6px}
+.bg-charwrap::before{content:'';position:absolute;width:62%;height:34%;bottom:6%;
+  background:radial-gradient(ellipse at center,rgba(255,176,64,.30),transparent 70%);
+  filter:blur(26px);pointer-events:none}
+.bg-char{position:relative;width:clamp(250px,50vw,360px);max-height:34vh;object-fit:contain;
+  filter:drop-shadow(0 10px 20px rgba(0,0,0,.45)) drop-shadow(0 0 24px rgba(255,176,64,.22));
+  animation:bgFloat 3.6s ease-in-out infinite}
 @keyframes bgFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
 
 /* 아래 — 상태 문구 + 진행바 */
@@ -190,20 +199,20 @@
 @media (max-height:520px){.bg-foot br,.bg-foot br~*{display:none}
   .bg-foot{font-size:10px;padding-top:8px;line-height:1.5}
   .bg-tag{display:none}
-  .bg-mark{width:64px;height:64px;font-size:36px;border-radius:18px}
-  .bg-wm{font-size:26px}}
+  .bg-mark{width:86px;height:86px;font-size:48px;border-radius:22px}
+  .bg-wm{font-size:34px}}
 @media (max-height:420px){.bg-mid{display:none}}
 .bg-foot b{font-weight:900;color:#eaf0fa}
 @media (prefers-reduced-motion:reduce){
   .bg-mark,.bg-char,.bg-fill::after,#bootGate::before,#bootGate::after{animation:none}
   .bg-fill{animation-duration:7.2s}}
 @media (max-height:760px){.bg-char{width:clamp(190px,38vw,240px)}.bg-tag{margin-top:11px}}
-@media (max-height:600px){.bg-charwrap{display:none}.bg-wm{font-size:clamp(34px,7vw,44px)}}
+@media (max-height:600px){.bg-charwrap{display:none}.bg-wm{font-size:clamp(42px,8vw,56px)}}
 /* 가로가 넓고 세로가 짧은 태블릿 가로 모드 */
 @media (orientation:landscape) and (max-height:900px){
   .bg-mark{width:clamp(58px,9vh,84px);height:clamp(58px,9vh,84px);font-size:clamp(32px,5vh,48px);border-radius:22px}
-  .bg-wm{font-size:clamp(30px,5.4vh,46px)}
-  .bg-tag{margin-top:10px;font-size:12.5px}
+  .bg-wm{font-size:clamp(38px,6.6vh,58px)}
+  .bg-tag{margin-top:10px;font-size:15px}
   .bg-char{max-height:26vh}
   .bg-foot{font-size:10.5px;padding-top:10px}
   .bg-low{margin-bottom:14px}
@@ -214,8 +223,8 @@
   <div class="bg-ver" id="bgVerBadge">v—</div>
   <div class="bg-mid">
     <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
-    <div class="bg-tag">실시간 시세로 연습하는 국내·해외 주식 모의투자</div>
-      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=332" alt="" aria-hidden="true" decoding="async"></div>
+    <div class="bg-tag">투자 라이프를 리드하다, LIVE 증권</div>
+      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=392" alt="" aria-hidden="true" decoding="async"></div>
   </div>
   <div class="bg-low">
     <div class="bg-status">
@@ -233,7 +242,7 @@
     <div class="bg-bar"><div class="bg-fill" id="bgFill"></div></div>
     <div class="bg-tip"><b class="bg-tipb">TIP</b><span id="bgTip">잠시만요, 시작할 준비를 하고 있어요…</span></div>
   </div>
-  <div class="bg-foot">© 2026 LIVE증권 — 학습용 모의투자 서비스 · 실제 매매가 아니며 모든 손익은 가상입니다<br>
+  <div class="bg-foot">© 2026 LIVE증권 — 실시간 투자 라이프 서비스 · 실제 매매가 아니며 모든 손익은 가상입니다<br>
   종목정보 변경 직후 접속하신 경우 신규 상장 종목 반영에 잠시 시간이 걸릴 수 있습니다</div>
 </div>
 <script>
@@ -1393,6 +1402,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=391"></script>
+<script type="module" src="/app.js?v=392"></script>
 </body>
 </html>
