@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=375">
+<link rel="stylesheet" href="/app.css?v=376">
 </head>
 <body>
 
@@ -281,7 +281,9 @@
 </script>
 
 <!-- AUTH GATE -->
-<div class="overlay" id="authGate">
+<!-- [v4.95] hidden 이 없어 HTML 이 그려지는 순간부터 로그인 창이 보였다.
+     JS 로 아무리 늦춰도 소용이 없었던 이유다. 처음부터 감춰 두고 필요할 때만 연다. -->
+<div class="overlay" id="authGate" hidden>
   <div class="modal">
     <div class="modal-head">
       <div class="t"><span style="color:var(--amber)">LIVE</span>증권</div>
@@ -312,13 +314,14 @@
         <div class="fld2"><label>아이디</label><input id="suId" placeholder="4자 이상"></div>
         <div class="fld2 two"><div><label>비밀번호</label><input id="suPw" type="password" autocomplete="new-password" placeholder="8자 이상 · 영문+숫자+특수문자"></div><div><label>비밀번호 확인</label><input id="suPw2" type="password" autocomplete="new-password"></div></div><div class="pw-meter" id="suPwMeter" hidden></div>
         <div class="fld2 two"><div><label>이름/닉네임</label><input id="suName" placeholder="홍길동"></div><div><label>이메일 (선택)</label><input id="suEmail" placeholder="선택"></div></div>
-        <div class="fld2"><label>계좌 종류 <small style="font-weight:600;color:var(--sub-2)">— 종류에 따라 수수료·세제 혜택이 달라집니다</small></label>
-          <div class="acct-pick" id="suAcctType"></div>
-          <div class="acct-detail" id="suAcctDetail"></div></div>
-        <div class="fld2"><label>초기 예수금 (원)</label><input id="suCash" class="num" inputmode="numeric" value="10,000,000"></div>
-        <div class="fld2"><label>계좌 비밀번호 <small style="font-weight:600;color:var(--sub-2)">— 주문할 때 입력합니다 (숫자 4자리)</small></label>
-          <input id="suAcctPw" type="password" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="new-password"></div>
-        <div class="fld2 two"><div><label>계좌 비밀번호 (숫자 4자리)</label><input id="suAcct" type="password" inputmode="numeric" maxlength="4" placeholder="****"></div><div><label>계좌 비밀번호 확인</label><input id="suAcct2" type="password" inputmode="numeric" maxlength="4"></div></div>
+        <!-- ══ [v4.95] 회원가입에서 계좌 개설을 뺐다 ══════════════════════════════
+             [무엇이 문제였나] ① 계좌 종류·예수금·계좌 비밀번호까지 한 화면에 넣어
+             창이 세로로 길어져 화면 밖으로 나갔다. ② 계좌 비밀번호 칸이 두 벌
+             (suAcctPw · suAcct/suAcct2) 있었다 — 서로 다른 시기에 넣은 것이 겹친 채
+             남아 있었다. ③ 실제 증권사도 가입과 계좌 개설은 별개 절차다.
+             → 가입은 계정만 만들고, 계좌는 가입 직후 '내 계좌 → 계좌 개설'에서 만든다. -->
+        <div class="su-note">가입하면 <b>종합위탁계좌</b>가 기본으로 하나 열립니다.
+          다른 종류의 계좌는 가입 후 <b>내 계좌 → 계좌 개설</b>에서 만들 수 있어요.</div>
         <div class="modal-msg" id="suMsg"></div>
         <button class="modal-btn" id="doSignup">가입하고 시작하기</button>
       </div>
@@ -1376,6 +1379,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=375"></script>
+<script type="module" src="/app.js?v=376"></script>
 </body>
 </html>

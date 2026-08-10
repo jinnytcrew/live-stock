@@ -1689,7 +1689,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=375';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=376';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3297,31 +3297,21 @@ try{
 }catch(e){}
 $('doSignup').onclick=async()=>{
   const id=normId($('suId').value),pw=$('suPw').value,pw2=$('suPw2').value;
-  acctType=ACCT_TYPES[suAcctSel]?suAcctSel:'general';           // [v4.32] 선택한 계좌 종류
-  acctList=[]; acctBooks={}; acctActive='';                     // [v4.40] 가입 시 첫 계좌를 연다
+  /* ══ [v4.95] 가입은 계정만 만든다 ═══════════════════════════════════════════
+     계좌 종류·예수금·계좌 비밀번호를 가입 화면에서 빼고, 기본 계좌 하나만 연다.
+     (계좌 비밀번호 칸이 두 벌 겹쳐 있던 것도 함께 정리됐다)
+     다른 종류의 계좌는 가입 뒤 '내 계좌 → 계좌 개설'에서 만든다 — 실제 증권사와 같다. */
+  acctType='general';
+  acctList=[]; acctBooks={}; acctActive='';
   const name=$('suName').value.trim()||id,email=$('suEmail').value.trim();
-  const cashV=parseInt(($('suCash').value||'0').replace(/[^0-9]/g,''))||0;
-  /* [v4.46] 가입 시 계좌 비밀번호 설정 — 비우면 기본 0000 */
-  {const apw=(($('suAcctPw')||{}).value||'').trim();
-   if(apw&&!/^\d{4}$/.test(apw)){$('suMsg').textContent='계좌 비밀번호는 숫자 4자리로 입력해 주세요.';return;}
-   if(apw&&(/^(\d)\1{3}$/.test(apw)||['0123','1234','4321','9876'].includes(apw))){
-     $('suMsg').textContent='계좌 비밀번호에 같은 숫자 반복이나 연속된 숫자는 쓸 수 없습니다.';return;}
-   if(apw)acctPassHash=await pwHash(apw);}
-  /* [v4.32] 계좌 종류별 납입한도 검증 — 고르기만 하고 끝나지 않게 실제로 적용한다 */
-  {const _a=ACCT_TYPES[acctType];
-   if(_a&&_a.limit&&cashV>_a.limit){
-     $('suMsg').innerHTML=`<b>${_a.n}</b>의 연 납입한도는 <b>${KRW(_a.limit)}원</b>입니다.<br>초기 예수금을 한도 이하로 설정하거나 다른 계좌를 선택해 주세요.`;
-     return;}}
-  const a=$('suAcct').value,a2=$('suAcct2').value;
+  const cashV=10000000;                       // 기본 예수금 1,000만원
+  const a='0000';                             // 기본 계좌 비밀번호 — 개설·설정에서 바꾼다
   const m=$('suMsg');
   if(id.length<4){m.textContent='아이디는 4자 이상으로 정해 주세요.';return;}
   {const ck=pwCheck(pw,id,name); if(!ck.ok){m.textContent=ck.msg;$('suPw').focus();return;}}
   if(pw!==pw2){m.textContent='비밀번호가 일치하지 않습니다.';return;}
-  if(!/^\d{4}$/.test(a)){m.textContent='계좌 비밀번호는 숫자 4자리로 입력해 주세요.';return;}
-  if(/^(\d)\1{3}$/.test(a)||['0123','1234','2345','3456','4567','5678','6789','4321','9876','8765','7654','3210'].includes(a)){
-    m.textContent='계좌 비밀번호에 같은 숫자 반복이나 연속된 숫자는 쓸 수 없습니다.';return;}
-  if(a!==a2){m.textContent='계좌 비밀번호가 일치하지 않습니다.';return;}
   const passH=await pwHash(pw),acctH=await pwHash(a);
+  acctPassHash=acctH;
   m.textContent='가입 처리 중…';
   const cj=await cloudCall({action:'signup',id,pass:passH,name,email,acctPass:acctH,cash:cashV});
   if(cj&&!cj.ok){m.textContent=cj.err==='exists'?'이미 존재하는 아이디입니다.'
@@ -6275,7 +6265,8 @@ function clanErrMsg(r){
   return d?`${base}\n(${d})`:base;
 }
 async function clanCall(action,extra){
-  if(!currentUser)return {ok:false,err:'guest'};
+  /* [v4.95] 공개 클랜 탐색은 로그인 전에도 볼 수 있어야 한다 */
+  if(!currentUser&&action!=='list')return {ok:false,err:'guest'};
   const acc=accounts()[currentUser]||{};
   try{fnBump();
     const r=await fetch('/api/clan',{method:'POST',headers:{'content-type':'application/json'},
@@ -7314,7 +7305,7 @@ async function renderHomeHot(){
   if(homeHotMkt==='us'){ renderHomeHotUs(); return; }
   try{
     const items=(await loadRank('조회수'))||[];
-    const top=items.slice(0,5).filter(x=>x&&x.code);
+    const top=items.slice(0,7).filter(x=>x&&x.code);   // [v4.95] 해외와 같은 7개
     /* [v4.41] 국내 목록이 비어도 묶음을 감추지 않는다 — 감추면 해외 탭까지 사라져 전환할 수 없다 */
     if(wrap)wrap.hidden=false;
     if(!top.length){ el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">국내 순위를 불러오지 못했습니다</span>`; return; }
@@ -7336,28 +7327,34 @@ async function renderHomeHot(){
   }catch(e){ const w2=$('homeHotWrap'); if(w2)w2.hidden=false;
     if(el)el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">국내 순위를 불러오지 못했습니다</span>`; }
 }
-/* [v4.41] 홈 인기 — 해외(거래대금 상위 5) */
+/* ══ [v4.95] 홈 인기 — 해외 ═══════════════════════════════════════════════════
+   [무엇이 느렸나] 113종 '전체' 시세를 받아 5개가 찰 때까지 기다렸다. 그래서
+   '해외 시세를 불러오는 중…'이 오래 걸렸다. 국내는 순위 목록 5개만 받아 곧바로 뜬다.
+   [고침] 조회수 순위에서 위 7종만 받아 곧장 그린다. 국내와 같은 방식·같은 개수다.
+   [구성] 사진에 표시하신 대로 순위 번호 → 로고 → 이름 → 등락률, 7개까지. */
+var _hhUsTry=0;
 function renderHomeHotUs(){
   const el=$('homeHot'), wrap=$('homeHotWrap'); if(!el)return;
-  const ready=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
-  if(ready.length<5){
-    if(wrap)wrap.hidden=false;
-    if(_usQFail>=2){ /* [v4.48] 무한 '불러오는 중' 수리 — 실패가 이어지면 멈추고 버튼으로만 재시도 */
-      el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">해외 시세 서버가 응답하지 않습니다</span><button class="hh-c" id="hhUsRetry">다시 시도</button>`;
-      const b=$('hhUsRetry'); if(b)b.onclick=()=>{_usQFail=0;renderHomeHotUs();};
-      return;
-    }
-    el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">해외 시세를 불러오는 중…</span>`;
-    usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{ if(currentView==='home'&&homeHotMkt==='us')renderHomeHotUs(); });
+  if(wrap)wrap.hidden=false;
+  /* 저장해 둔 인기 목록을 먼저 쓰고, 없으면 받아 온다 */
+  if(!usPop)try{usPopRestore();}catch(e){}
+  const list=(usPop||[]).map(x=>x.t).filter(t=>usMeta[t]).slice(0,7);
+  if(!list.length){
+    if(!_usPopQueued){ _usPopQueued=true;
+      setTimeout(()=>{ _usPopQueued=false;
+        usPopLoad(()=>{ if(currentView==='home'&&homeHotMkt==='us')renderHomeHotUs(); }); },0); }
+    el.innerHTML=`<span class="hh-t">🔥 인기</span><span class="hh-wait">해외 인기 종목을 불러오는 중…</span>`;
     return;
   }
-  const val=t=>(usQ[t].price||0)*(usQ[t].vol||0);
-  const top=ready.slice().sort((a,b)=>val(b)-val(a)).slice(0,5);
-  if(wrap)wrap.hidden=false;
-  el.innerHTML=`<span class="hh-t">🔥 인기</span>`+top.map((t,i)=>{
-    const q=usQ[t],m=usMeta[t];
-    const p=(q.prev)?(q.price-q.prev)/q.prev*100:null;
-    return `<button class="hh-c" data-ushot="${t}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${usTick(t)}${m.kr}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
+  /* 시세가 아직 없어도 이름·로고는 바로 보여 준다 — 숫자는 도착하는 대로 채운다 */
+  const miss=list.filter(t=>!(usQ[t]&&usQ[t].price!=null));
+  if(miss.length&&_hhUsTry<3){ _hhUsTry++;
+    usEnsureQuotes(list,true).then(()=>{ _hhUsTry=0;
+      if(currentView==='home'&&homeHotMkt==='us')renderHomeHotUs(); }); }
+  el.innerHTML=`<span class="hh-t">🔥 인기</span>`+list.map((t,i)=>{
+    const q=usQ[t]||{}, m=usMeta[t]||{};
+    const p=(q.price!=null&&q.prev)?(q.price-q.prev)/q.prev*100:null;
+    return `<button class="hh-c" data-ushot="${t}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${usTick(t,'xs')}${m.kr||t}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
   }).join('');
   el.querySelectorAll('[data-ushot]').forEach(b=>b.onclick=()=>openUS(b.dataset.ushot));
 }

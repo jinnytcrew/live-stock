@@ -4190,3 +4190,8 @@ html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa!important}
 .acct-open-go{display:block;width:100%;margin-top:10px;padding:11px;border-radius:10px;
   border:1px solid var(--border);background:var(--panel);font-size:12.5px;font-weight:800;
   color:var(--text);cursor:pointer}
+
+/* [v4.95] 가입 안내 */
+.su-note{margin:14px 0 4px;padding:13px 14px;border-radius:12px;
+  background:var(--border-soft);font-size:12.5px;line-height:1.75;font-weight:600;color:var(--sub)}
+.su-note b{color:var(--text);font-weight:900}

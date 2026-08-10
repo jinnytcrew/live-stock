@@ -5195,6 +5195,19 @@ var clan_default = async (req2) => {
   } catch {
     return json2({ ok: false, err: "nostore" });
   }
+  /* ══ [v4.95] 공개 클랜 탐색은 인증 앞에 둔다 ═══════════════════════════════
+     [무엇이 문제였나] 모든 요청이 인증을 먼저 통과해야 했다. 그래서 로그인 정보가
+     서버와 조금이라도 어긋나면(비밀번호 재설정·기기 이전 등) 공개 클랜 목록조차
+     보이지 않았다 — 공개로 만든 클랜이 있는데도 '공개된 클랜이 아직 없어요'가 떴다.
+     탐색은 누구나 볼 수 있는 정보이므로 인증을 요구할 이유가 없다. */
+  if (String(b.action || "") === "list") {
+    const idx0 = await st.clan.get("index", { type: "json" }).catch(() => null) || {};
+    const q0 = clip(b.q, 16);
+    let arr0 = Object.values(idx0).filter((x) => x && x.open !== false);
+    if (q0) arr0 = arr0.filter((x) => String(x.name || "").includes(q0));
+    arr0.sort((x, y) => (y.avg ?? -1e9) - (x.avg ?? -1e9));
+    return json2({ ok: true, clans: arr0.slice(0, 30) });
+  }
   const db = await st.acc.get("db", { type: "json" }).catch(() => null) || { accounts: {}, users: {} };
   const user = await verifyUser(db, b.id, b.pass, b.legacy);
   if (!user) return json2({ ok: false, err: "auth" });
