@@ -1007,69 +1007,8 @@ function seedEquityFromTrades(){
   compactEquity();
   try{localStorage.setItem('equityHist',JSON.stringify(equityHist));}catch(e){}
 }
-function drawEquity(){
-  const cv=$('equityChart'); if(!cv)return;
-  const leg=$('eqLegend');
-  const pts=equityHist.slice(-120);
-  /* [v2.5.1] 무한 증식 버그 수정: 예전엔 H를 cv.height(이미 dpr가 곱해진 값)에서 읽어
-     그리기마다 dpr배로 커졌다(150→450→1350…). 이제 CSS 표시 높이만 기준으로 삼는다. */
-  const ctx=cv.getContext('2d'); const W=cv.clientWidth||cv.width, H=cv.clientHeight||150;
-  const dpr=window.devicePixelRatio||1; cv.width=W*dpr; cv.height=H*dpr; ctx.scale(dpr,dpr);
-  ctx.clearRect(0,0,W,H);
-  if(!pts.length){   /* [v2.5.7] 기록 전에도 현재 평가액 기준선을 그린다 */
-    const v=totalAssetsNow(),y0=H*0.5,col=getCss('--sub-2','#9aa5b4');
-    ctx.strokeStyle=col;ctx.lineWidth=2;ctx.setLineDash([5,4]);
-    ctx.beginPath();ctx.moveTo(10,y0);ctx.lineTo(W-14,y0);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle=col;ctx.beginPath();ctx.arc(W-14,y0,4,0,Math.PI*2);ctx.fill();
-    if(leg)leg.innerHTML=`현재 평가액 <b class="num">${KRW(Math.round(v))}원</b> · 거래가 쌓이면 추이가 그려집니다`;
-    return;
-  }
-  if(pts.length===1){   /* [수정] 1일차부터 표시 — 오늘 값을 기준선+점으로 그린다 */
-    const v=pts[0].v, y0=H*0.5;
-    const col=getCss('--up','#e5484d');
-    ctx.strokeStyle=col;ctx.lineWidth=2;ctx.setLineDash([5,4]);
-    ctx.beginPath();ctx.moveTo(10,y0);ctx.lineTo(W-14,y0);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle=col;ctx.beginPath();ctx.arc(W-14,y0,4,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle=col;ctx.font='bold 11px Pretendard';ctx.textAlign='right';ctx.textBaseline='bottom';
-    ctx.fillText(KRW(Math.round(v))+'원',W-10,y0-8);
-    if(leg)leg.textContent=(pts[0].d||'오늘')+' · 1일차 평가금액 '+KRW(Math.round(v))+'원 — 내일부터 변화가 선으로 이어집니다.';
-    return;
-  }
-  const vs=pts.map(p=>p.v); let mn=Math.min(...vs), mx=Math.max(...vs); const pad=8;
-  /* [v3.1 · 톱니 원인 ②] 값 폭이 24원이어도 min-max 정규화가 그걸 화면 전체 높이로
-     늘려 +0.01%가 절벽처럼 보였다. 폭이 0.3% 미만이면 세로축을 그만큼 넓혀
-     실제 비율에 가깝게 보여 준다. */
-  {const _p=Math.max(1000,(mx||1)*0.0015); if(mx-mn<_p){const _c=(mx+mn)/2; mn=_c-_p/2; mx=_c+_p/2;}
-   const _e=(mx-mn)*0.22; mn-=_e; mx+=_e;}   // [v3.7] 선이 위·아래 변에 붙지 않게 22% 여백
-  const x=(i)=>pad+(W-pad*2)*i/(pts.length-1);
-  const y=(v)=>H-pad-(H-pad*2)*((v-mn)/((mx-mn)||1));
-  const up=vs[vs.length-1]>=vs[0];
-  const col=up?getCss('--up','#e5484d'):getCss('--down','#3478f6');
-  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,col+'33'); g.addColorStop(1,col+'00');
-  ctx.beginPath(); ctx.moveTo(x(0),y(vs[0])); pts.forEach((p,i)=>ctx.lineTo(x(i),y(p.v)));
-  ctx.lineTo(x(pts.length-1),H-pad); ctx.lineTo(x(0),H-pad); ctx.closePath(); ctx.fillStyle=g; ctx.fill();
-  ctx.beginPath(); ctx.moveTo(x(0),y(vs[0])); pts.forEach((p,i)=>ctx.lineTo(x(i),y(p.v)));
-  ctx.strokeStyle=col; ctx.lineWidth=2; ctx.lineJoin='round'; ctx.stroke();
-  /* [v2.5] 벤치마크 — 코스피를 같은 기간 정규화(시작=내 자산 시작값)해 회색 점선으로 겹친다 */
-  let bmTxt='';
-  try{
-    const kh=(market.history&&market.history.KOSPI)||[];
-    if(kh.length>=2&&pts.length>=2){
-      const kb=kh.slice(-pts.length);
-      if(kb.length>=2){
-        const k0=kb[0],scale=vs[0]/k0;
-        const ky=(v)=>y(v*scale);
-        ctx.setLineDash([4,4]);ctx.strokeStyle='rgba(148,163,184,.85)';ctx.lineWidth=1.6;
-        ctx.beginPath();kb.forEach((v,i)=>{const xi=pad+(W-pad*2)*i/(kb.length-1);i?ctx.lineTo(xi,ky(v)):ctx.moveTo(xi,ky(v));});
-        ctx.stroke();ctx.setLineDash([]);
-        const kr=(kb[kb.length-1]-k0)/k0*100;
-        bmTxt=' · 코스피 <b class="'+(kr>=0?'up':'down')+'">'+pctS(kr)+'</b><span class="eq-bm">‑ ‑ 코스피(정규화)</span>';
-      }
-    }
-  }catch(e){}
-  if(leg){const chg=vs[vs.length-1]-vs[0], rate=vs[0]?chg/vs[0]*100:0;
-    leg.innerHTML=pts[0].d+' → '+pts[pts.length-1].d+' · 내 자산 <b class="'+(chg>=0?'up':'down')+'">'+signed(chg)+'원 ('+pctS(rate)+')</b>'+bmTxt;}
-}
+/* [v5.7] 자산 추이 코너를 걷어냈다 — 호출부가 남아 있어도 조용히 넘어간다. */
+function drawEquity(){ return; }
 function getCss(v,f){try{return getComputedStyle(document.documentElement).getPropertyValue(v).trim()||f;}catch(e){return f;}}
 
 /* ===== [D5] 거래내역 CSV 내보내기 ===== */
@@ -1693,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=388';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=391';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2195,6 +2134,7 @@ function acctOpen(type,initCash,pwHashed){
   const t=ACCT_TYPES[type]?type:'general';
   const id=acctNewId();
   acctList.push({id,type:t,openedAt:Date.now(),pw:pwHashed||acctPassHash});
+  try{ setTimeout(()=>xferRegister(true),300); }catch(e){}   // [v5.8] 새 계좌번호를 장부에 올린다
   acctBooks[id]={cash:intOf(initCash,0),usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]};
   acctSnap(); acctLoad(id); saveState();
   return id;
@@ -2492,6 +2432,120 @@ function acctCashOf(id){
   return intOf((acctBooks[id]||{}).cash,0);
 }
 /* 실제 이체 — 보내는 쪽에서 빼고 받는 쪽에 더한 뒤 양쪽 장부에 기록을 남긴다 */
+/* ══ [v5.8] 다른 사람에게 송금 ═══════════════════════════════════════════════
+   잔고는 각자 기기에 있으므로, 보내는 쪽이 먼저 자기 잔고를 빼고
+   서버의 '보관함'에 넣는다. 받는 쪽은 접속할 때 가져가 잔고에 더한다.
+   서버 호출이 실패하면 뺐던 돈을 되돌린다 — 돈이 사라지는 일이 없어야 한다. */
+async function xferCall(action,extra){
+  if(!currentUser)return {ok:false,err:'guest'};
+  const acc=accounts()[currentUser]||{};
+  try{
+    const r=await fetch('/api/xfer',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({action,id:currentUser,pass:acc.pass,name:acc.name||currentUser,...extra})});
+    if(!r.ok)return {ok:false,err:'net'};
+    return await r.json();
+  }catch(e){ return {ok:false,err:'net'}; }
+}
+/* 내 계좌번호를 서버 장부에 올린다 — 남이 나에게 보낼 수 있게 된다 */
+var _xfRegAt=0;
+function xferRegister(force){
+  if(!currentUser||!acctOpened())return;
+  if(!force&&Date.now()-_xfRegAt<6*3600e3)return;
+  _xfRegAt=Date.now();
+  const accts=acctList.filter(a=>a.no).map(a=>({no:a.no,type:(ACCT_TYPES[a.type]||{}).n||''}));
+  if(accts.length)xferCall('register',{accts});
+}
+/* 받을 돈을 가져와 잔고에 더한다 */
+var _xfBusy=false;
+async function xferPull(silent){
+  if(_xfBusy||!currentUser||!acctOpened())return 0;
+  _xfBusy=true;
+  try{
+    const r=await xferCall('inbox');
+    if(!r.ok||!Array.isArray(r.items)||!r.items.length)return 0;
+    const got=[];
+    for(const it of r.items){
+      if(!it||!it.xid||!(it.amt>0))continue;
+      /* 받는 계좌를 번호로 찾는다. 못 찾으면 지금 쓰는 계좌로 받는다 */
+      const toNo=String(it.toNo||'').replace(/[^0-9]/g,'');
+      const target=acctList.find(a=>String(a.no||'').replace(/[^0-9]/g,'')===toNo)||acctCur();
+      if(!target)continue;
+      const amt=Math.floor(it.amt);
+      if(target.id===acctActive){ cash=Math.min(CASH_MAX,intOf(cash,0)+amt); }
+      else{ const bk=acctBooks[target.id]||(acctBooks[target.id]={cash:0});
+            bk.cash=Math.min(CASH_MAX,intOf(bk.cash,0)+amt); }
+      sendLog.push({day:kstDay(),amt,dir:'in',from:it.from||'',at:it.at||Date.now()});
+      got.push(it);
+    }
+    if(!got.length)return 0;
+    saveState();
+    /* 받았다고 알린 뒤에야 보관함에서 지워진다 — 알림이 실패하면 다음에 다시 받는다 */
+    await xferCall('ack',{ids:got.map(x=>x.xid)});
+    try{renderPortfolioNumbers();renderAcctSend();}catch(e){}
+    if(!silent)xferNotify(got);
+    return got.length;
+  }catch(e){ return 0; }
+  finally{ _xfBusy=false; }
+}
+/* 받은 사실을 알린다 — 화면 안내창 + 브라우저 알림 */
+function xferNotify(items){
+  const tot=items.reduce((a,x)=>a+(x.amt||0),0);
+  const one=items.length===1?items[0]:null;
+  const title=items.length===1?`${one.from||'누군가'}님이 ${KRW(one.amt)}원을 보냈어요`
+    :`${items.length}건 · 총 ${KRW(tot)}원을 받았어요`;
+  const body=one&&one.memo?`“${one.memo}”`:'내 계좌에 바로 들어왔습니다';
+  try{ notifyUser(title,body); }catch(e){}   // 화면 알림 + 브라우저 알림
+  try{
+    const ov=document.createElement('div');
+    ov.className='overlay xfer-gate';
+    ov.innerHTML=`<div class="modal xfer-box">
+      <div class="xf-ic">💌</div>
+      <div class="xf-t">송금이 도착했습니다</div>
+      <div class="xf-list">${items.slice(0,6).map(x=>`
+        <div class="xf-it"><span class="xf-from">${htmlEsc(x.from||'익명')}</span>
+          <b class="num up">+${KRW(x.amt)}원</b>
+          ${x.memo?`<i>“${htmlEsc(x.memo)}”</i>`:''}</div>`).join('')}
+        ${items.length>6?`<div class="xf-more">외 ${items.length-6}건</div>`:''}</div>
+      <div class="xf-sum">합계 <b class="num up">+${KRW(tot)}원</b></div>
+      <button class="modal-btn" id="xfOk">확인</button>
+    </div>`;
+    document.body.appendChild(ov);
+    const close=()=>{try{ov.remove();}catch(e){}};
+    ov.querySelector('#xfOk').onclick=close;
+    ov.onclick=(e)=>{ if(e.target===ov)close(); };
+  }catch(e){}
+}
+/* 다른 사람에게 보낸다 */
+async function doSendOut(toNo,amt,memo){
+  if(!acctOpened())return {ok:false,msg:'계좌를 먼저 개설해 주세요'};
+  const from=acctCur();
+  if(!from)return {ok:false,msg:'출금 계좌를 찾을 수 없습니다'};
+  const no=String(toNo||'').replace(/[^0-9]/g,'');
+  if(no.length<10)return {ok:false,msg:'계좌번호를 정확히 입력해 주세요'};
+  if(acctList.some(a=>String(a.no||'').replace(/[^0-9]/g,'')===no))
+    return {ok:false,msg:'내 계좌입니다. 위쪽 \u2018내 계좌끼리\u2019 에서 옮겨 주세요'};
+  const v=intOf(amt,0);
+  if(v<1000)return {ok:false,msg:'1,000원 이상부터 보낼 수 있습니다'};
+  if(v>cash)return {ok:false,msg:`예수금이 부족합니다 (보유 ${KRW(cash)}원)`};
+  if(v>SEND_LIMIT_ONE)return {ok:false,msg:`1회 이체한도는 ${KRW(SEND_LIMIT_ONE)}원입니다`};
+  if(sendTodayTotal()+v>SEND_LIMIT_DAY)
+    return {ok:false,msg:`1일 이체한도 ${KRW(SEND_LIMIT_DAY)}원을 넘습니다`};
+  /* 먼저 빼고, 서버가 실패하면 되돌린다 */
+  const xid='x'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  cash=intOf(cash-v,0); acctSnap(); saveState();
+  const r=await xferCall('send',{fromNo:from.no||'',toNo:no,amt:v,memo:String(memo||'').slice(0,30),xid});
+  if(!r||!r.ok){
+    cash=intOf(cash+v,0); acctSnap(); saveState();   // 되돌린다
+    const why={nouser:'그런 계좌번호를 찾지 못했습니다',self:'내 계좌입니다',
+      format:'계좌번호 형식이 올바르지 않습니다',min:'1,000원 이상부터 보낼 수 있습니다',
+      limit:'1회 이체한도를 넘습니다',auth:'로그인 정보를 확인해 주세요',
+      net:'서버에 연결하지 못했습니다'}[(r&&r.err)||'net']||'보내지 못했습니다';
+    return {ok:false,msg:why};
+  }
+  sendLog.push({day:kstDay(),amt:v,dir:'out',to:r.toName||no,at:Date.now()});
+  saveState();
+  return {ok:true,msg:`${r.toName||'상대'}님에게 ${KRW(v)}원을 보냈습니다`};
+}
 function doSend(toId,amt,memo){
   if(!acctOpened())return {ok:false,msg:'계좌를 먼저 개설해 주세요'};   // [v5.00]
   const from=acctCur();
@@ -2529,10 +2583,14 @@ function renderAcctSend(){
   const others=acctList.filter(a=>a.id!==me.id);
   if(!others.length){
     sec.innerHTML=`<div class="sec"><div class="sec-title">송금 <span class="sec-sub">· 내 계좌 사이 이체</span></div>
-      <div class="panel asend"><div class="asend-empty"><b>보낼 곳이 아직 없습니다</b>
-        <span>계좌를 하나 더 개설하면 계좌번호로 예수금을 옮길 수 있어요.</span>
-        <button type="button" class="uz-retry" id="asOpenAcct">계좌 개설하기</button></div></div></div>`;
+      <div class="panel asend"><div class="asend-empty"><b>지금은 계좌가 하나뿐이라 보낼 곳이 없습니다</b>
+        <span>송금은 <b>내 계좌끼리</b> 예수금을 옮기는 기능입니다.
+          현재 <b>${htmlEsc((ACCT_TYPES[me.type]||{}).n||'계좌')}</b> 하나만 있어 보낼 상대가 없어요.<br>
+          계좌를 하나 더 만들면 계좌번호로 옮길 수 있습니다.</span>
+        <button type="button" class="uz-retry" id="asOpenAcct">계좌 하나 더 개설하기</button></div></div></div>`
+      +acctSendOutHtml();                              /* [v5.8] 남에게 보내기는 계좌 1개여도 된다 */
     const b=$('asOpenAcct'); if(b)b.onclick=()=>openAcctOpenSheet();
+    bindSendOut();
     return;
   }
   if(!others.some(a=>a.id===sendToId))sendToId='';
@@ -2614,6 +2672,56 @@ function renderAcctSend(){
     });
   };
 }
+/* ══ [v5.8] 다른 사람에게 보내기 — 내 계좌끼리 이체 아래에 붙인다 ═══════════ */
+function acctSendOutHtml(){
+  return `<div class="sec" style="margin-top:14px">
+    <div class="sec-title">다른 사람에게 송금 <span class="sec-sub">· 계좌번호로 보내기</span></div>
+    <div class="panel asend">
+      <div class="us-fld"><label><span>받는 계좌번호</span>
+        <small>친구에게 계좌번호를 받아 입력하세요</small></label>
+        <div class="us-inrow"><input id="xoNo" inputmode="numeric" placeholder="900-01-123456-7"
+          maxlength="20" autocomplete="off">
+          <button type="button" class="uz-retry" id="xoCheck">확인</button></div>
+        <div class="xo-who" id="xoWho"></div></div>
+      <div class="us-fld"><label><span>보낼 금액</span><small>1,000원 이상 · 1회 ${KRW(SEND_LIMIT_ONE)}원까지</small></label>
+        <input id="xoAmt" class="num" inputmode="numeric" placeholder="예: 100000"></div>
+      <div class="us-fld"><label><span>메모 (선택)</span></label>
+        <input id="xoMemo" maxlength="30" placeholder="용돈, 정산 등"></div>
+      <button class="modal-btn" id="xoGo">송금하기</button>
+      <div class="asend-note">보낸 돈은 상대가 접속할 때 계좌에 들어갑니다. 되돌릴 수 없으니 계좌번호를 꼭 확인하세요.</div>
+    </div></div>`+acctSendOutHtml();
+  bindSendOut();            /* [v5.8] 계좌가 여러 개일 때도 배선한다 */
+}
+function bindSendOut(){
+  const chk=$('xoCheck'), who=$('xoWho');
+  if(chk)chk.onclick=async()=>{
+    const no=($('xoNo').value||'').replace(/[^0-9]/g,'');
+    if(no.length<10){who.className='xo-who bad';who.textContent='계좌번호를 정확히 입력해 주세요';return;}
+    who.className='xo-who';who.textContent='확인하는 중…';
+    const r=await xferCall('lookup',{no});
+    if(r&&r.ok){ who.className='xo-who ok';
+      who.innerHTML=`받는 분 <b>${htmlEsc(r.name)}</b>${r.type?` · ${htmlEsc(r.type)}`:''}`; }
+    else { who.className='xo-who bad';
+      who.textContent=r&&r.err==='nouser'?'그런 계좌번호를 찾지 못했습니다':'확인하지 못했습니다'; }
+  };
+  const go=$('xoGo');
+  if(go)go.onclick=async()=>{
+    const no=($('xoNo').value||''), amt=($('xoAmt').value||'').replace(/[^0-9]/g,'');
+    const memo=($('xoMemo').value||'');
+    if(!amt){toast('warn','금액을 입력해 주세요','');return;}
+    const ok=await askConfirm('송금 확인',
+      `${KRW(+amt)}원을 보냅니다.\n받는 계좌 ${no}\n되돌릴 수 없습니다. 계속할까요?`,
+      {okLabel:'보내기',danger:true});
+    if(!ok)return;
+    go.disabled=true;
+    const r=await doSendOut(no,amt,memo);
+    go.disabled=false;
+    toast(r.ok?'buy':'warn',r.ok?'송금 완료':'송금 실패',r.msg);
+    if(r.ok){ $('xoAmt').value=''; $('xoMemo').value=''; $('xoWho').textContent='';
+      try{renderPortfolioNumbers();renderAcctSend();}catch(e){} }
+  };
+}
+
 /* 계좌 비밀번호 확인 — 주문 확인과 같은 방식을 송금에도 쓴다 */
 function askAcctPw(title,sub,cb){
   openLiteGate(title,`<div class="askpw">
@@ -2822,7 +2930,18 @@ var AE_TERMS=[
   ['t6',0,'제3자 정보 제공 동의 (선택)','이 모의 서비스는 실제로 제3자에게 정보를 제공하지 않습니다. 실제 증권사 개설 절차를 그대로 보여 주기 위한 항목입니다.']
 ];
 /* 모의 전용 계좌번호 — 900-계좌종류(2)-일련(6)-검증(1) */
-var ACCT_CODE={general:'01',isa:'21',pension:'31',irp:'32',overseas:'41',cma:'51',credit:'61'};
+/* ══ [v5.7] 계좌 종류가 28종인데 번호 코드는 7종뿐이었다 ═══════════════════
+   나머지 22종이 모두 '09' 를 써서, 계좌번호만 봐서는 종류를 알 수 없었다.
+   실제 증권사도 계좌번호 가운데 두 자리로 상품을 구분한다. 종류마다 값을 준다. */
+var ACCT_CODE={
+  general:'01', youth:'02', wrap:'03', corp:'04',
+  isa:'21', isaSeomin:'22', isaTrust:'23', isaGrowth:'24',
+  pension:'31', irp:'32', dc:'33', longfund:'34',
+  overseas:'41', night:'42', frac:'43', usDeriv:'44',
+  cmaIssue:'51', cmaRp:'52', cmaJonggeum:'53', cmaMmf:'54',
+  credit:'61', cfd:'62', deriv:'63',
+  bond:'71', ktb:'72', gold:'73', taxfree:'74', junior:'75'
+};
 function acctNewNo(type){
   const mid=ACCT_CODE[type]||'09';
   for(let tries=0;tries<40;tries++){
@@ -2834,7 +2953,13 @@ function acctNewNo(type){
     const no=`900-${mid}-${ser}-${chk}`;
     if(!acctList.some(a=>a.no===no))return no;
   }
-  return '900-'+mid+'-'+Date.now().toString().slice(-6)+'-0';
+  /* [v5.7] 여기까지 왔다는 건 난수가 계속 겹쳤다는 뜻이다(사실상 없는 일).
+     그래도 시각(Date.now)을 쓰면 같은 초에 만든 계좌끼리 번호가 겹치고
+     검증숫자도 0 으로 고정돼 규칙이 깨진다. 끝까지 난수로 만든다. */
+  let ser2=''; for(let i=0;i<6;i++)ser2+=Math.floor(Math.random()*10);
+  const b2=('900'+mid+ser2).split('').map(Number);
+  let sum2=0; b2.forEach((n,i)=>sum2+=n*((i%2)?1:3));
+  return `900-${mid}-${ser2}-${(10-(sum2%10))%10}`;
 }
 function aeInit(){
   AE_STEP=1; aeSel='general';
@@ -4977,7 +5102,18 @@ async function pollMarket(){
 }
 function drawSpark(cv,hist,dir){
   if(userPrefs.dataSaver){if(cv){const c2=cv.getContext&&cv.getContext('2d');if(c2)c2.clearRect(0,0,cv.width,cv.height);}return;}   // [S7] 절약 모드
-  if(!cv||!hist||hist.length<2)return;
+  /* ══ [v5.7] 일직선 그래프의 정체 ═══════════════════════════════════════════
+     점이 2개뿐이면 두 점을 잇는 '직선'이 나온다. 그건 흐름이 아니라
+     시작과 끝을 이은 선일 뿐인데, 화면에서는 진짜 추이처럼 보인다
+     (S&P500 선물·다우 선물·니케이가 그 경우다).
+     최소 5점은 있어야 흐름이라 부를 수 있다. 모자라면 그리지 않는다. */
+  if(!cv||!hist||hist.length<5){
+    try{ const c0=cv&&cv.getContext&&cv.getContext('2d');
+      if(c0)c0.clearRect(0,0,cv.width,cv.height);
+      if(cv)cv.dataset.thin='1'; }catch(e){}
+    return;
+  }
+  try{ if(cv)delete cv.dataset.thin; }catch(e){}
   const dpr=window.devicePixelRatio||1,w=cv.clientWidth||200,h=cv.clientHeight||46;
   cv.width=w*dpr;cv.height=h*dpr;const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
   const min=Math.min(...hist),max=Math.max(...hist),rng=(max-min)||1;
@@ -7448,6 +7584,14 @@ function notifyPrice(nm,code,kind,target,cur){
 setInterval(()=>{try{autoOrderTick();}catch(e){}},12e3);
 /* [v5.01] 하루가 바뀌었는지 5분마다 확인해 이자를 정산한다(앱을 켜 둔 채 자정을 넘겨도 반영) */
 setInterval(()=>{try{acctInterestTick();}catch(e){}},300e3);
+/* ══ [v5.8] 받을 돈 확인 ═══════════════════════════════════════════════════
+   접속 직후 한 번, 그 뒤 3분마다 본다. 화면을 다시 볼 때도 확인한다
+   (다른 기기에서 보냈거나, 앱을 열어 둔 채 받은 경우) */
+try{
+  setTimeout(()=>{ try{ xferRegister(true); xferPull(false); }catch(e){} },2500);
+  setInterval(()=>{ try{ xferPull(false); }catch(e){} },180e3);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ try{xferPull(false);}catch(e){} } });
+}catch(e){}
 setTimeout(subscribeAutoCodes,3000);
 /* ── [v2.5] 월간 수익률(클랜 리그 기준) — 월초 총자산 대비 ── */
 function totalAssetsNow(){ return eqTotalNow(); }   // [v4.5] 계산식 이원화 제거 — 자산 추이와 클랜 리그가 같은 값을 쓴다

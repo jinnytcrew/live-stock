@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=388">
+<link rel="stylesheet" href="/app.css?v=391">
 </head>
 <body>
 
@@ -1337,15 +1337,16 @@
         <!-- [v4.51] 환전은 '보유 종목을 본 다음, 목표를 세우기 전'에 손대는 일이다.
              화면 맨 위에 있으면 자산부터 확인하려는 흐름을 가로막았다. -->
         <div id="acctFxSec"></div>
-        <div id="acctSendSec"></div>
+
         <div id="goalCard"></div>
         <div id="tstatCard"></div>
       </div>
       <div class="ag-right">
-        <div class="sec-title">자산 추이 <span class="sec-sub">· 일별 평가금액(예수금 포함)</span></div>
-        <div class="panel"><canvas id="equityChart" height="150"></canvas>
-          <div class="eq-legend" id="eqLegend">기록이 쌓이면 그래프가 표시됩니다.</div></div>
-        <div class="sec-title" style="margin-top:16px">주식 매매일지 <button id="monthRptBtn" class="mini-btn">📊 월간 리포트</button> <button id="csvExport" class="mini-btn">CSV 내보내기</button></div>
+        <!-- [v5.7] 자산 추이 코너는 걷어냈다.
+             하루 사이 -96% 같은 값이 그려지는 등 그래프가 계속 어긋났고,
+             예수금을 직접 바꿀 수 있는 모의 계좌에서는 '추이'라는 개념 자체가
+             흔들린다. 총자산·평가손익은 위 카드에 이미 실시간으로 나온다. -->
+        <div class="sec-title">주식 매매일지 <button id="monthRptBtn" class="mini-btn">📊 월간 리포트</button> <button id="csvExport" class="mini-btn">CSV 내보내기</button></div>
       <div class="panel journal">
         <div class="jr-tabs">
           <button class="on" data-jtab="today">당일매매</button>
@@ -1360,6 +1361,8 @@
         <div class="jr-colhead" id="jrColhead"></div>
         <div class="jr-rows" id="jrRows"></div>
       </div>
+      <!-- [v5.7] 송금은 매매일지 아래로 옮겼다 -->
+      <div id="acctSendSec"></div>
       </div>
     </div>
     <div hidden aria-hidden="true">
@@ -1390,6 +1393,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=388"></script>
+<script type="module" src="/app.js?v=391"></script>
 </body>
 </html>

@@ -12801,6 +12801,97 @@ async function usnews_default(req2){
   return new Response(JSON.stringify({ok:items.length>0,items,diag}),
     {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
 }
+/* ══ [v5.8] 다른 사람에게 송금 ═══════════════════════════════════════════════
+   [설계] 잔고는 각자 기기에 있으므로 서버가 돈을 옮길 수는 없다.
+   대신 서버가 '계좌번호 장부'와 '받을 돈 보관함'을 맡는다.
+     ① register : 내 계좌번호를 장부에 올린다(누구 것인지 서버가 알게 된다)
+     ② lookup   : 받는 사람 이름을 미리 보여 준다(잘못 보내는 것을 막는다)
+     ③ send     : 보내는 쪽이 자기 잔고를 뺀 뒤, 받는 사람 보관함에 넣는다
+     ④ inbox    : 받는 쪽이 접속하면 보관함을 가져가 잔고에 더한다
+     ⑤ ack      : 받았다고 알리면 보관함에서 지운다(두 번 받지 않게)
+   [안전장치] 같은 이체가 두 번 들어가지 않도록 보낼 때 만든 고유 번호(xid)로 거른다. */
+async function xfer_default(req2){
+  if(req2.method!=="POST")return json2({ok:false,err:"method"});
+  let b; try{ b=await req2.json(); }catch{ return json2({ok:false,err:"body"}); }
+  let st; try{ st=await stores(); }catch{ return json2({ok:false,err:"nostore"}); }
+  const act=String(b.action||"");
+  const NO=(v)=>String(v||"").replace(/[^0-9]/g,"");        // 계좌번호는 숫자만 비교한다
+  const clip2=(v,n)=>String(v==null?"":v).slice(0,n);
+
+  /* 받는 사람 이름 미리보기 — 인증 없이도 가능하다(이름만, 그것도 가린 채) */
+  if(act==="lookup"){
+    const no=NO(b.no);
+    if(no.length<10)return json2({ok:false,err:"format"});
+    const e=await st.clan.get("acct:"+no,{type:"json"}).catch(()=>null);
+    if(!e)return json2({ok:false,err:"nouser"});
+    const nm=String(e.name||"");
+    const masked=nm.length<=1?nm:(nm[0]+"*".repeat(Math.max(1,nm.length-2))+(nm.length>1?nm[nm.length-1]:""));
+    return json2({ok:true,name:masked,type:e.type||"",self:false});
+  }
+
+  const db=await st.acc.get("db",{type:"json"}).catch(()=>null)||{accounts:{},users:{}};
+  const user=await verifyUser(db,b.id,b.pass,b.legacy);
+  if(!user)return json2({ok:false,err:"auth"});
+  const uid=String(b.id);
+  const uname=clip2(b.name||user.name||uid,12);
+
+  /* ① 내 계좌번호를 장부에 올린다 */
+  if(act==="register"){
+    const list=Array.isArray(b.accts)?b.accts.slice(0,30):[];
+    let n=0;
+    for(const a of list){
+      const no=NO(a&&a.no);
+      if(no.length<10)continue;
+      const prev=await st.clan.get("acct:"+no,{type:"json"}).catch(()=>null);
+      /* 남이 이미 올린 번호는 덮어쓰지 않는다 */
+      if(prev&&prev.uid&&prev.uid!==uid)continue;
+      if(prev&&prev.uid===uid&&prev.name===uname&&prev.type===a.type)continue;   // 바뀐 게 없으면 쓰지 않는다(KV 절약)
+      await st.clan.setJSON("acct:"+no,{uid,name:uname,type:clip2(a.type,20),at:Date.now()});
+      n++;
+    }
+    return json2({ok:true,n});
+  }
+
+  /* ③ 보낸다 — 받는 사람 보관함에 넣기만 한다 */
+  if(act==="send"){
+    const to=NO(b.toNo);
+    const amt=Math.floor(Number(b.amt)||0);
+    if(to.length<10)return json2({ok:false,err:"format"});
+    if(!(amt>=1000))return json2({ok:false,err:"min"});
+    if(amt>50000000)return json2({ok:false,err:"limit"});
+    const e=await st.clan.get("acct:"+to,{type:"json"}).catch(()=>null);
+    if(!e)return json2({ok:false,err:"nouser"});
+    if(e.uid===uid)return json2({ok:false,err:"self"});
+    const key="inbox:"+e.uid;
+    const box=await st.clan.get(key,{type:"json"}).catch(()=>null)||[];
+    const xid=clip2(b.xid,24)||("x"+Date.now().toString(36)+Math.random().toString(36).slice(2,6));
+    if(box.some(x=>x&&x.xid===xid))return json2({ok:true,dup:1});   // 같은 이체는 한 번만
+    box.push({xid,from:uname,fromNo:clip2(b.fromNo,20),toNo:to,amt,
+      memo:clip2(b.memo,30),at:Date.now()});
+    if(box.length>60)box.splice(0,box.length-60);
+    await st.clan.setJSON(key,box);
+    return json2({ok:true,xid,toName:e.name||""});
+  }
+
+  /* ④ 받을 돈을 가져간다 */
+  if(act==="inbox"){
+    const box=await st.clan.get("inbox:"+uid,{type:"json"}).catch(()=>null)||[];
+    return json2({ok:true,items:box});
+  }
+
+  /* ⑤ 받았다고 알린다 — 보관함에서 지운다 */
+  if(act==="ack"){
+    const ids=Array.isArray(b.ids)?b.ids.map(x=>clip2(x,24)):[];
+    if(!ids.length)return json2({ok:true,n:0});
+    const key="inbox:"+uid;
+    const box=await st.clan.get(key,{type:"json"}).catch(()=>null)||[];
+    const left=box.filter(x=>x&&!ids.includes(x.xid));
+    if(left.length!==box.length)await st.clan.setJSON(key,left);
+    return json2({ok:true,n:box.length-left.length});
+  }
+  return json2({ok:false,err:"action"});
+}
+ROUTES["xfer"]=xfer_default;
 ROUTES["usnews"]=usnews_default;
 ROUTES["usinfo"]=usinfo_default;
 ROUTES["usall"]=usall_default;
@@ -12839,7 +12930,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "5.6.0";
+var APP_VER = "5.8.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
