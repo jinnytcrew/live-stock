@@ -8422,7 +8422,9 @@ async function krFutures() {
   } catch (e) {
     out.diag.push("KPI200:" + String(e).slice(0, 24));
   }
-  const plaus = (px) => !k200 ? px > 200 && px < 900 : Math.abs(px - k200) / k200 < 0.08;
+  /* [v6.3] 야간은 미국장을 따라 크게 움직인다. 8% 는 좁아 정상값도 걸러낼 수 있다.
+     코스피200 자체가 900을 넘긴 지 오래라 상한 900 도 맞지 않는다(현재 977). */
+  const plaus = (px) => !k200 ? (px > 100 && px < 5000) : Math.abs(px - k200) / k200 < 0.15;
   const fromSeries = (h) => {
     if (h.length < 2) return null;
     const price = h[h.length - 1], prev = h[h.length - 2];
@@ -8467,7 +8469,9 @@ async function krFutures() {
   /* [v4.10] 야간값 인메모리 캐시 — 한 번이라도 잡히면 15분간 원천 장애를 버틴다 */
   globalThis.__nfMem = globalThis.__nfMem || { at: 0, q: null };
   const takeNight = (px, src) => {
-    /* [v6.2] 어느 경로에서 받았는지 남긴다 */
+    /* [v6.3] 값이 얼마였고 왜 걸러졌는지까지 남긴다 — 다음에 무엇을 고칠지 알기 위해 */
+    out.diag.push("try/" + src + ":" + (px > 0 ? px : "0")
+      + (px > 0 ? (plaus(px) ? " ok" : " out-of-range(K200=" + (k200 || "?") + ")") : ""));
     if (px > 0 && plaus(px)) out.nightSrc = src;
     if (!(px > 0) || !plaus(px)) {
       out.diag.push("night/" + src + ":implausible " + px);
@@ -8490,6 +8494,59 @@ async function krFutures() {
      [방법] ① 네이버 지수 코드 후보를 넓게 훑고 ② 선물 전용 API 도 두드리고
      ③ 그래도 없으면 인베스팅닷컴에서 종목을 찾아 시세를 받는다.
      성공한 경로는 diag 에 남겨, 어느 길이 살아 있는지 나중에 확인할 수 있게 한다. */
+  /* ══ [v6.3] 코드를 추측하지 말고 네이버에 직접 물어본다 ═══════════════════
+     [진단으로 확인된 사실] 제가 넣은 야간 코드 12개가 전부 'nodata' 였다.
+     즉 코드 이름을 계속 찍어 맞히려던 것이 문제였다. 주간(FUT)은 잘 되므로
+     네이버 체계 안에 야간도 있을 텐데, 그 이름을 모를 뿐이다.
+     [방법] 종목검색에 쓰는 자동완성 API 로 '야간선물'을 검색해 코드를 받아 온다.
+     찾은 코드는 KV 에 담아 두고, 다음부터는 그 코드로 바로 조회한다. */
+  const discoverNightCode = async () => {
+    try {
+      const cached = KV ? await KV.get("k200nf:code", "json") : null;
+      if (cached && cached.code && Date.now() - (cached.at || 0) < 3 * 864e5) return cached.code;
+    } catch (e) {}
+    const seen = [];
+    for (const q of ["코스피200 야간선물", "야간선물", "코스피200야간", "K200 야간"]) {
+      for (const mk of [
+        `https://ac.stock.naver.com/ac?q=${encodeURIComponent(q)}&target=index,stock,etf`,
+        `https://m.stock.naver.com/front-api/search/autoComplete?query=${encodeURIComponent(q)}&target=index%2Cstock`
+      ]) {
+        try {
+          const j = await jget8(mk, 3500, HDRS);
+          const flat = JSON.stringify(j || {});
+          /* 응답 어디에 있든 '야간'이 붙은 항목의 코드를 긁어 온다 */
+          for (const m of flat.matchAll(/"(?:code|itemCode|reutersCode|symbolCode)"\s*:\s*"([A-Z0-9_]{2,20})"/g)) {
+            const c = m[1];
+            if (!seen.includes(c)) seen.push(c);
+          }
+        } catch (e) {}
+      }
+    }
+    out.diag.push("night/discover:" + (seen.length ? seen.slice(0, 8).join(",") : "none"));
+    /* 찾은 후보를 실제로 두드려 본다 — 값이 그럴듯하면 그 코드가 정답이다 */
+    for (const c of seen) {
+      try {
+        const h = await navIdxSeries(c);
+        const px = h.length ? h[h.length - 1] : 0;
+        if (px > 0 && plaus(px)) {
+          try { if (KV) await KV.put("k200nf:code", JSON.stringify({ code: c, at: Date.now() }), { expirationTtl: 604800 }); } catch (e) {}
+          out.diag.push("night/discover:hit " + c + " " + px);
+          return c;
+        }
+      } catch (e) {}
+    }
+    return null;
+  };
+  {
+    const found = await discoverNightCode();
+    if (found) {
+      try {
+        const h = await navIdxSeries(found);
+        if (h.length) takeNight(h[h.length - 1], "discover/" + found);
+        if (out.night && h.length >= 3) out.night.history = h.slice(-30);
+      } catch (e) {}
+    }
+  }
   const NIGHT_CODES = ["FUTN", "NFUT", "FUT_N", "FUTNIGHT", "NIGHTFUT", "FUT_NIGHT",
     "K200NF", "KOSPI200FN", "NKF", "CME_FUT", "FUT2", "KPI200FN"];
   for (const nc of NIGHT_CODES) {
@@ -8512,6 +8569,76 @@ async function krFutures() {
         if (px > 0) takeNight(px, "m.basic/" + nc);
       } catch (e) {}
     }
+  }
+  /* ══ [v6.3] 인베스팅닷컴 선물 페이지에서 직접 읽는다 ═══════════════════════
+     [왜 이 방법인가] KRX 야간장은 '별도 상품'이 아니라 같은 코스피200 선물을
+     밤에도 거래하는 것이다. 인베스팅닷컴의 코스피200 선물 페이지는 그 값을
+     실시간으로 보여 주고, 숫자가 HTML 안에 그대로 담겨 온다(검색 결과로 확인).
+     검색 API 를 두드릴 필요 없이 페이지 하나만 읽으면 된다. */
+  if (!out.night) {
+    const PAGES = [
+      "https://www.investing.com/indices/korea-200-futures",
+      "https://kr.investing.com/indices/korea-200-futures"
+    ];
+    for (const u of PAGES) {
+      if (out.night) break;
+      try {
+        const h = await tget(u, 6000);
+        let px = 0;
+        /* ① 화면에 쓰이는 표시값 — data-test 속성이 가장 확실하다 */
+        let m = /data-test="instrument-price-last"[^>]*>([\d,]+\.?\d*)</.exec(h);
+        if (m) px = num9(m[1]);
+        /* ② 페이지에 심어 둔 데이터 뭉치 */
+        if (!px) { m = /"last"\s*:\s*"?([\d,]+\.?\d*)"?/.exec(h); if (m) px = num9(m[1]); }
+        if (!px) { m = /"last_close"\s*:\s*"?([\d,]+\.?\d*)"?/.exec(h); if (m) px = num9(m[1]); }
+        /* ③ 문장으로 적힌 현재가 */
+        if (!px) { m = /KOSPI 200 Futures price is\s*([\d,]+\.?\d*)/i.exec(h); if (m) px = num9(m[1]); }
+        if (px > 0) {
+          let prev = 0;
+          const pm = /data-test="prevClose"[^>]*>([\d,]+\.?\d*)</.exec(h)
+            || /"prev_close"\s*:\s*"?([\d,]+\.?\d*)"?/.exec(h);
+          if (pm) prev = num9(pm[1]);
+          takeNight(px, "investing-page");
+          if (out.night && prev > 0) {
+            out.night.change = +(px - prev).toFixed(2);
+            out.night.rate = +((px - prev) / prev * 100).toFixed(2);
+          }
+        } else out.diag.push("night/inv-page:no-price");
+      } catch (e) { out.diag.push("night/inv-page:" + String(e).slice(0, 16)); }
+    }
+  }
+  /* ══ [v6.3] KRED — 한국거래소 체결 데이터로 만든 야간선물 1분봉 ═══════════
+     야간선물만 전문으로 다루는 곳이라 값이 정확하다. 경로를 몇 가지 두드려 본다. */
+  if (!out.night) {
+    for (const u of [
+      "https://kred.dev/api/kospi-200-night-futures",
+      "https://kred.dev/api/series/kospi-200-night-futures",
+      "https://kred.dev/api/night-futures/bars?interval=1m",
+      "https://kred.dev/api/kospi200-night-futures/latest"
+    ]) {
+      if (out.night) break;
+      try {
+        const j = await jget8(u, 5000, { "User-Agent": UA20, Accept: "application/json" });
+        const flat = JSON.stringify(j || {});
+        /* 마지막 종가로 보이는 값을 찾는다 */
+        let px = 0;
+        const arr = (j && (j.bars || j.data || j.series || j.observations)) || null;
+        if (Array.isArray(arr) && arr.length) {
+          const last = arr[arr.length - 1];
+          px = num9(last && (last.c ?? last.close ?? last.value ?? last[4]));
+          if (px > 0 && plaus(px)) {
+            const hs = arr.map(x => num9(x && (x.c ?? x.close ?? x.value ?? x[4]))).filter(v => v > 0).slice(-30);
+            takeNight(px, "kred");
+            if (out.night && hs.length >= 3) out.night.history = hs;
+          }
+        }
+        if (!out.night) {
+          const m = /"(?:close|last|price|value)"\s*:\s*([\d.]+)/.exec(flat);
+          if (m) { const v = num9(m[1]); if (v > 0) takeNight(v, "kred-flat"); }
+        }
+      } catch (e) {}
+    }
+    if (!out.night) out.diag.push("night/kred:none");
   }
   /* ③ 인베스팅닷컴 — 'KOSPI 200 Night Futures' 종목을 찾아 시세를 받는다 */
   if (!out.night) {
@@ -8634,18 +8761,30 @@ async function krFutures() {
     const hh = kD.getUTCHours();
     if (hh >= 18) kD.setUTCDate(kD.getUTCDate() + 1);              // 18시 이후 → 종료일은 내일
     const ymd = kD.toISOString().slice(0, 10).replace(/-/g, "");
+    /* 야간(정규외) 파생 통계 화면은 번호가 따로 있다 — 알려진 것을 모두 훑는다 */
     const BLDS = [
       "dbms/MDC/STAT/standard/MDCSTAT12501",
       "dbms/MDC/STAT/standard/MDCSTAT12502",
-      "dbms/MDC/STAT/standard/MDCSTAT13501"
+      "dbms/MDC/STAT/standard/MDCSTAT12503",
+      "dbms/MDC/STAT/standard/MDCSTAT13501",
+      "dbms/MDC/STAT/standard/MDCSTAT13502",
+      "dbms/MDC/STAT/standard/MDCSTAT14501",
+      "dbms/MDC/STAT/standard/MDCSTAT15501"
     ];
     for (const bld of BLDS) {
       if (out.night) break;
       try {
         const ck = new AbortController(); const tk2 = setTimeout(() => ck.abort(), 6000);
+        /* ══ [v6.3] KRX 가 400 을 돌려주던 이유 ═══════════════════════════════
+           진단에 'krx:400' 이 세 번 찍혔다 — 잘못된 요청이라는 뜻이다.
+           파생 통계는 화면마다 요구하는 값이 달라, 한 벌만 보내면 거절당한다.
+           날짜·시장구분·상품구분을 조합해 여러 벌 보내고, 통과하는 것을 쓴다. */
         const body = new URLSearchParams({
-          bld, locale: "ko_KR", trdDd: ymd, prodId: "KRDRVFUK2I",
-          mktTpCd: "N", secugrpId: "KRDRVFUK2I", money: "1", csvxls_isNo: "false"
+          bld, locale: "ko_KR", trdDd: ymd,
+          prodId: "KRDRVFUK2I", secugrpId: "KRDRVFUK2I",
+          mktId: "KRDRVFUK2I", mktTpCd: "N", trdMktTpCd: "N",
+          rghtTpCd: "T", isuCd: "", isuCd2: "", strtDd: ymd, endDd: ymd,
+          share: "1", money: "1", csvxls_isNo: "false"
         });
         const r = await fetch("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd", {
           method: "POST",
@@ -13072,7 +13211,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "6.2.0";
+var APP_VER = "6.3.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
