@@ -1689,7 +1689,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=385';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=386';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -8344,6 +8344,11 @@ function pushHistQ(q){
 /* [D3] 최근 본 종목 — 검색 기록과 별개로, 상세를 연 종목을 최신순으로 보관 */
 let viewHist=[];   // 계정별 값은 reloadPerUser()에서 로드
 function saveViewHist(){pset('viewHist',viewHist.slice(0,12));}
+/* ══ [v5.4] saveHist 가 아예 없었다 ═══════════════════════════════════════════
+   pushHist() 를 만들면서 존재하지도 않는 saveHist() 를 불렀다.
+   그래서 종목을 열 때마다 'saveHist is not defined' 가 터졌고,
+   검색 기록이 저장되지 않아 최근 검색이 제대로 쌓이지 않았다. */
+function saveHist(){ try{ pset('srchHist',srchHist.slice(0,20)); }catch(e){} }
 /* ══ [v5.03] '최근 본 종목'은 걷어냈다 ═══════════════════════════════════════
    '최근 검색'과 '최근 본 종목'이 나란히 있어 거의 같은 내용이 두 줄로 반복됐다.
    검색 기록 하나로 합치고, 보기 좋았던 '최근 본 종목'의 칩 모양을 그대로 물려받는다.
@@ -8357,11 +8362,12 @@ function renderHist(){
   el.innerHTML=`<div class="sh-head"><span>최근 검색</span><button id="shClear">전체 삭제</button></div>
     <div class="sh-chips">${srchHist.map((h,i)=>h.q
       ?`<span class="sh-chip q" data-i="${i}"><i class="sh-ic">🔍</i><b>${h.q}</b><i class="sh-x" data-x="${i}">✕</i></span>`
-      :`<span class="sh-chip" data-i="${i}">${anyLogo(h.code,h.name,'xs')}<b>${h.name}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
+      :`<span class="sh-chip" data-i="${i}">${(h.market==='US'||usMeta[h.code])?usTick(h.code,'xs'):anyLogo(h.code,h.name,'xs')}<b>${h.name}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
   el.querySelectorAll('.sh-chip').forEach(c=>c.onclick=(e)=>{
     if(e.target.classList.contains('sh-x'))return;
     const h=srchHist[+c.dataset.i]; if(!h)return;
-    if(h.q){const inp=$('searchInput');if(inp)inp.value=h.q;renderSearch();renderHist();}
+    if(h.q){const inp=$('searchInput');if(inp)inp.value=h.q;renderSearch();renderHist();return;}
+    if(h.market==='US'||usMeta[h.code]){openUS(h.code);return;}   // [v5.4] 해외는 해외 화면으로
     else{ensureStock(h.code,h.name,h.market);openTrade(h.code);}
   });
   el.querySelectorAll('.sh-x').forEach(x=>x.onclick=(e)=>{e.stopPropagation();
@@ -12816,6 +12822,18 @@ function usAllMatch(q){
           ③ 티커를 이름 자리에 넣지 않는다
    레버리지 배수는 국내 표기를 따라 '2배'가 아니라 2X·3X 로 적는다. */
 var US_KRMAP = {
+  /* [v5.4] 화면에 영문으로 뜨던 종목 한글명 보강 */
+  AG:'퍼스트머제스틱실버', B:'배릭마이닝', MPT:'메디컬프로퍼티스', RUM:'럼블',
+  HROW:'해로우헬스', ENVX:'이노빅스', LITE:'루멘텀홀딩스', QS:'퀀텀스케이프',
+  LEGN:'레전드바이오텍', SBET:'샤프링크게이밍', AXSM:'액섬테라퓨틱스',
+  INOD:'이노데이터', UAMY:'US안티모니', CBRS:'세레브라스', KLAR:'클라나',
+  VKTX:'바이킹테라퓨틱스', CRCL:'서클', BMNR:'비트마인', USAR:'USA레어어스',
+  ONDS:'온다스', PLUG:'플러그파워', IREN:'아이렌', ABCL:'앱셀레라',
+  CRWV:'코어위브', AVAV:'에어로바이런먼트', COHR:'코히런트', PL:'플래닛랩스',
+  APLD:'어플라이드디지털', KEEL:'킬인프라', FLY:'파이어플라이에어로스페이스',
+  ZENA:'제나테크', MNDY:'먼데이닷컴', NVTS:'나비타스', WWR:'웨스트워터리소스',
+  XLE:'에너지 섹터 ETF', AMSC:'아메리칸수퍼컨덕터', ADPT:'어댑티브바이오',
+  ACIC:'아메리칸코스탈', VLTO:'볼토', SNDK:'샌디스크', LUNR:'인튜이티브머신스',
   MS:'모건스탠리', 'BRK-B':'버크셔해서웨이 B', 'BRK.B':'버크셔해서웨이 B', BLK:'블랙록', AXP:'아메리칸익스프레스', WFC:'웰스파고', SCHW:'찰스슈왑',
   C:'씨티그룹', COP:'코노코필립스', OXY:'옥시덴탈페트롤리엄', SLB:'슐럼버거', DE:'디어',
   HON:'허니웰', 'BRK-B':'버크셔해서웨이 B', RTX:'RTX', UPS:'UPS', BMY:'브리스톨마이어스스퀴브',
@@ -13228,11 +13246,14 @@ var usLgOk={}, usLgNo={}, _usLgBusy=new Set(), _usLgQ=[], _usLgLive=0;
 /* [v4.30] 실패 기록은 짧게 — 통신 상태나 CDN 사정으로 한 번 실패했다고
    반나절 내내 배지로 남으면 안 된다. 그리고 '전부 실패'면 망 문제일 가능성이
    높으므로(사내망·특정 CDN 차단) 더 짧게 잡아 다음 방문에 곧바로 다시 시도한다. */
-var US_LG_MAX=6, US_LG_TTL=3*3600e3, US_LG_TTL_ALL=20*60e3;
+/* [v5.4] 로고를 이제 우리 서버 한 곳에서만 받는다. 같은 출처라 브라우저가
+   동시에 여는 연결 수가 제한되므로, 한 번에 던지는 개수를 조금 늘려
+   목록이 길어도 뒤쪽까지 빨리 채워지게 한다. */
+var US_LG_MAX=10, US_LG_TTL=3*3600e3, US_LG_TTL_ALL=20*60e3;
 function usLgTtl(){ return (Object.keys(usLgOk).length===0&&Object.keys(usLgNo).length>=8)?US_LG_TTL_ALL:US_LG_TTL; }
 try{
   const s=JSON.parse(localStorage.getItem('usLg3')||'null');
-  if(s&&s.v===5){ usLgOk=s.ok||{};
+  if(s&&s.v===6){ usLgOk=s.ok||{};
     const now=Date.now(), okN=Object.keys(usLgOk).length;
     const ttl=(okN===0&&Object.keys(s.no||{}).length>=8)?20*60e3:3*3600e3;
     Object.keys(s.no||{}).forEach(k=>{ if(now-s.no[k]<ttl)usLgNo[k]=s.no[k]; }); }
@@ -13240,7 +13261,7 @@ try{
 let _usLgSaveT=null;
 function usLgSave(){ if(_usLgSaveT)return;
   _usLgSaveT=setTimeout(()=>{_usLgSaveT=null;
-    try{localStorage.setItem('usLg3',JSON.stringify({v:5,ok:usLgOk,no:usLgNo}));}catch(e){}},600); }
+    try{localStorage.setItem('usLg3',JSON.stringify({v:6,ok:usLgOk,no:usLgNo}));}catch(e){}},600); }
 /* 후보 주소 — 서로 다른 제공자를 섞어 한 곳이 막혀도 다른 곳이 뚫리게 한다 */
 /* ══ [v5.03] 개별주 레버리지 ETF는 기초자산 로고를 따른다 ═══════════════════
    [무엇이 어색했나] '테슬라 2X'·'엔비디아 2X'·'코인베이스 2X' 가 각각 운용사
@@ -13276,37 +13297,16 @@ function usLgUrls(t){
   return usLgUrlsRaw(t);
 }
 function usLgUrlsRaw(t){
-  /* [v4.31] 검색으로 새로 등록된 종목은 도메인 매핑이 없다. 그런 종목도 로고가 나오도록
-     '티커 기반' 소스를 항상 뒤에 붙인다(도메인이 있으면 후보가 그만큼 더 많아진다). */
-  /* ══ [v4.80] 로고는 서버가 고른 것만 쓴다 ═══════════════════════════════
-     [왜 바꿨나] 바깥 사이트에서 직접 받으면 브라우저가 다른 출처라는 이유로
-     그림 내용을 읽지 못한다(CORS). 그래서 '흰 빈 그림'인지 확인할 방법이 없었고,
-     검사에서는 '로고 있음'으로 세어도 화면에는 빈 네모가 남았다(니오가 그 경우다).
-     서버는 그 제약이 없고 이미 내용까지 검사한다. 게다가 같은 출처라 화면 쪽
-     확인도 그대로 통한다. → 후보를 서버 한 곳으로 모은다.
-     서버가 못 찾으면 색 배지에 티커가 찍히므로 빈 네모는 생기지 않는다. */
-  const d=US_DOMAIN[t]; const out=[];
-  const tk=t.replace('.','-');
-  /* ══ [v4.75] 서버가 고른 로고를 먼저 쓴다 ═══════════════════════════════════
-     바깥 사이트에서 직접 받으면 브라우저가 캔버스로 내용을 읽을 수 없어(다른 출처)
-     '흰 빈 그림'인지 확인할 방법이 없다. 서버는 그 제약이 없고, 후보를 두드려
-     내용까지 확인한 뒤 돌려준다. 게다가 같은 출처라 화면 쪽 확인도 그대로 통한다. */
-  /* ══ [v4.82] 후보를 다시 여럿으로 ═══════════════════════════════════════
-     v4.80 에서 '서버가 검사한 것만 쓰자'며 후보를 서버 하나로 줄였다. 그런데
-     서버가 실패하는 순간 대안이 없어져 로고가 거의 다 사라졌다(첨부 사진).
-     한 곳에 모든 것을 걸면 그곳이 무너질 때 전부 무너진다.
-     → 서버를 맨 앞에 두되, 뒤에 직접 받는 길을 다시 열어 둔다. */
-  out.push('/api/uslogo?t='+encodeURIComponent(tk)+(d?'&d='+encodeURIComponent(d):''));
-  if(d){
-    out.push('https://logo.clearbit.com/'+d);
-    out.push('https://icons.duckduckgo.com/ip3/'+d+'.ico');
-    out.push('https://www.google.com/s2/favicons?sz=128&domain='+d);
-  }
-  out.push('https://financialmodelingprep.com/image-stock/'+tk+'.png');
-  out.push('https://assets.parqet.com/logos/symbol/'+tk+'?format=png&size=128');
-  out.push('https://s3-symbol-logo.tradingview.com/'+tk.toLowerCase()+'.svg');
-  out.push('https://logos.stockanalysis.com/'+tk.toLowerCase()+'.png');
-  return out;
+  /* ══ [v5.4] 로고는 '검증 가능한 경로' 하나만 쓴다 ═══════════════════════════
+     [왜 계속 흰 네모가 남았나] 바깥 사이트에서 직접 받은 그림은 브라우저가
+     내용을 읽을 수 없다(다른 출처). 그래서 '흰 빈 그림'인지 확인할 방법이 없어
+     그대로 통과시켰고, 화면에는 흰 네모가 남았다. 후보를 여럿 두는 한 이 구멍은
+     막히지 않는다 — 확인 못 하는 경로가 하나라도 있으면 거기로 새기 때문이다.
+     [바꾼 원칙] 우리 서버가 검사해서 돌려준 것만 쓴다. 같은 출처라 화면에서도
+     픽셀을 읽어 한 번 더 확인한다. 서버가 못 찾으면 곧바로 회색 배지(시장 이름)다.
+     흰 네모가 생길 자리가 구조적으로 없어진다. */
+  const tk=t.replace('.','-'), d=US_DOMAIN[t];
+  return ['/api/uslogo?t='+encodeURIComponent(tk)+(d?'&d='+encodeURIComponent(d):'')];
 }
 function usLgUrl(t){ const i=usLgOk[t]; return i==null?'':usLgUrls(t)[i]||''; }
 function usLgWant(t){
@@ -14600,16 +14600,31 @@ function renderUsCons(el){
       <div class="w52-lb"><span>$${USD2(q.w52l)}</span><span>$${USD2(q.w52h)}</span></div></div>`;
   } else html+=`<div style="font-weight:800;margin:18px 0 10px">목표주가</div>`;
   const up=(c.target&&price)?((c.target-price)/price):null;
-  html+=`<div class="final-target"><span>종합 목표주가${c.num?` (${Math.round(c.num)}개 평균)`:''}</span>
-    <b>${c.target?'$'+USD2(c.target):'<span style="font-size:14px;color:var(--sub-2)">제공되지 않음</span>'}</b></div>
-  <div class="cons-cards two">
-    <div class="cons-card"><div class="k">현재가 대비</div><div class="v ${up==null?'':(up>0?'up':'down')}">${up==null?'—':pctS(up*100)}</div></div>
-    <div class="cons-card"><div class="k">최고 / 최저</div><div class="v" style="font-size:15px">${c.high?'$'+USD2(c.high):'—'} / ${c.low?'$'+USD2(c.low):'—'}</div></div>
-  </div>`;
+  /* [v5.4] 목표주가가 없으면 빈칸(—)을 늘어놓지 않고, 대신 52주 범위로 가늠하게 안내한다 */
+  if(c.target){
+    html+=`<div class="final-target"><span>종합 목표주가${c.num?` (${Math.round(c.num)}개 평균)`:''}</span>
+      <b>$${USD2(c.target)}</b></div>
+    <div class="cons-cards two">
+      <div class="cons-card"><div class="k">현재가 대비</div><div class="v ${up==null?'':(up>0?'up':'down')}">${up==null?'—':pctS(up*100)}</div></div>
+      <div class="cons-card"><div class="k">최고 / 최저</div><div class="v" style="font-size:15px">${c.high?'$'+USD2(c.high):'—'} / ${c.low?'$'+USD2(c.low):'—'}</div></div>
+    </div>`;
+  }else{
+    html+=`<div class="uinf-note">이 종목은 애널리스트 목표주가가 제공되지 않습니다.
+      위 <b>52주 범위</b>에서 현재 어느 지점인지로 가늠해 보세요.
+      소형주·신규 상장·ETF 는 목표주가가 없는 경우가 많습니다.</div>`;
+  }
   /* 주요 투자지표 — 국내 inv-grid 와 같은 모양 */
   const k=info.metrics||{};
-  const cells=[['시가총액',q.cap>0?usBigNum(q.cap,'$'):(k.cap||null)],['PER',k.per],['PBR',k.pbr],
-    ['EPS',k.eps],['BPS',k.bps],['ROE',k.roe!=null?k.roe+'%':null],
+  /* [v5.4] 상세 자료가 없어도 시세 응답에 담겨 온 값으로 최대한 채운다 */
+  const num2=(v)=>(v==null||v===''||!isFinite(+v))?null:(+v).toFixed(2);
+  const cells=[['시가총액',q.cap>0?usBigNum(q.cap,'$'):(k.cap||null)],
+    ['PER',k.per||num2(q.per)],['PBR',k.pbr],
+    ['EPS',k.eps!=null?k.eps:num2(q.eps)],['BPS',k.bps!=null?k.bps:num2(q.bps)],
+    ['ROE',k.roe!=null?k.roe+'%':null],
+    ['배당수익률',(info.dividend&&info.dividend.yield!=null)?info.dividend.yield+'%':(q.div?num2(q.div)+'%':null)],
+    ['52주 최고',q.w52h!=null?'$'+USD2(q.w52h):null],
+    ['52주 최저',q.w52l!=null?'$'+USD2(q.w52l):null],
+    ['베타',num2(q.beta)],
     ['추정 EPS',c.eps],['추정 PER',c.per]].filter(x=>x[1]!=null&&x[1]!=='');
   if(cells.length)html+=`<div style="font-weight:800;margin:20px 0 10px">주요 투자지표</div>
     <div class="inv-grid">${cells.map(x=>`<div class="inv-cell"><div class="n">${x[0]}</div><div class="v">${htmlEsc(String(x[1]))}</div></div>`).join('')}</div>`;
@@ -14639,8 +14654,13 @@ function renderUsFin(el){
     <div style="overflow:auto"><table class="fin-table"><thead><tr><th>항목</th>${rows.cols.map(c=>`<th>${htmlEsc(c)}</th>`).join('')}</tr></thead>
     <tbody>${rows.items.map(r=>`<tr><td style="text-align:left">${htmlEsc(r.k)}</td>${r.v.map(v=>`<td>${v==null?'—':htmlEsc(String(v))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
-  const cells=[['시가총액',q.cap>0?usBigNum(q.cap,'$'):(k.cap||null)],['PER',k.per],['PBR',k.pbr],
-    ['EPS',k.eps],['BPS',k.bps],['ROE',k.roe!=null?k.roe+'%':null]].filter(x=>x[1]!=null&&x[1]!=='');
+  const num3=(v)=>(v==null||v===''||!isFinite(+v))?null:(+v).toFixed(2);
+  const cells=[['시가총액',q.cap>0?usBigNum(q.cap,'$'):(k.cap||null)],
+    ['PER',k.per||num3(q.per)],['PBR',k.pbr],
+    ['EPS',k.eps!=null?k.eps:num3(q.eps)],['BPS',k.bps!=null?k.bps:num3(q.bps)],
+    ['ROE',k.roe!=null?k.roe+'%':null],
+    ['52주 최고',q.w52h!=null?'$'+USD2(q.w52h):null],
+    ['52주 최저',q.w52l!=null?'$'+USD2(q.w52l):null]].filter(x=>x[1]!=null&&x[1]!=='');
   if(cells.length)html+=`<div class="fin-sub" style="margin-top:18px">주요 지표</div>
     <div class="inv-grid">${cells.map(x=>`<div class="inv-cell"><div class="n">${x[0]}</div><div class="v">${htmlEsc(String(x[1]))}</div></div>`).join('')}</div>`;
   if(!html){

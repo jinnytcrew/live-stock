@@ -5631,6 +5631,12 @@ function pub(c, uid) {
     role: m.role || "",
     tr: m.tr || 0,
     hold: m.hold || 0,
+    /* ══ [v5.4] 보유 종목·BEST/WORST 가 화면까지 오지 않던 이유 ═══════════════
+       저장은 되고 있었는데, 이 함수가 내보낼 항목을 하나씩 골라 담으면서
+       새로 넣은 세 가지를 빠뜨렸다. 그래서 화면에는 '1종목' 만 보였다. */
+    holds: Array.isArray(m.holds) ? m.holds : [],
+    best: m.best || null,
+    worst: m.worst || null,
     joinedAt: m.joinedAt || 0,
     updatedAt: m.updatedAt
   })).sort((a, z) => (z.rate ?? -1e9) - (a.rate ?? -1e9));
@@ -10828,7 +10834,16 @@ function usPickQuote(txt){
   else if(rate!=null&&rate!==-100)prev=+(close/(1+rate/100)).toFixed(4);
   const out={price:close,prev,open:usNum(d.openPrice),high:usNum(d.highPrice),low:usNum(d.lowPrice),
     vol:usNum(d.accumulatedTradingVolume!=null?d.accumulatedTradingVolume:d.accumulatedTradingVol),
-    cap:usNum(d.marketValue),name:d.stockName||d.name||""};
+    cap:usNum(d.marketValue),name:d.stockName||d.name||"",
+    /* ══ [v5.4] 이미 받아 온 응답에서 더 뽑는다 ═══════════════════════════════
+       컨센서스·재무가 '—' 로 비던 종목이 많았다. 그런데 시세 응답에는
+       PER·EPS·배당·52주 같은 값이 함께 들어 있는데도 쓰지 않고 버리고 있었다.
+       추가 호출 없이 화면을 채울 수 있는 것부터 챙긴다. */
+    per:usNum(d.perValue!=null?d.perValue:d.pe),
+    eps:usNum(d.epsValue!=null?d.epsValue:d.eps),
+    div:usNum(d.dividendYield!=null?d.dividendYield:d.dividend),
+    bps:usNum(d.bps),
+    beta:usNum(d.beta)};
   /* basic 형 확장정보에서 52주·시총 보강 */
   const infos=(j&&j.stockItemTotalInfos)||(d&&d.stockItemTotalInfos);
   if(Array.isArray(infos))for(const it of infos){
@@ -11620,7 +11635,15 @@ function imgLooksReal(buf,ct,minPx){
     /* 단색 PNG 는 압축이 극단적으로 잘 되어 픽셀 수에 비해 파일이 아주 작다 */
     if(buf.length < (w*h)/900 + 400)return false;
   }
-  /* 바이트 다양성 — 같은 값만 반복되면 내용이 없는 그림이다 */
+  /* ══ [v5.4] 흰 빈 그림을 더 촘촘히 걸러낸다 ═══════════════════════════════
+     화면 쪽 확인만으로는 늦다. 여기서 막아야 회색 배지로 곧장 넘어간다.
+     ① 픽셀 수에 비해 파일이 지나치게 작으면 단색이다
+     ② 바이트가 거의 같은 값만 반복돼도 단색이다 */
+  if(buf.length>8&&buf[0]===0x89&&buf[1]===0x50){
+    const w=(buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+    const h2=(buf[20]<<24)|(buf[21]<<16)|(buf[22]<<8)|buf[23];
+    if(w>0&&h2>0&&buf.length < (w*h2)/450 + 300)return false;
+  }
   const step=Math.max(1,Math.floor(buf.length/512));
   const seen=new Set();
   for(let i=0;i<buf.length;i+=step){ seen.add(buf[i]); if(seen.size>24)return true; }
@@ -11638,7 +11661,7 @@ async function uslogo_default(req2){
        가장 나은 것을 돌려준다. 결과는 KV 에 담아 다음부터는 바로 내보낸다.
        화면 쪽에서도 같은 출처(우리 도메인)라 픽셀 검사가 그대로 통한다. */
     const TK=tk.replace(".","-"), tkl=TK.toLowerCase();
-    const CKT="uslgt3:"+TK;
+    const CKT="uslgt4:"+TK;
     try{ if(KV){ const c=await KV.get(CKT,"json");
       if(c&&c.b64)return new Response(Uint8Array.from(atob(c.b64),ch=>ch.charCodeAt(0)),
         {headers:{"content-type":c.ct||"image/png","cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
@@ -11651,13 +11674,17 @@ async function uslogo_default(req2){
          (첨부 사진의 TSMC·인텔·마이크론이 그 경우다).
          → 큰 그림을 주는 곳을 앞에 세우고, 파비콘은 정말 아무것도 없을 때만 쓴다.
          같은 이유로 구글 파비콘도 맨 뒤로 보낸다. */
-      ...(d?["https://logo.clearbit.com/"+d+"?size=256"]:[]),
+      ...(d?["https://logo.clearbit.com/"+d+"?size=256",
+             "https://cdn.brandfetch.io/"+d+"/w/256/h/256",
+             "https://unavatar.io/"+d+"?fallback=false",
+             "https://"+d+"/apple-touch-icon.png"]:[]),
       "https://financialmodelingprep.com/image-stock/"+TK+".png",
       "https://assets.parqet.com/logos/symbol/"+TK+"?format=png&size=128",
       "https://s3-symbol-logo.tradingview.com/"+tkl+".svg",
       "https://logos.stockanalysis.com/"+tkl+".png",
       "https://eodhd.com/img/logos/US/"+TK+".png",
       "https://storage.googleapis.com/iexcloud-hl37opg/api/logos/"+TK+".png",
+      "https://images.stockanalysis.com/logos/"+tkl+".png",
       /* 마지막 보루 — 작아서 흐릿하지만 없는 것보다는 낫다 */
       ...(d?["https://icons.duckduckgo.com/ip3/"+d+".ico",
              "https://www.google.com/s2/favicons?sz=128&domain="+d]:[])
@@ -12781,7 +12808,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "5.3.1";
+var APP_VER = "5.4.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
