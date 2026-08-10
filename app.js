@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=396';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=397';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -2698,6 +2698,10 @@ function sendShellHtml(){
     </div></div>`;
 }
 function acctSendOutHtml(){
+  /* ══ [v6.4] 두 탭의 생김새를 똑같이 맞춘다 ═══════════════════════════════════
+     같은 코너 안에서 탭만 바꿨을 뿐인데 칸 구성이 다르면 다른 기능처럼 보인다.
+     내 계좌로 탭에 있는 금액 단축키와 '받는 분 통장 표시'를 여기에도 둔다.
+     (메모는 통장 표시와 같은 일을 하므로 없앤다 — 두 칸이 겹칠 이유가 없다) */
   const me=acctCur()||{};
   const today=sendTodayTotal();
   return `<div class="asend-body" id="asOutBody">
@@ -2712,16 +2716,24 @@ function acctSendOutHtml(){
           <button id="xoCheck" style="width:96px;font-size:12px">확인</button></div></div>
       <div class="asend-to" id="xoWho"></div>
       <div class="us-fld"><label><span>보낼 금액</span><span class="num">보유 ${KRW(cash)}원</span></label>
-        <div class="us-inrow"><input id="xoAmt" class="num" inputmode="numeric" placeholder="0">
+        <div class="us-inrow"><input id="xoAmt" class="num" inputmode="numeric" placeholder="예: 1,000,000">
           <button id="xoAll" style="width:96px;font-size:12px">전액</button></div></div>
-      <div class="us-fld"><label><span>메모 (선택)</span><span class="num">30자까지</span></label>
-        <div class="us-inrow"><input id="xoMemo" maxlength="30" placeholder="용돈, 정산 등" style="text-align:left"></div></div>
-      <div class="asend-msg" id="xoMsg"></div>
-      <button class="modal-btn asend-go" id="xoGo">송금하기</button>
-      <div class="asend-note">※ 상대가 접속할 때 계좌에 들어갑니다. 보낸 뒤에는 되돌릴 수 없으니 계좌번호를 꼭 확인하세요.<br>
-        ※ 예수금(원화)만 이동하며, 보유 주식은 함께 옮겨지지 않습니다.</div>
+      <div class="asend-quick">
+        <button type="button" data-xadd="100000">+100,000</button>
+        <button type="button" data-xadd="500000">+500,000</button>
+        <button type="button" data-xadd="1000000">+1,000,000</button>
+        <button type="button" data-xadd="5000000">+5,000,000</button>
+        <button type="button" data-xadd="0">지우기</button>
+      </div>
+      <div class="us-fld"><label><span>받는 분 통장 표시</span><span class="num">선택 · 20자</span></label>
+        <div class="us-inrow"><input id="xoMemo" maxlength="20" placeholder="비워 두면 예금주 이름으로 표시됩니다"></div></div>
+      <div id="xoMsg" class="ae-msg"></div>
+      <button class="us-submit buy" id="xoGo">송금하기</button>
+      <div class="us-ord-note">※ 상대가 접속할 때 계좌에 들어갑니다. 보낸 뒤에는 되돌릴 수 없으니 계좌번호를 꼭 확인하세요.<br>
+      ※ 보유 주식은 함께 옮겨지지 않습니다. 예수금(원화)만 이동합니다.</div>
     </div>`;
 }
+
 /* 탭 배선 — 한 번만 걸고, 고른 탭만 보여 준다 */
 function bindSendTabs(){
   const wrap=$('asTabs'); if(!wrap)return;
@@ -2749,7 +2761,15 @@ function bindSendOut(){
     else { who.innerHTML=`<div class="asend-bad">${r&&r.err==='nouser'?'등록되지 않은 계좌번호입니다':'확인하지 못했습니다'}</div>`; }
   };
   const all=$('xoAll');
-  if(all)all.onclick=()=>{ const a=$('xoAmt'); if(a){a.value=String(Math.min(cash,SEND_LIMIT_ONE));} };
+  if(all)all.onclick=()=>{ const a=$('xoAmt'); if(a){a.value=KRW(Math.min(cash,SEND_LIMIT_ONE));} };
+  /* [v6.4] 금액 단축키 — 내 계좌로 탭과 같은 방식 */
+  document.querySelectorAll('[data-xadd]').forEach(b=>b.onclick=()=>{
+    const a=$('xoAmt'); if(!a)return;
+    const add=+b.dataset.xadd;
+    if(!add){ a.value=''; return; }
+    const cur=parseInt(String(a.value||'0').replace(/[^0-9]/g,''))||0;
+    a.value=KRW(Math.min(cash,SEND_LIMIT_ONE,cur+add));
+  });
   const go=$('xoGo');
   if(go)go.onclick=async()=>{
     const no=($('xoNo').value||''), amt=($('xoAmt').value||'').replace(/[^0-9]/g,'');
@@ -2763,7 +2783,7 @@ function bindSendOut(){
     const r=await doSendOut(no,amt,memo);
     go.disabled=false;
     toast(r.ok?'buy':'warn',r.ok?'송금 완료':'송금 실패',r.msg);
-    {const mg=$('xoMsg'); if(mg){mg.className='asend-msg '+(r.ok?'ok':'bad'); mg.textContent=r.msg;}}
+    {const mg=$('xoMsg'); if(mg){mg.className='ae-msg '+(r.ok?'ok':'bad'); mg.textContent=r.msg;}}
     if(r.ok){ $('xoAmt').value=''; $('xoMemo').value=''; $('xoWho').innerHTML='';
       try{renderPortfolioNumbers();renderAcctSend();}catch(e){} }
   };
@@ -5412,13 +5432,14 @@ function renderMktPill(){
   let us=null; try{ us=usSession(); }catch(e){}
   const krOn=s.tone==='on';
   const usOn=us&&(us.phase==='regular'||us.phase==='pre'||us.phase==='after');
-  const usShort=us?{regular:'미국 정규장',pre:'미국 프리마켓',after:'미국 애프터',closed:'미국 휴장'}[us.phase]:'';
+  const usShort=us?(us.phase==='closed'?('미국 증시 '+us.label)
+    :{regular:'미국 정규장',pre:'미국 프리마켓',after:'미국 애프터'}[us.phase]):'';
   let label,dot,title;
   if(krOn){ label=s.label+(usOn?' · '+usShort:''); dot='on';
     title=(s.sub||'')+(us?` / ${usShort}${us.phase==='closed'?' · 다음 개장 '+us.next:''}`:''); }
   else if(usOn){ label=usShort; dot=us.phase==='regular'?'on':'idle';
     title=`국내 ${s.label} / 미국 ${us.label} · 정규장 ${us.kst.open}~${us.kst.close} KST`; }
-  else { label=s.label+(us?' · 미국 휴장':''); dot=s.tone==='off'?'off':'idle';
+  else { label=s.label+(us?(' · 미국 '+us.label):''); dot=s.tone==='off'?'off':'idle';
     title=(s.sub||'')+(us?` / 미국 다음 개장 ${us.next}`:''); }
   el.innerHTML=`<span class="dot ${dot}"></span>${label}`;
   el.title=title;
@@ -13371,7 +13392,11 @@ function usSession(now){
     else if(mins>=960&&mins<1080)phase='after';   // 16:00~18:00 ET (국내 증권사 제공 기준)
   }
   const kst={pre:dst?'17:00':'18:00',open:dst?'22:30':'23:30',close:dst?'05:00':'06:00',aft:dst?'07:00':'08:00'};
-  const label={pre:'프리마켓',regular:'정규장',after:'애프터마켓',closed:'휴장'}[phase];
+  /* ══ [v6.4] '휴장'과 '장 종료'는 다른 말이다 ═══════════════════════════════
+     평일 밤에 애프터까지 끝난 것을 '휴장'이라고 하면, 오늘 아예 장이 안 열린
+     것처럼 읽힌다. 주말·공휴일만 휴장이고, 평일 장 밖은 '장 종료'다. */
+  const closedLabel=(hol||wd===0||wd===6)?'휴장':'장 종료';
+  const label={pre:'프리마켓',regular:'정규장',after:'애프터마켓',closed:closedLabel}[phase];
   /* 다음 정규장 개장(KST 표기) */
   let dAdd=0, base=new Date(et);
   if(!(wd>=1&&wd<=5)||mins>=960){ dAdd=1; let w=(wd+1)%7; while(w===0||w===6){dAdd++;w=(w+1)%7;} }
@@ -14113,7 +14138,20 @@ function renderUsLounge(){
     `<button type="button" class="uz-chip ${usThemeSel===k?'on':''}" data-ustheme="${k}">${l}</button>`).join('');
   renderUsThemeBody();
   usPaneShow(usPane);
-  usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>renderUsLive());
+  /* ══ [v6.4] 화면 진입이 느리던 이유 ═══════════════════════════════════════
+     들어오자마자 113종 전체를 요청했다. 18종씩 나눠 보내도 7묶음이라
+     마지막 묶음이 올 때까지 목록이 회색으로 남았다.
+     [고침] 눈에 보이는 것부터 받는다 — 인기 종목 12종과 지금 고른 분야를 먼저,
+     나머지는 잠깐 뒤에 이어서. 첫 화면이 훨씬 빨리 채워진다. */
+  const first=[...new Set([
+    ...US_UNI.slice(0,12).map(u=>u[0]),
+    ...US_UNI.filter(u=>u[4]===usThemeSel).map(u=>u[0])
+  ])];
+  usEnsureQuotes(first,true).then(()=>renderUsLive());
+  setTimeout(()=>{
+    const rest=US_UNI.map(u=>u[0]).filter(t=>!first.includes(t));
+    if(rest.length)usEnsureQuotes(rest,false).then(()=>renderUsLive());
+  },400);
   usPollStart(US_UNI.map(u=>u[0]));
   wireUsLounge();
 }

@@ -4653,3 +4653,10 @@ html[data-theme="dark"] .ex-px.na,html[data-theme="dark"] .ex-ch.na{color:var(--
 .asend-tabs button.on{background:var(--panel);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.08)}
 html[data-theme="dark"] .asend-tabs button.on{background:rgba(255,255,255,.12)}
 .asend-body[hidden]{display:none}
+
+/* ══ [v6.4] 송금 두 탭의 생김새를 맞춘다 ═══════════════════════════════════
+   두 탭이 같은 클래스(us-submit·us-ord-note·ae-msg·asend-quick)를 쓰도록 했으므로
+   여기서는 코너 안에서의 여백만 한 번 더 못 박는다. */
+.asend .us-submit{width:100%;margin-top:4px}
+.asend .us-ord-note{margin-top:12px}
+.asend .ae-msg{margin:6px 0 0}
