@@ -881,7 +881,7 @@ function eqTotalNow(){
     const st=byCode[h.code]||{};
     const q=num(h.qty), av=num(h.avg);
     if(q<=0)return a;
-    const px=num(st.price!=null?st.price:av)||av;
+    const px=num(livePx(h.code,av))||av;   // [v5.6] 통합가
     const krw=h.us?(fx>0?px*q*fx:0):px*q;      // 해외는 환율로 환산 · 환율을 모르면 0
     return a+(isFinite(krw)?krw:0);},0);
   const c=num(cash);
@@ -1693,7 +1693,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=387';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=388';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -4880,6 +4880,20 @@ async function primeNxtQuotes(codes){
        통합가 소스 사슬(전부 배치 폴링 기반 — 종목을 클릭하지 않아도 채워진다):
        ①폴링 통합가(uniPx) ②폴링 NXT 마지막 체결가(nxtPx 스냅샷, 애프터 종가≒통합 최종가)
        ③라이브 창에서 받아 둔 nxtPx 맵 ④종목 상세 캐시(exCache) ⑤그래도 없으면 KRX값+KRX 라벨(정직) */
+/* ══ [v5.6] 보유 평가는 '통합가'로 한다 ═══════════════════════════════════════
+   [무엇이 틀렸나] 내 계좌의 보유 종목 현재가가 142,600 인데 관심종목·거래화면은
+   144,500 이었다. 보유 평가만 KRX 종가(st.price)를 쓰고, 나머지 화면은
+   KRX+NXT 통합가(dispQuote)를 쓰고 있었기 때문이다.
+   NXT 시간대에는 두 값이 크게 벌어져 평가금액·수익률이 통째로 어긋난다.
+   → 값을 읽는 곳을 한 함수로 모아, 어디서든 같은 가격을 쓰게 한다. */
+function livePx(code,fallback){
+  try{
+    const d=dispQuote(code);
+    if(d&&d.price!=null)return d.price;
+  }catch(e){}
+  const st=byCode[code]||{};
+  return (st.price!=null?st.price:fallback);
+}
 function dispQuote(code){
   const st=byCode[code];
   if(!st)return null;
@@ -7301,7 +7315,7 @@ function renderInsightCards(){
     const withDiv=holdings.filter(h=>h.divPct);
     if(!withDiv.length){dv.hidden=true;}
     else{dv.hidden=false;
-      const tot=withDiv.reduce((a,h)=>{const st=byCode[h.code];const ev=((st&&st.price!=null?st.price:h.avg)*h.qty);return a+ev*h.divPct/100;},0);
+      const tot=withDiv.reduce((a,h)=>{const ev=(livePx(h.code,h.avg)*h.qty);return a+ev*h.divPct/100;},0);
       dv.innerHTML=`<div class="ic-k">💰 연 예상 배당금</div><div class="ic-v num">${KRW(Math.round(tot))}원</div>
         <div class="ic-s">${withDiv.map(h=>`${(byCode[h.code]&&byCode[h.code].name)||h.code} ${h.divPct}%`).join(' · ')}</div>
         <div class="ic-n">보유 관리에서 입력한 배당수익률 기준 추정치</div>`;}
@@ -7474,7 +7488,7 @@ function allAssetsNow(){
       const st=byCode[h.code]||{};
       const q=num(h.qty), av=num(h.avg);
       if(q<=0)continue;
-      const px=num(st.price!=null?st.price:av)||av;
+      const px=num(livePx(h.code,av))||av;   // [v5.6] 통합가
       const krw=h.us?(fx>0?px*q*fx:0):px*q;
       if(isFinite(krw))tot+=krw;
     }
@@ -7505,7 +7519,7 @@ function allTrades(){
 function allHoldingPerf(){
   return allHoldings().map(h=>{
     const st=byCode[h.code]||{};
-    const px=Number(st.price!=null?st.price:h.avg)||h.avg;
+    const px=Number(livePx(h.code,h.avg))||h.avg;   // [v5.6] 통합가
     const rate=h.avg>0?(px/h.avg-1)*100:0;
     const nm=h.us?((usMeta[h.code]&&usMeta[h.code].kr)||h.code):(st.name||h.code);
     return {code:h.code,name:nm,qty:h.qty,rate:+rate.toFixed(2),us:h.us?1:0};
@@ -8557,7 +8571,7 @@ function usRankSection(){
       const t=x.t, m=usMeta[t]||{}, q=usQ[t]||{};
       const vv=x.wiki>0?`<i class="us-vw">조회 ${KRW(x.wiki)}</i>`
         :(x.views>0?`<i class="us-vw">앱 ${KRW(x.views)}</i>`:'');
-      return `<div class="us-row" data-us="${t}"><span class="us-rk num">${i+1}</span>${usTick(t)}
+      return `<div class="us-row" data-us="${t}"><span class="rk${i<3?' top':''} num">${i+1}</span>${usTick(t)}
         <div class="us-nm"><b>${m.kr||t}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en||''}${vv}</span></div>
         <div class="us-px">${q.price!=null?usBadgeHtml()+'$'+USD2(q.price):'<i class="uz-wait">시세 대기</i>'}<small>${q.price!=null?USDKR(q.price):''}</small></div>
         <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
@@ -8578,7 +8592,7 @@ function usRankSection(){
     · ${tab} 상위 <b>${list.length}종</b> · 유니버스 ${US_UNI.length}종 기준</div>`;
   return note+`<div class="us-ranklist">${list.map((t,i)=>{
     const m=usMeta[t],q=usQ[t];
-    return `<div class="us-row" data-us="${t}"><span class="us-rk num">${i+1}</span>${usTick(t)}
+    return `<div class="us-row" data-us="${t}"><span class="rk${i<3?' top':''} num">${i+1}</span>${usTick(t)}
       <div class="us-nm"><b>${m.kr}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en}</span></div>
       <div class="us-px">${usBadgeHtml()}$${USD2(q.price)}<small>${USDKR(q.price)}</small></div>
       <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
@@ -10784,7 +10798,7 @@ function renderFinance(el){
 function renderHoldings(){
   const totEval=holdings.reduce((a,h)=>a+hEvalKRW(h),0)||1;
   const hc=$('holdCount');if(hc)hc.textContent=holdings.length?`· ${holdings.length}종목 · 평가 ${KRW(totEval)}원`:'';
-  $('holdBody').innerHTML=holdings.length? holdings.map(h=>{const s=byCode[h.code]||{name:h.code,price:null,prevClose:null,market:''},price=s.price??h.avg;
+  $('holdBody').innerHTML=holdings.length? holdings.map(h=>{const s=byCode[h.code]||{name:h.code,price:null,prevClose:null,market:''},price=livePx(h.code,h.avg)??h.avg;
     /* [v4.28] 해외 보유: 단가는 $, 평가·손익은 원화 환산 */
     const evalAmt=hEvalKRW(h),cost=hCostKRW(h),pnl=evalAmt-cost,rate=cost?pnl/cost*100:0,dir=dirOf(pnl);
     const wgt=evalAmt/totEval*100;
@@ -10802,7 +10816,7 @@ function renderHoldings(){
 }
 /* ══ [v4.28] 보유 평가 헬퍼 — 국내(원·정수)와 해외(달러·소수·환율) 공용 ══ */
 function hEvalKRW(h){
-  try{ const s=byCode[h.code]||{};const px=s.price!=null?s.price:h.avg;
+  try{ const s=byCode[h.code]||{};const px=livePx(h.code,h.avg);
     return h.us?Math.round((+px||0)*(h.qty||0)*(usFx()||0)):Math.round((+px||0)*(h.qty||0));
   }catch(e){ return 0; }}
 function hCostKRW(h){
@@ -10814,8 +10828,8 @@ function renderPortfolioNumbers(){
     if(!h)return;const q=intOf(h.qty,0);if(q<=0)return;
     if(h.us){ /* [v4.28] 해외: 소수 평단 × 환율 — intOf 로 깎으면 달러 평단이 왜곡된다 */
       te+=hEvalKRW(h); tc+=hCostKRW(h); return; }
-    const s=byCode[h.code]||{};const av=intOf(h.avg,0);
-    const price=intOf(s.price!=null?s.price:av,av);
+    const av=intOf(h.avg,0);
+    const price=intOf(livePx(h.code,av),av);   // [v5.6] 통합가로 평가
     te+=price*q;tc+=av*q;});
   cash=intOf(cash,0);if(cash<0)cash=0;
   const usdKrw=Math.round(((+usdCash)||0)*(usFx()||0));            // [v4.29] 달러 예수금 원화 환산
@@ -13726,7 +13740,7 @@ function usRow(t,rank,metric){
   const band=has?usBandMini(q):'';
   const rt=usRateTxt(q), cls=usRateCls(q);
   return `<button type="button" class="us-row uz-row" data-us="${t}">
-    ${rank?`<span class="uz-rk num">${rank}</span>`:''}${usTick(t)}
+    ${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
     <span class="us-nm uz-nm"><b>${m.kr}${m.etf?'<i class="uz-etf">ETF</i>':''}</b>
       <span class="uz-sub2">${t}<em>·</em>${mt||m.en}</span>${band}</span>
     <span class="us-px uz-px">${has?usBadgeHtml()+'$'+USD2(q.price):'<i class="uz-wait">시세 없음</i>'}
@@ -13736,7 +13750,7 @@ function usRow(t,rank,metric){
 /* 로딩 골격 — '···' 이나 '조회 중' 글자보다, 들어올 자리가 보이는 편이 덜 불안하다 */
 function usRowSkel(t,rank){
   const m=usMeta[t]||{};
-  return `<div class="uz-row uz-skel">${rank?`<span class="uz-rk num">${rank}</span>`:''}${usTick(t)}
+  return `<div class="uz-row uz-skel">${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
     <span class="uz-nm"><b>${m.kr||''}</b><span class="sk sk-a"></span></span>
     <span class="uz-px"><span class="sk sk-b"></span><span class="sk sk-c"></span></span>
     <span class="sk sk-d"></span></div>`;
@@ -13937,6 +13951,16 @@ function renderUsThemeBody(){
   box.innerHTML=list.length?`<div class="uz-note">${lbl} <b>${list.length}종</b></div>
     <div class="uz-list">${list.map(t=>usRow(t)).join('')}</div>`
     :`<div class="uz-empty"><b>이 분야에 담긴 종목이 없습니다</b><span>다른 칩을 골라 보세요.</span></div>`;
+  /* ══ [v5.6] 분야 목록이 계속 '뼈대'로 남던 이유 ═══════════════════════════
+     줄은 곧바로 그려지는데 시세를 받아오는 요청이 어디에도 걸려 있지 않았다.
+     그래서 다른 화면(홈·순위)이 우연히 같은 종목을 받아 오기 전까지는
+     회색 막대만 보였다. 이 화면에서 필요한 종목을 직접 받아 온다.
+     화면에 보이는 25종 안팎이라 한 번이면 끝난다. */
+  const need=list.filter(t=>!(usQ[t]&&usQ[t].price!=null));
+  if(need.length){
+    usEnsureQuotes(need.slice(0,40),false).then(()=>{
+      if(currentView==='us'&&usPane==='find'){ try{usPaintRows(box);}catch(e){} }});
+  }
 }
 var usFxDir='toUsd';
 function renderUsFxCard(){

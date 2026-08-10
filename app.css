@@ -4443,3 +4443,140 @@ html[data-theme="dark"] .ae-s3 i{background:#fff;color:#111}
 /* 목록 배지도 정사각에 가깝게 — 가로로 눌려 보이지 않게 */
 .us-row .us-tick,.uz-row .us-tick{width:38px;height:38px;border-radius:11px}
 .us-row .us-tick .ut-im,.uz-row .us-tick .ut-im{padding:4px}
+
+/* ══ [v5.6] 해외 순위 배지를 국내와 같은 모양으로 ═══════════════════════════
+   국내는 노란 배지(.rk.top)에 사각 테두리인데, 해외만 맨 숫자였다.
+   같은 화면 안에서 국내·해외를 오가는데 모양이 다르면 다른 기능처럼 보인다. */
+.us-row>.rk,.uz-row>.rk{flex-shrink:0;margin-right:9px}
+.sr-2col .uz-row>.rk{margin-right:7px;min-width:20px;height:20px;font-size:11px}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [v5.6] 다크 모드 — 밝은 배경이 그대로 박혀 있던 곳 일괄 보정
+   [무엇이 문제였나] CSS 를 실제로 파싱해 세어 보니, 배경만 흰색·연회색으로
+   고정해 둔 규칙이 76곳 있었다. 다크 모드에서는 그 위의 글자가 밝은 색이라
+   흰 바탕에 흰 글자가 되어 아무것도 보이지 않았다(첨부 사진들).
+   성격별로 나눠 어두운 배경을 준다 — 누르는 느낌(hover), 막대·트랙,
+   표 머리글, 그 밖의 패널.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* 누를 때 밝아지던 것 */
+html[data-theme="dark"] .btn-ghost:hover,
+html[data-theme="dark"] .ipo-detail-btn:hover,
+html[data-theme="dark"] .sr:hover,
+html[data-theme="dark"] .mini-row:hover,
+html[data-theme="dark"] tbody tr:hover,
+html[data-theme="dark"] .inv-more:hover{background:rgba(255,255,255,.06)!important}
+html[data-theme="dark"] .ot-item:active,
+html[data-theme="dark"] .keypad button:hover,
+html[data-theme="dark"] .sec-hd:hover,
+html[data-theme="dark"] .sec-chip:hover,
+html[data-theme="dark"] .jr-row:hover,
+html[data-theme="dark"] .news-it:hover{background:rgba(255,255,255,.06)!important}
+/* 막대·트랙 */
+html[data-theme="dark"] .dot.off,
+html[data-theme="dark"] .dot.idle,
+html[data-theme="dark"] .gauge-bar,
+html[data-theme="dark"] .yr-track,
+html[data-theme="dark"] .th-bar,
+html[data-theme="dark"] .sg-gauge i{background:rgba(255,255,255,.10)!important}
+html[data-theme="dark"] .sgc-bar.hi i,
+html[data-theme="dark"] .sgc-bar.mid i,
+html[data-theme="dark"] .ai-dots i.on,
+html[data-theme="dark"] .w52-bar,
+html[data-theme="dark"] .gear-dot,
+html[data-theme="dark"] .lv-dot{background:rgba(255,255,255,.10)!important}
+html[data-theme="dark"] .ai-gauge i,
+html[data-theme="dark"] .ai-prob-bar i,
+html[data-theme="dark"] .hs-dot.nxt,
+html[data-theme="dark"] .hs-dot.hol,
+html[data-theme="dark"] .hm-gauge i,
+html[data-theme="dark"] .smb-bar i.u{background:rgba(255,255,255,.10)!important}
+html[data-theme="dark"] .ss-bar i,
+html[data-theme="dark"] .mv-bar i.up,
+html[data-theme="dark"] .gl-bar i,
+html[data-theme="dark"] .nav-dot,
+html[data-theme="dark"] .vp-bar .o,
+html[data-theme="dark"] .ac-comp.hot .bar>div{background:rgba(255,255,255,.10)!important}
+html[data-theme="dark"] .ac-minibar>i,
+html[data-theme="dark"] .us-sess-line.ext .us-sess-dot,
+html[data-theme="dark"] .uss-bar i.up,
+html[data-theme="dark"] .as-bar i.us,
+html[data-theme="dark"] .hmu-dot.ext,
+html[data-theme="dark"] .uz-dot.pre{background:rgba(255,255,255,.10)!important}
+html[data-theme="dark"] .uz-dot.after,
+html[data-theme="dark"] .pw-bar i.lv0,
+html[data-theme="dark"] .pw-bar i.lv1,
+html[data-theme="dark"] .pw-bar i.lv2{background:rgba(255,255,255,.10)!important}
+/* 표 머리글·탭 */
+html[data-theme="dark"] .rank-tabs,
+html[data-theme="dark"] .ot-tabs,
+html[data-theme="dark"] .inv-table thead th:first-child,
+html[data-theme="dark"] .inv-total td,
+html[data-theme="dark"] .inv-total td:first-child,
+html[data-theme="dark"] .uz-breadth i.up{background:rgba(255,255,255,.05)!important;color:var(--sub)}
+/* 그 밖의 패널 */
+html[data-theme="dark"] .biz-card,
+html[data-theme="dark"] .cal-day.on.today .cal-n,
+html[data-theme="dark"] .sw .knob,
+html[data-theme="dark"] .sg-verdict.bad,
+html[data-theme="dark"] .ai-brief,
+html[data-theme="dark"] .ai-bubble{background:var(--panel-2,#151b26)!important;color:var(--text)}
+html[data-theme="dark"] .ex-box.n .ex-b,
+html[data-theme="dark"] .ai-fc-lg i.a,
+html[data-theme="dark"] .px-src.nxt,
+html[data-theme="dark"] .d-src.nxt,
+html[data-theme="dark"] .idx-card:has(.idx-lv.up)::before,
+/* [v5.6] .lgo.on 은 로고 그림이 올라가는 자리다. 어둡게 만들면 로고가 묻힌다 — 제외. */
+html[data-theme="dark"] .lgo.bd,
+html[data-theme="dark"] .ac-prog>div,
+html[data-theme="dark"] .ex-box.sus,
+html[data-theme="dark"] .pk-tier.s,
+html[data-theme="dark"] .pk-tr-sc i,
+html[data-theme="dark"] .us-submit.buy{background:var(--panel-2,#151b26)!important;color:var(--text)}
+html[data-theme="dark"] .us-band,
+html[data-theme="dark"] .us-band i,
+html[data-theme="dark"] .uz-mark,
+html[data-theme="dark"] .uz-mark i,
+html[data-theme="dark"] .eq-lg em.us,
+/* [v5.6] .us-tick.on 도 로고 자리라 제외 */
+
+/* [v5.6] 다크 보정에 쓰는 배경 변수 — 없으면 위 규칙이 기본값으로 떨어진다 */
+html[data-theme="dark"]{--panel-2:#151b26}
+/* 어두운 글자가 고정된 곳 — 다크에서는 밝은 색으로 */
+html[data-theme="dark"] .brand .mark,
+html[data-theme="dark"] .sec-rank.top,
+html[data-theme="dark"] .toast.warn .ic{color:#0e1726}   /* 밝은 배지 위 글자라 그대로 둔다 */
+html[data-theme="dark"] .cal-sure.ok,
+html[data-theme="dark"] .ver-ok,
+html[data-theme="dark"] .pro-live,
+html[data-theme="dark"] .cmy-live{color:#3ddc97}
+html[data-theme="dark"] .cal-day.sat .cal-w,
+html[data-theme="dark"] .idx-tag.t-선물,
+html[data-theme="dark"] .goal-preset button:hover,
+html[data-theme="dark"] .cc-m.mine .cc-n{color:#6ea8ff}
+html[data-theme="dark"] .mkt-badge.open{color:#3ddc97}
+/* 표·목록 안의 글자가 배경과 같아지지 않도록 마지막 안전장치 */
+html[data-theme="dark"] table,html[data-theme="dark"] td,html[data-theme="dark"] th{color:var(--text)}
+html[data-theme="dark"] .empty,html[data-theme="dark"] .muted{color:var(--sub-2)}
+
+
+/* ══ [v5.6] 보유 종목 표 — 좌우로 밀지 않아도 다 보이게 ═══════════════════════
+   칸마다 넉넉한 폭을 잡아 두어 표가 화면보다 넓어졌고, 수익률·비중이 잘려
+   손가락으로 밀어야 했다. 숫자는 자리를 적게 쓰므로 폭을 줄이고
+   글자 크기를 한 단계 낮추면 좁은 화면에서도 한눈에 들어온다. */
+.hold-wrap{overflow-x:visible!important}
+.hold-wrap table{width:100%;table-layout:fixed}
+.hold-wrap th,.hold-wrap td{padding:9px 6px;font-size:12.5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.hold-wrap th:first-child,.hold-wrap td:first-child{width:auto;text-align:left}
+.hold-wrap th:not(:first-child),.hold-wrap td:not(:first-child){width:11%;text-align:right}
+@media (max-width:900px){
+  .hold-wrap th,.hold-wrap td{padding:8px 4px;font-size:11.5px}
+  /* 좁으면 봉·비중을 접는다 — 숫자는 모두 남는다 */
+  .hold-wrap th:nth-child(9),.hold-wrap td:nth-child(9),
+  .hold-wrap th:nth-child(8),.hold-wrap td:nth-child(8){display:none}
+}
+@media (max-width:560px){
+  .hold-wrap th:nth-child(3),.hold-wrap td:nth-child(3){display:none}
+  .hold-wrap th,.hold-wrap td{font-size:11px;padding:7px 3px}
+}
+
