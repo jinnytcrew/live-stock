@@ -1689,7 +1689,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=372';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=375';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3141,9 +3141,22 @@ function applyUser(u){
    로그인 화면을 닫을 수 없게 하고, 앱 초기화는 계정이 확정된 뒤에만 실행한다. */
 function requireAuth(){
   currentUser=null;
-  const g=$('authGate');
-  if(g){g.hidden=false;g.classList.add('auth-force');}
-  try{document.body.classList.add('locked');}catch(e){}
+  /* ══ [v4.94] 입장 화면이 걷힌 뒤에 로그인 창을 띄운다 ═══════════════════════
+     예전에는 곧바로 띄워, 입장 화면이 아직 떠 있는데 그 위로 로그인 창이 먼저
+     보였다(첨부 사진). 입장 화면이 사라졌다는 신호를 기다렸다가 연다.
+     이미 걷혔거나 신호가 오지 않아도 1.6초 뒤에는 반드시 열어, 갇히지 않게 한다. */
+  const openGate=()=>{
+    const g2=$('authGate');
+    if(g2){g2.hidden=false;g2.classList.add('auth-force');}
+    try{document.body.classList.add('locked');}catch(e){}
+  };
+  if(window.__bootGone)openGate();
+  else{
+    let done=false;
+    const fire=()=>{ if(done)return; done=true; openGate(); };
+    try{window.addEventListener('bootgone',fire,{once:true});}catch(e){}
+    setTimeout(fire,1600);
+  }
   /* [v4.24 · 버그] 부팅 완료 신호(step 4·6·done)는 initApp() 안에만 있었다.
      로그인 전에는 initApp 이 실행되지 않아 신호가 영영 오지 않았고,
      입장 화면이 12초 안전장치가 터질 때까지 11%에 멈춰 있다가
@@ -3423,19 +3436,38 @@ function renderPmAcct(){
     <div class="acct-kv"><span>연 납입한도</span><b>${a.limit?KRW(a.limit)+'원':'없음'}</b></div>
     <div class="acct-tags">${a.pros.map(x=>`<span class="acct-pro">✓ ${x}</span>`).join('')}</div></div>
     <div id="pmAcctPick" hidden></div>`;
+  /* ══ [v4.94] 개설하지 않은 계좌로 바뀌던 심각한 결함 ═══════════════════════
+     [무엇이 잘못됐나] 이 화면은 계좌 '종류'(acctType)만 바꿨다. 그런데 acctType 은
+     원래 '지금 활성인 계좌를 따라가는 값'이다(acctLoad 에서 매번 덮어쓴다).
+     그래서 개설한 적 없는 IRP 를 골라도 그대로 적용됐고, 수수료·한도까지 바뀌었다.
+     실제 계좌 목록(acctList)과 어긋난 상태가 되어 잔고·주문 기준이 뒤엉킨다.
+     [고침] 개설한 계좌 중에서만 고르게 하고, 고르면 진짜 '계좌 전환'을 한다.
+     개설하지 않은 종류는 눌리지 않게 하고, 어디서 개설하는지 알려 준다. */
   $('pmAcctChg').onclick=()=>{
     const p=$('pmAcctPick');
     if(!p.hidden){p.hidden=true;return;}
     p.hidden=false;
-    p.innerHTML=`<div class="acct-pick">${Object.keys(ACCT_TYPES).map(k=>{const t=ACCT_TYPES[k];
-      return `<button type="button" class="acct-chip ${acctType===k?'on':''}" data-pacct="${k}"><i>${t.ic}</i><b>${t.n}</b></button>`;}).join('')}</div>
-      <div class="pm-note">계좌를 바꾸면 이후 주문부터 새 수수료·환전 우대가 적용됩니다. 보유 종목과 예수금은 그대로 유지돼요.</div>`;
+    const mine=Array.isArray(acctList)?acctList:[];
+    if(mine.length<=1){
+      p.innerHTML=`<div class="pm-note">개설한 계좌가 ${mine.length}개뿐입니다.
+        계좌를 더 만들려면 <b>내 계좌 → 계좌 개설</b>에서 진행해 주세요.</div>
+        <button class="acct-open-go" id="pmAcctOpen">내 계좌로 이동</button>`;
+      const go=$('pmAcctOpen');
+      if(go)go.onclick=()=>{ try{$('profileGate').hidden=true;}catch(e){} try{showView('account');}catch(e){} };
+      return;
+    }
+    p.innerHTML=`<div class="acct-pick">${mine.map(a=>{const t=ACCT_TYPES[a.type]||ACCT_TYPES.general;
+      const on=a.id===acctActive;
+      return `<button type="button" class="acct-chip ${on?'on':''}" data-pacct="${a.id}">
+        <i>${t.ic}</i><b>${t.n}</b><span class="acct-chip-sub">${KRW(intOf((acctBooks[a.id]||{}).cash,on?cash:0))}원</span></button>`;}).join('')}</div>
+      <div class="pm-note">개설한 계좌끼리만 전환됩니다. 계좌마다 예수금·보유 종목이 따로 관리돼요.<br>
+        새 계좌는 <b>내 계좌 → 계좌 개설</b>에서 만들 수 있습니다.</div>`;
     p.querySelectorAll('[data-pacct]').forEach(b=>b.onclick=()=>{
-      const k=b.dataset.pacct, t=ACCT_TYPES[k];
-      if(t.limit&&cash>t.limit){
-        toast('warn','변경할 수 없습니다',`${t.n}의 연 납입한도는 ${KRW(t.limit)}원입니다. 현재 예수금 ${KRW(cash)}원이 한도를 넘습니다.`);return;}
-      acctType=k; saveState(); renderPmAcct();
-      toast('buy','계좌 변경 완료',`${t.n}으로 바꿨습니다 · 국내 수수료 ${(FEE_RATE_BASE*t.feeKr*100).toFixed(4)}% · 해외 ${(US_FEE_BASE*t.feeUs*100).toFixed(2)}%`);
+      const id=b.dataset.pacct;
+      if(id===acctActive){ toast('on','이미 쓰고 있는 계좌','');return; }
+      if(!acctList.some(x=>x.id===id)){ toast('warn','전환할 수 없습니다','개설되지 않은 계좌입니다');return; }
+      acctSwitch(id);
+      renderPmAcct();
     });
   };
 }
@@ -4458,7 +4490,10 @@ function _askEl(){
 function _askShow(cfg){
   const ov=_askEl();
   $('askTitle').textContent=cfg.title||'';
-  const d=$('askDesc');d.hidden=!cfg.desc;d.textContent=cfg.desc||'';
+  /* [v4.92] 설명에 강조가 필요한 경우가 있어 html 옵션을 둔다.
+     기본은 여전히 글자 그대로 넣는다(태그가 섞여도 안전하게). */
+  const d=$('askDesc');d.hidden=!cfg.desc;
+  if(cfg.html)d.innerHTML=cfg.desc||''; else d.textContent=cfg.desc||'';
   const inp=$('askInput');inp.hidden=cfg.mode!=='text';
   if(cfg.mode==='text'){inp.value=cfg.value||'';inp.placeholder=cfg.placeholder||'';inp.maxLength=cfg.maxLen||30;inp.type=cfg.password?'password':'text';}
   const ta=$('askArea');ta.hidden=cfg.mode!=='area';
@@ -6307,15 +6342,37 @@ async function renderClan(){
       <button data-ct="explore" class="${clanTab==='explore'?'on':''}">🔎 탐색</button>
     </div>
     <div id="clanPane"></div>
-    <div class="clan-foot"><button class="btn-ghost" id="clanLeave">${c.leader===c.me&&c.members.length>1?'클랜 나가기(리더 자동 위임)':c.leader===c.me?'클랜 해체':'클랜 나가기'}</button></div>`;
+    <!-- [v4.92] 리더에게는 '나가기'와 '해체'를 따로 준다.
+         나가기는 다른 사람에게 리더가 넘어갈 뿐이라, 클랜을 정리하려면 해체가 필요하다. -->
+    <div class="clan-foot">
+      <button class="btn-ghost" id="clanLeave">${c.leader===c.me&&c.members.length>1?'클랜 나가기 · 리더 위임':'클랜 나가기'}</button>
+      ${c.leader===c.me?`<button class="btn-ghost danger" id="clanDisband">클랜 해체</button>`:''}
+    </div>`;
   $('clanCodeBtn').onclick=()=>{try{navigator.clipboard.writeText(c.code);toast('buy','초대 코드 복사',c.code);}catch(e){toast('on','초대 코드',c.code);}};
   const adm=$('clanAdm');if(adm)adm.onclick=openClanAdmin;
   $('clanTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{clanTab=b.dataset.ct;renderClan();});
   $('clanLeave').onclick=async()=>{
-    const ok=await askConfirm('클랜 나가기',c.leader===c.me&&c.members.length<=1?'클랜이 해체됩니다. 계속할까요?':'클랜에서 나갈까요?',{okLabel:'나가기',danger:true});
+    const alone=c.leader===c.me&&c.members.length<=1;
+    const ok=await askConfirm('클랜 나가기',
+      alone?'혼자만 남아 있어 클랜이 사라집니다. 계속할까요?'
+      :c.leader===c.me?`리더 자리가 다른 구성원에게 넘어갑니다. 나갈까요?`
+      :'클랜에서 나갈까요?',{okLabel:'나가기',danger:true});
     if(!ok)return;
     const r=await clanCall('leave');
-    if(r.ok){clanCache=null;toast('warn','클랜에서 나왔습니다','');renderClan();}};
+    if(r.ok){clanCache=null;toast('warn','클랜에서 나왔습니다','');renderClan();}
+    else toast('warn','나가기 실패',clanErrMsg(r));};
+  /* [v4.92] 해체 — 되돌릴 수 없으므로 클랜 이름을 그대로 입력받아 확인한다 */
+  const dis=$('clanDisband');
+  if(dis)dis.onclick=async()=>{
+    const typed=await askText('클랜 해체',{
+      desc:`「${c.name}」 클랜을 없앱니다. 구성원 ${c.members.length}명의 소속이 모두 풀리고 되돌릴 수 없습니다.\n`
+        +`확인을 위해 클랜 이름을 그대로 입력해 주세요.`,
+      placeholder:c.name, maxLen:16, okLabel:'해체', danger:true});
+    if(typed==null)return;
+    if(String(typed).trim()!==c.name){toast('warn','해체 취소','클랜 이름이 다릅니다');return;}
+    const r=await clanCall('disband',{confirm:c.name});
+    if(r.ok){clanCache=null;toast('warn','클랜을 해체했습니다',`구성원 ${r.n||0}명의 소속이 해제되었습니다`);renderClan();}
+    else toast('warn','해체 실패',clanErrMsg(r));};
   paintClan();
   clanAutoSync(true);
 }
@@ -8321,12 +8378,8 @@ function renderSearch(){
   const loading=remoteCache[q]===null;
   /* [v2.9.7] 대상 종목 수 옆에 최근 14일 신규 상장 건수를 함께 보여 준다 */
   const _nl=recentListings(14);
-  const univNote=stockAll
-    ?`전 종목 ${(stockAll.length+((etfList||[]).length)).toLocaleString()}종 대상`
-      +(_nl.length?` · <b class="up">신규 상장 ${_nl.length}종</b> 반영됨(${_nl.slice(0,2).map(x=>htmlEsc(x.name||x.code)).join(', ')}${_nl.length>2?' 외':''})`:'')
-    :'전 종목 목록 준비 중';
-  let html=`<div class="rank-note">검색 결과 <b>${all.length.toLocaleString()}</b>건${loading?' <i>(추가 조회 중…)</i>':''}
-    ${all.length>shown.length?`· 표시 ${shown.length.toLocaleString()}`:''} <i>· ${univNote}</i></div>`;
+  /* [v4.94] 검색 결과 안내 문구를 없애면서 이 계산도 필요 없어졌다 */
+  let html=loading?`<div class="rank-note">검색 중… <i>(추가 조회 중)</i></div>`:'';
   /* [C2] 가상 스크롤 — 표시 대상이 많아지면 화면에 보이는 구간만 DOM 으로 만든다.
      무한스크롤로 수백~수천 행이 쌓여도 실제 DOM 노드는 일정하게 유지된다.
      VS_MIN 이하이면 기존 방식 그대로(작은 목록에서 괜히 복잡해지지 않게). */
@@ -12878,7 +12931,7 @@ var US_LG_MAX=6, US_LG_TTL=3*3600e3, US_LG_TTL_ALL=20*60e3;
 function usLgTtl(){ return (Object.keys(usLgOk).length===0&&Object.keys(usLgNo).length>=8)?US_LG_TTL_ALL:US_LG_TTL; }
 try{
   const s=JSON.parse(localStorage.getItem('usLg3')||'null');
-  if(s&&s.v===4){ usLgOk=s.ok||{};
+  if(s&&s.v===5){ usLgOk=s.ok||{};
     const now=Date.now(), okN=Object.keys(usLgOk).length;
     const ttl=(okN===0&&Object.keys(s.no||{}).length>=8)?20*60e3:3*3600e3;
     Object.keys(s.no||{}).forEach(k=>{ if(now-s.no[k]<ttl)usLgNo[k]=s.no[k]; }); }
@@ -12886,7 +12939,7 @@ try{
 let _usLgSaveT=null;
 function usLgSave(){ if(_usLgSaveT)return;
   _usLgSaveT=setTimeout(()=>{_usLgSaveT=null;
-    try{localStorage.setItem('usLg3',JSON.stringify({v:4,ok:usLgOk,no:usLgNo}));}catch(e){}},600); }
+    try{localStorage.setItem('usLg3',JSON.stringify({v:5,ok:usLgOk,no:usLgNo}));}catch(e){}},600); }
 /* 후보 주소 — 서로 다른 제공자를 섞어 한 곳이 막혀도 다른 곳이 뚫리게 한다 */
 function usLgUrls(t){
   /* [v4.31] 검색으로 새로 등록된 종목은 도메인 매핑이 없다. 그런 종목도 로고가 나오도록
@@ -13071,9 +13124,19 @@ function usTick(t,size){
     +`</span>`;
 }
 /* 인라인 핸들러가 막히는 환경(엄격한 보안 정책)에서도 동작하도록 함수로 빼 둔다 */
+/* ══ [v4.93] 흰 빈 그림이 그대로 통과하던 이유 ═══════════════════════════════
+   v4.83 에서 배지를 <img> 방식으로 다시 쓰면서 '크기 검사'만 남기고
+   '내용 검사(usLgHasInk)'를 빠뜨렸다. 그래서 200×200 짜리 새하얀 그림이
+   버젓이 로고로 인정돼 흰 네모가 남았다(첨부 사진의 ASPI·ACRS·ACXP).
+   → 크기를 통과한 뒤 내용까지 본다. 다른 출처라 읽을 수 없으면(null) 통과시킨다. */
 function usTickOk(im){
-  try{ if((im.naturalWidth||0)>=16&&(im.naturalHeight||0)>=16){ im.parentNode.classList.add('on'); }
-       else usTickBad(im); }catch(e){}
+  try{
+    if((im.naturalWidth||0)<16||(im.naturalHeight||0)<16){ usTickBad(im); return; }
+    let ink=null;
+    try{ ink=usLgHasInk(im); }catch(e){ ink=null; }
+    if(ink===false){ usTickBad(im); return; }
+    im.parentNode.classList.add('on');
+  }catch(e){}
 }
 function usTickBad(im){
   try{ const p=im.parentNode; im.remove(); if(p)p.classList.remove('on'); }catch(e){}

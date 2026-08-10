@@ -4151,3 +4151,42 @@ html[data-theme="dark"] .us-tick.on{background-color:#f4f6fa!important}
 [data-theme="dark"] .px-src.uspre{background:#8f74f5}
 [data-theme="dark"] .px-src.usaft{background:#14b3a2}
 .us-px .px-src,.uz-px .px-src{vertical-align:1px}
+/* [v4.92] 클랜 하단 버튼 — 나가기와 해체를 나란히 */
+.clan-foot{display:flex;gap:8px;flex-wrap:wrap}
+.clan-foot .btn-ghost{flex:1;min-width:130px}
+.clan-foot .btn-ghost.danger{color:var(--down);border-color:rgba(240,50,110,.35)}
+.clan-foot .btn-ghost.danger:hover{background:rgba(240,50,110,.08)}
+#askDesc{white-space:pre-line}
+
+/* ══ [v4.94] 2단 머리글을 같은 줄에 맞춘다 ═════════════════════════════════
+   국내 칸에만 안내 문구가 한 줄 더 있어 '🇰🇷 국내 주식'과 '🇺🇸 해외 주식'의
+   높이가 어긋나 보였다. 머리글 높이를 고정해 두 칸이 같은 줄에서 시작하게 한다. */
+.sr-2col .us-sec{display:flex;align-items:center;gap:8px;min-height:34px;margin:0 0 8px}
+.sr-2col .us-sec b{font-size:14px;font-weight:900;white-space:nowrap}
+.sr-2col .us-sec span{font-size:11.5px;font-weight:600;color:var(--sub-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-2col .rank-note{margin:0 0 8px;font-size:11.5px}
+
+/* ══ [v4.94] 프로필 탭바 — 글자가 세로로 깨지던 문제 ═══════════════════════════
+   탭이 7개인데 가로 폭이 모자라 '프 로 필' 처럼 한 글자씩 접혔다.
+   flex 는 공간이 부족하면 칸을 줄이고, 줄어든 칸 안에서 글자가 접힌다.
+   → 줄이지 못하게 막고(flex-shrink:0 · white-space:nowrap), 넘치면 가로로 넘긴다. */
+.pm-tabs{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.pm-tabs::-webkit-scrollbar{display:none}
+.pm-tabs button{flex:0 0 auto!important;white-space:nowrap!important;word-break:keep-all}
+@media (max-width:560px){
+  .pm-tabs{padding:0 10px}
+  .pm-tabs button{padding:11px 10px;font-size:13px}
+}
+
+/* ══ [v4.94] 프로필 창이 세로로 길어 못 보던 문제 ═══════════════════════════
+   내용이 길어지면 창 자체가 화면 밖으로 늘어났다. 창 높이를 화면 안으로 묶고,
+   머리글·탭은 고정한 채 본문만 스크롤되게 한다. */
+.profile-modal{max-height:88vh;max-height:88dvh;display:flex;flex-direction:column;overflow:hidden}
+.profile-modal>.pm-head,.profile-modal>.pm-tabs{flex:0 0 auto}
+.profile-modal .pm-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.profile-modal .pm-logout{flex:0 0 auto}
+.acct-chip-sub{display:block;margin-top:2px;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.acct-open-go{display:block;width:100%;margin-top:10px;padding:11px;border-radius:10px;
+  border:1px solid var(--border);background:var(--panel);font-size:12.5px;font-weight:800;
+  color:var(--text);cursor:pointer}

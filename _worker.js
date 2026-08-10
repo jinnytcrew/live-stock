@@ -5446,6 +5446,32 @@ var clan_default = async (req2) => {
       await saveClan(c);
       return json2({ ok: true, clan: pub(c, uid) });
     }
+    /* ══ [v4.92] 클랜 해체 ═══════════════════════════════════════════════════
+       [무엇이 없었나] 탈퇴는 있었지만, 리더가 '구성원이 있는 클랜'을 없애는 길이
+       없었다. 리더가 나가면 다른 사람에게 자동으로 넘어갈 뿐이라, 만들어 본 클랜을
+       정리할 방법이 사실상 없었다.
+       [규칙] 리더만 할 수 있고, 되돌릴 수 없으므로 클랜 이름을 정확히 입력해야 한다.
+       본문·초대코드·탐색 목록·구성원 소속을 모두 지운다. */
+    if (act === "disband") {
+      if (!myClanId) return json2({ ok: false, err: "noclan" });
+      const c = await loadClan(myClanId);
+      if (!c) { await saveUserClan(null); return json2({ ok: true }); }
+      if (!isLeader(c)) return json2({ ok: false, err: "perm" });
+      /* 실수로 누르는 것을 막는다 — 클랜 이름을 그대로 적어야 진행된다 */
+      if (clip(b.confirm, 16) !== c.name) return json2({ ok: false, err: "confirm" });
+      const ids = Object.keys(c.members || {});
+      await st.clan.delete("clan:" + c.cid).catch(() => {});
+      await st.clan.delete("code:" + c.code).catch(() => {});
+      await dropIndex(st, c.cid);
+      /* 구성원 전원의 소속을 푼다 — 안 풀면 '이미 클랜에 속해 있다'며 새 클랜을 못 만든다 */
+      let touched = 0;
+      for (const mid of ids) {
+        const a = db.accounts && db.accounts[mid];
+        if (a && a.clanId === c.cid) { delete a.clanId; db.accounts[mid] = a; touched++; }
+      }
+      if (touched) await st.acc.setJSON("db", db);
+      return json2({ ok: true, disbanded: true, n: ids.length });
+    }
     if (act === "leave") {
       if (!myClanId) return json2({ ok: true });
       const c = await loadClan(myClanId);
@@ -11555,13 +11581,16 @@ async function usdiag_default(){
 /* 그림이 쓸 만한지 서버에서 판별한다.
    ① 너무 작으면 버린다  ② PNG 는 머리말에서 가로·세로를 읽어 16px 미만이면 버린다
    ③ 거의 같은 바이트만 반복되면(단색 그림) 버린다 — '흰 빈 상자'의 정체가 이것이다 */
-function imgLooksReal(buf,ct){
+function imgLooksReal(buf,ct,minPx){
   if(!buf||buf.length<400)return false;
   if(String(ct||"").indexOf("svg")>=0)return buf.length>200;
   if(buf.length>8&&buf[0]===0x89&&buf[1]===0x50){          // PNG
     const w=(buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
     const h=(buf[20]<<24)|(buf[21]<<16)|(buf[22]<<8)|buf[23];
-    if(w<16||h<16)return false;
+    /* [v4.93] 앞 후보에게는 48px 이상을 요구하고(뭉개짐 방지),
+       마지막 보루(파비콘)에서는 16px 이상이면 받아들인다 — 없는 것보다 낫다. */
+    const need=minPx||16;
+    if(w<need||h<need)return false;
     /* 단색 PNG 는 압축이 극단적으로 잘 되어 픽셀 수에 비해 파일이 아주 작다 */
     if(buf.length < (w*h)/900 + 400)return false;
   }
@@ -11583,22 +11612,29 @@ async function uslogo_default(req2){
        가장 나은 것을 돌려준다. 결과는 KV 에 담아 다음부터는 바로 내보낸다.
        화면 쪽에서도 같은 출처(우리 도메인)라 픽셀 검사가 그대로 통한다. */
     const TK=tk.replace(".","-"), tkl=TK.toLowerCase();
-    const CKT="uslgt2:"+TK;
+    const CKT="uslgt3:"+TK;
     try{ if(KV){ const c=await KV.get(CKT,"json");
       if(c&&c.b64)return new Response(Uint8Array.from(atob(c.b64),ch=>ch.charCodeAt(0)),
         {headers:{"content-type":c.ct||"image/png","cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
       if(c&&c.no)return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
     }}catch(e){}
     const cands=[
-      ...(d?["https://logo.clearbit.com/"+d,
-             "https://icons.duckduckgo.com/ip3/"+d+".ico",
-             "https://www.google.com/s2/favicons?sz=128&domain="+d]:[]),
+      /* ══ [v4.93] 흐릿한 로고의 정체 ═══════════════════════════════════════
+         도메인이 있는 종목은 파비콘(.ico)을 먼저 잡고 있었다. 파비콘은 원래
+         16~32px 짜리 아이콘이라 36px 배지에 늘리면 뭉개진다
+         (첨부 사진의 TSMC·인텔·마이크론이 그 경우다).
+         → 큰 그림을 주는 곳을 앞에 세우고, 파비콘은 정말 아무것도 없을 때만 쓴다.
+         같은 이유로 구글 파비콘도 맨 뒤로 보낸다. */
+      ...(d?["https://logo.clearbit.com/"+d+"?size=256"]:[]),
       "https://financialmodelingprep.com/image-stock/"+TK+".png",
       "https://assets.parqet.com/logos/symbol/"+TK+"?format=png&size=128",
       "https://s3-symbol-logo.tradingview.com/"+tkl+".svg",
       "https://logos.stockanalysis.com/"+tkl+".png",
       "https://eodhd.com/img/logos/US/"+TK+".png",
-      "https://storage.googleapis.com/iexcloud-hl37opg/api/logos/"+TK+".png"
+      "https://storage.googleapis.com/iexcloud-hl37opg/api/logos/"+TK+".png",
+      /* 마지막 보루 — 작아서 흐릿하지만 없는 것보다는 낫다 */
+      ...(d?["https://icons.duckduckgo.com/ip3/"+d+".ico",
+             "https://www.google.com/s2/favicons?sz=128&domain="+d]:[])
     ];
     let best=null;
     for(const url of cands){
@@ -11610,7 +11646,9 @@ async function uslogo_default(req2){
         const ct=r.headers.get("content-type")||"image/png";
         if(ct.indexOf("image")<0&&ct.indexOf("svg")<0)continue;
         const buf=new Uint8Array(await r.arrayBuffer());
-        if(!imgLooksReal(buf,ct))continue;
+        /* 파비콘 계열은 마지막에만 오므로 그때만 문턱을 낮춘다 */
+        const isIcon=/duckduckgo|s2\/favicons/.test(url);
+        if(!imgLooksReal(buf,ct,isIcon?16:48))continue;
         best={buf,ct}; break;
       }catch(e){}
     }

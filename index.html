@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=372">
+<link rel="stylesheet" href="/app.css?v=375">
 </head>
 <body>
 
@@ -254,7 +254,15 @@
     if(closed)return; closed=true; clearInterval(tt); clearTimeout(hardT);
     g.classList.add('fin');
     setTimeout(function(){g.classList.add('out');
-      setTimeout(function(){try{g.remove();}catch(e){}},600);},520);
+      setTimeout(function(){
+        try{g.remove();}catch(e){}
+        /* ══ [v4.94] 로그인 창은 입장 화면이 사라진 뒤에 띄운다 ═══════════════
+           예전에는 로그인 창을 먼저 띄우고 그 다음에 '준비 끝'을 알렸다.
+           그래서 입장 화면이 아직 떠 있는데 그 위로 로그인 창이 먼저 보였다.
+           입장 화면이 완전히 걷힌 이 시점에 신호를 보낸다. */
+        try{ window.__bootGone=true;
+          window.dispatchEvent(new Event('bootgone')); }catch(e){}
+      },600);},520);
   }
   function maybeClose(){
     if(closed||!doneReq)return;
@@ -1368,6 +1376,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=372"></script>
+<script type="module" src="/app.js?v=375"></script>
 </body>
 </html>
