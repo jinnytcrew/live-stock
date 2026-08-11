@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=404';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=405';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3648,6 +3648,14 @@ async function oaConsume(){
   /* 주소창을 깨끗이 — 새로고침해도 다시 처리되지 않게 */
   try{ history.replaceState(null,'',location.pathname); }catch(e){}
   if(g!=='ok'){
+    if(g==='noconfig'){
+      /* [v7.2] 서버에 열쇠가 없다 — 관리자가 손봐야 하는 문제다 */
+      toast('warn','구글 로그인을 쓸 수 없습니다',
+        '서버에 로그인 열쇠가 등록되지 않았습니다. 아이디·비밀번호로 로그인해 주세요.');
+      try{ const b=$('oaGoogle');
+        if(b){ b.disabled=true; b.querySelector('b').textContent='지금은 사용할 수 없습니다'; } }catch(e){}
+      return;
+    }
     const why={state:'요청이 만료되었습니다. 다시 시도해 주세요.',
       token:'구글 인증에 실패했습니다.',profile:'구글 계정 정보를 받지 못했습니다.',
       email:'이메일이 확인되지 않은 구글 계정입니다.',

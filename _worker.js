@@ -13220,9 +13220,14 @@ async function oauth_google_default(req2, ctx){
     return json2({ok:true,...t});
   }
 
-  if(!CID||!CSEC)
-    return json2({ok:false,err:"noconfig",
-      detail:"GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 환경변수가 필요합니다"});
+  /* [v7.2] 설정이 빠졌을 때 날것의 JSON 을 보여 주면 사용자는 무엇을 해야 할지
+     알 수 없다. 앱으로 돌려보내 화면 안에서 안내한다. */
+  if(!CID||!CSEC){
+    if(url.searchParams.get("json")==="1")
+      return json2({ok:false,err:"noconfig",
+        detail:"GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 환경변수가 필요합니다"});
+    return Response.redirect(origin+"/?glogin=noconfig",302);
+  }
 
   const code=url.searchParams.get("code");
   const back=(m)=>Response.redirect(origin+"/?glogin="+encodeURIComponent(m),302);
@@ -13303,6 +13308,33 @@ async function oauth_google_default(req2, ctx){
     return Response.redirect(origin+"/?glogin=ok&t="+ticket,302);
   }catch(e){ return back("error"); }
 }
+/* ══ [v7.2] 로그인 설정 진단 ═══════════════════════════════════════════════
+   'noconfig' 가 떴을 때 무엇이 빠졌는지 눈으로 확인할 수 있게 한다.
+   값 자체는 절대 내보내지 않는다 — 있는지 없는지와 길이만 알려 준다. */
+async function oauthdiag_default(req2, ctx){
+  const env=(ctx&&ctx.env)||_ENV||{};
+  const has=(k)=>{
+    const v=env[k];
+    return { 있음:!!v, 길이:v?String(v).length:0,
+      끝4자리:v?("…"+String(v).slice(-4)):"" };
+  };
+  const cid=env.GOOGLE_CLIENT_ID||"", csec=env.GOOGLE_CLIENT_SECRET||"";
+  let 진단="정상";
+  if(!cid&&!csec)진단="둘 다 없음 — wrangler.toml 의 [vars] 에 GOOGLE_CLIENT_ID 를 넣고, 시크릿은 `npx wrangler secret put GOOGLE_CLIENT_SECRET` 로 넣으세요";
+  else if(!cid)진단="GOOGLE_CLIENT_ID 없음 — wrangler.toml 의 [vars] 에 넣으세요";
+  else if(!csec)진단="GOOGLE_CLIENT_SECRET 없음 — `npx wrangler secret put GOOGLE_CLIENT_SECRET` 로 넣으세요";
+  else if(!/apps\.googleusercontent\.com$/.test(cid))진단="GOOGLE_CLIENT_ID 형식이 이상합니다(끝이 apps.googleusercontent.com 이어야 합니다)";
+  const origin=(()=>{try{return new URL(req2.url).origin;}catch(e){return"";}})();
+  return new Response(JSON.stringify({
+    진단,
+    GOOGLE_CLIENT_ID:has("GOOGLE_CLIENT_ID"),
+    GOOGLE_CLIENT_SECRET:has("GOOGLE_CLIENT_SECRET"),
+    구글에_등록해야_하는_주소:origin+"/api/oauth/google",
+    KV연결:!!env.APP_KV
+  },null,1),{headers:{"content-type":"application/json; charset=utf-8",
+    "cache-control":"no-store"}});
+}
+ROUTES["oauthdiag"]=oauthdiag_default;
 ROUTES["oauth/google"]=oauth_google_default;
 ROUTES["xfer"]=xfer_default;
 ROUTES["usnews"]=usnews_default;
@@ -13343,7 +13375,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "7.1.0";
+var APP_VER = "7.2.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

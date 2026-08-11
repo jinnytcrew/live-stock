@@ -5,6 +5,11 @@ main = "_worker.js"
 compatibility_date = "2026-08-04"
 compatibility_flags = ["nodejs_compat"]
 
+# ══ [v7.2] 대시보드에서 넣은 변수를 배포가 지우지 않게 한다 ══════════════════
+#  이 값이 없으면 wrangler deploy 가 이 파일에 없는 변수를 모두 삭제한다.
+#  실제로 GOOGLE_CLIENT_ID 가 그렇게 지워져 구글 로그인이 멈췄다.
+keep_vars = true
+
 [assets]
 directory = "./"
 binding = "ASSETS"
@@ -15,3 +20,9 @@ id = "579b8a56d1df48bfa9c1b699563cc19a"
 
 [vars]
 SITE_URL = "https://live-stock.jinnytcrew.workers.dev"
+# ══ [v7.2] 여기에 적지 않으면 배포할 때마다 대시보드 값이 지워진다 ══════════
+#  wrangler deploy 는 이 파일을 '정답'으로 보고 원격 설정을 덮어쓴다.
+#  대시보드에서 넣은 변수라도 여기에 없으면 삭제된다(배포 시 빨간 - 로 표시됨).
+#  ※ 시크릿(GOOGLE_CLIENT_SECRET)은 여기 적지 않는다 — 이 파일은 깃허브에 올라간다.
+#     시크릿은 `npx wrangler secret put GOOGLE_CLIENT_SECRET` 로 따로 넣는다.
+GOOGLE_CLIENT_ID = "1047154352802-2kjen78pmkgn2niekce2b410vvvv5kc7.apps.googleusercontent.com"
