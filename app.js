@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=409';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=410';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -7780,10 +7780,13 @@ setInterval(()=>{try{paintPermBanner();}catch(e){}},60e3);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)try{paintPermBanner();}catch(e){}});
 
 /* ══ [v2.5.3] 친구 ══ — 아이디로 신청·수락, 월간 수익률 랭킹 공유 */
-let frCache=null,_frBusy=false,_frRate=null,_frAt=0;
+let frCache=null,_frBusy=false,_frRate=null,_frAt=0,_frRetry=0;
 async function frCall(action,extra){
   if(!currentUser)return {ok:false,err:'guest'};
   const acc=accounts()[currentUser]||{};
+  /* [v7.7] 비밀번호가 없는 계정으로 부르면 서버가 계정을 못 찾는다 —
+     원인을 코드로 분명히 남겨 화면에서 알아볼 수 있게 한다. */
+  if(!acc.pass)return {ok:false,err:'auth',why:'nopass'};
   try{fnBump();
     const r=await fetch('/api/friends',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({action,id:currentUser,pass:acc.pass,name:acc.name||currentUser,...extra})});
@@ -7793,7 +7796,7 @@ async function frCall(action,extra){
       if(ok)return frCall(action,{...(extra||{}),_retry:1});
     }
     return j;
-  }catch(e){return {ok:false,err:'net'};}
+  }catch(e){return {ok:false,err:'net',detail:String(e&&e.message||e).slice(0,60)};}
 }
 function frDot(){
   const d=$('frDot');if(!d)return;
@@ -7817,16 +7820,31 @@ async function renderFriend(){
     if(r&&r.ok)frCache=r;
     else{
       /* [v6.1] 무엇 때문에 막혔는지 알려 준다 — 'auth' 만으로는 알 수 없다 */
-      const why=(r&&r.why)==='nouser'?'서버에 이 아이디로 저장된 계정이 없습니다'
-        :(r&&r.why)==='pass'?'비밀번호가 서버와 맞지 않습니다'
-        :(r&&r.err)==='net'?'서버에 연결하지 못했습니다':'연결에 실패했습니다';
-      el.innerHTML=`<div class="empty"><b>${why}</b><br>
-        <span style="font-size:12px">로그아웃 후 다시 로그인하면 계정이 서버에 다시 등록됩니다.</span><br>
-        <button class="btn-primary" id="frFix" style="margin-top:12px">계정 다시 등록</button></div>`;
+      /* [v7.7] 무슨 오류인지 화면에서 알 수 있게 코드까지 함께 보여 준다.
+         '연결에 실패했습니다' 만으로는 어디를 고쳐야 할지 알 수 없었다. */
+      const code=(r&&r.err)||'net';
+      const why={
+        auth:(r&&r.why)==='nouser'?'서버에 이 아이디로 저장된 계정이 없습니다'
+             :(r&&r.why)==='pass'?'비밀번호가 서버와 맞지 않습니다'
+             :(r&&r.why)==='nopass'?'이 기기의 계정 정보가 손상되었습니다. 다시 로그인해 주세요'
+             :'계정 확인에 실패했습니다',
+        net:'서버에 연결하지 못했습니다',
+        nostore:'서버 저장소를 열지 못했습니다',
+        server:'서버에서 오류가 났습니다',
+        guest:'로그인이 필요합니다'
+      }[code]||'연결에 실패했습니다';
+      el.innerHTML=`<div class="empty"><b>${htmlEsc(why)}</b><br>
+        <span style="font-size:12px">잠시 후 자동으로 다시 시도합니다.</span><br>
+        <span style="font-size:11px;opacity:.6">${htmlEsc(code)}${r&&r.detail?' · '+htmlEsc(String(r.detail).slice(0,60)):''}</span><br>
+        <button class="btn-primary" id="frFix" style="margin-top:12px">다시 시도</button></div>`;
+      /* [v7.7] 가입 직후에는 서버 저장이 아직 안 퍼졌을 수 있다 — 몇 초 뒤 한 번 더 */
+      if(!_frRetry){ _frRetry=1;
+        setTimeout(()=>{ _frRetry=0; frCache=null;
+          if(currentView==='friend')renderFriends(); },4000); }
       const fb=$('frFix'); if(fb)fb.onclick=async()=>{
-        fb.disabled=true; const ok=await ensureServerAccount();
-        toast(ok?'ok':'warn',ok?'등록 완료':'등록 실패',ok?'다시 불러옵니다':'다시 로그인해 주세요');
-        if(ok){frCache=null;renderFriends();} else fb.disabled=false; };
+        fb.disabled=true;
+        try{ await ensureServerAccount(); }catch(e){}
+        frCache=null; renderFriends(); };
       return;}
   }
   const f=frCache||{friends:[],reqIn:[],reqOut:[],me:{}};
