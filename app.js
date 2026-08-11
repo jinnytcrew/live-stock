@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=405';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=406';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3642,9 +3642,12 @@ function oaBind(){
     location.href='/api/oauth/google';
   };
 }
+var _oaDone=false;
 async function oaConsume(){
-  let q; try{ q=new URLSearchParams(location.search); }catch(e){ return; }
-  const g=q.get('glogin'); if(!g)return;
+  if(_oaDone)return false;                       // [v7.3] 한 번만 처리한다
+  let q; try{ q=new URLSearchParams(location.search); }catch(e){ return false; }
+  const g=q.get('glogin'); if(!g)return false;
+  _oaDone=true;
   /* 주소창을 깨끗이 — 새로고침해도 다시 처리되지 않게 */
   try{ history.replaceState(null,'',location.pathname); }catch(e){}
   if(g!=='ok'){
@@ -3654,20 +3657,20 @@ async function oaConsume(){
         '서버에 로그인 열쇠가 등록되지 않았습니다. 아이디·비밀번호로 로그인해 주세요.');
       try{ const b=$('oaGoogle');
         if(b){ b.disabled=true; b.querySelector('b').textContent='지금은 사용할 수 없습니다'; } }catch(e){}
-      return;
+      return false;
     }
     const why={state:'요청이 만료되었습니다. 다시 시도해 주세요.',
       token:'구글 인증에 실패했습니다.',profile:'구글 계정 정보를 받지 못했습니다.',
       email:'이메일이 확인되지 않은 구글 계정입니다.',
       error:'로그인 중 오류가 났습니다.'}[g]||'로그인에 실패했습니다.';
     toast('warn','구글 로그인 실패',why);
-    return;
+    return false;
   }
-  const t=q.get('t'); if(!t)return;
+  const t=q.get('t'); if(!t)return false;
   try{
     const r=await fetch('/api/oauth/google?claim='+encodeURIComponent(t),{cache:'no-store'});
     const j=await r.json();
-    if(!j||!j.ok){ toast('warn','구글 로그인 실패','인증 정보가 만료되었습니다. 다시 시도해 주세요.'); return; }
+    if(!j||!j.ok){ toast('warn','구글 로그인 실패','인증 정보가 만료되었습니다. 다시 시도해 주세요.'); return false; }
     const accs=accounts();
     accs[j.id]={pass:j.pass,name:j.name||j.id,email:j.email||'',
       acctPass:(accs[j.id]&&accs[j.id].acctPass)||legacyHash('0000'),
@@ -3681,10 +3684,15 @@ async function oaConsume(){
        안내로 삼기에 약하다. 가입한 그 순간에 창을 띄워 분명히 알린다. */
     if(j.created)googleWelcome(j);
     else toast('buy','로그인 완료',`${j.name||j.id}님, 환영합니다`);
-  }catch(e){ toast('warn','구글 로그인 실패','잠시 후 다시 시도해 주세요.'); }
+    return true;
+  }catch(e){ toast('warn','구글 로그인 실패','잠시 후 다시 시도해 주세요.'); return false; }
 }
 try{ oaBind(); }catch(e){}
-try{ setTimeout(()=>{ try{oaConsume();}catch(e){} },300); }catch(e){}
+/* [v7.3] 부팅에서 이미 처리하므로 여기서는 '세션이 살아 있는데 돌아온 경우'만 맡는다.
+   (이미 로그인된 채로 다른 구글 계정으로 바꾼 경우) */
+try{ setTimeout(()=>{ try{
+  if(currentUser)oaConsume();
+}catch(e){} },300); }catch(e){}
 
 /* ===== 로그인/회원가입 UI ===== */
 $('tabLogin').onclick=()=>{$('tabLogin').classList.add('on');$('tabSignup').classList.remove('on');$('loginForm').hidden=false;$('signupForm').hidden=true;};
@@ -12876,8 +12884,24 @@ window.addEventListener('resize',()=>{drawChart();if(currentView==='home')render
 function __bootMain(){
   try{window.__boot&&__boot.step(4);}catch(e){}   // [v4.9] 입장화면: 계정·설정 동기화
   const sess=store.get('session');
-  /* [v4.1] 세션이 없거나 계정이 사라졌으면 앱을 시작하지 않고 로그인만 띄운다 */
+  /* ══ [v7.3] 구글에서 돌아왔는데 로그인 화면이 다시 뜨던 이유 ═══════════════
+     [무엇이 일어났나] 구글 인증은 성공해서 주소에 ?glogin=ok&t=… 가 붙어 돌아온다.
+     그런데 그 표를 처리하는 oaConsume() 이 0.3초 뒤에 돌도록 되어 있었고,
+     그 사이에 여기서 '세션이 없다'고 판단해 requireAuth() 로 로그인 창을 띄웠다.
+     처리가 끝나도 이미 잠긴 화면이라 사용자에겐 '아무 일도 없었던 것'처럼 보였다.
+     [고침] 구글에서 돌아온 경우에는 표를 먼저 처리하고, 로그인 창은 띄우지 않는다.
+     처리에 실패했을 때만 그때 로그인 창을 연다. */
+  let backFromGoogle=false;
+  try{ backFromGoogle=/[?&]glogin=/.test(location.search); }catch(e){}
   if(sess&&accounts()[sess]){applyUser(sess);unlockApp();initApp();}
+  else if(backFromGoogle){
+    /* 표를 처리한 뒤 결과에 따라 결정한다 */
+    (async()=>{
+      let ok=false;
+      try{ ok=await oaConsume(); }catch(e){}
+      if(!ok){ try{requireAuth();}catch(e){} }
+    })();
+  }
   else{requireAuth();}
   /* [v4.9] 화면 구성 단계 → 두 프레임 뒤(첫 페인트 확정 후) 입장화면을 걷는다.
      로그인 화면으로 빠지는 경우에도 즉시 걷어야 입력이 가려지지 않는다. */
