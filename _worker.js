@@ -13213,11 +13213,18 @@ async function oauth_google_default(req2, ctx){
   /* ⑥ 앱이 표를 들고 와 계정 정보를 받아 간다 */
   const claim=url.searchParams.get("claim");
   if(claim){
-    const key="oa:tk:"+String(claim).replace(/[^a-f0-9]/g,"").slice(0,64);
-    const t=await st.clan.get(key,{type:"json"}).catch(()=>null);
-    if(!t)return json2({ok:false,err:"expired"});
-    await st.clan.delete(key).catch(()=>{});     // 한 번만 쓸 수 있다
-    return json2({ok:true,...t});
+    /* [v7.4] 쿠키에서 꺼낸다 — 시차가 없어 확실하다 */
+    const ck=req2.headers.get("cookie")||"";
+    const m=/(?:^|;\s*)oa_t=([^;]+)/.exec(ck);
+    if(!m)return json2({ok:false,err:"expired",why:"nocookie"});
+    let t=null;
+    try{ t=JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); }catch(e){}
+    if(!t||!t.id)return json2({ok:false,err:"expired",why:"bad"});
+    if(Date.now()-(t.at||0)>180000)return json2({ok:false,err:"expired",why:"old"});
+    /* 한 번 쓰면 지운다 */
+    const h=new Headers({"content-type":"application/json; charset=utf-8","cache-control":"no-store"});
+    h.append("set-cookie","oa_t=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
+    return new Response(JSON.stringify({ok:true,...t}),{headers:h});
   }
 
   /* [v7.2] 설정이 빠졌을 때 날것의 JSON 을 보여 주면 사용자는 무엇을 해야 할지
@@ -13235,7 +13242,9 @@ async function oauth_google_default(req2, ctx){
   /* ① 시작 — 구글로 보낸다 */
   if(!code){
     const state=oaRand(16);
-    await st.clan.setJSON("oa:st:"+state,{at:Date.now()},{expirationTtl:600}).catch(()=>{});
+    /* [v7.4] state 도 KV 대신 쿠키에 둔다. 표와 같은 이유이고,
+       '보낸 쪽과 받은 쪽이 같은 브라우저인가'를 확인하는 표준 방식이다. */
+    await st.clan.setJSON("oa:st:"+state,{at:Date.now()}).catch(()=>{});   // 예비
     const a=new URL("https://accounts.google.com/o/oauth2/v2/auth");
     a.searchParams.set("client_id",CID);
     a.searchParams.set("redirect_uri",redirect);
@@ -13243,12 +13252,27 @@ async function oauth_google_default(req2, ctx){
     a.searchParams.set("scope","openid email profile");
     a.searchParams.set("state",state);
     a.searchParams.set("prompt","select_account");
-    return Response.redirect(a.toString(),302);
+    const h=new Headers();
+    h.set("location",a.toString());
+    h.append("set-cookie","oa_s="+state
+      +"; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax");
+    return new Response(null,{status:302,headers:h});
   }
 
   /* ③ 돌아왔다 — state 확인 */
   const state=String(url.searchParams.get("state")||"").replace(/[^a-f0-9]/g,"").slice(0,64);
-  const okState=state?await st.clan.get("oa:st:"+state,{type:"json"}).catch(()=>null):null;
+  /* [v7.4] 쿠키에 담아 둔 값과 대조한다. 쿠키가 없으면 KV 로 한 번 더 본다
+     (쿠키를 막아 둔 브라우저를 위한 예비 경로다). */
+  let okState=false;
+  try{
+    const ck=req2.headers.get("cookie")||"";
+    const m=/(?:^|;\s*)oa_s=([a-f0-9]+)/.exec(ck);
+    if(m&&state&&m[1]===state)okState=true;
+  }catch(e){}
+  if(!okState&&state){
+    const kv=await st.clan.get("oa:st:"+state,{type:"json"}).catch(()=>null);
+    if(kv)okState=true;
+  }
   if(!okState)return back("state");
   await st.clan.delete("oa:st:"+state).catch(()=>{});
 
@@ -13302,10 +13326,23 @@ async function oauth_google_default(req2, ctx){
       usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
     await st.acc.setJSON("db",db).catch(()=>{});
 
-    const ticket=oaRand(20);
-    await st.clan.setJSON("oa:tk:"+ticket,{id:uid,pass,name:acc.name,email:acc.email,
-      created:!!created,user:db.users[uid]},{expirationTtl:180}).catch(()=>{});
-    return Response.redirect(origin+"/?glogin=ok&t="+ticket,302);
+    /* ══ [v7.4] 표를 KV 에 두면 못 받는다 ═══════════════════════════════════
+       [무엇이 문제였나] KV 는 쓴 값이 전 세계에 퍼지는 데 시간이 걸린다(최대 1분).
+       그런데 이 표는 쓴 직후 1초 안에 브라우저가 읽어 간다. 아직 퍼지지 않아
+       '없는 표'로 나오고, 앱은 로그인에 실패한 것으로 판단해 로그인 창을 띄웠다.
+       (게다가 setJSON 은 세 번째 인자를 받지 않아 만료 설정도 무시되고 있었다)
+       [고침] 쿠키로 건네준다. 쿠키는 같은 응답에 실려 오므로 시차가 없다.
+       HttpOnly 라 자바스크립트가 훔쳐볼 수 없고, 3분 뒤 저절로 사라진다. */
+    const payload={id:uid,pass,name:acc.name,email:acc.email,
+      created:!!created,user:db.users[uid],at:Date.now()};
+    const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const h=new Headers();
+    h.set("location",origin+"/?glogin=ok");
+    h.append("set-cookie","oa_t="+encodeURIComponent(b64)
+      +"; Max-Age=180; Path=/; HttpOnly; Secure; SameSite=Lax");
+    /* 표를 다 썼으니 위조 방지용 쿠키는 지운다 */
+    h.append("set-cookie","oa_s=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
+    return new Response(null,{status:302,headers:h});
   }catch(e){ return back("error"); }
 }
 /* ══ [v7.2] 로그인 설정 진단 ═══════════════════════════════════════════════
@@ -13375,7 +13412,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "7.3.0";
+var APP_VER = "7.4.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

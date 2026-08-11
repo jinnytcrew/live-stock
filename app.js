@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=406';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=407';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3666,9 +3666,10 @@ async function oaConsume(){
     toast('warn','구글 로그인 실패',why);
     return false;
   }
-  const t=q.get('t'); if(!t)return false;
+  /* [v7.4] 표는 이제 쿠키로 온다 — 주소의 t 는 없어도 된다 */
   try{
-    const r=await fetch('/api/oauth/google?claim='+encodeURIComponent(t),{cache:'no-store'});
+    const r=await fetch('/api/oauth/google?claim=1',
+      {cache:'no-store',credentials:'same-origin'});
     const j=await r.json();
     if(!j||!j.ok){ toast('warn','구글 로그인 실패','인증 정보가 만료되었습니다. 다시 시도해 주세요.'); return false; }
     const accs=accounts();
