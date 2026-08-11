@@ -754,7 +754,7 @@ function renderPortDiag(){
       <div class="pd-c"><span>수익 종목</span><b class="num">${win} / ${items.length}</b></div>
     </div>
     <div class="pd-t">종목별 비중</div>
-    <div class="etf-hold">${items.slice().sort((a,b)=>b.w-a.w).map(x=>`<div class="etf-hold-r"><div class="etf-hold-n">${x.name} <span class="num ${dirOf(x.rate)}">${pctS(x.rate)}</span></div>
+    <div class="etf-hold">${items.slice().sort((a,b)=>b.w-a.w).map(x=>`<div class="etf-hold-r"><div class="etf-hold-n">${htmlEsc(x.name)} <span class="num ${dirOf(x.rate)}">${pctS(x.rate)}</span></div>
       <div class="etf-hold-w"><div class="etf-bar"><i style="width:${Math.min(100,x.w)}%"></i></div><span class="num">${x.w.toFixed(1)}%</span></div></div>`).join('')}</div>
     <div class="pd-t">섹터 분포</div>
     <div class="etf-hold">${secArr.map(([k,v])=>`<div class="etf-hold-r"><div class="etf-hold-n">${k}</div>
@@ -1151,7 +1151,7 @@ function paintPicks(j){
     if(!total)return '';
     const row=(t,cls,x)=>`<div class="pk-tr" data-code="${x.code}">
       <span class="pk-tier ${cls}">${t}</span>
-      <span class="pk-tr-nm">${x.name}<i class="num">${x.code}</i></span>
+      <span class="pk-tr-nm">${htmlEsc(x.name)}<i class="num">${x.code}</i></span>
       <span class="pk-tr-sc"><i style="width:${Math.min(100,x.score)}%"></i><b class="num">${x.score}</b></span>
       <span class="pk-tr-rt num ${dirOf(x.rate)}">${pctS(x.rate)}</span></div>`;
     return `<div class="pk-tiers"><div class="pk-tiers-h">후보군 티어표 <span>· 점수순 상위 ${total}종 (S≥85 · A≥72 · B≥60 · C≥48)</span></div>
@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=397';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=400';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3523,6 +3523,7 @@ function requireAuth(){
     const g2=$('authGate');
     if(g2){g2.hidden=false;g2.classList.add('auth-force');}
     try{document.body.classList.add('locked');}catch(e){}
+    try{oaBind();}catch(e){}          // [v6.7] 구글 버튼 배선
   };
   if(window.__bootGone)openGate();
   else{
@@ -3564,10 +3565,194 @@ function seedTradeLog(){
   ];
 }
 
+/* ══ [v6.7] 구글 간편 로그인 — 앱 쪽 ═══════════════════════════════════════
+   버튼을 누르면 서버가 구글로 보내고, 돌아올 때 주소에 표(t)가 붙는다.
+   그 표로 계정 정보를 한 번 받아 로그인 상태로 만든다. */
+function oaBind(){
+  const b=$('oaGoogle'); if(!b||b._w)return; b._w=1;
+  b.onclick=()=>{
+    b.disabled=true;
+    b.querySelector('b').textContent='구글로 이동 중…';
+    location.href='/api/oauth/google';
+  };
+}
+async function oaConsume(){
+  let q; try{ q=new URLSearchParams(location.search); }catch(e){ return; }
+  const g=q.get('glogin'); if(!g)return;
+  /* 주소창을 깨끗이 — 새로고침해도 다시 처리되지 않게 */
+  try{ history.replaceState(null,'',location.pathname); }catch(e){}
+  if(g!=='ok'){
+    const why={state:'요청이 만료되었습니다. 다시 시도해 주세요.',
+      token:'구글 인증에 실패했습니다.',profile:'구글 계정 정보를 받지 못했습니다.',
+      email:'이메일이 확인되지 않은 구글 계정입니다.',
+      error:'로그인 중 오류가 났습니다.'}[g]||'로그인에 실패했습니다.';
+    toast('warn','구글 로그인 실패',why);
+    return;
+  }
+  const t=q.get('t'); if(!t)return;
+  try{
+    const r=await fetch('/api/oauth/google?claim='+encodeURIComponent(t),{cache:'no-store'});
+    const j=await r.json();
+    if(!j||!j.ok){ toast('warn','구글 로그인 실패','인증 정보가 만료되었습니다. 다시 시도해 주세요.'); return; }
+    const accs=accounts();
+    accs[j.id]={pass:j.pass,name:j.name||j.id,email:j.email||'',
+      acctPass:(accs[j.id]&&accs[j.id].acctPass)||legacyHash('0000'),
+      created:(accs[j.id]&&accs[j.id].created)||Date.now(),google:1};
+    store.set('accounts',accs);
+    if(j.user&&!store.get('user:'+j.id))store.set('user:'+j.id,j.user);
+    applyUser(j.id); unlockApp(); initApp();
+    toast('buy',j.created?'가입 완료':'로그인 완료',
+      `${j.name||j.id}님, 환영합니다${j.created?' · 내 계좌에서 계좌를 열어 주세요':''}`);
+  }catch(e){ toast('warn','구글 로그인 실패','잠시 후 다시 시도해 주세요.'); }
+}
+try{ oaBind(); }catch(e){}
+try{ setTimeout(()=>{ try{oaConsume();}catch(e){} },300); }catch(e){}
+
 /* ===== 로그인/회원가입 UI ===== */
 $('tabLogin').onclick=()=>{$('tabLogin').classList.add('on');$('tabSignup').classList.remove('on');$('loginForm').hidden=false;$('signupForm').hidden=true;};
 $('tabSignup').onclick=()=>{$('tabSignup').classList.add('on');$('tabLogin').classList.remove('on');$('signupForm').hidden=false;$('loginForm').hidden=true;
-  try{renderAcctPick();}catch(e){}};   // [v4.32] 계좌 종류 선택 렌더
+  suInit(); renderSu();};
+
+/* ══ [v6.6] 회원가입 — 계좌 개설과 같은 단계식 ═══════════════════════════════
+   [왜 바꿨나] 계좌 개설은 3단계로 나눠 약관까지 받는데 가입은 한 화면에 몰아넣고
+   약관이 아예 없었다. 개인정보(이름·이메일)를 받으면서 동의를 구하지 않는 것도
+   맞지 않는다. 절차를 맞추고, 이메일도 계좌 개설과 같이 '필수'로 통일한다.
+     1단계 계정 정보 — 아이디·비밀번호
+     2단계 본인 정보 — 이름·이메일
+     3단계 약관 동의 — 필수 3종 + 선택 1종 */
+var SU_STEP=1, suForm=null;
+var SU_TERMS=[
+  ['s1',1,'서비스 이용약관',
+   '이 서비스는 학습용 모의투자입니다. 실제 매매·실제 자금 이동이 발생하지 않으며 화면의 모든 손익은 가상입니다. 투자 판단이나 권유를 목적으로 하지 않습니다.'],
+  ['s2',1,'개인정보 수집·이용 동의',
+   '수집 항목: 아이디, 비밀번호(암호화 저장), 이름/닉네임, 이메일.\n이용 목적: 계정 확인과 여러 기기에서 기록을 이어 보기 위함.\n보관 기간: 회원 탈퇴 시까지.\n비밀번호는 원문을 저장하지 않고 되돌릴 수 없는 형태로만 보관합니다. 동의를 거부할 수 있으나 그 경우 가입할 수 없습니다.'],
+  ['s3',1,'만 14세 이상 확인',
+   '만 14세 미만은 법정대리인 동의가 필요합니다. 이 모의 서비스는 실제 자금이 오가지 않지만, 개인정보 보호를 위해 만 14세 이상만 가입받습니다.'],
+  ['s4',0,'마케팅 정보 수신 동의 (선택)',
+   '새 기능과 학습 콘텐츠 안내를 앱 알림으로 받습니다. 동의하지 않아도 가입과 모든 기능 이용에 제한이 없습니다.']
+];
+function suInit(){ SU_STEP=1; suForm={id:'',pw:'',pw2:'',name:'',email:'',terms:{}}; }
+function suSave(){
+  const g=(k)=>{const e=$(k);return e?e.value:'';};
+  if(SU_STEP===1){ suForm.id=g('suId'); suForm.pw=g('suPw'); suForm.pw2=g('suPw2'); }
+  if(SU_STEP===2){ suForm.name=g('suName'); suForm.email=g('suEmail'); }
+}
+function suGo(step){ suSave(); SU_STEP=step; renderSu(); }
+function suSay(h){ const m=$('suMsg'); if(m)m.innerHTML=h||''; }
+function renderSu(){
+  if(!suForm)suInit();
+  const st=$('suSteps'), bd=$('suBody'), nv=$('suNav');
+  if(!st||!bd||!nv)return;
+  const LB=['계정 정보','본인 정보','약관 동의'];
+  st.innerHTML=LB.map((t,i)=>`<div class="su-st ${SU_STEP===i+1?'on':SU_STEP>i+1?'done':''}">
+    <i>${SU_STEP>i+1?'✓':i+1}</i><span>${t}</span></div>`).join('');
+  suSay('');
+  if(SU_STEP===1){
+    bd.innerHTML=`
+      <div class="fld2"><label>아이디</label>
+        <input id="suId" placeholder="4자 이상 · 영문·숫자" value="${htmlEsc(suForm.id)}" autocomplete="username"></div>
+      <div class="fld2 two">
+        <div><label>비밀번호</label><input id="suPw" type="password" autocomplete="new-password" placeholder="비밀번호" value="${htmlEsc(suForm.pw)}"></div>
+        <div><label>비밀번호 확인</label><input id="suPw2" type="password" autocomplete="new-password" placeholder="다시 입력" value="${htmlEsc(suForm.pw2)}"></div></div>
+      <div class="fld-help">8자 이상 · 영문 + 숫자 + 특수문자를 모두 포함해 주세요</div>
+      <div class="pw-meter" id="suPwMeter" hidden></div>`;
+    /* 비밀번호 세기 표시 — 입력하는 동안 무엇이 모자란지 알려 준다 */
+    try{ const pw=$('suPw'); if(pw)pw.oninput=()=>{
+      const mt=$('suPwMeter'); if(!mt)return;
+      const v=pw.value||'';
+      if(!v){mt.hidden=true;return;}
+      const has=[/[a-z]/i.test(v),/[0-9]/.test(v),/[^a-zA-Z0-9]/.test(v),v.length>=8];
+      const n=has.filter(Boolean).length;
+      const lb=['매우 약함','약함','보통','강함','매우 강함'][n];
+      mt.hidden=false;
+      mt.innerHTML=`<div class="pwm-bar"><i style="width:${n*25}%" class="s${n}"></i></div>
+        <div class="pwm-t">${lb} · ${['영문','숫자','특수문자','8자 이상'].filter((_,i)=>!has[i]).join(' · ')||'모두 충족'}</div>`;
+    }; }catch(e){}
+  }
+  if(SU_STEP===2){
+    bd.innerHTML=`
+      <div class="fld2"><label>이름 / 닉네임</label>
+        <input id="suName" placeholder="홍길동" value="${htmlEsc(suForm.name)}" maxlength="20"></div>
+      <div class="fld2"><label>이메일</label>
+        <input id="suEmail" type="email" placeholder="you@example.com" value="${htmlEsc(suForm.email)}" autocomplete="email"></div>
+      <div class="fld-help">이메일은 계정을 잃어버렸을 때 되찾는 데 쓰입니다. 계좌 개설과 같은 기준으로 받습니다.</div>
+      <div class="su-note">가입하면 계정만 만들어집니다. 거래에 쓸 계좌는 가입 뒤
+        <b>내 계좌 → 계좌 개설</b>에서 절차를 밟아 여시면 됩니다.</div>`;
+  }
+  if(SU_STEP===3){
+    const allOn=SU_TERMS.every(t=>suForm.terms[t[0]]);
+    bd.innerHTML=`
+      <button type="button" class="ae-all ${allOn?'on':''}" id="suAll">
+        <i>${allOn?'✓':''}</i><b>전체 동의</b><span>선택 항목까지 모두 포함합니다</span></button>
+      <div class="ae-terms">${SU_TERMS.map(t=>`
+        <div class="ae-term">
+          <button type="button" class="ae-tk ${suForm.terms[t[0]]?'on':''}" data-su-t="${t[0]}">
+            <i>${suForm.terms[t[0]]?'✓':''}</i>
+            <b>${t[1]?'<em class="ae-req">필수</em>':'<em class="ae-opt">선택</em>'} ${htmlEsc(t[2])}</b></button>
+          <div class="ae-tt">${htmlEsc(t[3]).replace(/\n/g,'<br>')}</div>
+        </div>`).join('')}</div>`;
+    $('suAll').onclick=()=>{ const on=!SU_TERMS.every(t=>suForm.terms[t[0]]);
+      SU_TERMS.forEach(t=>suForm.terms[t[0]]=on); renderSu(); };
+    bd.querySelectorAll('[data-su-t]').forEach(b=>b.onclick=()=>{
+      const k=b.dataset.suT; suForm.terms[k]=!suForm.terms[k]; renderSu(); });
+  }
+  nv.innerHTML=`${SU_STEP>1?`<button class="modal-ghost" id="suPrev">이전</button>`:''}
+    <button class="modal-btn" id="suNext">${SU_STEP<3?'다음':'가입하고 시작하기'}</button>`;
+  const pv=$('suPrev'); if(pv)pv.onclick=()=>suGo(SU_STEP-1);
+  $('suNext').onclick=()=>suNext();
+}
+async function suNext(){
+  suSave();
+  if(SU_STEP===1){
+    const id=normId(suForm.id);
+    if(id.length<4)return suSay('아이디는 4자 이상으로 정해 주세요.');
+    if(!/^[a-z0-9_.-]+$/.test(id))return suSay('아이디는 영문·숫자와 <b>_ . -</b> 만 쓸 수 있습니다.');
+    const ck=pwCheck(suForm.pw,id,suForm.name);
+    if(!ck.ok)return suSay(ck.msg);
+    if(suForm.pw!==suForm.pw2)return suSay('비밀번호가 일치하지 않습니다.');
+    return suGo(2);
+  }
+  if(SU_STEP===2){
+    const nm=String(suForm.name||'').trim();
+    if(nm.length<2)return suSay('이름 또는 닉네임을 2자 이상 입력해 주세요.');
+    const em=String(suForm.email||'').trim();
+    if(!em)return suSay('이메일을 입력해 주세요. 계정을 되찾을 때 필요합니다.');
+    if(!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(em))return suSay('이메일 형식이 올바르지 않습니다.');
+    return suGo(3);
+  }
+  /* 3단계 — 필수 동의 확인 후 실제 가입 */
+  const miss=SU_TERMS.filter(t=>t[1]&&!suForm.terms[t[0]]);
+  if(miss.length)return suSay(`필수 항목 <b>${miss.length}가지</b>에 동의해야 가입할 수 있습니다.`);
+  await doSignupRun();
+}
+async function doSignupRun(){
+  const id=normId(suForm.id), name=String(suForm.name).trim(), email=String(suForm.email).trim();
+  const btn=$('suNext'); if(btn)btn.disabled=true;
+  suSay('가입 처리 중…');
+  try{
+    const passH=await pwHash(suForm.pw), acctH=await pwHash('0000');
+    acctPassHash=acctH;
+    const cj=await cloudCall({action:'signup',id,pass:passH,name,email,acctPass:acctH,cash:0});
+    if(!cj||!cj.ok){
+      if(btn)btn.disabled=false;
+      return suSay(cj&&cj.err==='exists'?'이미 존재하는 아이디입니다.'
+        :cj&&cj.err==='weak'?'비밀번호가 보안 규칙을 만족하지 않습니다.'
+        :'서버에 연결하지 못해 가입을 완료할 수 없습니다.<br><small>계정을 이 기기에만 만들면 다른 기기에서 로그인할 수 없어 막았습니다.</small>');
+    }
+    const accs=accounts();
+    accs[id]={pass:passH,name,email,acctPass:acctH,created:Date.now(),
+      terms:{...suForm.terms,at:Date.now()}};
+    store.set('accounts',accs);
+    /* 계좌는 만들지 않는다 — 가입과 계좌 개설은 별개 절차다(v4.99) */
+    store.set('user:'+id,{watchlist:[],watchFolders:[],holdings:[],cash:0,usdCash:0,
+      ipoPlans:[],acctPass:acctH,acctType:'general',acctActive:'',acctList:[],acctBooks:{}});
+    applyUser(id); unlockApp(); initApp();
+    toast('buy','가입 완료',`${name}님, 환영합니다 · 내 계좌에서 계좌를 열어 주세요`);
+  }catch(e){
+    if(btn)btn.disabled=false;
+    suSay('가입 중 오류가 났습니다. 잠시 후 다시 시도해 주세요.');
+  }
+}
 /* [v4.18] 아이디는 서버와 똑같은 규칙(소문자·공백제거)으로 정규화한다.
    기기마다 대소문자가 달라 '같은 아이디인데 다른 계정'이 되던 문제의 절반이 여기 있었다. */
 function normId(v){return String(v==null?'':v).trim().toLowerCase();}
@@ -3647,79 +3832,9 @@ if($('laReset'))$('laReset').onclick=()=>{
 if($('saStop'))$('saStop').onclick=()=>{saRun=false;$('saStop').hidden=true;$('saStart').hidden=false;};
 /* ══ [v4.32] 계좌 개설 — 종류 선택 UI ══════════════════════════════════════ */
 let suAcctSel='general';
-function renderAcctPick(){
-  const box=$('suAcctType'); if(!box)return;
-  box.innerHTML=Object.keys(ACCT_TYPES).map(k=>{const a=ACCT_TYPES[k];
-    return `<button type="button" class="acct-chip ${suAcctSel===k?'on':''}" data-acct="${k}">
-      <i>${a.ic}</i><b>${a.n}</b></button>`;}).join('');
-  box.querySelectorAll('[data-acct]').forEach(b2=>b2.onclick=()=>{suAcctSel=b2.dataset.acct;renderAcctPick();});
-  const a=ACCT_TYPES[suAcctSel];
-  const lim=a.limit?KRW(a.limit)+'원':'없음';
-  $('suAcctDetail').innerHTML=`<div class="acct-d">
-    <p>${a.d}</p>
-    <div class="acct-kv"><span>국내 수수료</span><b>${(FEE_RATE_BASE*a.feeKr*100).toFixed(4)}%${a.feeKr<1?` <i class="acct-off">${Math.round((1-a.feeKr)*100)}% 우대</i>`:''}</b></div>
-    <div class="acct-kv"><span>해외 수수료</span><b>${(US_FEE_BASE*a.feeUs*100).toFixed(2)}%${a.feeUs<1?` <i class="acct-off">${Math.round((1-a.feeUs)*100)}% 우대</i>`:''}</b></div>
-    <div class="acct-kv"><span>환전 우대</span><b>${Math.round((a.fxPref!=null?a.fxPref:0.95)*100)}%</b></div>
-    <div class="acct-kv"><span>연 납입한도</span><b>${lim}</b></div>
-    <div class="acct-tags">${a.pros.map(x=>`<span class="acct-pro">✓ ${x}</span>`).join('')}
-      ${a.cons.map(x=>`<span class="acct-con">· ${x}</span>`).join('')}</div></div>`;
-}
-/* [v4.49] 실시간 강도·규칙 안내 — 가입 버튼을 누른 뒤에야 실패를 아는 일이 없게 */
-try{
-  pwWire('suPw','suPwMeter',()=>($('suId')||{}).value||'',()=>($('suName')||{}).value||'');
-  pwWire('pmPw','pmPwMeter',()=>currentUser||'',()=>((accounts()[currentUser]||{}).name||''));
-}catch(e){}
-$('doSignup').onclick=async()=>{
-  const id=normId($('suId').value),pw=$('suPw').value,pw2=$('suPw2').value;
-  /* ══ [v4.95] 가입은 계정만 만든다 ═══════════════════════════════════════════
-     계좌 종류·예수금·계좌 비밀번호를 가입 화면에서 빼고, 기본 계좌 하나만 연다.
-     (계좌 비밀번호 칸이 두 벌 겹쳐 있던 것도 함께 정리됐다)
-     다른 종류의 계좌는 가입 뒤 '내 계좌 → 계좌 개설'에서 만든다 — 실제 증권사와 같다. */
-  acctType='general';
-  acctList=[]; acctBooks={}; acctActive='';
-  const name=$('suName').value.trim()||id,email=$('suEmail').value.trim();
-  const cashV=0;                              // [v4.99] 예수금은 계좌 개설 때 정한다
-  const a='0000';                             // 기본 계좌 비밀번호 — 개설·설정에서 바꾼다
-  const m=$('suMsg');
-  if(id.length<4){m.textContent='아이디는 4자 이상으로 정해 주세요.';return;}
-  {const ck=pwCheck(pw,id,name); if(!ck.ok){m.textContent=ck.msg;$('suPw').focus();return;}}
-  if(pw!==pw2){m.textContent='비밀번호가 일치하지 않습니다.';return;}
-  const passH=await pwHash(pw),acctH=await pwHash(a);
-  acctPassHash=acctH;
-  m.textContent='가입 처리 중…';
-  const cj=await cloudCall({action:'signup',id,pass:passH,name,email,acctPass:acctH,cash:cashV});
-  if(cj&&!cj.ok){m.textContent=cj.err==='exists'?'이미 존재하는 아이디입니다.'
-    :cj.err==='weak'?'비밀번호가 보안 규칙을 만족하지 않습니다. 다시 확인해 주세요.'
-    :'가입에 실패했습니다. 잠시 후 다시 시도하세요.';return;}
-  /* [v4.18] 서버에 못 올린 계정을 로컬에만 만들면, 다른 기기에서는 존재하지 않는
-     계정이 된다(같은 아이디로 또 가입 → 데이터 분열). 가입은 서버 성공을 필수로 한다. */
-  if(!cj||!cj.ok){
-    m.innerHTML='서버에 연결하지 못해 가입을 완료할 수 없습니다. 잠시 후 다시 시도해 주세요.<br><small>계정을 이 기기에만 만들면 다른 기기에서 로그인할 수 없어 막았습니다.</small>';
-    return;
-  }
-  const accs=accounts(); accs[id]={pass:passH,name,email,acctPass:acctH,created:Date.now()}; store.set('accounts',accs);
-  /* ══ [v4.96] 새 계정에 남의 흔적이 남던 두 가지 ═══════════════════════════
-     ① 관심종목에 삼성전자·SK하이닉스·NAVER 를 기본으로 심고 있었다. 가입한 적도
-        없는 사람 눈에는 '내가 넣지도 않은 종목'이라 이상하다. 빈 채로 시작한다.
-     ② 계좌가 두 개 생겼다. loadState() 안의 acctMigrate() 가 '예전 사용자'로 보고
-        계좌를 하나 만들고, 곧이어 아래 acctOpen() 이 또 하나를 만들었다.
-        → 계좌 정보를 미리 저장해 두어 loadState 가 '이미 개설됨'으로 인식하게 하고,
-          여기서는 계좌를 새로 만들지 않는다. */
-  /* ══ [v4.99] 가입은 계정만 만든다 — 계좌는 만들지 않는다 ═══════════════════
-     앞선 판에서 '계좌 중복'을 막으려고 여기서 계좌를 미리 넣었는데, 그건
-     '가입하자마자 계좌가 생기는' 또 다른 문제였다. 실제 증권사는 가입과 계좌 개설이
-     별개이고, 개설 절차(약관 동의·비밀번호 설정 등)를 밟아야 한다.
-     → acctList 를 '빈 배열'로 넣는다. 키가 있으므로 예전 사용자로 오인해
-       자동 이전(acctMigrate)이 돌지 않고, 계좌는 하나도 생기지 않는다.
-     예수금도 0원에서 시작한다 — 계좌를 열 때 사용자가 정한다. */
-  store.set('user:'+id,{
-    watchlist:[], watchFolders:[], holdings:[], cash:0, usdCash:0, ipoPlans:[], acctPass:acctH,
-    acctType:'general', acctActive:'', acctList:[], acctBooks:{}
-  });
-  applyUser(id); unlockApp(); initApp();
-  toast('buy','가입 완료 · '+name+'님','계정이 서버에 저장되어 어느 기기에서든 같은 아이디로 로그인할 수 있어요');
-};
-/* ===== 프로필 메뉴 ===== */
+/* [v6.5] 가입 화면에서 계좌 개설을 뺐으므로(v4.95) 이 함수는 쓰이지 않는다.
+   호출부가 남아 있어도 조용히 넘어가도록 비워 둔다. */
+function renderAcctPick(){ return; }
 function setPmTab(t){document.querySelectorAll('#pmTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pm===t));document.querySelectorAll('.pm-pane').forEach(p=>p.hidden=(p.id!=='pm-'+t));}
 /* ══ [v2.3] 프로필 확장 — 아바타 · 내 통계 · 게스트 지원 ══ */
 const AVATARS=['🐣','🐻','🐰','🦊','🐼','🐯','🦄','🐸','🐳','🚀','⭐','💎'];
@@ -5297,7 +5412,7 @@ function etfRowHtml(x,rank){
   return `<div class="etf-row" data-code="${x.code}">
     <span class="rk num">${rank}</span>
     ${etfLogo(x.name,'sm')}
-    <span class="c1"><span class="e2-nm"><b>${x.name}</b>${lev}<span class="etf-brand">${x.brand}</span></span>
+    <span class="c1"><span class="e2-nm"><b>${htmlEsc(x.name)}</b>${lev}<span class="etf-brand">${x.brand}</span></span>
       <span class="e2-sub num">${x.code} · ${x.tab}</span></span>
     <span class="c2 num">${x.price!=null?KRW(x.price):'—'}</span>
     <span class="c3 num ${dir}">${x.changeRate!=null?arrow(dir)+' '+pctS(x.changeRate):'—'}</span>
@@ -5314,7 +5429,7 @@ function renderEtfHero(){
   const big=l.slice().sort((a,b)=>(b.marketSum||0)-(a.marketSum||0)).slice(0,3);
   const m3=l.filter(x=>x.m3!=null).sort((a,b)=>b.m3-a.m3).slice(0,3);
   const card=(title,sub,rows,fmt)=>`<div class="etf-hero-card"><div class="ehc-t">${title}<span>${sub}</span></div>
-    ${rows.map((x,i)=>`<div class="ehc-r" data-code="${x.code}"><span class="ehc-n">${i+1}. ${x.name}</span><span class="ehc-v num ${fmt(x).cls}">${fmt(x).txt}</span></div>`).join('')}</div>`;
+    ${rows.map((x,i)=>`<div class="ehc-r" data-code="${x.code}"><span class="ehc-n">${i+1}. ${htmlEsc(x.name)}</span><span class="ehc-v num ${fmt(x).cls}">${fmt(x).txt}</span></div>`).join('')}</div>`;
   el.innerHTML=
     card('상승 TOP 3','오늘',top,x=>({txt:pctS(x.changeRate),cls:dirOf(x.changeRate)}))+
     card('하락 TOP 3','오늘',bot,x=>({txt:pctS(x.changeRate),cls:dirOf(x.changeRate)}))+
@@ -5683,13 +5798,13 @@ function idxCardHtml(x){
       const d2=dirOf(last.change||0);
       return `<div class="idx-card" data-key="${x.key}"><div class="ic-top"><span class="tag">선물</span>
         <span class="ic-rt num ${d2}">${last.rate!=null?pctS(last.rate):'—'}</span></div>
-        <b class="icw-nm">${x.name}</b>
+        <b class="icw-nm">${htmlEsc(x.name)}</b>
         <div class="idx-lv num ${d2}">${DEC(last.price)}</div>
         <div class="idx-df num ${d2}">${last.change!=null?signedDec(last.change):'—'}<span class="mkb off">야간거래 종료</span></div>
         <div class="icw-sub2">최종 야간 종가 · 다음 개장 ${k200NightNext()}</div></div>`;
     }
     return `<div class="idx-card wait" data-key="${x.key}"><span class="tag">선물</span>
-      <b class="icw-nm">${x.name}</b><div class="icw-px">—</div>
+      <b class="icw-nm">${htmlEsc(x.name)}</b><div class="icw-px">—</div>
       <div class="icw-sub">${openNow?'야간 시세를 받아오는 중입니다':'야간거래가 열려 있지 않습니다 · 다음 개장 '+k200NightNext()}${(x.dayRef!=null)?`<br><i>주간 마감 ${DEC(x.dayRef)} 참고</i>`:''}</div>
       ${mktBadge(x.key,true)}</div>`;
   }
@@ -5698,7 +5813,7 @@ function idxCardHtml(x){
   // [수정] 태그와 이름을 한 줄에 넣어 이름이 '나스닥 …'으로 잘리고 태그가 세로로 깨지던 문제 →
   //        태그는 윗줄로 분리하고 이름은 폭을 온전히 쓰게 한다.
   return `<div class="idx-card"><div class="idx-tagline">${tag}<span class="idx-ch num ${dir}">${arrow(dir)} ${pctS(x.rate)}</span></div>
-    <div class="idx-top"><span class="idx-nm"><span class="idx-nm-t">${x.name}</span></span></div>
+    <div class="idx-top"><span class="idx-nm"><span class="idx-nm-t">${htmlEsc(x.name)}</span></span></div>
     <div class="idx-lv num ${dir} ${fl}">${DEC(x.price)}</div><div class="idx-df num ${dir}">${signedDec(x.change)}${mktBadge(x.key,x.dayBasis)}</div>
     ${x.dayBasis?'<div class="icw-sub">주간 마감 기준 · 야간 실시간 시세 수신 시 자동 교체</div>':''}
     <canvas class="spark" id="spark-idx-${x.key}"></canvas></div>`;}
@@ -5757,7 +5872,7 @@ function renderMarket(){
         /* [수정] 서버가 flag를 못 준 경우(구버전 캐시)에도 통화코드 앞 두 글자로 국기를 계산해 흰 깃발을 없앤다 */
         const fg=x.flag&&x.flag!=='🏳️'?x.flag:(x.key==='EUR'?'🇪🇺':(/^[A-Z]{2}/.test(x.key)?String.fromCodePoint(0x1f1e6+x.key.charCodeAt(0)-65,0x1f1e6+x.key.charCodeAt(1)-65):'🌐'));
         return `<div class="fx-card"><div class="fx-flag">${fg}</div><div class="fx-info">
-          <div class="fx-nm">${x.name}<span class="fx-unit">${x.unit}</span></div>
+          <div class="fx-nm">${htmlEsc(x.name)}<span class="fx-unit">${x.unit}</span></div>
           <div class="fx-lv num ${fl}">${DEC(x.price,dp)}</div>
           <div class="fx-ch num ${dir}">${arrow(dir)} ${signedDec(x.change,dp)} (${pctS(x.rate)})</div></div>
           <canvas id="spark-fx-${x.key}"></canvas></div>`;}).join('');
@@ -5765,7 +5880,7 @@ function renderMarket(){
     }else if(market.fx.length){
       if(st)st.textContent='';
       fr.innerHTML=market.fx.map(x=>{const dir=dirOf(x.change),fl=mktFlash(x.key,x.price);
-        return `<div class="fx-card"><div class="fx-info"><div class="fx-nm">${x.name} ${mktBadge(x.key)}</div><div class="fx-lv num ${fl}">${DEC(x.price)}</div>
+        return `<div class="fx-card"><div class="fx-info"><div class="fx-nm">${htmlEsc(x.name)} ${mktBadge(x.key)}</div><div class="fx-lv num ${fl}">${DEC(x.price)}</div>
           <div class="fx-ch num ${dir}">${arrow(dir)} ${signedDec(x.change)} (${pctS(x.rate)})</div></div><canvas id="spark-fx-${x.key}"></canvas></div>`;}).join('');
       market.fx.forEach(x=>drawSpark($('spark-fx-'+x.key),x.history,dirOf(x.change)));
     }else{fr.innerHTML='<div class="empty" style="min-width:100%">환율 수신 중…</div>';}
@@ -5956,7 +6071,7 @@ function buildBriefs(){
       const top=s2[0], second=s2[1], bot=s2[s2.length-1];
       add({icon:'🎯',cat:'주도 테마',mood:top.rate>=0?'up':'down',
         html:`세부 테마 ${rated.length}개 중 <b>${top.name}</b> <b class="${dirOf(top.rate)}">${pctS(top.rate)}</b>${second?` · <b>${second.name}</b> <b class="${dirOf(second.rate)}">${pctS(second.rate)}</b>`:''}`,
-        tip:`가장 약한 곳은 <b>${bot.name}</b>(${pctS(bot.rate)})이에요. 주도 테마는 하루아침에 바뀌니 매일 확인해 보세요.`});
+        tip:`가장 약한 곳은 <b>${htmlEsc(bot.name)}</b>(${pctS(bot.rate)})이에요. 주도 테마는 하루아침에 바뀌니 매일 확인해 보세요.`});
     }
   }catch(e){}
   /* ── 9. 내 업종 바스켓 ── */
@@ -6276,7 +6391,7 @@ function renderThemes(){
     sm.innerHTML=`<b>${all.length.toLocaleString()}개</b> ${secTab==='upjong'?'업종':'테마'} 중
       <b class="up">${up}개 상승</b> · <b class="down">${withRate.length-up}개 하락</b>
       ${top?`<span>최강 <b>${top.name}</b> <em class="up">${pctS(top.rate)}</em></span>`:''}
-      ${bot?`<span>최약 <b>${bot.name}</b> <em class="down">${pctS(bot.rate)}</em></span>`:''}
+      ${bot?`<span>최약 <b>${htmlEsc(bot.name)}</b> <em class="down">${pctS(bot.rate)}</em></span>`:''}
       ${thmQuery?`<span class="thm-q">‘${thmQuery}’ 검색 결과 ${list.length}건</span>`:''}`;
   }
   {
@@ -6334,7 +6449,7 @@ function renderThemeDetail(no){
     </div>
     <div class="thm-d-list">${rows.slice(0,40).map(x=>`
       <div class="thm-s" data-code="${x.code}">
-        <span class="ts-n">${anyLogo(x.code,x.name,'xs')}${x.name}<i>${x.code}</i></span>
+        <span class="ts-n">${anyLogo(x.code,x.name,'xs')}${htmlEsc(x.name)}<i>${x.code}</i></span>
         <span class="ts-p num">${mktBadgeHtml(x.code)}${x.px!=null?KRW(x.px):'—'}</span>
         <span class="ts-r num ${dirOf(x.r==null?0:x.r)}">${x.r==null?'—':pctS(x.r)}</span>
       </div>`).join('')}</div>
@@ -6597,7 +6712,7 @@ function drawAlloc(){
   x.fillText('총자산',cx,cy+13);
   lg.innerHTML=list.map((it,i)=>`<button class="al-r"${it.code?` data-code="${it.code}"`:''}>
     <i style="background:${it.cash?ALLOC_CASH:ALLOC_COL[i%ALLOC_COL.length]}"></i>
-    <span>${it.name}</span><b class="num">${(it.v/total*100).toFixed(1)}%</b></button>`).join('');
+    <span>${htmlEsc(it.name)}</span><b class="num">${(it.v/total*100).toFixed(1)}%</b></button>`).join('');
   lg.querySelectorAll('.al-r[data-code]').forEach(b=>b.onclick=()=>openTrade(b.dataset.code));
 }
 /* ② 손익 순위 — 보유 종목 수익률 상·하위 */
@@ -6615,7 +6730,7 @@ function renderTopMovers(){
   const worst=srt.slice(-3).reverse().filter(x=>best.indexOf(x)<0);
   const mx=Math.max(1,...rows.map(x=>Math.abs(x.rate)));
   const row=(x)=>`<button class="mv-r" data-code="${x.code}">
-    ${anyLogo(x.code,x.name,'xs')}<span class="mv-n">${x.name}</span>
+    ${anyLogo(x.code,x.name,'xs')}<span class="mv-n">${htmlEsc(x.name)}</span>
     <span class="mv-bar"><i class="${x.rate>=0?'up':'down'}" style="width:${Math.max(6,Math.min(100,Math.abs(x.rate)/mx*100))}%"></i></span>
     <b class="num ${x.rate>=0?'up':'down'}">${pctS(x.rate)}</b>
     <span class="mv-p num ${x.rate>=0?'up':'down'}">${signed(Math.round(x.pnl))}</span></button>`;
@@ -6826,9 +6941,9 @@ async function renderClan(){
   el.innerHTML=`
     <div class="clan-hero panel">
       <div class="ch-l"><div class="ch-ic">${c.emblem||'🛡️'}</div>
-        <div><div class="ch-nm">${c.name} <span class="ch-lv">Lv.${c.level?c.level.lv:1}</span></div>
+        <div><div class="ch-nm">${htmlEsc(c.name)} <span class="ch-lv">Lv.${c.level?c.level.lv:1}</span></div>
         <div class="ch-sub">멤버 ${c.members.length}/30 · ${new Date(c.createdAt).toLocaleDateString('ko-KR')} 창설 · ${c.open?'공개':'비공개'} 클랜${c.leader===c.me?' · 내가 리더':staff?' · 부리더':''}</div>
-        ${c.intro?`<div class="ch-intro">${c.intro}</div>`:''}</div></div>
+        ${c.intro?`<div class="ch-intro">${htmlEsc(c.intro)}</div>`:''}</div></div>
       <div class="ch-r">
         <button class="ch-code" id="clanCodeBtn" title="탭하면 복사">초대 코드 <b>${c.code}</b> 📋</button>
         ${c.leader===c.me?'<button class="ch-adm" id="clanAdm">⚙ 관리</button>':''}
@@ -6913,8 +7028,8 @@ async function renderClanLobby(el){
     const box=$('clanList');if(!box)return;
     if(!r.ok||!r.clans||!r.clans.length){box.innerHTML='<div class="empty">공개된 클랜이 아직 없어요. 첫 클랜을 만들어 보세요!</div>';return;}
     box.innerHTML=r.clans.map(x=>`<div class="fr-r"><span class="cl-em">${x.emblem||'🛡️'}</span>
-      <b>${x.name} <i class="ch-lv sm">Lv.${x.lv||1}</i></b>
-      ${x.intro?`<span class="cr-msg">“${x.intro}”</span>`:''}
+      <b>${htmlEsc(x.name)} <i class="ch-lv sm">Lv.${x.lv||1}</i></b>
+      ${x.intro?`<span class="cr-msg">“${htmlEsc(x.intro)}”</span>`:''}
       <span class="cr-meta">${x.n}명</span>
       <span class="cr-r num ${x.avg==null?'':(x.avg>=0?'up':'down')}">${x.avg==null?'—':pctS(x.avg)}</span>
       <button class="fr-ok" data-join="${x.cid}">가입</button></div>`).join('');
@@ -6962,8 +7077,8 @@ function paintClan(){
       const role=m.id===c.leader?'<i class="cr-l">리더</i>':m.role==='sub'?'<i class="cr-l sub">부리더</i>':'';
       return `<div class="cr ${m.id===c.me?'me':''}" data-mem="${m.id}">
         <span class="cr-m">${medal}</span>
-        <b class="cr-nm">${m.name} ${role}</b>
-        ${m.msg?`<span class="cr-msg">“${m.msg}”</span>`:''}
+        <b class="cr-nm">${htmlEsc(m.name)} ${role}</b>
+        ${m.msg?`<span class="cr-msg">“${htmlEsc(m.msg)}”</span>`:''}
         <span class="cr-meta">${m.tr?m.tr+'건':''}${m.updatedAt?` · ${agoStr2(m.updatedAt)}`:''}</span>
         <span class="cr-r num ${m.rate==null?'':(m.rate>=0?'up':'down')}">${m.rate==null?'미집계':pctS(m.rate)}</span></div>`;}).join('')
       ||'<div class="empty">아직 멤버가 없어요</div>';
@@ -6979,7 +7094,7 @@ function paintClan(){
       if(r.ok){clanCache=r;paintClan();toast('buy','상태 메시지 저장','');}else toast('warn','저장 실패',clanErrMsg(r));};
     const hof=$('clanHof');
     if(hof)hof.innerHTML=(c.hof&&c.hof.length)?`<div class="sec-title" style="margin-top:18px">명예의 전당 <span class="sec-sub">· 지난 시즌 1위</span></div>
-      <div class="panel hof-wrap">${c.hof.map(h=>`<div class="hof-r"><span class="hof-ym">${h.ym}</span><b>${h.name}</b><span class="num ${h.rate>=0?'up':'down'}">${pctS(h.rate)}</span></div>`).join('')}</div>`:'';
+      <div class="panel hof-wrap">${c.hof.map(h=>`<div class="hof-r"><span class="hof-ym">${htmlEsc(h.ym)}</span><b>${htmlEsc(h.name)}</b><span class="num ${h.rate>=0?'up':'down'}">${pctS(h.rate)}</span></div>`).join('')}</div>`:'';
   }
   else if(clanTab==='chat'){
     if(!pane.querySelector('.clan-chat')){
@@ -6994,8 +7109,8 @@ function paintClan(){
     const list=c.chat||[];
     const atBottom=cl.scrollHeight-cl.scrollTop-cl.clientHeight<40;
     cl.innerHTML=list.length?list.map(m=>m.sys
-      ?`<div class="cc-sys">${m.text}</div>`
-      :`<div class="cc-m ${m.id===c.me?'mine':''}"><span class="cc-n">${m.name}</span><span class="cc-t">${m.text}</span><span class="cc-ts">${agoStr2(m.ts)}</span></div>`).join('')
+      ?`<div class="cc-sys">${htmlEsc(m.text)}</div>`
+      :`<div class="cc-m ${m.id===c.me?'mine':''}"><span class="cc-n">${htmlEsc(m.name)}</span><span class="cc-t">${htmlEsc(m.text)}</span><span class="cc-ts">${agoStr2(m.ts)}</span></div>`).join('')
       :'<div class="cc-empty">첫 메시지를 남겨 보세요 👋</div>';
     if(atBottom)cl.scrollTop=cl.scrollHeight;
     clanMarkSeen();
@@ -7009,7 +7124,7 @@ function paintClan(){
         <div class="lv-n">멤버 활동(체결)·채팅·규모·운영 기간이 쌓이면 레벨이 오릅니다${c.goal!=null?` · 클랜 목표 수익률 <b>${pctS(c.goal)}</b>`:''}</div>
       </div>
       ${(staff&&c.pending&&c.pending.length)?`<div class="sec-title" style="margin-top:16px">가입 신청 <span class="sec-sub">· ${c.pending.length}건</span></div>
-        <div class="panel fr-list">${c.pending.map(p=>`<div class="fr-r"><b>${p.name}</b><span class="fr-id">@${p.id}</span>
+        <div class="panel fr-list">${c.pending.map(p=>`<div class="fr-r"><b>${htmlEsc(p.name)}</b><span class="fr-id">@${htmlEsc(p.id)}</span>
           <span class="fr-btns"><button class="fr-ok" data-ap="${p.id}">승인</button><button class="fr-no" data-dn="${p.id}">반려</button></span></div>`).join('')}</div>`:''}
       <div class="sec-title" style="margin-top:16px">활동 기록</div>
       <div class="panel feed-wrap">${(c.feed&&c.feed.length)?c.feed.map(f=>`<div class="fd-r"><span class="fd-t">${f.t}</span><span class="fd-ts">${agoStr2(f.ts)}</span></div>`).join(''):'<div class="empty">아직 활동 기록이 없어요</div>'}</div>`;
@@ -7031,7 +7146,7 @@ function paintClan(){
       box.innerHTML=r.clans.map((x,i)=>`<div class="fr-r ${x.cid===c.cid?'me':''}">
         <span class="cr-m">${i===0?'🥇':i===1?'🥈':i===2?'🥉':`<i class="cr-n">${i+1}</i>`}</span>
         <span class="cl-em">${x.emblem||'🛡️'}</span>
-        <b>${x.name}${x.cid===c.cid?' <i class="cr-l">우리 클랜</i>':''} <i class="ch-lv sm">Lv.${x.lv||1}</i></b>
+        <b>${htmlEsc(x.name)}${x.cid===c.cid?' <i class="cr-l">우리 클랜</i>':''} <i class="ch-lv sm">Lv.${x.lv||1}</i></b>
         <span class="cr-meta">${x.n}명</span>
         <span class="cr-r num ${x.avg==null?'':(x.avg>=0?'up':'down')}">${x.avg==null?'—':pctS(x.avg)}</span></div>`).join('');
     };
@@ -7062,7 +7177,7 @@ function openMemberCard(id){
     ${(Array.isArray(m.holds)&&m.holds.length)?`<div class="mc-hd">보유 종목 <small>${m.holds.length}종${(m.hold||0)>m.holds.length?` · 상위 ${m.holds.length}종만 표시`:''}</small></div>
       <div class="mc-holds">${m.holds.map(h=>`<span class="mc-h">
         ${h.us?'🇺🇸':'🇰🇷'}<b>${htmlEsc(h.n)}</b>${h.r==null?'':`<i class="num ${h.r>=0?'up':'down'}">${pctS(h.r)}</i>`}</span>`).join('')}</div>`:''}
-    ${m.msg?`<div class="pm-note">“${m.msg}”</div>`:''}
+    ${m.msg?`<div class="pm-note">“${htmlEsc(m.msg)}”</div>`:''}
     ${(staff&&m.id!==c.me&&m.id!==c.leader)?`<div class="lg-row">
       ${isLeader?`<button class="btn-ghost" id="mcRole">${m.role==='sub'?'부리더 해제':'부리더 임명'}</button>
       <button class="btn-ghost" id="mcTransfer">리더 위임</button>`:''}
@@ -7170,7 +7285,7 @@ setInterval(()=>{try{
 function notifyClanChat(c,m){
   try{
     if('Notification' in window&&Notification.permission==='granted')
-      new Notification(`${c.emblem||'🛡️'} ${c.name}`,{body:`${m.name}: ${m.text}`.slice(0,90),icon:'/icon-192.png',tag:'clan-chat'});
+      new Notification(`${c.emblem||'🛡️'} ${c.name}`,{body:`${htmlEsc(m.name)}: ${m.text}`.slice(0,90),icon:'/icon-192.png',tag:'clan-chat'});
   }catch(e){}
 }
 
@@ -7432,20 +7547,20 @@ async function renderFriend(){
       <button class="btn-primary" id="frAddGo">친구 신청</button>
     </div>
     ${(f.reqIn&&f.reqIn.length)?`<div class="sec-title" style="margin-top:16px">받은 친구 신청 <span class="sec-sub">· ${f.reqIn.length}건</span></div>
-      <div class="panel fr-list">${f.reqIn.map(x=>`<div class="fr-r"><b>${x.name}</b><span class="fr-id">@${x.id}</span>
+      <div class="panel fr-list">${f.reqIn.map(x=>`<div class="fr-r"><b>${htmlEsc(x.name)}</b><span class="fr-id">@${x.id}</span>
         <span class="fr-btns"><button class="fr-ok" data-ac="${x.id}">수락</button><button class="fr-no" data-rj="${x.id}">거절</button></span></div>`).join('')}</div>`:''}
     <div class="sec-title" style="margin-top:16px">친구 수익률 랭킹 <span class="sec-sub">· ${mp.ym} · 월초 자산 대비</span></div>
     <div class="panel fr-list">${rank.length>1?rank.map((x,i)=>`
       <div class="fr-r ${x.self?'me':''}">
         <span class="cr-m">${i===0?'🥇':i===1?'🥈':i===2?'🥉':`<i class="cr-n">${i+1}</i>`}</span>
-        <b>${x.name}${x.self?' <i class="cr-l">나</i>':''}</b>
-        ${x.msg?`<span class="cr-msg">“${x.msg}”</span>`:''}
+        <b>${htmlEsc(x.name)}${x.self?' <i class="cr-l">나</i>':''}</b>
+        ${x.msg?`<span class="cr-msg">“${htmlEsc(x.msg)}”</span>`:''}
         <span class="cr-meta">${x.tr?x.tr+'건':''}${x.ts?` · ${agoStr2(x.ts)}`:''}</span>
         <span class="cr-r num ${x.rate==null?'':(x.rate>=0?'up':'down')}">${x.rate==null?'미집계':pctS(x.rate)}</span>
         ${x.self?'':`<i class="cr-x" data-del="${x.id}" title="친구 삭제">✕</i>`}</div>`).join('')
       :'<div class="empty">아직 친구가 없어요. 위에서 아이디로 신청해 보세요!</div>'}</div>
     ${(f.reqOut&&f.reqOut.length)?`<div class="sec-title" style="margin-top:16px">보낸 신청</div>
-      <div class="panel fr-list">${f.reqOut.map(x=>`<div class="fr-r"><b>${x.name}</b><span class="fr-id">@${x.id}</span>
+      <div class="panel fr-list">${f.reqOut.map(x=>`<div class="fr-r"><b>${htmlEsc(x.name)}</b><span class="fr-id">@${x.id}</span>
         <span class="fr-btns"><button class="fr-no" data-cx="${x.id}">취소</button></span></div>`).join('')}</div>`:''}
     <div class="pm-note">친구에게는 <b>이름·이번 달 수익률·상태 메시지·체결 건수</b>만 공개되고 자산 금액은 공유되지 않습니다.</div>`;
   $('frIdCopy').onclick=()=>{try{navigator.clipboard.writeText(currentUser);toast('buy','아이디 복사',currentUser);}catch(e){}};
@@ -8683,7 +8798,7 @@ function renderHist(){
   el.innerHTML=`<div class="sh-head"><span>최근 검색</span><button id="shClear">전체 삭제</button></div>
     <div class="sh-chips">${srchHist.map((h,i)=>h.q
       ?`<span class="sh-chip q" data-i="${i}"><i class="sh-ic">🔍</i><b>${h.q}</b><i class="sh-x" data-x="${i}">✕</i></span>`
-      :`<span class="sh-chip" data-i="${i}">${(h.market==='US'||usMeta[h.code])?usTick(h.code,'xs'):anyLogo(h.code,h.name,'xs')}<b>${h.name}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
+      :`<span class="sh-chip" data-i="${i}">${(h.market==='US'||usMeta[h.code])?usTick(h.code,'xs'):anyLogo(h.code,h.name,'xs')}<b>${htmlEsc(h.name)}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
   el.querySelectorAll('.sh-chip').forEach(c=>c.onclick=(e)=>{
     if(e.target.classList.contains('sh-x'))return;
     const h=srchHist[+c.dataset.i]; if(!h)return;
@@ -11260,7 +11375,7 @@ function ipoCardHtml(it,idx){
       ${it.demand?`<span class="ipo-int">${KRW(it.demand)}명 관심</span>`:''}
       <span class="bm ${marked?'on':''}" data-bm="${idx}" title="관심 공모주">${marked?'🔖':'🏳️'}</span>
     </div>
-    <div class="ipo-nm">${it.name}</div>
+    <div class="ipo-nm">${htmlEsc(it.name)}</div>
     <div class="ipo-band"><span>공모예정가</span><b>${it.priceBand?it.priceBand+'원':'미정'}</b></div>
     <div class="ipo-kv"><span>청약일</span><b>${fmtDot(it.subStart)}${it.subEnd?'~'+fmtDot(it.subEnd).slice(5):''}</b></div>
     <button class="ipo-detail-btn" data-exp="${idx}">세부 내용 조회 <span class="arr">${exp?'▲':'▼'}</span></button>

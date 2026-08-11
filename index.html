@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=397">
+<link rel="stylesheet" href="/app.css?v=400">
 </head>
 <body>
 
@@ -312,6 +312,19 @@
         <div class="modal-msg" id="liMsg"></div>
         <button class="modal-btn" id="doLogin">로그인</button>
 
+        <!-- [v6.7] 구글 간편 로그인 — 공식 파랑(#4285F4) -->
+        <div class="oa-or"><span>또는</span></div>
+        <button type="button" class="oa-btn oa-google" id="oaGoogle">
+          <span class="oa-g"><svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+            <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+            <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/>
+            <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+          </svg></span>
+          <b>Google로 간편 로그인</b>
+        </button>
+        <div class="oa-note">구글 계정으로 바로 시작할 수 있어요. 이메일과 이름만 받아 옵니다.</div>
+
         <div class="restore-wrap">
           <button type="button" class="link-btn" id="showRestore">다른 주소·기기에서 쓰던 계정 복원 ▾</button>
           <div id="restoreBox" hidden>
@@ -322,25 +335,17 @@
           </div>
         </div>
       </div>
+      <!-- ══ [v6.6] 회원가입도 계좌 개설과 같은 단계식으로 ═══════════════════════
+           [왜] 계좌 개설은 3단계로 나눠 약관까지 받는데, 가입은 한 화면에 다 몰아넣고
+           약관이 아예 없었다. 같은 앱 안에서 절차가 달라 보이고, 개인정보를 받으면서
+           동의를 구하지 않는 것도 맞지 않는다.
+           [구성] 1단계 계정 정보 · 2단계 본인 정보 · 3단계 약관 동의 -->
       <div id="signupForm" hidden>
-        <div class="fld2"><label>아이디</label><input id="suId" placeholder="4자 이상"></div>
-        <!-- [v4.99] 안내 문구가 잘리던 문제 — 두 칸으로 나누면 입력칸이 좁아
-             '8자 이상 · 영문+숫자+특수...' 처럼 끝이 잘렸다. 안내는 라벨 아래 줄로
-             옮겨 온전히 보이게 하고, 입력칸 안내는 짧게 남긴다. -->
-        <div class="fld2 two"><div><label>비밀번호</label><input id="suPw" type="password" autocomplete="new-password" placeholder="비밀번호"></div><div><label>비밀번호 확인</label><input id="suPw2" type="password" autocomplete="new-password" placeholder="다시 입력"></div></div>
-        <div class="fld-help">8자 이상 · 영문 + 숫자 + 특수문자를 모두 포함해 주세요</div>
-        <div class="pw-meter" id="suPwMeter" hidden></div>
-        <div class="fld2 two"><div><label>이름/닉네임</label><input id="suName" placeholder="홍길동"></div><div><label>이메일 (선택)</label><input id="suEmail" placeholder="선택"></div></div>
-        <!-- ══ [v4.95] 회원가입에서 계좌 개설을 뺐다 ══════════════════════════════
-             [무엇이 문제였나] ① 계좌 종류·예수금·계좌 비밀번호까지 한 화면에 넣어
-             창이 세로로 길어져 화면 밖으로 나갔다. ② 계좌 비밀번호 칸이 두 벌
-             (suAcctPw · suAcct/suAcct2) 있었다 — 서로 다른 시기에 넣은 것이 겹친 채
-             남아 있었다. ③ 실제 증권사도 가입과 계좌 개설은 별개 절차다.
-             → 가입은 계정만 만들고, 계좌는 가입 직후 '내 계좌 → 계좌 개설'에서 만든다. -->
-        <div class="su-note">가입하면 <b>종합위탁계좌</b>가 기본으로 하나 열립니다.
-          다른 종류의 계좌는 가입 후 <b>내 계좌 → 계좌 개설</b>에서 만들 수 있어요.</div>
+        <div class="su-steps" id="suSteps"></div>
+        <div id="suBody"></div>
         <div class="modal-msg" id="suMsg"></div>
-        <button class="modal-btn" id="doSignup">가입하고 시작하기</button>
+        <div class="su-nav" id="suNav"></div>
+      </div>
       </div>
     </div>
   </div>
@@ -531,7 +536,7 @@
         <div class="pm-sec-t">백업에서 복원</div>
         <div class="fld2"><label>백업 코드 붙여넣기</label><textarea id="pmRestoreIn" rows="3" placeholder="내려받은 파일의 내용 또는 복사한 코드를 붙여넣으세요"></textarea></div>
         <div class="backup-actions"><button class="modal-ghost" id="pmRestoreFile" style="flex:1">파일에서 불러오기</button><button class="modal-btn" id="pmRestore">복원하기</button></div>
-        <input type="file" id="pmRestoreFileIn" accept=".json,application/json" hidden>
+        <input type="file" id="pmRestoreFileIn" aria-label="백업 파일 선택" accept=".json,application/json" hidden>
         <div class="pm-warn">복원하면 <b>현재 계정의 관심종목·보유·매매일지가 백업 내용으로 덮어써집니다.</b> 되돌릴 수 없으니 먼저 지금 상태를 내려받아 두세요.</div>
         <div class="pm-msg" id="pmDataMsg"></div>
       </div>
@@ -1267,10 +1272,10 @@
         <div class="ord-body">
           <button class="ot-select" id="otSelect"><span id="otSelText">KRX · 보통지정가</span><span class="ot-caret">▾</span></button>
           <div class="field"><div class="lab"><span>주문가격</span><span id="priceHint" class="num"></span></div>
-            <div class="stepper"><button id="pxDown" aria-label="수량 줄이기">−</button><input id="pxInput" class="num" inputmode="numeric"><button id="pxUp" aria-label="수량 늘리기">+</button><span class="unit">원</span></div></div>
+            <div class="stepper"><button id="pxDown" aria-label="주문가격 낮추기">−</button><input id="pxInput" class="num" inputmode="numeric" aria-label="주문가격"><button id="pxUp" aria-label="주문가격 올리기">+</button><span class="unit">원</span></div></div>
           <label class="ord-book"><input type="checkbox" id="ordBook"> 예약 주문 <span>지정가 도달 시 자동 체결</span></label>
           <div class="field"><div class="lab"><span>주문수량</span><span class="num" id="maxQty"></span></div>
-            <div class="stepper"><button id="qtyDown" aria-label="수량 줄이기">−</button><input id="qtyInput" class="num" value="1" inputmode="numeric"><button id="qtyUp" aria-label="수량 늘리기">+</button><span class="unit">주</span></div>
+            <div class="stepper"><button id="qtyDown" aria-label="수량 줄이기">−</button><input id="qtyInput" class="num" value="1" inputmode="numeric" aria-label="주문수량"><button id="qtyUp" aria-label="수량 늘리기">+</button><span class="unit">주</span></div>
             <div class="qty-quick" id="qtyQuick"><button data-q="10">10%</button><button data-q="25">25%</button><button data-q="50">50%</button><button data-q="100">최대</button></div></div>
           <div class="ord-summary"><span>주문금액</span><span class="amt num" id="ordTotal">0원</span></div>
           <button class="submit buy" id="submitBtn">매수 주문</button>
@@ -1402,6 +1407,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=397"></script>
+<script type="module" src="/app.js?v=400"></script>
 </body>
 </html>

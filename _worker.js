@@ -13172,6 +13172,125 @@ async function k200nfdiag_default(){
     "cache-control":"no-store","access-control-allow-origin":"*"}});
 }
 ROUTES["k200nfdiag"]=k200nfdiag_default;
+/* ══ [v6.7] 구글 간편 로그인 ═══════════════════════════════════════════════
+   [흐름] ① 버튼을 누르면 서버가 무작위 state 를 만들어 보관하고 구글로 보낸다
+          ② 구글이 사용자 확인 뒤 code 를 들고 이 주소로 되돌아온다
+          ③ state 가 맞는지 확인(위조 요청 차단) → code 를 토큰으로 바꾼다
+          ④ 토큰으로 이메일·이름을 받아 계정을 찾거나 새로 만든다
+          ⑤ 한 번만 쓸 수 있는 표(ticket)를 주고 앱으로 돌려보낸다
+          ⑥ 앱이 그 표로 계정 정보를 받아 로그인 상태가 된다
+   [보안] · 시크릿은 코드에 없고 환경변수(GOOGLE_CLIENT_SECRET)에서만 읽는다
+          · state·ticket 모두 짧게 살고 한 번 쓰면 사라진다
+          · 계정 비밀번호는 무작위로 만들어 서버가 보관한다(사용자가 알 필요 없음) */
+function oaOrigin(req2){
+  try{ const u=new URL(req2.url); return u.origin; }catch(e){ return ""; }
+}
+function oaRand(n){
+  const b=new Uint8Array(n||24); crypto.getRandomValues(b);
+  return [...b].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+async function oauth_google_default(req2, ctx){
+  const env=(ctx&&ctx.env)||_ENV||{};
+  const CID=env.GOOGLE_CLIENT_ID||"";
+  const CSEC=env.GOOGLE_CLIENT_SECRET||"";
+  const url=new URL(req2.url);
+  const origin=oaOrigin(req2);
+  const redirect=origin+"/api/oauth/google";
+  let st; try{ st=await stores(); }catch{ return json2({ok:false,err:"nostore"}); }
+
+  /* ⑥ 앱이 표를 들고 와 계정 정보를 받아 간다 */
+  const claim=url.searchParams.get("claim");
+  if(claim){
+    const key="oa:tk:"+String(claim).replace(/[^a-f0-9]/g,"").slice(0,64);
+    const t=await st.clan.get(key,{type:"json"}).catch(()=>null);
+    if(!t)return json2({ok:false,err:"expired"});
+    await st.clan.delete(key).catch(()=>{});     // 한 번만 쓸 수 있다
+    return json2({ok:true,...t});
+  }
+
+  if(!CID||!CSEC)
+    return json2({ok:false,err:"noconfig",
+      detail:"GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 환경변수가 필요합니다"});
+
+  const code=url.searchParams.get("code");
+  const back=(m)=>Response.redirect(origin+"/?glogin="+encodeURIComponent(m),302);
+
+  /* ① 시작 — 구글로 보낸다 */
+  if(!code){
+    const state=oaRand(16);
+    await st.clan.setJSON("oa:st:"+state,{at:Date.now()},{expirationTtl:600}).catch(()=>{});
+    const a=new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    a.searchParams.set("client_id",CID);
+    a.searchParams.set("redirect_uri",redirect);
+    a.searchParams.set("response_type","code");
+    a.searchParams.set("scope","openid email profile");
+    a.searchParams.set("state",state);
+    a.searchParams.set("prompt","select_account");
+    return Response.redirect(a.toString(),302);
+  }
+
+  /* ③ 돌아왔다 — state 확인 */
+  const state=String(url.searchParams.get("state")||"").replace(/[^a-f0-9]/g,"").slice(0,64);
+  const okState=state?await st.clan.get("oa:st:"+state,{type:"json"}).catch(()=>null):null;
+  if(!okState)return back("state");
+  await st.clan.delete("oa:st:"+state).catch(()=>{});
+
+  try{
+    /* ④ code → 토큰 → 사용자 정보 */
+    const tr=await fetch("https://oauth2.googleapis.com/token",{method:"POST",
+      headers:{"content-type":"application/x-www-form-urlencoded"},
+      body:new URLSearchParams({code,client_id:CID,client_secret:CSEC,
+        redirect_uri:redirect,grant_type:"authorization_code"})});
+    if(!tr.ok)return back("token");
+    const tj=await tr.json();
+    if(!tj||!tj.access_token)return back("token");
+    const ur=await fetch("https://www.googleapis.com/oauth2/v3/userinfo",
+      {headers:{authorization:"Bearer "+tj.access_token}});
+    if(!ur.ok)return back("profile");
+    const uj=await ur.json();
+    const email=String(uj&&uj.email||"").trim().toLowerCase();
+    if(!email||uj.email_verified===false)return back("email");
+    const gname=clip(uj.name||email.split("@")[0],12);
+    const gsub=String(uj.sub||"");
+
+    /* ⑤ 계정을 찾거나 만든다 */
+    const db=await st.acc.get("db",{type:"json"}).catch(()=>null)||{accounts:{},users:{}};
+    db.accounts=db.accounts||{}; db.users=db.users||{};
+    let uid=Object.keys(db.accounts).find(k=>{
+      const a=db.accounts[k];
+      return a&&((a.googleSub&&a.googleSub===gsub)||
+        (a.email&&String(a.email).toLowerCase()===email));
+    })||"";
+    let created=false;
+    if(!uid){
+      /* 이메일 앞부분으로 아이디를 만들고, 겹치면 숫자를 붙인다 */
+      let base=email.split("@")[0].toLowerCase().replace(/[^a-z0-9_.-]/g,"").slice(0,16);
+      if(base.length<4)base=("g"+base+"0000").slice(0,8);
+      uid=base;
+      for(let i=1;db.accounts[uid]&&i<200;i++)uid=base+i;
+      created=true;
+    }
+    /* 서버가 보관하는 무작위 비밀번호 — 사용자는 몰라도 되고, 앱이 서버와 통신할 때만 쓴다 */
+    const pass="s"+oaRand(32);
+    const acc=db.accounts[uid]||{name:gname,email,created:Date.now()};
+    acc.name=acc.name||gname;
+    acc.email=acc.email||email;
+    acc.googleSub=gsub;
+    acc.salt=oaRand(16);
+    acc.hash=await sha2562(acc.salt+"|"+pass);
+    delete acc.pass;
+    db.accounts[uid]=acc;
+    if(!db.users[uid])db.users[uid]={watchlist:[],watchFolders:[],holdings:[],cash:0,
+      usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
+    await st.acc.setJSON("db",db).catch(()=>{});
+
+    const ticket=oaRand(20);
+    await st.clan.setJSON("oa:tk:"+ticket,{id:uid,pass,name:acc.name,email:acc.email,
+      created:!!created,user:db.users[uid]},{expirationTtl:180}).catch(()=>{});
+    return Response.redirect(origin+"/?glogin=ok&t="+ticket,302);
+  }catch(e){ return back("error"); }
+}
+ROUTES["oauth/google"]=oauth_google_default;
 ROUTES["xfer"]=xfer_default;
 ROUTES["usnews"]=usnews_default;
 ROUTES["usinfo"]=usinfo_default;
@@ -13211,7 +13330,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "6.4.0";
+var APP_VER = "6.7.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

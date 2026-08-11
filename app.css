@@ -4660,3 +4660,103 @@ html[data-theme="dark"] .asend-tabs button.on{background:rgba(255,255,255,.12)}
 .asend .us-submit{width:100%;margin-top:4px}
 .asend .us-ord-note{margin-top:12px}
 .asend .ae-msg{margin:6px 0 0}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [v6.5] 최근에 추가한 화면들의 모바일 대응
+   송금 탭·계좌 안내창·클랜 보유종목·송금 도착 알림은 나중에 만든 것이라
+   좁은 화면 규칙이 빠져 있었다. 폭·글자·누를 크기를 한 번 더 맞춘다.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width:560px){
+  /* 송금 코너 */
+  .asend-tabs button{font-size:12.5px;padding:10px 6px}
+  .asend-from{padding:12px 13px}
+  .asend-from b{font-size:14px}
+  .asend-quick{gap:5px}
+  .asend-quick button{padding:8px 9px;font-size:11.5px;min-height:40px;flex:1 1 auto}
+  .asend .us-inrow input{min-width:0}
+  .asend .us-inrow button{width:74px!important;font-size:11.5px!important;flex:0 0 74px}
+  .asend-to,.asend-ok,.asend-bad{font-size:12px}
+  /* 계좌 개설 안내창 */
+  .ag-steps{gap:6px}
+  .ag-s{padding:10px 11px}
+  .ag-s span{font-size:12px}
+  .ag-s span b{font-size:10.5px}
+  /* 송금 도착 알림 */
+  .xf-list{gap:6px}
+  .xf-it{padding:10px 11px}
+  .xf-it b{font-size:15px}
+  /* 클랜 구성원 보유 종목 */
+  .mc-holds{gap:5px}
+  .mc-h{padding:5px 9px;font-size:11px}
+  .mc-b{padding:10px 11px}
+  .mc-b b{font-size:12.5px}
+  /* 계좌 선택 칩 */
+  .acct-chip b{font-size:11.5px;line-height:1.3}
+  .acct-chip i{font-size:16px}
+  .acct-chip-sub{font-size:11px}
+}
+@media (max-width:400px){
+  .asend-tabs button{font-size:11.5px}
+  .asend-quick button{font-size:11px;padding:8px 6px}
+  .asend .us-inrow button{width:64px!important;font-size:11px!important;flex:0 0 64px}
+  .ag-t,.xf-t{font-size:15.5px}
+  .mc-bw{gap:6px}
+}
+/* 가로 화면에서 새 모달들도 화면을 넘지 않게 */
+@media (max-height:520px) and (orientation:landscape){
+  .acct-gate-box,.xfer-box{max-height:92vh;max-height:92dvh;overflow-y:auto}
+}
+
+/* ══ [v6.6] 회원가입 단계식 ═══════════════════════════════════════════════ */
+.su-steps{display:flex;gap:6px;margin:14px 0 16px}
+.su-st{flex:1;display:flex;align-items:center;gap:7px;padding:9px 10px;border-radius:10px;
+  background:var(--border-soft);min-width:0}
+.su-st i{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--border);
+  color:var(--sub-2);font-style:normal;font-size:11px;font-weight:900;display:grid;place-items:center}
+.su-st span{font-size:11.5px;font-weight:800;color:var(--sub-2);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.su-st.on{background:var(--text)}
+.su-st.on i{background:var(--panel);color:var(--text)}
+.su-st.on span{color:var(--panel)}
+html[data-theme="dark"] .su-st.on{background:#fff}
+html[data-theme="dark"] .su-st.on i{background:#111;color:#fff}
+html[data-theme="dark"] .su-st.on span{color:#111}
+.su-st.done i{background:var(--up);color:#fff}
+.su-st.done span{color:var(--text)}
+.su-nav{display:flex;gap:8px;margin-top:16px}
+.su-nav .modal-ghost{flex:0 0 34%}
+.su-nav .modal-btn{flex:1;margin:0}
+.pw-meter{margin:-4px 0 10px}
+.pwm-bar{height:5px;border-radius:99px;background:var(--border-soft);overflow:hidden}
+.pwm-bar i{display:block;height:100%;border-radius:99px;transition:width .18s}
+.pwm-bar i.s1{background:#e5484d}.pwm-bar i.s2{background:#f5a524}
+.pwm-bar i.s3{background:#3ddc97}.pwm-bar i.s4{background:#12b76a}
+.pwm-t{margin-top:5px;font-size:11px;font-weight:700;color:var(--sub-2)}
+@media (max-width:560px){
+  .su-st{padding:8px 8px;gap:5px}
+  .su-st span{font-size:10.5px}
+  .su-nav .modal-ghost{flex:0 0 32%}
+}
+
+/* ══ [v6.7] 구글 간편 로그인 버튼 ═══════════════════════════════════════════
+   구글 브랜드 가이드가 허용하는 파랑(#4285F4)에 흰 바탕 G 로고를 얹는다.
+   로고 자리를 흰색으로 두는 것이 공식 형식이다. */
+.oa-or{display:flex;align-items:center;gap:10px;margin:16px 0 12px;
+  font-size:11.5px;font-weight:700;color:var(--sub-2)}
+.oa-or::before,.oa-or::after{content:'';flex:1;height:1px;background:var(--border)}
+.oa-btn{display:flex;align-items:center;justify-content:center;gap:0;width:100%;
+  min-height:48px;border-radius:10px;cursor:pointer;overflow:hidden;padding:0;border:0}
+.oa-google{background:#4285F4}
+.oa-google:hover{background:#3b78dc}
+.oa-google:active{background:#3568c0}
+.oa-google:disabled{opacity:.6;cursor:default}
+.oa-g{display:grid;place-items:center;width:40px;height:40px;margin-left:4px;
+  background:#fff;border-radius:6px;flex:0 0 auto}
+.oa-google b{flex:1;text-align:center;padding-right:44px;
+  font-size:14.5px;font-weight:800;color:#fff;letter-spacing:-.2px}
+.oa-note{margin-top:9px;font-size:11.5px;line-height:1.65;font-weight:600;color:var(--sub-2);text-align:center}
+@media (max-width:560px){
+  .oa-btn{min-height:46px}
+  .oa-google b{font-size:13.5px;padding-right:40px}
+  .oa-g{width:38px;height:38px}
+}
