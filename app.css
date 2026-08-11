@@ -4760,3 +4760,67 @@ html[data-theme="dark"] .su-st.on span{color:#111}
   .oa-google b{font-size:13.5px;padding-right:40px}
   .oa-g{width:38px;height:38px}
 }
+
+/* ══ [v6.8] 계정 설정 탭 ═══════════════════════════════════════════════════ */
+.as-card{padding:14px 15px;border-radius:13px;background:var(--border-soft);margin-bottom:14px}
+.as-kv{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:6px 0;min-width:0}
+.as-kv span{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--sub-2)}
+.as-kv b{min-width:0;font-size:13px;font-weight:800;color:var(--text);text-align:right;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.as-kv b.as-id{font-size:12.5px;word-break:break-all;white-space:normal}
+.as-g{font-style:normal;color:#4285F4;font-weight:900}
+.as-note{margin-top:10px;padding-top:11px;border-top:1px solid var(--border);
+  font-size:11.5px;line-height:1.7;font-weight:600;color:var(--sub)}
+.as-row{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--border)}
+.as-row>div{flex:1;min-width:0}
+.as-row b{display:block;font-size:13.5px;font-weight:800;color:var(--text)}
+.as-row span{display:block;margin-top:3px;font-size:11.5px;font-weight:600;color:var(--sub-2);line-height:1.6}
+.as-row[hidden]{display:none}
+.as-btn{flex:0 0 auto;min-width:74px;min-height:40px;padding:0 14px;border-radius:10px;
+  border:1px solid var(--border);background:var(--panel);font-size:12.5px;font-weight:800;
+  color:var(--text);cursor:pointer}
+.as-btn:hover{border-color:var(--sub-2)}
+.as-btn.del{border-color:#e5484d;color:#e5484d}
+.as-btn.del:hover{background:rgba(229,72,77,.08)}
+.pm-sec-t.danger{color:#e5484d}
+.as-row.danger{border-bottom:0}
+@media (max-width:560px){
+  .as-kv{flex-direction:column;align-items:flex-start;gap:2px}
+  .as-kv b{text-align:left;white-space:normal;word-break:break-all}
+  .as-row{gap:10px}
+  .as-row b{font-size:13px}
+}
+
+/* ══ [v6.9] 구글 가입 완료 안내 ═══════════════════════════════════════════ */
+.gw-gate{z-index:960}
+.gw-box{max-width:400px;width:min(400px,92vw);padding:26px 22px 18px;text-align:center;
+  max-height:88vh;max-height:88dvh;overflow-y:auto}
+.gw-ic{font-size:38px;line-height:1;margin-bottom:10px}
+.gw-t{font-size:18px;font-weight:900;color:var(--text)}
+.gw-d{margin-top:6px;font-size:13px;font-weight:600;color:var(--sub)}
+.gw-id{display:flex;align-items:center;gap:9px;margin:18px 0 0;padding:13px 14px;
+  border-radius:12px;background:var(--border-soft);text-align:left}
+.gw-id span{flex:0 0 auto;font-size:11.5px;font-weight:800;color:var(--sub-2)}
+.gw-id b{flex:1;min-width:0;font-size:13.5px;font-weight:900;color:var(--text);
+  word-break:break-all;line-height:1.45}
+.gw-copy{flex:0 0 auto;min-height:36px;padding:0 12px;border-radius:9px;
+  border:1px solid var(--border);background:var(--panel);font-size:12px;font-weight:800;
+  color:var(--text);cursor:pointer}
+.gw-note{margin-top:10px;padding:11px 13px;border-radius:11px;text-align:left;
+  font-size:11.5px;line-height:1.7;font-weight:600}
+.gw-note.warn{background:rgba(245,165,36,.12);color:var(--text)}
+html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
+.gw-pw{margin-top:14px;padding:13px 14px;border-radius:12px;text-align:left;
+  background:rgba(66,133,244,.10);border:1px solid rgba(66,133,244,.28)}
+.gw-pw-t{font-size:13px;font-weight:900;color:var(--text)}
+.gw-pw-d{margin-top:6px;font-size:11.5px;line-height:1.75;font-weight:600;color:var(--sub)}
+.gw-next{margin:14px 0 16px;font-size:12px;line-height:1.7;font-weight:600;color:var(--sub-2)}
+@media (max-width:560px){
+  .gw-box{padding:22px 18px 14px}
+  .gw-t{font-size:16.5px}
+  .gw-id{flex-wrap:wrap}
+  .gw-id b{flex:1 1 100%;font-size:13px}
+}
+.as-inline{display:inline-block;margin-top:9px;padding:7px 12px;border-radius:9px;
+  border:1px solid var(--border);background:var(--panel);font-size:11.5px;font-weight:800;
+  color:var(--text);cursor:pointer;min-height:36px}

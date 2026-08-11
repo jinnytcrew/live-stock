@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=400';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=403';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -1747,7 +1747,12 @@ try{const mq=window.matchMedia('(prefers-color-scheme: dark)');
 function applyColor(){document.documentElement.setAttribute('data-color',settings.color==='global'?'global':'kr');
   if(settings.color==='global'){UP='#16a34a';DOWN='#e5484d';}else{UP='#f5384e';DOWN='#2f74ff';}}
 // 폴링 예산·간격(표준 고정): 장중 빠르게 / 사용량 늘면 단계적으로 완화
-function speedCfg(){ return {capM:50000,capD:3000,q:[1500,3000,8000,60000],m:[3000,6000,15000,120000]}; }
+/* ══ [v6.8] 한도 숫자가 Netlify 시절 그대로였다 ═══════════════════════════
+   Netlify 함수는 '월 125,000회'가 기준이라 월 상한을 쓰는 게 맞았다.
+   Cloudflare Workers 무료 요금제는 '하루 100,000회'가 기준이다.
+   월 50,000 / 일 3,000 은 실제와 무관한 숫자였다. 일 기준으로 바로잡는다.
+   (여유를 두어 하루 80,000회에서 갱신을 늦추기 시작한다) */
+function speedCfg(){ return {capM:2400000,capD:80000,q:[1500,3000,8000,60000],m:[3000,6000,15000,120000]}; }
 applyTheme();applyColor();
 function tickSize(p){if(p<2000)return 1;if(p<5000)return 5;if(p<20000)return 10;if(p<50000)return 50;if(p<200000)return 100;if(p<500000)return 500;return 1000;}
 const roundTick=(p)=>{const t=tickSize(p);return Math.round(p/t)*t;};
@@ -2583,7 +2588,23 @@ function doSend(toId,amt,memo){
 var sendToId='';
 function renderAcctSend(){
   const sec=$('acctSendSec'); if(!sec)return;
-  if(!acctOpened()){ sec.innerHTML=''; return; }
+  /* ══ [v6.8] 계좌가 없으면 송금 코너가 통째로 사라졌다 ═══════════════════════
+     화면에서 없어지면 그런 기능이 있는지조차 알 수 없다.
+     코너는 그대로 두고, 안에 '계좌를 먼저 여세요' 안내와 버튼을 보여 준다. */
+  if(!acctOpened()){
+    sec.innerHTML=`<div class="sec"><div class="sec-title">송금
+        <span class="sec-sub">· 내 계좌끼리 · 다른 사람에게</span></div>
+      <div class="panel asend"><div class="asend-empty">
+        <b>계좌를 먼저 개설해 주세요</b>
+        <span>송금은 <b>예수금</b>을 옮기는 기능이라 계좌가 있어야 합니다.<br>
+          계좌를 열면 내 계좌끼리 옮기거나, 계좌번호로 다른 사람에게 보낼 수 있어요.</span>
+        <button type="button" class="uz-retry" id="asNeedAcct">계좌 개설하러 가기</button>
+      </div></div></div>`;
+    const b=$('asNeedAcct');
+    if(b)b.onclick=()=>{ try{showView('account');}catch(e){}
+      setTimeout(()=>{ try{ const g=$('aeFirstOpen')||$('acctAddBtn'); if(g)g.click(); }catch(e){} },320); };
+    return;
+  }
   const me=acctCur();
   const others=acctList.filter(a=>a.id!==me.id);
   if(!others.length){
@@ -3568,6 +3589,51 @@ function seedTradeLog(){
 /* ══ [v6.7] 구글 간편 로그인 — 앱 쪽 ═══════════════════════════════════════
    버튼을 누르면 서버가 구글로 보내고, 돌아올 때 주소에 표(t)가 붙는다.
    그 표로 계정 정보를 한 번 받아 로그인 상태로 만든다. */
+/* 구글 가입 완료 안내 — 아이디와 '비밀번호가 없다'는 사실을 알린다 */
+function googleWelcome(j){
+  const id=String(j.id||''), em=String(j.email||'');
+  const changed=em&&em!==id;   // 대소문자가 바뀌었는지
+  try{
+    const ov=document.createElement('div');
+    ov.className='overlay gw-gate';
+    ov.innerHTML=`<div class="modal gw-box">
+      <div class="gw-ic">🎉</div>
+      <div class="gw-t">가입이 완료되었습니다</div>
+      <div class="gw-d">${htmlEsc(j.name||id)}님, 환영합니다.</div>
+
+      <div class="gw-id">
+        <span>내 아이디</span>
+        <b id="gwId">${htmlEsc(id)}</b>
+        <button type="button" class="gw-copy" id="gwCopy">복사</button>
+      </div>
+      ${changed?`<div class="gw-note warn">입력하신 <b>${htmlEsc(em)}</b> 는
+        모두 <b>소문자</b>로 바뀌어 아이디가 되었습니다. 대소문자를 구분하지 않으니
+        그대로 적으셔도 로그인됩니다.</div>`:''}
+
+      <div class="gw-pw">
+        <div class="gw-pw-t">🔑 별도 비밀번호가 없습니다</div>
+        <div class="gw-pw-d">구글 계정으로 가입하셔서 이 앱만의 비밀번호는 만들지 않았습니다.
+          다음에도 로그인 화면에서 <b>「Google로 간편 로그인」</b> 버튼을 누르시면 됩니다.<br>
+          아이디·비밀번호 칸에 입력해도 로그인되지 않습니다.</div>
+      </div>
+
+      <div class="gw-next">다음은 <b>내 계좌 → 계좌 개설</b>에서 거래에 쓸 계좌를 여시면 됩니다.</div>
+      <button class="modal-btn" id="gwOk">확인했습니다</button>
+    </div>`;
+    document.body.appendChild(ov);
+    const close=()=>{try{ov.remove();}catch(e){}};
+    ov.querySelector('#gwOk').onclick=close;
+    const cp=ov.querySelector('#gwCopy');
+    if(cp)cp.onclick=async()=>{
+      try{ await navigator.clipboard.writeText(id); cp.textContent='복사됨'; 
+        setTimeout(()=>{try{cp.textContent='복사';}catch(e){}},1500); }
+      catch(e){ toast('warn','복사하지 못했습니다','길게 눌러 직접 복사해 주세요'); }
+    };
+    /* 바깥을 눌러도 닫히지 않게 — 아이디를 꼭 보고 넘어가도록 */
+  }catch(e){
+    toast('buy','가입 완료',`아이디는 ${id} 입니다`);
+  }
+}
 function oaBind(){
   const b=$('oaGoogle'); if(!b||b._w)return; b._w=1;
   b.onclick=()=>{
@@ -3601,8 +3667,12 @@ async function oaConsume(){
     store.set('accounts',accs);
     if(j.user&&!store.get('user:'+j.id))store.set('user:'+j.id,j.user);
     applyUser(j.id); unlockApp(); initApp();
-    toast('buy',j.created?'가입 완료':'로그인 완료',
-      `${j.name||j.id}님, 환영합니다${j.created?' · 내 계좌에서 계좌를 열어 주세요':''}`);
+    /* ══ [v6.9] 발급된 아이디를 반드시 보여 준다 ═══════════════════════════
+       [왜] 구글이 준 이메일을 소문자로 통일해 아이디로 쓴다. 대문자로 쓰던 분은
+       자기 아이디가 무엇인지 모른 채 지나가게 된다. 토스트는 몇 초 뒤 사라져
+       안내로 삼기에 약하다. 가입한 그 순간에 창을 띄워 분명히 알린다. */
+    if(j.created)googleWelcome(j);
+    else toast('buy','로그인 완료',`${j.name||j.id}님, 환영합니다`);
   }catch(e){ toast('warn','구글 로그인 실패','잠시 후 다시 시도해 주세요.'); }
 }
 try{ oaBind(); }catch(e){}
@@ -3790,6 +3860,13 @@ $('doLogin').onclick=async()=>{
     m.innerHTML='로그인 시도가 너무 잦습니다. <b>15분 뒤</b>에 다시 시도해 주세요.'; return;
   }
   if(cj&&cj.err==='invalid'&&!localOk){
+    /* [v6.9] 구글로 가입한 아이디로 비밀번호 로그인을 시도한 경우를 짚어 준다 */
+    const la=accounts()[id];
+    if((la&&la.google)||/@/.test(id)){
+      m.innerHTML='이 아이디는 <b>구글 간편 로그인</b>으로 만든 계정입니다.<br>'
+        +'아래 <b>「Google로 간편 로그인」</b> 버튼을 눌러 주세요.';
+      return;
+    }
     m.textContent='비밀번호가 올바르지 않습니다.'; return;
   }
   /* 서버가 계정을 못 찾았거나 응답이 없다 — 이 기기 자격증명으로 복구 시도 */
@@ -3835,7 +3912,92 @@ let suAcctSel='general';
 /* [v6.5] 가입 화면에서 계좌 개설을 뺐으므로(v4.95) 이 함수는 쓰이지 않는다.
    호출부가 남아 있어도 조용히 넘어가도록 비워 둔다. */
 function renderAcctPick(){ return; }
-function setPmTab(t){document.querySelectorAll('#pmTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pm===t));document.querySelectorAll('.pm-pane').forEach(p=>p.hidden=(p.id!=='pm-'+t));}
+/* ══ [v6.8] 계정 설정 탭 ═══════════════════════════════════════════════════
+   [무엇이 문제였나] 구글로 로그인하면 비밀번호를 모르는데, 계정 삭제가
+   비밀번호를 물어봐서 '비밀번호가 올바르지 않습니다'로 막혔다(첨부 사진).
+   구글 계정은 비밀번호 대신 아이디를 입력해 확인한다. */
+function renderAcctSet(){
+  const box=$('asInfo'); if(!box)return;
+  const acc=(currentUser&&accounts()[currentUser])||{};
+  const isG=!!acc.google;
+  box.innerHTML=`
+    <div class="as-kv"><span>아이디</span><b class="as-id">${htmlEsc(currentUser||'')}</b></div>
+    <div class="as-kv"><span>이름</span><b>${htmlEsc(acc.name||'-')}</b></div>
+    <div class="as-kv"><span>이메일</span><b>${htmlEsc(acc.email||'-')}</b></div>
+    <div class="as-kv"><span>로그인 방식</span><b>${isG?'<i class="as-g">Google 간편 로그인</i>':'아이디 · 비밀번호'}</b></div>
+    <div class="as-kv"><span>가입일</span><b>${acc.created?new Date(acc.created).toLocaleDateString('ko-KR'):'-'}</b></div>
+    ${isG?`<div class="as-note">
+      <b>이메일 주소가 그대로 아이디</b>입니다. 대문자로 쓰셨더라도 모두 소문자로 저장됩니다.<br>
+      <b>별도 비밀번호는 없습니다.</b> 로그인은 항상 <b>「Google로 간편 로그인」</b> 버튼으로 하세요 —
+      아이디·비밀번호 칸에 입력해도 로그인되지 않습니다.
+      <button type="button" class="as-inline" id="asCopyId">아이디 복사</button></div>`:''}`;
+  /* 구글 계정은 비밀번호가 없으므로 변경 항목을 감춘다 */
+  const pw=$('asPwChange');
+  if(pw){
+    const row=pw.closest('.as-row');
+    if(row)row.hidden=isG;
+    pw.onclick=()=>changeAcctPw();
+  }
+  const del=$('asDelete'); if(del)del.onclick=()=>deleteAccount();
+  const cp=$('asCopyId');
+  if(cp)cp.onclick=async()=>{
+    try{ await navigator.clipboard.writeText(currentUser||''); toast('ok','복사했습니다',currentUser||''); }
+    catch(e){ toast('warn','복사하지 못했습니다','길게 눌러 직접 복사해 주세요'); }
+  };
+}
+/* 로그인 비밀번호 변경 */
+async function changeAcctPw(){
+  if(!currentUser)return;
+  const cur=await askText('현재 비밀번호',{password:true,placeholder:'지금 쓰는 비밀번호'});
+  if(!cur)return;
+  const nw=await askText('새 비밀번호',{password:true,placeholder:'8자 이상 · 영문+숫자+특수문자'});
+  if(!nw)return;
+  const ck=pwCheck(nw,currentUser,(accounts()[currentUser]||{}).name);
+  if(!ck.ok){toast('warn','바꿀 수 없습니다',ck.msg);return;}
+  const nw2=await askText('새 비밀번호 확인',{password:true,placeholder:'다시 입력'});
+  if(nw2!==nw){toast('warn','바꿀 수 없습니다','새 비밀번호가 일치하지 않습니다');return;}
+  const curH=await pwHash(cur), curL=legacyHash(cur), newH=await pwHash(nw);
+  const j=await cloudCall({action:'changepw',id:currentUser,pass:curH,legacy:curL,newPass:newH});
+  if(!j||!j.ok){
+    toast('warn','바꾸지 못했습니다',
+      j&&(j.err==='wrongpass'||j.err==='invalid')?'현재 비밀번호가 올바르지 않습니다':'잠시 후 다시 시도해 주세요');
+    return;}
+  const accs=accounts(); if(accs[currentUser]){accs[currentUser].pass=newH; store.set('accounts',accs);}
+  toast('buy','비밀번호를 바꿨습니다','다음 로그인부터 새 비밀번호를 쓰세요');
+}
+/* 계정 삭제 — 구글 계정은 아이디 입력으로 확인 */
+async function deleteAccount(){
+  if(!currentUser){toast('warn','로그인이 필요합니다','다시 로그인해 주세요');requireAuth();return;}
+  const acc=accounts()[currentUser]||{};
+  const isG=!!acc.google;
+  if(!await askConfirm('계정 삭제',
+    `'${currentUser}' 계정과 서버의 모든 데이터가 영구 삭제됩니다.\n되돌릴 수 없습니다.`,
+    {okLabel:'영구 삭제',danger:true}))return;
+  let body;
+  if(isG){
+    const t=await askText('삭제 확인',{placeholder:currentUser,
+      html:`정말 지우시려면 아래에 아이디를 그대로 입력해 주세요.<br><b>${htmlEsc(currentUser)}</b>`});
+    if(!t)return;
+    if(String(t).trim().toLowerCase()!==String(currentUser).toLowerCase()){
+      toast('warn','삭제 취소','아이디가 일치하지 않습니다');return;}
+    body={action:'delete',id:currentUser,pass:acc.pass};   // 서버가 발급한 무작위 비밀번호
+  }else{
+    const pw=await askText('비밀번호 확인',{password:true,placeholder:'로그인 비밀번호'});
+    if(!pw)return;
+    body={action:'delete',id:currentUser,pass:await pwHash(pw),legacy:legacyHash(pw)};
+  }
+  const j=await cloudCall(body);
+  if(!j||!j.ok){
+    toast('warn','삭제 실패',
+      j&&j.err==='wrongpass'?(isG?'인증 정보가 만료되었습니다. 다시 로그인 후 시도해 주세요':'비밀번호가 올바르지 않습니다')
+      :(j&&j.err)||'네트워크 오류');
+    return;}
+  const accs=accounts(); delete accs[currentUser]; store.set('accounts',accs);
+  store.del('user:'+currentUser); store.del('session');
+  toast('warn','계정이 삭제되었습니다',''); setTimeout(()=>location.reload(),700);
+}
+function setPmTab(t){document.querySelectorAll('#pmTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pm===t));document.querySelectorAll('.pm-pane').forEach(p=>p.hidden=(p.id!=='pm-'+t));
+  if(t==='data')try{renderAcctSet();}catch(e){}}
 /* ══ [v2.3] 프로필 확장 — 아바타 · 내 통계 · 게스트 지원 ══ */
 const AVATARS=['🐣','🐻','🐰','🦊','🐼','🐯','🦄','🐸','🐳','🚀','⭐','💎'];
 function avatarOf(nm){return (userPrefs&&userPrefs.avatar)||String(nm||'?').slice(0,1).toUpperCase();}
@@ -4151,7 +4313,8 @@ function renderSettingsUI(){
   $('setOrderPass').classList.toggle('on',settings.orderPass);$('setOrderPass').setAttribute('aria-checked',settings.orderPass);
   $('setRealDesc').textContent=settings.realHours?'켜짐 · 실제 장 시간에만 주문 가능 (KRX 08:30~18:00 · NXT 종목 08:00~20:00)':'꺼짐 · 시간과 무관하게 항상 매수/매도 가능';
   const b=_fbGet();
-  $('setUsage').innerHTML=`이번 달 <b>${b.mc.toLocaleString()}</b> / ${fnCapM().toLocaleString()}회 <b>(${fnUsagePct()}%)</b> · 오늘 <b>${b.dc.toLocaleString()}</b> / ${fnCapD().toLocaleString()}회<br><span class="set-d">한도에 닿으면 자동으로 갱신을 늦춰 서버 호출 한도 초과를 막습니다.</span>`;
+  /* [v6.8] Cloudflare 는 하루 기준이므로 '오늘'을 앞에 둔다 */
+  $('setUsage').innerHTML=`오늘 <b>${b.dc.toLocaleString()}</b> / ${fnCapD().toLocaleString()}회 <b>(${Math.min(100,Math.round(b.dc/fnCapD()*100))}%)</b> · 이번 달 <b>${b.mc.toLocaleString()}</b>회<br><span class="set-d">Cloudflare Workers 무료 요금제는 <b>하루 100,000회</b>가 한도입니다. 80,000회에 닿으면 자동으로 갱신을 늦춰 초과를 막습니다.</span>`;
   renderSettingsExtra();
   buildSetTabs();
 }
@@ -4883,10 +5046,97 @@ function renderAll(){
 }
 
 /* ===== 라우팅 ===== */
+/* ══ [v7.0] 기기 뒤로 가기 버튼 ═══════════════════════════════════════════════
+   [무엇이 문제였나] 뒤로 가기를 아무도 처리하지 않아, 화면을 여러 번 옮긴 뒤에도
+   한 번 누르면 사이트를 통째로 나가 버렸다. 보던 내용이 그대로 날아간다.
+   [어떻게 고치나] 누른 순간 상황에 맞게 세 단계로 처리한다.
+     ① 열린 창(로그인·프로필·설정·주문확인 등)이 있으면 → 그 창만 닫는다
+     ② 이전에 보던 화면이 있으면 → 그 화면으로 돌아간다
+     ③ 더 돌아갈 곳이 없으면 → '한 번 더 누르면 종료' 를 알리고, 2초 안에
+        다시 누를 때만 실제로 나간다
+   [방법] 주소창에 눈에 띄지 않는 표식을 하나 쌓아 두고, 뒤로 가기가 그것을
+   소비하게 한다. 표식을 다시 채워 넣으면 계속 우리가 받아 처리할 수 있다. */
+var _navStack=[], _navGuard=false, _exitAt=0, _navBusy=false;
+
+/* 지금 화면에 열려 있는 창을 찾는다(가장 나중에 열린 것부터) */
+function topOverlay(){
+  const list=[...document.querySelectorAll('.overlay')]
+    .filter(o=>!o.hidden&&o.offsetParent!==null);
+  return list.length?list[list.length-1]:null;
+}
+/* 창을 닫는다 — 닫기 버튼이 있으면 그것을 눌러 원래 정리 절차를 그대로 태운다 */
+function closeOverlay(ov){
+  if(!ov)return false;
+  /* 로그인 창은 닫으면 안 된다(계정이 확정돼야 앱을 쓸 수 있다) */
+  if(ov.id==='authGate'&&ov.classList.contains('auth-force'))return false;
+  /* [v7.0] 비밀번호 확인창은 취소 버튼을 눌러야 주문 흐름이 제대로 정리된다.
+     그냥 감추면 '주문 중' 상태가 남아 다음 주문이 막힐 수 있다. */
+  if(ov.id==='pwGate'){
+    const c=ov.querySelector('#pwCancel,.pw-cancel,[data-pw-cancel]');
+    if(c){ try{c.click(); return true;}catch(e){} }
+  }
+  const btn=ov.querySelector('.ot-x,.modal-x,[data-close],#pmClose,#setClose,#gwOk,#xfOk,#agClose');
+  if(btn){ try{btn.click(); return true;}catch(e){} }
+  try{
+    if(ov.id)ov.hidden=true; else ov.remove();
+    return true;
+  }catch(e){ return false; }
+}
+function navPush(){
+  if(_navGuard)return;
+  try{ history.pushState({lv:'guard',t:Date.now()},''); }catch(e){}
+}
+function navInit(){
+  if(_navGuard)return; _navGuard=true;
+  navPush();                       // 뒤로 가기가 소비할 표식을 하나 쌓아 둔다
+  window.addEventListener('popstate',()=>{
+    if(_navBusy)return;
+    _navBusy=true;
+    try{ handleBack(); }catch(e){}
+    setTimeout(()=>{_navBusy=false;},60);
+  });
+}
+function handleBack(){
+  /* ① 열린 창 먼저 닫는다 */
+  const ov=topOverlay();
+  if(ov&&closeOverlay(ov)){ navPush(); return; }
+
+  /* ② 이전 화면으로 */
+  if(_navStack.length){
+    const prev=_navStack.pop();
+    navPush();
+    try{ _showView(prev); }catch(e){}
+    return;
+  }
+
+  /* ③ 종료 확인 — 두 번 눌러야 나간다
+     [주의] _exitAt 이 0(안내한 적 없음)일 때 'now - 0 < 2000' 이 참이 되면
+     첫 번째 누름에 바로 나가 버린다. 0 은 반드시 따로 걸러야 한다. */
+  const now=Date.now();
+  if(_exitAt&&now-_exitAt<2000){
+    /* 표식을 다시 쌓지 않고 그대로 둔다 → 브라우저가 실제로 뒤로 간다 */
+    try{ history.back(); }catch(e){}
+    return;
+  }
+  _exitAt=now;
+  navPush();
+  toast('warn','한 번 더 누르면 종료됩니다','뒤로 가기를 2초 안에 다시 누르세요');
+}
+try{ navInit(); }catch(e){}
+
 function showView(name){
   try{return _showView(name);}catch(e){console.error('[showView]',e);}
 }
 function _showView(name){
+  /* [v7.0] 뒤로 가기로 돌아갈 수 있게 직전 화면을 쌓아 둔다.
+     같은 화면을 다시 열거나 뒤로 가기로 온 경우에는 쌓지 않는다. */
+  try{
+    if(currentView&&currentView!==name&&!_navBusy){
+      _navStack.push(currentView);
+      if(_navStack.length>25)_navStack.shift();
+      _exitAt=0;                       // 화면을 옮겼으면 종료 대기는 취소한다
+    }
+  }catch(e){}
   currentView=name;
   document.querySelectorAll('.view').forEach(v=>v.hidden=(v.id!=='view-'+name));
   const navName=(name==='ustrade')?'us':name;   // [v4.28] 해외 거래 화면도 '해외 주식' 탭 유지

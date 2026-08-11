@@ -4384,6 +4384,18 @@ var accounts_default = async (req2) => {
       await saveDb();
       return json({ ok: true });
     }
+    /* [v6.8] 비밀번호 변경 — 계정 설정에서 쓴다 */
+    if (action === "changepw") {
+      if (!id || !pass || !body.newPass) return json({ ok: false, err: "param" });
+      const acc = db.accounts[id];
+      if (!acc) return json({ ok: false, err: "nouser" });
+      const v = await verify(acc, pass, legacy);
+      if (!v.ok) { noteFail(db, id); await saveDb(); return json({ ok: false, err: "wrongpass" }); }
+      if (!credOk(body.newPass)) return json({ ok: false, err: "weak" });
+      db.accounts[id] = await setPassword(acc, body.newPass);
+      await saveDb();
+      return json({ ok: true });
+    }
     if (action === "ensure") {
       if (!id || !pass) return json({ ok: false, err: "param" });
       if (!credOk(pass)) return json({ ok: false, err: "weak" });     // [v4.50] 복구 경로도 같은 형식만
@@ -13263,11 +13275,12 @@ async function oauth_google_default(req2, ctx){
     })||"";
     let created=false;
     if(!uid){
-      /* 이메일 앞부분으로 아이디를 만들고, 겹치면 숫자를 붙인다 */
-      let base=email.split("@")[0].toLowerCase().replace(/[^a-z0-9_.-]/g,"").slice(0,16);
-      if(base.length<4)base=("g"+base+"0000").slice(0,8);
-      uid=base;
-      for(let i=1;db.accounts[uid]&&i<200;i++)uid=base+i;
+      /* ══ [v6.8] 아이디를 임의로 만들지 않는다 ═══════════════════════════════
+         앞부분만 잘라 쓰면 사용자가 자기 아이디를 예측할 수 없고, 겹치면
+         뒤에 숫자가 붙어 더 낯설어진다(hanyeonwoo1 같은 식).
+         구글 계정은 이메일 주소 자체가 유일하므로 그것을 그대로 아이디로 쓴다.
+         무엇으로 정해졌는지 화면에서 안내도 한다. */
+      uid=email;
       created=true;
     }
     /* 서버가 보관하는 무작위 비밀번호 — 사용자는 몰라도 되고, 앱이 서버와 통신할 때만 쓴다 */
@@ -13330,7 +13343,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "6.7.0";
+var APP_VER = "7.0.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=400">
+<link rel="stylesheet" href="/app.css?v=403">
 </head>
 <body>
 
@@ -428,8 +428,8 @@
         <button class="set-btn" id="setCashReset">변경</button></div>
       <div class="set-row"><div class="set-info"><div class="set-t">검색·열람 기록 삭제</div></div>
         <button class="set-btn" id="setHistClear">삭제</button></div>
-      <div class="set-row"><div class="set-info"><div class="set-t">계정 삭제</div><div class="set-d">클라우드의 모든 데이터가 영구 삭제됩니다</div></div>
-        <button class="set-btn danger" id="setAcctDel">삭제</button></div>
+      <!-- [v6.8] 계정 삭제는 프로필 → 계정 설정으로 옮겼다.
+             계정에 관한 일은 한곳에 모여 있어야 찾기 쉽다. -->
       <div class="set-about">💾 <b>자동 저장</b> — 관심종목·폴더·보유·메모·설정 등 모든 데이터는 바꾸는 즉시 이 브라우저와 클라우드 계정에 <b>실시간 자동 저장</b>됩니다. 따로 내보내기·백업할 필요가 없어요.</div>
 
       <div class="set-sec">사용량 · 서버 호출 보호</div>
@@ -461,7 +461,7 @@
 <div class="overlay" id="profileGate" hidden>
   <div class="modal profile-modal">
     <div class="pm-head"><div class="pm-av" id="pmAv">?</div><div class="pm-idwrap"><div class="pm-name" id="pmName">—</div><div class="pm-id" id="pmId">—</div></div><button class="ot-x" id="pmClose" aria-label="닫기">✕</button></div>
-    <div class="pm-tabs" id="pmTabs"><button class="on" data-pm="profile">프로필</button><button data-pm="account">계좌</button><button data-pm="badge">배지</button><button data-pm="stats">내 통계</button><button data-pm="style">꾸미기</button><button data-pm="security">보안</button><button data-pm="data">계정 이전</button></div>
+    <div class="pm-tabs" id="pmTabs"><button class="on" data-pm="profile">프로필</button><button data-pm="account">계좌</button><button data-pm="badge">배지</button><button data-pm="stats">내 통계</button><button data-pm="style">꾸미기</button><button data-pm="security">보안</button><button data-pm="data">계정 설정</button></div>
     <div class="pm-body">
       <div class="pm-pane" id="pm-profile">
         <div class="pm-hero" id="pmHero"></div>
@@ -530,7 +530,23 @@
         <div class="pm-msg" id="pmSecMsg"></div>
         <button class="modal-btn" id="pmSaveSec">변경 저장</button>
       </div>
+      <!-- ══ [v6.8] 계정 이전 → 계정 설정 ═══════════════════════════════════
+           계정이 서버에 저장되면서 '이전'은 쓸 일이 거의 없어졌다.
+           계정 자체를 다루는 것들을 한곳에 모은다 —
+           아이디·로그인 방식 확인, 비밀번호 변경, 백업, 계정 삭제. -->
       <div class="pm-pane" id="pm-data" hidden>
+        <div class="pm-sec-t">내 계정</div>
+        <div class="as-card" id="asInfo"></div>
+        <div class="as-row">
+          <div><b>비밀번호 변경</b><span>로그인에 쓰는 비밀번호를 바꿉니다</span></div>
+          <button class="as-btn" id="asPwChange">변경</button>
+        </div>
+        <div class="pm-sec-t danger">계정 삭제</div>
+        <div class="as-row danger">
+          <div><b>계정을 영구 삭제합니다</b><span>서버와 이 기기의 모든 데이터가 사라지며 되돌릴 수 없습니다</span></div>
+          <button class="as-btn del" id="asDelete">삭제</button>
+        </div>
+        <div class="pm-sec-t">백업</div>
         <div class="backup-desc" id="pmCloudNote"></div>
         <div class="backup-actions"><button class="modal-btn" id="pmBackup">백업 파일 내려받기</button><button class="modal-ghost" id="pmBackupCopy" style="flex:1">코드 복사</button></div>
         <div class="pm-sec-t">백업에서 복원</div>
@@ -1407,6 +1423,6 @@
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
 </nav>
-<script type="module" src="/app.js?v=400"></script>
+<script type="module" src="/app.js?v=403"></script>
 </body>
 </html>
