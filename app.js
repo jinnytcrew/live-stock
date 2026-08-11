@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=403';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=404';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3751,20 +3751,33 @@ function renderSu(){
   }
   if(SU_STEP===3){
     const allOn=SU_TERMS.every(t=>suForm.terms[t[0]]);
+    /* ══ [v7.1] 체크 아이콘이 안 보이던 이유 ═══════════════════════════════
+       계좌 개설 약관은 .ae-ck 라는 동그란 표시 요소를 쓰는데,
+       회원가입은 <i> 만 넣어 스타일이 하나도 걸리지 않았다.
+       같은 클래스(.ae-ck · .ae-trow)를 그대로 써서 생김새를 맞춘다. */
     bd.innerHTML=`
       <button type="button" class="ae-all ${allOn?'on':''}" id="suAll">
-        <i>${allOn?'✓':''}</i><b>전체 동의</b><span>선택 항목까지 모두 포함합니다</span></button>
+        <span class="ae-ck">${allOn?'✓':''}</span><b>전체 동의</b>
+        <small>선택 항목까지 모두 포함합니다</small></button>
       <div class="ae-terms">${SU_TERMS.map(t=>`
-        <div class="ae-term">
-          <button type="button" class="ae-tk ${suForm.terms[t[0]]?'on':''}" data-su-t="${t[0]}">
-            <i>${suForm.terms[t[0]]?'✓':''}</i>
-            <b>${t[1]?'<em class="ae-req">필수</em>':'<em class="ae-opt">선택</em>'} ${htmlEsc(t[2])}</b></button>
-          <div class="ae-tt">${htmlEsc(t[3]).replace(/\n/g,'<br>')}</div>
+        <div class="ae-t">
+          <button type="button" class="ae-trow ${suForm.terms[t[0]]?'on':''}" data-su-t="${t[0]}">
+            <span class="ae-ck">${suForm.terms[t[0]]?'✓':''}</span>
+            <span class="ae-tt"><i class="${t[1]?'req':'opt'}">${t[1]?'필수':'선택'}</i>${htmlEsc(t[2])}</span>
+          </button>
+          <button type="button" class="ae-tmore" data-su-m="${t[0]}">내용 보기 ▾</button>
+          <div class="ae-tbox" id="suT-${t[0]}" hidden>${htmlEsc(t[3]).replace(/\n/g,'<br>')}</div>
         </div>`).join('')}</div>`;
     $('suAll').onclick=()=>{ const on=!SU_TERMS.every(t=>suForm.terms[t[0]]);
       SU_TERMS.forEach(t=>suForm.terms[t[0]]=on); renderSu(); };
     bd.querySelectorAll('[data-su-t]').forEach(b=>b.onclick=()=>{
       const k=b.dataset.suT; suForm.terms[k]=!suForm.terms[k]; renderSu(); });
+    /* 내용 보기 — 계좌 개설과 같은 방식으로 접었다 편다 */
+    bd.querySelectorAll('[data-su-m]').forEach(b=>b.onclick=()=>{
+      const el=$('suT-'+b.dataset.suM); if(!el)return;
+      el.hidden=!el.hidden;
+      b.textContent=el.hidden?'내용 보기 ▾':'접기 ▴';
+    });
   }
   nv.innerHTML=`${SU_STEP>1?`<button class="modal-ghost" id="suPrev">이전</button>`:''}
     <button class="modal-btn" id="suNext">${SU_STEP<3?'다음':'가입하고 시작하기'}</button>`;
@@ -13640,7 +13653,25 @@ var US_THEMES=[['ai','🤖 AI·반도체'],['big','🏙 빅테크'],['ev','🚗 
  ['space','🚀 우주·방산'],['indu','🏭 산업재']];
 var US_ETF_GROUPS=[['etfidx','📊 대표지수'],['etfdiv','💰 배당·인컴'],['etfsec','🧩 섹터·테마'],
  ['etflev','⚡ 레버리지·인버스'],['etfbond','🏛 채권·금']];
-var US_STARS=['NVDA','TSLA','AAPL','MSFT','PLTR','AMD','GOOGL','AMZN','META','AVGO','MSTR','IONQ'];
+/* ══ [v7.1] '인기 종목'이 갱신되지 않던 이유 ═══════════════════════════════
+   손으로 적어 둔 12종 고정 목록이었다. 시가총액이 바뀌어도, 그날 거래가
+   몰려도 순서가 그대로였다. '인기'라는 이름과 맞지 않는다.
+   [바꾼 기준] 시가총액 순으로 매긴다.
+     · 시가총액은 그 종목의 크기를 그대로 나타내는 값이고, 시세와 함께
+       받아오므로 추가 호출이 없다(usQ[t].cap).
+     · 조회수 순위(usPop)는 이 앱 사용자만의 기록이라 아직 표본이 적다.
+       나중에 쌓이면 그때 섞어 쓰는 편이 낫다.
+   아래 목록은 시세가 아직 없을 때 쓰는 '처음 순서'일 뿐, 시세가 도착하면
+   시가총액 순으로 다시 정렬된다. */
+var US_STARS_SEED=['NVDA','AAPL','MSFT','GOOGL','AMZN','META','AVGO','TSLA','BRK-B','TSM','JPM','WMT'];
+var US_STARS=US_STARS_SEED.slice();
+function usStarsNow(){
+  try{
+    const pool=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].cap>0);
+    if(pool.length<8)return US_STARS_SEED;            // 아직 덜 받았으면 처음 순서 그대로
+    return pool.sort((a,b)=>(usQ[b].cap||0)-(usQ[a].cap||0)).slice(0,12);
+  }catch(e){ return US_STARS_SEED; }
+}
 
 /* ── 2. 환율 (USD/KRW) — 라이브 우선, 마지막 값 보존 ── */
 var _usFx=null;
@@ -14493,10 +14524,10 @@ function usPaneShow(p){
   try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){}
 }
 function renderUsLounge(){
-  const el=$('usCount'); if(el)el.textContent=`내장 ${US_UNI.length}종 · 검색은 미국 전 종목`;
+  const el=$('usCount'); if(el)el.textContent=`시가총액 상위 · 내장 ${US_UNI.length}종 · 검색은 미국 전 종목`;
   renderUsHero();
-  $('usStars').innerHTML=`<div class="us-stars uz-stars">${US_STARS.map(t=>{const m=usMeta[t],q=usQ[t];
-      return `<button type="button" class="us-star uz-star" data-us="${t}"><span class="t">${usTick(t)}<b>${m.kr}</b></span>
+  $('usStars').innerHTML=`<div class="us-stars uz-stars">${usStarsNow().map(t=>{const m=usMeta[t]||{},q=usQ[t];
+      return `<button type="button" class="us-star uz-star" data-us="${t}"><span class="t">${usTick(t)}<b>${m.kr||t}</b></span>
         <span class="p num">${q&&q.price!=null?'$'+USD2(q.price):'···'}</span>
         <span class="r num ${usRateCls(q)}">${usRateTxt(q)}</span></button>`;}).join('')}</div>`;
   $('usThemeTabs').innerHTML=usChipList().map(([k,l])=>
@@ -14508,15 +14539,21 @@ function renderUsLounge(){
      마지막 묶음이 올 때까지 목록이 회색으로 남았다.
      [고침] 눈에 보이는 것부터 받는다 — 인기 종목 12종과 지금 고른 분야를 먼저,
      나머지는 잠깐 뒤에 이어서. 첫 화면이 훨씬 빨리 채워진다. */
+  /* ══ [v7.1] 분야를 바꿀 때마다 기다리던 문제 ═══════════════════════════════
+     인기 종목 12종과 '지금 고른 분야'만 먼저 받았다. 그래서 다른 칩을 누르면
+     그 분야 25종을 처음부터 다시 받아야 해 매번 회색 막대가 보였다.
+     [고침] 첫 화면에 필요한 것을 받은 직후, 나머지 전체를 곧바로 이어서 받는다.
+     한 번 받아 두면 어느 칩을 눌러도 이미 채워져 있다. */
   const first=[...new Set([
     ...US_UNI.slice(0,12).map(u=>u[0]),
     ...US_UNI.filter(u=>u[4]===usThemeSel).map(u=>u[0])
   ])];
-  usEnsureQuotes(first,true).then(()=>renderUsLive());
-  setTimeout(()=>{
+  usEnsureQuotes(first,true).then(()=>{
+    renderUsLive();
+    /* 첫 화면이 채워지자마자 나머지를 이어서 받는다(기다리지 않는다) */
     const rest=US_UNI.map(u=>u[0]).filter(t=>!first.includes(t));
     if(rest.length)usEnsureQuotes(rest,false).then(()=>renderUsLive());
-  },400);
+  });
   usPollStart(US_UNI.map(u=>u[0]));
   wireUsLounge();
 }
@@ -14638,6 +14675,8 @@ function renderUsThemeBody(){
      그래서 다른 화면(홈·순위)이 우연히 같은 종목을 받아 오기 전까지는
      회색 막대만 보였다. 이 화면에서 필요한 종목을 직접 받아 온다.
      화면에 보이는 25종 안팎이라 한 번이면 끝난다. */
+  /* [v7.1] 이미 받아 둔 것은 곧바로 숫자를 채워 넣는다 — 다시 기다리지 않는다 */
+  try{ usPaintRows(box); }catch(e){}
   const need=list.filter(t=>!(usQ[t]&&usQ[t].price!=null));
   if(need.length){
     usEnsureQuotes(need.slice(0,40),false).then(()=>{
@@ -15102,7 +15141,7 @@ function renderUsAi(el){
       <div class="us-ai-c"><small>20일 변동성</small><b class="num">${vola?vola.toFixed(2)+'%':'—'}</b></div>
     </div>
     <div class="us-ai-txt">
-      <p><b>${m.kr}</b>는 현재 <b class="${dirOf(d)}">${trend}</b> 흐름입니다${ma20?`, 주가는 20일 평균선 ${q.price>=ma20?'위':'아래'}에 있습니다`:''}.</p>
+      <p><b>${m.kr||t}</b>는 현재 <b class="${dirOf(d)}">${trend}</b> 흐름입니다${ma20?`, 주가는 20일 평균선 ${q.price>=ma20?'위':'아래'}에 있습니다`:''}.</p>
       ${zone?`<p>52주 범위에서 <b>${zone}</b>에 자리합니다. 고점 부근에서는 추격 매수 부담을, 저점 부근에서는 하락 지속 여부를 함께 살펴야 합니다.</p>`:''}
       ${vola?`<p>최근 20일 하루 변동성은 <b>${vola.toFixed(2)}%</b>입니다. ${vola>=3?'변동이 큰 편이라 분할 매수가 안전합니다.':vola>=1.5?'평이한 수준입니다.':'비교적 안정적입니다.'}</p>`:''}
       <p>미국 주식은 <b>상·하한가가 없어</b> 하루에도 큰 폭으로 움직일 수 있고, 원화 기준 손익은 <b>환율</b>에 함께 좌우됩니다. 현재 ${sess.label}입니다.</p>
