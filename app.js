@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=407';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=408';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3590,9 +3590,13 @@ function seedTradeLog(){
    버튼을 누르면 서버가 구글로 보내고, 돌아올 때 주소에 표(t)가 붙는다.
    그 표로 계정 정보를 한 번 받아 로그인 상태로 만든다. */
 /* 구글 가입 완료 안내 — 아이디와 '비밀번호가 없다'는 사실을 알린다 */
-function googleWelcome(j){
+function googleWelcome(j){ return welcomeBox({...j,google:1}); }
+/* ══ [v7.5] 가입 완료 안내 — 구글·일반 모두 같은 창을 쓴다 ═══════════════════
+   어느 쪽으로 가입했든 '내 아이디가 무엇인지'는 똑같이 중요하다. */
+function welcomeBox(j){
   const id=String(j.id||''), em=String(j.email||'');
-  const changed=em&&em!==id;   // 대소문자가 바뀌었는지
+  const isG=!!j.google;
+  const changed=isG&&em&&em!==id;   // 구글에서 대소문자가 바뀌었는지
   try{
     const ov=document.createElement('div');
     ov.className='overlay gw-gate';
@@ -3610,12 +3614,17 @@ function googleWelcome(j){
         모두 <b>소문자</b>로 바뀌어 아이디가 되었습니다. 대소문자를 구분하지 않으니
         그대로 적으셔도 로그인됩니다.</div>`:''}
 
-      <div class="gw-pw">
+      ${isG?`<div class="gw-pw">
         <div class="gw-pw-t">🔑 별도 비밀번호가 없습니다</div>
         <div class="gw-pw-d">구글 계정으로 가입하셔서 이 앱만의 비밀번호는 만들지 않았습니다.
           다음에도 로그인 화면에서 <b>「Google로 간편 로그인」</b> 버튼을 누르시면 됩니다.<br>
           아이디·비밀번호 칸에 입력해도 로그인되지 않습니다.</div>
-      </div>
+      </div>`:`<div class="gw-pw plain">
+        <div class="gw-pw-t">🔑 비밀번호를 잘 보관하세요</div>
+        <div class="gw-pw-d">다음 로그인 때 <b>아이디와 비밀번호</b>가 필요합니다.
+          비밀번호는 되돌릴 수 없는 형태로만 저장되어 저희도 알 수 없습니다.<br>
+          잊으셨다면 <b>계정 설정</b>에서 바꾸시거나 새로 가입하셔야 합니다.</div>
+      </div>`}
 
       <div class="gw-next">다음은 <b>내 계좌 → 계좌 개설</b>에서 거래에 쓸 계좌를 여시면 됩니다.</div>
       <button class="modal-btn" id="gwOk">확인했습니다</button>
@@ -3683,7 +3692,9 @@ async function oaConsume(){
        [왜] 구글이 준 이메일을 소문자로 통일해 아이디로 쓴다. 대문자로 쓰던 분은
        자기 아이디가 무엇인지 모른 채 지나가게 된다. 토스트는 몇 초 뒤 사라져
        안내로 삼기에 약하다. 가입한 그 순간에 창을 띄워 분명히 알린다. */
-    if(j.created)googleWelcome(j);
+    /* [v7.5] initApp() 이 화면을 다시 그리는 중에 창을 띄우면 곧바로 지워진다.
+       화면이 자리 잡은 뒤에 띄운다. */
+    if(j.created)setTimeout(()=>{try{googleWelcome(j);}catch(e){}},700);
     else toast('buy','로그인 완료',`${j.name||j.id}님, 환영합니다`);
     return true;
   }catch(e){ toast('warn','구글 로그인 실패','잠시 후 다시 시도해 주세요.'); return false; }
@@ -3847,7 +3858,8 @@ async function doSignupRun(){
     store.set('user:'+id,{watchlist:[],watchFolders:[],holdings:[],cash:0,usdCash:0,
       ipoPlans:[],acctPass:acctH,acctType:'general',acctActive:'',acctList:[],acctBooks:{}});
     applyUser(id); unlockApp(); initApp();
-    toast('buy','가입 완료',`${name}님, 환영합니다 · 내 계좌에서 계좌를 열어 주세요`);
+    /* [v7.5] 일반 가입도 같은 안내창을 띄운다 — 아이디를 분명히 알려 준다 */
+    setTimeout(()=>{try{ welcomeBox({id,name,email,google:0}); }catch(e){}},700);
   }catch(e){
     if(btn)btn.disabled=false;
     suSay('가입 중 오류가 났습니다. 잠시 후 다시 시도해 주세요.');

@@ -4824,3 +4824,25 @@ html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
 .as-inline{display:inline-block;margin-top:9px;padding:7px 12px;border-radius:9px;
   border:1px solid var(--border);background:var(--panel);font-size:11.5px;font-weight:800;
   color:var(--text);cursor:pointer;min-height:36px}
+
+/* ══ [v7.5] 프로필 이름·아이디가 잘리던 문제 ═══════════════════════════════
+   이름이 길거나 아이디가 이메일이면(구글 가입) 창 밖으로 밀려 잘렸다.
+   이름은 줄바꿈을 허용하고, 아이디는 길면 줄여 표시하되 전체는 계정 설정에서 본다. */
+.pm-idwrap{flex:1;min-width:0;padding-right:8px}
+.pm-name{font-size:18px;font-weight:800;line-height:1.3;
+  word-break:break-word;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pm-id{font-size:13px;color:var(--sub-2);line-height:1.4;
+  word-break:break-all;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.pm-head{align-items:flex-start}
+.pm-head .ot-x{flex:0 0 auto}
+/* 상단 사용자 이름도 길면 줄인다 */
+.user-name,.pm-btn b{max-width:132px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:560px){
+  .pm-name{font-size:16.5px}
+  .pm-id{font-size:12px}
+  .user-name,.pm-btn b{max-width:92px}
+}
+/* [v7.5] 일반 가입 안내창의 비밀번호 안내 — 구글 파랑 대신 중립 색 */
+.gw-pw.plain{background:var(--border-soft);border-color:var(--border)}

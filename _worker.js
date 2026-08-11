@@ -5174,6 +5174,34 @@ var clip = (s, n) => String(s || "").replace(/[<>]/g, "").trim().slice(0, n);
 var genId = () => "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 var genCode = () => Array.from({ length: 6 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
 var EMBLEMS = ["\u{1F6E1}\uFE0F", "\u2694\uFE0F", "\u{1F525}", "\u{1F680}", "\u{1F48E}", "\u{1F402}", "\u{1F43B}", "\u{1F985}", "\u{1F319}", "\u2B50", "\u{1F340}", "\u{1F451}"];
+/* ══ [v7.5] KV 가 방금 쓴 계정을 못 읽는 문제 ═══════════════════════════════
+   [무엇이 일어났나] 구글 가입이 계정을 KV 에 저장하는데, 그 값이 전 세계에
+   퍼지는 데 시간이 걸린다(최대 1분). 그 사이 클랜·친구가 계정을 조회하면
+   '그런 계정 없음'이 되어 auth 오류가 났다(첨부 사진).
+   [고침] 방금 쓴 계정 DB 를 이 작업자의 기억에 잠깐 담아 둔다.
+   같은 작업자에게 들어온 요청이면 KV 대신 이 기억을 쓴다.
+   (작업자가 바뀌면 KV 를 보는데, 그때쯤이면 이미 퍼져 있다) */
+var _dbCache=null, _dbCacheAt=0;
+var DB_CACHE_MS=90000;
+function dbCacheGet(){
+  if(_dbCache&&Date.now()-_dbCacheAt<DB_CACHE_MS)return _dbCache;
+  return null;
+}
+function dbCacheSet(db){ _dbCache=db; _dbCacheAt=Date.now(); }
+/* 계정 DB 를 읽는다 — 방금 쓴 것이 있으면 그것을 먼저 본다 */
+async function readAccDb(st){
+  const c=dbCacheGet();
+  const kv=await st.acc.get("db",{type:"json"}).catch(()=>null);
+  if(!kv)return c||{accounts:{},users:{}};
+  if(!c)return kv;
+  /* 둘 다 있으면 계정 수가 많은 쪽(더 최신)을 쓰고, 캐시에만 있는 계정을 합친다 */
+  const merged={accounts:{...kv.accounts},users:{...(kv.users||{})}};
+  for(const k of Object.keys(c.accounts||{}))
+    if(!merged.accounts[k])merged.accounts[k]=c.accounts[k];
+  for(const k of Object.keys(c.users||{}))
+    if(!merged.users[k])merged.users[k]=c.users[k];
+  return merged;
+}
 async function stores() {
   const mod = await Promise.resolve().then(() => (init_blobs_shim(), blobs_shim_exports));
   return {
@@ -5220,7 +5248,7 @@ var clan_default = async (req2) => {
     arr0.sort((x, y) => (y.avg ?? -1e9) - (x.avg ?? -1e9));
     return json2({ ok: true, clans: arr0.slice(0, 30) });
   }
-  const db = await st.acc.get("db", { type: "json" }).catch(() => null) || { accounts: {}, users: {} };
+  const db = await readAccDb(st);          // [v7.5] 방금 쓴 계정도 보이게
   let user = await verifyUser(db, b.id, b.pass, b.legacy);
   let uidKey = String(b.id || "");
   /* [v6.1] 아이디 대소문자가 어긋나도 찾아 준다 — 친구와 같은 규칙 */
@@ -6455,7 +6483,7 @@ var friends_default = async (req2) => {
   } catch {
     return json4({ ok: false, err: "nostore" });
   }
-  const db = await st.acc.get("db", { type: "json" }).catch(() => null) || { accounts: {} };
+  const db = await readAccDb(st);          // [v7.5]
   let user = await verifyUser2(db, b.id, b.pass, b.legacy);
   /* ══ [v6.1] 친구만 계속 'auth' 로 막히던 이유 ═══════════════════════════════
      아이디 대소문자가 저장된 것과 조금이라도 다르면 계정을 찾지 못한다.
@@ -13105,7 +13133,7 @@ async function xfer_default(req2){
     return json2({ok:true,name:masked,type:e.type||"",self:false});
   }
 
-  const db=await st.acc.get("db",{type:"json"}).catch(()=>null)||{accounts:{},users:{}};
+  const db=await readAccDb(st);            // [v7.5]
   const user=await verifyUser(db,b.id,b.pass,b.legacy);
   if(!user)return json2({ok:false,err:"auth"});
   const uid=String(b.id);
@@ -13324,6 +13352,7 @@ async function oauth_google_default(req2, ctx){
     db.accounts[uid]=acc;
     if(!db.users[uid])db.users[uid]={watchlist:[],watchFolders:[],holdings:[],cash:0,
       usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
+    dbCacheSet(db);                       // [v7.5] 방금 쓴 계정을 기억해 둔다
     await st.acc.setJSON("db",db).catch(()=>{});
 
     /* ══ [v7.4] 표를 KV 에 두면 못 받는다 ═══════════════════════════════════
@@ -13412,7 +13441,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "7.4.0";
+var APP_VER = "7.5.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
