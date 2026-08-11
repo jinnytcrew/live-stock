@@ -5399,9 +5399,19 @@ var clan_default = async (req2) => {
       const pick = (o) => (o && o.n) ? { n: clip(o.n, 14), r: isFinite(+o.r) ? Math.round(+o.r * 100) / 100 : null } : null;
       if (b.best !== void 0) m.best = pick(b.best);
       if (b.worst !== void 0) m.worst = pick(b.worst);
-      m.updatedAt = Date.now();
-      c.members[uid] = m;
-      await saveClan(c);
+      /* [v7.8] 클랜도 같은 이유로 매번 저장하고 있었다 — 바뀐 게 있을 때만 쓴다 */
+      const now2 = Date.now();
+      const changed2 = JSON.stringify({ r: m.rate, s: m.msg, t: m.tr, h: m.hold,
+        hs: m.holds, b: m.best, w: m.worst }) !== (m._sig || "");
+      if (changed2 || now2 - (m.updatedAt || 0) > 300000) {
+        m._sig = JSON.stringify({ r: m.rate, s: m.msg, t: m.tr, h: m.hold,
+          hs: m.holds, b: m.best, w: m.worst });
+        m.updatedAt = now2;
+        c.members[uid] = m;
+        await saveClan(c);
+      } else {
+        c.members[uid] = m;
+      }
       return json2({ ok: true, clan: pub(c, uid) });
     }
     if (act === "chat") {
@@ -6523,16 +6533,33 @@ var friends_default = async (req2) => {
   const load = async (id) => await st.soc.get("fr:" + id, { type: "json" }).catch(() => null) || blank();
   const save = (id, v) => st.soc.setJSON("fr:" + id, v);
   const me = await load(uid);
-  me.profile = { name: uname, rate: me.profile ? me.profile.rate : null, msg: me.profile ? me.profile.msg : "", ts: me.profile ? me.profile.ts : 0 };
+  /* ══ [v7.8] 프로필을 다시 만들면서 tr(거래 수)를 빠뜨리고 있었다 ═══════════
+     그래서 매번 tr 이 undefined → 값이 들어가며 '달라졌다'로 판정돼
+     저장이 계속 일어났다. 있던 값을 모두 그대로 물려받는다. */
+  const _p0 = me.profile || {};
+  me.profile = { ..._p0, name: uname,
+    rate: _p0.rate ?? null, msg: _p0.msg || "", tr: _p0.tr || 0, ts: _p0.ts || 0 };
   const act = String(b.action || "");
   try {
     if (act === "sync" || act === "get") {
       if (act === "sync") {
+        /* ══ [v7.8] KV 하루 쓰기 한도를 다 써 버리던 이유 ═══════════════════════
+           친구 화면을 열 때마다 무조건 저장했다. 값이 하나도 안 바뀌었어도
+           ts(마지막 갱신 시각)를 새로 넣어 '달라진 것'으로 만들었기 때문이다.
+           무료 KV 는 하루 1,000회 쓰기가 한도라 금방 바닥나고,
+           그때부터 클랜·친구·계정이 모두 멈춘다(첨부 사진의 오류다).
+           → 수익률·소개글·거래수가 실제로 달라졌을 때만 저장한다.
+             바뀐 게 없으면 5분에 한 번만 시각을 갱신한다. */
+        const before = { r: me.profile.rate, m: me.profile.msg, t: me.profile.tr };
         if (b.rate != null && isFinite(+b.rate)) me.profile.rate = Math.max(-99, Math.min(999, Math.round(+b.rate * 100) / 100));
         if (b.msg !== void 0) me.profile.msg = clip2(b.msg, 30);
         if (b.tr != null && isFinite(+b.tr)) me.profile.tr = Math.max(0, Math.round(+b.tr));
-        me.profile.ts = Date.now();
-        await save(uid, me);
+        const changed = before.r !== me.profile.rate || before.m !== me.profile.msg || before.t !== me.profile.tr;
+        const stale = Date.now() - (me.profile.ts || 0) > 300000;
+        if (changed || stale) {
+          me.profile.ts = Date.now();
+          await save(uid, me);
+        }
       }
       return json4({ ok: true, ...await view(st, uid, me) });
     }
@@ -13457,7 +13484,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "7.7.0";
+var APP_VER = "7.8.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

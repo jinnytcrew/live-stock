@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=410';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=411';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -7830,7 +7830,9 @@ async function renderFriend(){
              :'계정 확인에 실패했습니다',
         net:'서버에 연결하지 못했습니다',
         nostore:'서버 저장소를 열지 못했습니다',
-        server:'서버에서 오류가 났습니다',
+        server:(r&&/KV put\(\) limit/.test(String(r.detail||'')))
+          ?'오늘 서버 저장 한도를 모두 썼습니다. 내일 자동으로 복구됩니다'
+          :'서버에서 오류가 났습니다',
         guest:'로그인이 필요합니다'
       }[code]||'연결에 실패했습니다';
       el.innerHTML=`<div class="empty"><b>${htmlEsc(why)}</b><br>
@@ -7840,11 +7842,11 @@ async function renderFriend(){
       /* [v7.7] 가입 직후에는 서버 저장이 아직 안 퍼졌을 수 있다 — 몇 초 뒤 한 번 더 */
       if(!_frRetry){ _frRetry=1;
         setTimeout(()=>{ _frRetry=0; frCache=null;
-          if(currentView==='friend')renderFriends(); },4000); }
+          if(currentView==='friend')renderFriend(); },4000); }
       const fb=$('frFix'); if(fb)fb.onclick=async()=>{
         fb.disabled=true;
         try{ await ensureServerAccount(); }catch(e){}
-        frCache=null; renderFriends(); };
+        frCache=null; renderFriend(); };
       return;}
   }
   const f=frCache||{friends:[],reqIn:[],reqOut:[],me:{}};
