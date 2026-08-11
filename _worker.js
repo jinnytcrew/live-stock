@@ -4336,6 +4336,12 @@ var accounts_default = async (req2) => {
      로그인 실패 한 번만 나도 noteFail → setJSON 으로 '빈 DB'가 저장돼
      모든 사용자의 계정이 통째로 지워진다. 로드 성공 여부를 기억해 두고,
      실패했으면 어떤 쓰기도 하지 않는다(읽기 전용으로만 응답). */
+  /* ══ [v7.6] 구글로 갓 가입한 계정이 여기서는 안 보이던 문제 ═══════════════
+     [무엇이 일어났나] 구글 가입은 계정을 KV 에 저장한다. 그런데 KV 는 쓴 값이
+     퍼지는 데 시간이 걸려, 곧바로 계정 삭제·비밀번호 변경을 하면
+     '그런 계정 없음(noacct)' 이 났다(첨부 사진).
+     클랜·친구는 readAccDb() 로 고쳤는데, 이 계정 라우트만 KV 를 직접 읽고 있었다.
+     [고침] 여기서도 방금 쓴 것을 함께 본다. 저장한 뒤에는 기억도 갱신한다. */
   let db, dbLoaded = false;
   try {
     const raw = await store.get("db", { type: "json" });
@@ -4344,6 +4350,16 @@ var accounts_default = async (req2) => {
   } catch {
     db = { accounts: {}, users: {} }; dbLoaded = false;
   }
+  {
+    const c = dbCacheGet();
+    if (c && c.accounts) {
+      db.accounts = db.accounts || {}; db.users = db.users || {};
+      for (const k of Object.keys(c.accounts))
+        if (!db.accounts[k]) { db.accounts[k] = c.accounts[k]; dbLoaded = true; }
+      for (const k of Object.keys(c.users || {}))
+        if (!db.users[k]) db.users[k] = c.users[k];
+    }
+  }
   const saveDb = async () => {
     if (!dbLoaded) return false;                 // 로드 실패 상태에서는 쓰지 않는다
     if (!db.accounts || typeof db.accounts !== "object") return false;
@@ -4351,7 +4367,7 @@ var accounts_default = async (req2) => {
        비밀번호가 맞아 로그인이 성공하는 순간 clearTries → saveDb() 에서
        스택이 터지고 워커가 500 을 반환 → 클라이언트는 "서버 연결 실패"로 보였다.
        즉 '올바른 비밀번호일수록 반드시 실패하는' 구조였다. 실제 저장을 호출한다. */
-    try { await store.setJSON("db", db); return true; } catch (e) { return false; }
+    try { dbCacheSet(db); await store.setJSON("db", db); return true; } catch (e) { return false; }
   };
   if (!db.accounts) db.accounts = {};
   if (!db.users) db.users = {};
@@ -13441,7 +13457,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "7.5.0";
+var APP_VER = "7.6.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

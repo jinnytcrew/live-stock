@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=408';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=409';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -4030,9 +4030,15 @@ async function deleteAccount(){
   }
   const j=await cloudCall(body);
   if(!j||!j.ok){
-    toast('warn','삭제 실패',
-      j&&j.err==='wrongpass'?(isG?'인증 정보가 만료되었습니다. 다시 로그인 후 시도해 주세요':'비밀번호가 올바르지 않습니다')
-      :(j&&j.err)||'네트워크 오류');
+    /* [v7.6] 서버가 준 코드를 그대로 보여 주면 무슨 뜻인지 알 수 없다 */
+    const why={
+      wrongpass:isG?'인증 정보가 만료되었습니다. 로그아웃 후 다시 로그인해 주세요'
+                   :'비밀번호가 올바르지 않습니다',
+      noacct:'서버에서 계정을 찾지 못했습니다. 잠시 후 다시 시도해 주세요',
+      param:'요청 정보가 부족합니다. 다시 로그인 후 시도해 주세요',
+      net:'서버에 연결하지 못했습니다'
+    }[(j&&j.err)||'net']||'잠시 후 다시 시도해 주세요';
+    toast('warn','삭제 실패',why);
     return;}
   const accs=accounts(); delete accs[currentUser]; store.set('accounts',accs);
   store.del('user:'+currentUser); store.del('session');
