@@ -10761,7 +10761,13 @@ var themes_default = async (req2) => {
   try {
     let items = [];
     if (type === "theme") {
-      const pages = [1, 2, 3, 4, 5, 6, 7, 8];
+      /* ══ [v8.6] 테마가 빠지던 이유 ═══════════════════════════════════════
+         네이버 테마 목록은 한 페이지에 40개씩, 2026년 기준 300개가 넘어
+         8페이지(320개)로는 뒷부분이 잘렸다. 화면에는 '266개 테마'로 나왔는데
+         실제로는 더 있었고, K-뷰티·화장품처럼 뒤쪽에 있는 테마가 통째로 빠졌다.
+         [고침] 12페이지까지 읽고, 빈 페이지가 나오면 거기서 멈춘다.
+         (한 페이지가 비면 그 뒤는 없다) */
+      const pages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
       const htmls = await Promise.all(pages.map((p) => getHtml(`https://finance.naver.com/sise/theme.naver?page=${p}`).catch((e) => {
         diag.push("p" + p + ":" + String(e).slice(0, 100));
         return "";
@@ -13303,6 +13309,103 @@ async function k200nfdiag_default(){
   },null,1),{headers:{"content-type":"application/json; charset=utf-8",
     "cache-control":"no-store","access-control-allow-origin":"*"}});
 }
+/* ══ [v8.6] 야간선물 전용 경로 — 카드가 직접 부른다 ═══════════════════════════
+   [왜 새로 만드나] 지금까지는 '주요 지수' 묶음(/api/market) 안에서 야간선물을
+   함께 받아왔다. 그 묶음은 60초마다 한 번, 여러 지수를 한꺼번에 처리하느라
+   야간선물 하나가 실패해도 다음 갱신까지 그대로 빈칸이었다.
+   [바꾼 구조] 카드가 이 경로만 따로 부른다. 실패하면 카드가 스스로 다시 시도한다.
+   응답에 '어디서 받았는지'와 '무엇이 막혔는지'를 함께 담아, 화면에서 바로 확인된다. */
+async function k200nf_default(req2, ctx){
+  const env=(ctx&&ctx.env)||_ENV||{};
+  const diag=[];
+  const UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+  const num=(v)=>{const n=Number(String(v==null?"":v).replace(/,/g,""));return isFinite(n)?n:0;};
+  const jget=async(u,h)=>{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),5000);
+    try{ const r=await fetch(u,{signal:c.signal,headers:{"User-Agent":UA,Accept:"application/json",...(h||{})}});
+      if(!r.ok){diag.push(u.split("/")[2]+":"+r.status);return null;}
+      return await r.json();
+    }catch(e){ diag.push(u.split("/")[2]+":"+String(e.name||e).slice(0,12)); return null; }
+    finally{ clearTimeout(t); }
+  };
+  const tget2=async(u,h)=>{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+    try{ const r=await fetch(u,{signal:c.signal,headers:{"User-Agent":UA,...(h||{})}});
+      if(!r.ok){diag.push(u.split("/")[2]+":"+r.status);return null;}
+      return await r.text();
+    }catch(e){ diag.push(u.split("/")[2]+":"+String(e.name||e).slice(0,12)); return null; }
+    finally{ clearTimeout(t); }
+  };
+  let out=null;
+  const take=(px,ch,rate,src,hist)=>{
+    if(out||!(px>0))return;
+    out={price:+px.toFixed(2),change:ch!=null?+Number(ch).toFixed(2):null,
+      rate:rate!=null?+Number(rate).toFixed(2):null,src,history:Array.isArray(hist)?hist:[]};
+  };
+
+  /* ① 트레이딩뷰 스캐너 — KRX 직상장 심볼(야간 세션 포함) */
+  for(const sym of ["KRX:K2I1!","KRX:K2I2!","KRX:K200F1!"]){
+    if(out)break;
+    const j=await jget("https://scanner.tradingview.com/symbol?symbol="+encodeURIComponent(sym)
+      +"&fields=lp,ch,chp,prev_close_price&no_404=true",{Referer:"https://www.tradingview.com/"});
+    if(j&&num(j.lp)>0)take(num(j.lp),num(j.ch),num(j.chp),"tv:"+sym);
+  }
+  /* ② 트레이딩뷰 스캐너(POST) — 위 GET 이 막힐 때 */
+  if(!out){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const r=await fetch("https://scanner.tradingview.com/futures/scan",{method:"POST",signal:c.signal,
+        headers:{"User-Agent":UA,"content-type":"application/json",Referer:"https://www.tradingview.com/"},
+        body:JSON.stringify({symbols:{tickers:["KRX:K2I1!"],query:{types:[]}},
+          columns:["close","change","change_abs","description"]})});
+      clearTimeout(t);
+      if(r.ok){ const j=await r.json();
+        const d=j&&j.data&&j.data[0]&&j.data[0].d;
+        if(d&&num(d[0])>0)take(num(d[0]),num(d[2]),num(d[1]),"tv-scan");
+        else diag.push("tv-scan:nodata");
+      } else diag.push("tv-scan:"+r.status);
+    }catch(e){ diag.push("tv-scan:"+String(e.name||e).slice(0,12)); }
+  }
+  /* ③ 인베스팅닷컴 선물 페이지 — HTML 에 값이 그대로 담겨 온다 */
+  if(!out){
+    for(const u of ["https://kr.investing.com/indices/korea-200-futures",
+                    "https://www.investing.com/indices/korea-200-futures"]){
+      if(out)break;
+      const h=await tget2(u,{Accept:"text/html","Accept-Language":"ko,en;q=0.8"});
+      if(!h)continue;
+      let px=0,pc=0;
+      let m=/data-test="instrument-price-last"[^>]*>([\d,]+\.?\d*)</.exec(h); if(m)px=num(m[1]);
+      if(!px){ m=/"last"\s*:\s*"?([\d,]+\.?\d*)"?/.exec(h); if(m)px=num(m[1]); }
+      const pm=/data-test="prevClose"[^>]*>([\d,]+\.?\d*)</.exec(h)
+        ||/"prev_close"\s*:\s*"?([\d,]+\.?\d*)"?/.exec(h);
+      if(pm)pc=num(pm[1]);
+      if(px>0)take(px,pc>0?px-pc:null,pc>0?(px-pc)/pc*100:null,"investing");
+      else diag.push("investing:noprice");
+    }
+  }
+  /* ④ 네이버 선물 — 야간 종목코드 후보 */
+  if(!out){
+    for(const cd of ["KRDRVFUK2I","101W3000","101WC000"]){
+      if(out)break;
+      const j=await jget("https://api.stock.naver.com/futures/"+cd+"/basic",
+        {Referer:"https://m.stock.naver.com/"});
+      const px=num(j&&(j.closePrice??j.nowVal));
+      if(px>0){ const pc=num(j.previousClose??j.baseValue);
+        take(px,pc>0?px-pc:num(j.compareToPreviousClosePrice),
+          num(j.fluctuationsRatio)||(pc>0?(px-pc)/pc*100:null),"naver:"+cd); }
+    }
+  }
+  const kst=new Date(Date.now()+9*3600e3);
+  const h9=kst.getUTCHours(), wd=kst.getUTCDay();
+  const open=(h9>=18)?(wd>=1&&wd<=5):(h9<6?(wd>=2&&wd<=6):false);
+  const body={ok:!!out,open,...(out||{}),diag:diag.slice(0,14),
+    at:kst.toISOString().slice(0,19).replace("T"," ")+" KST"};
+  return new Response(JSON.stringify(body),{headers:{
+    "content-type":"application/json; charset=utf-8",
+    "cache-control":"public, max-age=20, s-maxage=20",
+    "access-control-allow-origin":"*"}});
+}
+ROUTES["k200nf"]=k200nf_default;
 ROUTES["k200nfdiag"]=k200nfdiag_default;
 /* ══ [v6.7] 구글 간편 로그인 ═══════════════════════════════════════════════
    [흐름] ① 버튼을 누르면 서버가 무작위 state 를 만들어 보관하고 구글로 보낸다
@@ -13585,7 +13688,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "8.5.0";
+var APP_VER = "8.6.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

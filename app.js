@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=418';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=419';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -6132,6 +6132,41 @@ function lastNightClose(){
   }catch(e){}
   return null;
 }
+/* ══ [v8.6] 야간선물 전용 수신 ═══════════════════════════════════════════════
+   카드가 이 값을 쓴다. 실패하면 짧은 간격으로 다시 시도하고,
+   성공하면 마지막 값을 저장해 다음 접속에도 쓴다. */
+var _k200nf=null, _k200nfAt=0, _k200nfBusy=false, _k200nfTry=0;
+try{ _k200nf=JSON.parse(localStorage.getItem('k200nf')||'null')||null;
+  if(_k200nf&&Date.now()-(_k200nf.at||0)>18*3600e3)_k200nf=null; }catch(e){}
+function k200nfLoad(force){
+  if(_k200nfBusy)return;
+  const iv=(_k200nf&&_k200nf.price>0)?20000:6000;      // 아직 못 받았으면 더 자주
+  if(!force&&Date.now()-_k200nfAt<iv)return;
+  _k200nfBusy=true; _k200nfAt=Date.now();
+  fetch('/api/k200nf',{cache:'no-store'})
+    .then(r=>r.json())
+    .then(j=>{
+      if(j&&j.ok&&j.price>0){
+        _k200nf={price:j.price,change:j.change,rate:j.rate,
+          history:j.history||[],src:j.src||'',at:Date.now()};
+        _k200nfTry=0;
+        try{ localStorage.setItem('k200nf',JSON.stringify(_k200nf)); }catch(e){}
+        try{ if(currentView==='home')renderMarket(); }catch(e){}
+      }else{
+        _k200nfTry++;
+        try{ window._k200nfDiag=(j&&j.diag)||[]; }catch(e){}
+        /* 처음 몇 번은 빨리 다시 시도한다 — 한 번 실패했다고 빈칸으로 두지 않는다 */
+        if(_k200nfTry<=6)setTimeout(()=>{try{k200nfLoad(true);}catch(e){}},4000);
+      }
+    })
+    .catch(()=>{ _k200nfTry++;
+      if(_k200nfTry<=6)setTimeout(()=>{try{k200nfLoad(true);}catch(e){}},4000); })
+    .finally(()=>{ _k200nfBusy=false; });
+}
+try{
+  setTimeout(()=>{try{k200nfLoad(true);}catch(e){}},1200);
+  setInterval(()=>{try{ if(currentView==='home')k200nfLoad(); }catch(e){}},20000);
+}catch(e){}
 function k200NightOpen(){
   try{
     /* [v6.2] KRX 야간거래는 18:00 ~ 익일 06:00 이다(05:00 이 아니다).
@@ -6218,9 +6253,14 @@ function nightFutFromDay(list){
   if(nc&&nc.price>0&&!openNow)
     return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:nc.price,
       change:nc.change||0,rate:nc.rate||0,history:nc.history||[],dayBasis:'직전 야간 마감'};
-  /* [v8.5] 주간 마감가로 채우던 것을 되돌린다.
-     주간 979 와 야간 1,057 은 전혀 다른 값이다. 틀린 숫자를 보여 주는 것은
-     빈칸보다 나쁘다 — 사용자가 그것을 진짜 야간 시세로 믿게 된다. */
+  /* ══ [v8.6] 카드가 전용 경로에서 직접 받아 온다 ═══════════════════════════
+     지금까지는 '주요 지수' 묶음이 실패하면 다음 갱신(60초)까지 빈칸이었다.
+     이제 카드가 /api/k200nf 를 따로 부르고, 실패하면 스스로 다시 시도한다. */
+  {const nf=_k200nf;
+   if(nf&&nf.price>0)
+     return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:nf.price,
+       change:nf.change||0,rate:nf.rate||0,history:nf.history||[],nfSrc:nf.src||''};}
+  try{ k200nfLoad(); }catch(e){}
   return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true};
 }
 function withNightWait(arr){
@@ -15436,8 +15476,40 @@ function usAiCompute(){
     :sc>=30?'약한 흐름입니다. 반등을 확인한 뒤가 안전합니다'
     :'하락 압력이 큽니다. 새로 담기에는 이릅니다';
 
+  /* ══ [v8.6] 매물대 — 국내와 같은 계산기를 그대로 쓴다 ═══════════════════════
+     가격대별로 거래량이 얼마나 쌓였는지 보면, 어디서 팔 사람이 기다리는지(저항)와
+     어디서 받쳐 줄지(지지)가 보인다. 국내에만 있고 해외에 없을 이유가 없다. */
+  let vp=null;
+  try{ vp=volProfile(cs.map(c=>({o:c.o,h:c.h,l:c.l,c:c.c,v:c.v||0})),px); }catch(e){}
+
+  /* ══ [v8.6] 차트 예측 — 최근 흐름의 기울기를 앞으로 이어 본다 ═══════════════
+     '이렇게 된다'가 아니라 '지금 기울기가 이어진다면'을 보여 주는 참고선이다.
+     변동성으로 위아래 폭을 잡아 '가능한 범위'까지 함께 그린다. */
+  let fc=null;
+  try{
+    const N=Math.min(40,closes.length);
+    const seg=closes.slice(-N);
+    const xs=seg.map((_,i)=>i), ys=seg;
+    const mx=avg(xs), my=avg(ys);
+    let num2=0,den=0;
+    for(let i=0;i<N;i++){ num2+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2; }
+    const slope=den?num2/den:0;
+    const days=10;
+    const path=[]; const band=[];
+    for(let i=1;i<=days;i++){
+      const v=px+slope*i;
+      path.push(v);
+      band.push(vola*Math.sqrt(i)/100*px);      // 시간이 갈수록 폭이 넓어진다
+    }
+    fc={days,path,band,slope,
+      end:path[path.length-1],
+      up:path[path.length-1]+band[band.length-1],
+      dn:path[path.length-1]-band[band.length-1],
+      trend:slope>px*0.0015?'상승':slope<-px*0.0015?'하락':'횡보'};
+  }catch(e){}
+
   return {...out,ma5,ma20,ma60,vola,rsi,pos,volR,dRate,sc,grade,line,
-    buyLo,buyHi,st,lt,stop,p,kw,
+    buyLo,buyHi,st,lt,stop,p,kw,vp,fc,
     parts:[['5일선',sc5],['20일선',sc20],['60일선',sc60],['RSI',scR],
            ['52주 위치',scP],['거래량',scV],['오늘 흐름',scT]]};
 }
@@ -15510,6 +15582,34 @@ function renderUsAi(el){
       <div class="ai-mt"><span>거래량(5/20일)</span><b class="num">${a.volR?a.volR.toFixed(2)+'배':'—'}</b></div>
     </div>
 
+    ${a.vp?`
+    <div class="ai-sec-t">매물대 분석 <span>최근 ${a.vp.days}거래일 · 가격대별 누적 거래량</span></div>
+    <div class="vp-zone ${a.vp.zone.tone}">현재 위치 · <b>${a.vp.zone.label}</b>${a.vp.brokeVah?' · 최근 10일 내 상단 돌파':a.vp.brokePoc?' · 최근 10일 내 POC 돌파':a.vp.lostVal?' · 최근 10일 내 하단 이탈':''}</div>
+    <div class="vp-wrap"><canvas id="usAiVp"></canvas></div>
+    <div class="vp-bar"><i class="d" style="width:${a.vp.digest.toFixed(1)}%"></i><i class="o" style="width:${a.vp.overhead.toFixed(1)}%"></i></div>
+    <div class="vp-bar-lg"><span><b class="num">${Math.round(a.vp.digest)}%</b> 소화한 매물(현재가 아래)</span><span><b class="num">${Math.round(a.vp.overhead)}%</b> 머리 위 매물</span></div>
+    <div class="ai-metrics vp-m">
+      <div class="ai-mt"><span>최대 매물대 (POC)</span><b class="num">${D(a.vp.pocP)}</b></div>
+      <div class="ai-mt"><span>밸류에어리어 70%</span><b class="num">${D(a.vp.val)}~${D(a.vp.vah)}</b></div>
+      <div class="ai-mt"><span>위쪽 매물벽 (저항)</span><b class="num ${a.vp.res?'down':''}">${a.vp.res?D(a.vp.res.p)+' ('+a.vp.res.w.toFixed(1)+'%)':'없음 · 위가 비어 있음'}</b></div>
+      <div class="ai-mt"><span>아래 매물벽 (지지)</span><b class="num ${a.vp.sup?'up':''}">${a.vp.sup?D(a.vp.sup.p)+' ('+a.vp.sup.w.toFixed(1)+'%)':'없음 · 하방 지지 얇음'}</b></div>
+      <div class="ai-mt"><span>본전 매물 압력</span><b class="num ${a.vp.trap>=18?'down':''}">${a.vp.trap.toFixed(1)}%</b></div>
+      <div class="ai-mt"><span>매물벽 개수</span><b class="num">${a.vp.hvn.length}곳 · 공백 ${a.vp.lvn.length}곳</b></div>
+    </div>
+    <div class="ai-prob-d">${vpNarrative(a.vp,a.px)}</div>`:''}
+
+    ${a.fc?`
+    <div class="ai-sec-t">차트 예측 <span>최근 흐름의 기울기를 ${a.fc.days}거래일 이어 본 참고선</span></div>
+    <div class="vp-wrap"><canvas id="usAiFc"></canvas></div>
+    <div class="ai-metrics">
+      <div class="ai-mt"><span>추세</span><b class="num ${a.fc.trend==='상승'?'up':a.fc.trend==='하락'?'down':''}">${a.fc.trend}</b></div>
+      <div class="ai-mt"><span>${a.fc.days}일 뒤 중심선</span><b class="num">${D(a.fc.end)}</b></div>
+      <div class="ai-mt"><span>가능 범위 위</span><b class="num up">${D(a.fc.up)}</b></div>
+      <div class="ai-mt"><span>가능 범위 아래</span><b class="num down">${D(a.fc.dn)}</b></div>
+    </div>
+    <div class="ai-prob-d">최근 ${Math.min(40,(usCandles||[]).length)}일 기울기가 그대로 이어진다고 가정한 선입니다.
+      실제 주가는 실적·금리·환율 같은 바깥 요인으로 얼마든지 달라집니다. <b>예측이 아니라 참고선</b>으로 보세요.</div>`:''}
+
     <div class="ai-sec-t">해외 주식에서 함께 볼 것</div>
     <div class="ai-note us">
       <p>· 미국 주식은 <b>상·하한가가 없습니다.</b> 하루에 30% 넘게 움직이는 일도 있어, 손절 라인을 미리 정해 두는 편이 안전합니다.</p>
@@ -15519,6 +15619,44 @@ function renderUsAi(el){
     </div>
     <div class="us-sum-note">공개 시세를 규칙에 따라 계산한 참고 정보이며 투자 권유가 아닙니다. 과거 흐름이 미래를 보장하지 않습니다.</div>
   </div>`;
+  /* [v8.6] 그림은 국내와 같은 함수를 그대로 쓴다 — 생김새가 저절로 맞는다 */
+  requestAnimationFrame(()=>{
+    try{ if(a.vp)drawVolProfile($('usAiVp'),a.vp,a.px); }catch(e){}
+    try{ if(a.fc)drawUsForecast($('usAiFc'),a); }catch(e){}
+  });
+}
+/* ══ [v8.6] 차트 예측 그림 — 지나온 흐름(실선) + 참고선(점선) + 가능 범위(띠) ══ */
+function drawUsForecast(cv,a){
+  if(!cv||!a||!a.fc)return;
+  const cs=(usCandles||[]).slice(-40).map(c=>c.c);
+  if(cs.length<5)return;
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const w=cv.clientWidth||320, h=140;
+  cv.width=w*dpr; cv.height=h*dpr; cv.style.height=h+'px';
+  const x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  const all=[...cs,...a.fc.path,a.fc.up,a.fc.dn];
+  let lo=Math.min(...all), hi=Math.max(...all);
+  const pad=(hi-lo)*0.12||1; lo-=pad; hi+=pad;
+  const n=cs.length+a.fc.days;
+  const X=(i)=>8+(w-16)*(i/(n-1));
+  const Y=(v)=>h-10-(h-20)*((v-lo)/(hi-lo));
+  const dnTrend=a.fc.trend==='하락';
+  const col=dnTrend?'#3b82f6':'#e5484d';
+  x.beginPath();
+  a.fc.path.forEach((v,i)=>{const px=X(cs.length+i),py=Y(v+a.fc.band[i]);i?x.lineTo(px,py):x.moveTo(px,py);});
+  for(let i=a.fc.path.length-1;i>=0;i--)x.lineTo(X(cs.length+i),Y(a.fc.path[i]-a.fc.band[i]));
+  x.closePath(); x.fillStyle=dnTrend?'rgba(59,130,246,.13)':'rgba(229,72,77,.13)'; x.fill();
+  x.beginPath(); x.lineWidth=2; x.strokeStyle=col;
+  cs.forEach((v,i)=>{i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v));});
+  x.stroke();
+  x.beginPath(); x.setLineDash([5,4]); x.lineWidth=2; x.strokeStyle=col;
+  x.moveTo(X(cs.length-1),Y(cs[cs.length-1]));
+  a.fc.path.forEach((v,i)=>x.lineTo(X(cs.length+i),Y(v)));
+  x.stroke(); x.setLineDash([]);
+  x.beginPath(); x.moveTo(X(cs.length-1),8); x.lineTo(X(cs.length-1),h-8);
+  x.strokeStyle='rgba(128,140,160,.35)'; x.lineWidth=1; x.stroke();
+  try{ x.fillStyle='rgba(128,140,160,.9)'; x.font='10px system-ui';
+    x.fillText('오늘',X(cs.length-1)+4,14); }catch(e){}
 }
 /* ③ 시세 — 일별 표 */
 function renderUsSiseTab(el){
