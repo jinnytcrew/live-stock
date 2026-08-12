@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=411';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=415';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3052,7 +3052,14 @@ function acctNewNo(type){
 function aeInit(){
   AE_STEP=1; aeSel='general';
   const acc=(typeof accounts==='function'&&currentUser)?(accounts()[currentUser]||{}):{};
-  aeForm={name:acc.name||'',birth:'',phone:'',email:acc.email||'',job:'',purpose:'',source:'',
+  /* ══ [v7.9] 실명과 닉네임을 섞어 쓰던 문제 ═══════════════════════════════
+     [무엇이 잘못됐나] 계정에 이름이 하나뿐이라 닉네임을 그대로 계좌 개설의
+     '이름' 칸에 채워 넣었다. 구글로 가입하면 구글 계정 이름(t'crew Claud)이
+     들어가는데, 계좌 개설은 실명을 받는 절차라 맞지 않는다.
+     [고침] 계정에 실명(realName)을 따로 둔다. 계좌 개설 때 입력한 실명을
+     기억해 다음 계좌부터 미리 채우고, 닉네임은 건드리지 않는다. */
+  aeForm={name:acc.realName||acc.name||'',birth:acc.birth||'',phone:acc.phone||'',
+    email:acc.email||'',job:'',purpose:'',source:'',
     risk:'',cash:'10,000,000',pw:'',pw2:'',terms:{}};
 }
 function aeSave(){
@@ -3129,7 +3136,8 @@ function renderAeSheet(){
       ${arr.map(x=>`<option value="${x}" ${val===x?'selected':''}>${x}</option>`).join('')}</select></div>`;
     inner=`<p class="ae-d">실제 증권사 개설 절차와 같은 항목을 받습니다. 입력한 내용은 이 기기와 회원 계정에만 저장되며 외부로 나가지 않습니다.</p>
       <div class="fld2 two">
-        <div><label>이름</label><input id="aeName" value="${htmlEsc(aeForm.name)}" placeholder="홍길동" autocomplete="name"></div>
+        <div><label>이름 <small style="font-weight:600;color:var(--sub-2)">— 실명</small></label>
+          <input id="aeName" value="${htmlEsc(aeForm.name)}" placeholder="홍길동" autocomplete="name"></div>
         <div><label>생년월일</label><input id="aeBirth" value="${htmlEsc(aeForm.birth)}" placeholder="2000-01-01" inputmode="numeric" maxlength="10"></div>
       </div>
       <div class="fld2 two">
@@ -3257,6 +3265,16 @@ function doAcctOpen(){
     const a=acctList.find(x=>x.id===id);
     if(a){
       a.no=acctNewNo(aeSel);
+      /* [v7.9] 입력한 실명·생년·연락처를 계정에 남긴다 — 다음 계좌부터 미리 채워진다.
+         닉네임(acc.name)은 건드리지 않는다. */
+      try{ const accs=accounts();
+        if(accs[currentUser]){
+          accs[currentUser].realName=aeForm.name;
+          accs[currentUser].birth=aeForm.birth;
+          accs[currentUser].phone=aeForm.phone;
+          if(!accs[currentUser].email)accs[currentUser].email=aeForm.email;
+          store.set('accounts',accs);
+        } }catch(e){}
       a.holder={name:aeForm.name,birth:aeForm.birth,phone:aeForm.phone,email:aeForm.email,
         job:aeForm.job,purpose:aeForm.purpose,source:aeForm.source,risk:aeForm.risk};
       a.terms={at:Date.now(),agreed:AE_TERMS.filter(x=>aeForm.terms[x[0]]).map(x=>x[0])};
@@ -3659,6 +3677,24 @@ async function oaConsume(){
   _oaDone=true;
   /* 주소창을 깨끗이 — 새로고침해도 다시 처리되지 않게 */
   try{ history.replaceState(null,'',location.pathname); }catch(e){}
+  /* [v8.0] 처음 오는 사람 — 일반 가입과 같은 창을 열어 본인 정보를 받는다 */
+  if(g==='new'){
+    try{
+      const r=await fetch('/api/oauth/google?pending=1',
+        {cache:'no-store',credentials:'same-origin'});
+      const j=await r.json();
+      if(!j||!j.ok){ toast('warn','구글 가입 실패','인증 시간이 지났습니다. 다시 시도해 주세요.'); return false; }
+      /* 로그인 창을 열고 회원가입 탭으로 이동 */
+      try{ const gt=$('authGate'); if(gt){gt.hidden=false;gt.classList.add('auth-force');}
+        document.body.classList.add('locked'); }catch(e){}
+      try{ $('tabSignup').classList.add('on'); $('tabLogin').classList.remove('on');
+        $('signupForm').hidden=false; $('loginForm').hidden=true; }catch(e){}
+      suInit('google',{email:j.email,gname:j.gname});
+      renderSu();
+      toast('ok','조금만 더','가입을 마치려면 본인 정보와 약관 동의가 필요합니다');
+      return true;                      // 로그인 창을 따로 띄우지 않는다
+    }catch(e){ toast('warn','구글 가입 실패','잠시 후 다시 시도해 주세요.'); return false; }
+  }
   if(g!=='ok'){
     if(g==='noconfig'){
       /* [v7.2] 서버에 열쇠가 없다 — 관리자가 손봐야 하는 문제다 */
@@ -3709,7 +3745,7 @@ try{ setTimeout(()=>{ try{
 /* ===== 로그인/회원가입 UI ===== */
 $('tabLogin').onclick=()=>{$('tabLogin').classList.add('on');$('tabSignup').classList.remove('on');$('loginForm').hidden=false;$('signupForm').hidden=true;};
 $('tabSignup').onclick=()=>{$('tabSignup').classList.add('on');$('tabLogin').classList.remove('on');$('signupForm').hidden=false;$('loginForm').hidden=true;
-  suInit(); renderSu();};
+  suInit('normal'); renderSu();};
 
 /* ══ [v6.6] 회원가입 — 계좌 개설과 같은 단계식 ═══════════════════════════════
    [왜 바꿨나] 계좌 개설은 3단계로 나눠 약관까지 받는데 가입은 한 화면에 몰아넣고
@@ -3723,27 +3759,47 @@ var SU_TERMS=[
   ['s1',1,'서비스 이용약관',
    '이 서비스는 학습용 모의투자입니다. 실제 매매·실제 자금 이동이 발생하지 않으며 화면의 모든 손익은 가상입니다. 투자 판단이나 권유를 목적으로 하지 않습니다.'],
   ['s2',1,'개인정보 수집·이용 동의',
-   '수집 항목: 아이디, 비밀번호(암호화 저장), 이름/닉네임, 이메일.\n이용 목적: 계정 확인과 여러 기기에서 기록을 이어 보기 위함.\n보관 기간: 회원 탈퇴 시까지.\n비밀번호는 원문을 저장하지 않고 되돌릴 수 없는 형태로만 보관합니다. 동의를 거부할 수 있으나 그 경우 가입할 수 없습니다.'],
+   '수집 항목: 아이디, 비밀번호(암호화 저장), 이름, 생년월일, 휴대전화, 이메일.\n이용 목적: 계정 확인과 여러 기기에서 기록을 이어 보기 위함.\n보관 기간: 회원 탈퇴 시까지.\n비밀번호는 원문을 저장하지 않고 되돌릴 수 없는 형태로만 보관합니다. 동의를 거부할 수 있으나 그 경우 가입할 수 없습니다.'],
   ['s3',1,'만 14세 이상 확인',
    '만 14세 미만은 법정대리인 동의가 필요합니다. 이 모의 서비스는 실제 자금이 오가지 않지만, 개인정보 보호를 위해 만 14세 이상만 가입받습니다.'],
   ['s4',0,'마케팅 정보 수신 동의 (선택)',
    '새 기능과 학습 콘텐츠 안내를 앱 알림으로 받습니다. 동의하지 않아도 가입과 모든 기능 이용에 제한이 없습니다.']
 ];
-function suInit(){ SU_STEP=1; suForm={id:'',pw:'',pw2:'',name:'',email:'',terms:{}}; }
+/* ══ [v8.0] 구글도 같은 가입 절차를 밟는다 ═══════════════════════════════════
+   [왜 바꾸나] 구글은 창 하나 없이 바로 계정이 만들어져, 실명·생년·연락처를
+   받을 곳이 없었다. 그래서 계좌 개설 때 닉네임이 실명 칸에 들어가는 일이 생겼다.
+   [어떻게] 구글 인증이 끝나면 '가입 완료' 대신 같은 가입 창을 연다.
+   아이디·이메일은 구글이 준 값으로 고정하고, 본인 정보와 약관은 똑같이 받는다.
+   여기서 받은 값이 프로필(닉네임)과 계좌 개설(실명·생년·연락처)에 그대로 쓰인다. */
+var suMode='normal', suGoogle=null;
+function suInit(mode,g){
+  SU_STEP=(mode==='google')?2:1;          // 구글은 아이디·비밀번호가 이미 정해졌다
+  suMode=mode||'normal'; suGoogle=g||null;
+  suForm={id:(g&&g.email)||'',pw:'',pw2:'',
+    name:(g&&g.gname)||'',                 // 이름(구글 이름을 첫 값으로 제안)
+    realName:'',birth:'',phone:'',
+    email:(g&&g.email)||'',terms:{}};
+}
 function suSave(){
   const g=(k)=>{const e=$(k);return e?e.value:'';};
   if(SU_STEP===1){ suForm.id=g('suId'); suForm.pw=g('suPw'); suForm.pw2=g('suPw2'); }
-  if(SU_STEP===2){ suForm.name=g('suName'); suForm.email=g('suEmail'); }
+  if(SU_STEP===2){ suForm.email=g('suEmail');
+    suForm.realName=g('suReal'); suForm.birth=g('suBirth'); suForm.phone=g('suPhone');
+    suForm.name=suForm.realName; }        /* [v8.1] 이름 하나로 쓴다 */
 }
 function suGo(step){ suSave(); SU_STEP=step; renderSu(); }
 function suSay(h){ const m=$('suMsg'); if(m)m.innerHTML=h||''; }
 function renderSu(){
-  if(!suForm)suInit();
+  if(!suForm)suInit(suMode);
   const st=$('suSteps'), bd=$('suBody'), nv=$('suNav');
   if(!st||!bd||!nv)return;
-  const LB=['계정 정보','본인 정보','약관 동의'];
-  st.innerHTML=LB.map((t,i)=>`<div class="su-st ${SU_STEP===i+1?'on':SU_STEP>i+1?'done':''}">
-    <i>${SU_STEP>i+1?'✓':i+1}</i><span>${t}</span></div>`).join('');
+  /* 구글은 아이디·비밀번호가 이미 정해져 1단계를 건너뛴다 */
+  const isG=(suMode==='google');
+  const LB=isG?['본인 정보','약관 동의']:['계정 정보','본인 정보','약관 동의'];
+  const base=isG?2:1;                       // 화면에 보이는 첫 단계의 실제 번호
+  st.innerHTML=LB.map((t,i)=>{const n=base+i;
+    return `<div class="su-st ${SU_STEP===n?'on':SU_STEP>n?'done':''}">
+    <i>${SU_STEP>n?'✓':i+1}</i><span>${t}</span></div>`;}).join('');
   suSay('');
   if(SU_STEP===1){
     bd.innerHTML=`
@@ -3768,14 +3824,35 @@ function renderSu(){
     }; }catch(e){}
   }
   if(SU_STEP===2){
+    const isG=(suMode==='google');
     bd.innerHTML=`
-      <div class="fld2"><label>이름 / 닉네임</label>
-        <input id="suName" placeholder="홍길동" value="${htmlEsc(suForm.name)}" maxlength="20"></div>
-      <div class="fld2"><label>이메일</label>
-        <input id="suEmail" type="email" placeholder="you@example.com" value="${htmlEsc(suForm.email)}" autocomplete="email"></div>
-      <div class="fld-help">이메일은 계정을 잃어버렸을 때 되찾는 데 쓰입니다. 계좌 개설과 같은 기준으로 받습니다.</div>
-      <div class="su-note">가입하면 계정만 만들어집니다. 거래에 쓸 계좌는 가입 뒤
-        <b>내 계좌 → 계좌 개설</b>에서 절차를 밟아 여시면 됩니다.</div>`;
+      ${isG?`<div class="su-gid"><span class="su-gbadge">G</span>
+        <div><small>구글 계정으로 가입합니다</small><b>${htmlEsc(suForm.id)}</b>
+        <i>이 주소가 그대로 아이디가 되고, 별도 비밀번호는 없습니다</i></div></div>`:''}
+      <div class="fld2 two">
+        <div><label>이름</label>
+          <input id="suReal" placeholder="홍길동" value="${htmlEsc(suForm.realName)}" autocomplete="name" maxlength="20"></div>
+        <div><label>생년월일</label>
+          <input id="suBirth" placeholder="2000-01-01" value="${htmlEsc(suForm.birth)}" inputmode="numeric" maxlength="10"></div>
+      </div>
+      <div class="fld2 two">
+        <div><label>휴대전화</label>
+          <input id="suPhone" placeholder="010-1234-5678" value="${htmlEsc(suForm.phone)}" inputmode="tel" maxlength="13"></div>
+        <div><label>이메일</label>
+          <input id="suEmail" type="email" placeholder="you@example.com" value="${htmlEsc(suForm.email)}"
+            autocomplete="email" ${isG?'readonly style="opacity:.7"':''}></div>
+      </div>
+      <div class="fld-help">입력하신 이름은 <b>계좌 개설</b>과 <b>클랜·친구</b>에 함께 쓰입니다.
+        이 기기와 회원 계정에만 저장되며 외부로 나가지 않습니다.</div>`;
+    /* 생년월일·전화번호를 입력하는 대로 다듬는다 */
+    const b=$('suBirth');
+    if(b)b.oninput=()=>{ const v=b.value.replace(/[^0-9]/g,'').slice(0,8);
+      b.value=v.length>6?`${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6)}`
+             :v.length>4?`${v.slice(0,4)}-${v.slice(4)}`:v; };
+    const ph=$('suPhone');
+    if(ph)ph.oninput=()=>{ const v=ph.value.replace(/[^0-9]/g,'').slice(0,11);
+      ph.value=v.length>7?`${v.slice(0,3)}-${v.slice(3,7)}-${v.slice(7)}`
+              :v.length>3?`${v.slice(0,3)}-${v.slice(3)}`:v; };
   }
   if(SU_STEP===3){
     const allOn=SU_TERMS.every(t=>suForm.terms[t[0]]);
@@ -3807,7 +3884,7 @@ function renderSu(){
       b.textContent=el.hidden?'내용 보기 ▾':'접기 ▴';
     });
   }
-  nv.innerHTML=`${SU_STEP>1?`<button class="modal-ghost" id="suPrev">이전</button>`:''}
+  nv.innerHTML=`${SU_STEP>(isG?2:1)?`<button class="modal-ghost" id="suPrev">이전</button>`:''}
     <button class="modal-btn" id="suNext">${SU_STEP<3?'다음':'가입하고 시작하기'}</button>`;
   const pv=$('suPrev'); if(pv)pv.onclick=()=>suGo(SU_STEP-1);
   $('suNext').onclick=()=>suNext();
@@ -3824,17 +3901,58 @@ async function suNext(){
     return suGo(2);
   }
   if(SU_STEP===2){
-    const nm=String(suForm.name||'').trim();
-    if(nm.length<2)return suSay('이름 또는 닉네임을 2자 이상 입력해 주세요.');
+    const rn=String(suForm.realName||'').trim();
+    if(rn.length<2)return suSay('이름(실명)을 2자 이상 입력해 주세요.');
+    const bd=String(suForm.birth||'').trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(bd))return suSay('생년월일을 <b>2000-01-01</b> 형식으로 입력해 주세요.');
+    {const d=new Date(bd), y=+bd.slice(0,4);
+     if(isNaN(d)||y<1900||d>new Date())return suSay('생년월일을 다시 확인해 주세요.');
+     /* 만 14세 미만은 가입받지 않는다 — 약관에 적은 그대로 실제로 막는다 */
+     const age=(Date.now()-d.getTime())/(365.25*864e5);
+     if(age<14)return suSay('만 14세 이상만 가입할 수 있습니다.');}
+    const ph=String(suForm.phone||'').replace(/[^0-9]/g,'');
+    if(ph.length<10)return suSay('휴대전화 번호를 정확히 입력해 주세요.');
     const em=String(suForm.email||'').trim();
-    if(!em)return suSay('이메일을 입력해 주세요. 계정을 되찾을 때 필요합니다.');
+    if(!em)return suSay('이메일을 입력해 주세요.');
     if(!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(em))return suSay('이메일 형식이 올바르지 않습니다.');
     return suGo(3);
   }
   /* 3단계 — 필수 동의 확인 후 실제 가입 */
   const miss=SU_TERMS.filter(t=>t[1]&&!suForm.terms[t[0]]);
   if(miss.length)return suSay(`필수 항목 <b>${miss.length}가지</b>에 동의해야 가입할 수 있습니다.`);
-  await doSignupRun();
+  if(suMode==='google')await doGoogleSignupRun();
+  else await doSignupRun();
+}
+/* [v8.0] 구글 가입 마무리 — 입력한 정보를 서버에 넘겨 계정을 만든다 */
+async function doGoogleSignupRun(){
+  const btn=$('suNext'); if(btn)btn.disabled=true;
+  suSay('가입 처리 중…');
+  try{
+    const r=await fetch('/api/oauth/google?finish=1',{method:'POST',
+      cache:'no-store',credentials:'same-origin',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({name:suForm.name,realName:suForm.realName,
+        birth:suForm.birth,phone:suForm.phone,terms:suForm.terms})});
+    const j=await r.json();
+    if(!j||!j.ok){
+      if(btn)btn.disabled=false;
+      return suSay(j&&j.err==='expired'
+        ?'인증 시간이 지났습니다. 창을 닫고 다시 <b>Google로 간편 로그인</b>을 눌러 주세요.'
+        :'가입을 마치지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+    const accs=accounts();
+    accs[j.id]={pass:j.pass,name:j.name||j.id,email:j.email||'',
+      acctPass:legacyHash('0000'),created:Date.now(),google:1,
+      realName:suForm.realName,birth:suForm.birth,phone:suForm.phone,
+      terms:{...suForm.terms,at:Date.now()}};
+    store.set('accounts',accs);
+    if(j.user)store.set('user:'+j.id,j.user);
+    applyUser(j.id); unlockApp(); initApp();
+    setTimeout(()=>{try{ welcomeBox({id:j.id,name:j.name,email:j.email,google:1}); }catch(e){}},700);
+  }catch(e){
+    if(btn)btn.disabled=false;
+    suSay('가입 중 오류가 났습니다. 잠시 후 다시 시도해 주세요.');
+  }
 }
 async function doSignupRun(){
   const id=normId(suForm.id), name=String(suForm.name).trim(), email=String(suForm.email).trim();
@@ -3852,6 +3970,7 @@ async function doSignupRun(){
     }
     const accs=accounts();
     accs[id]={pass:passH,name,email,acctPass:acctH,created:Date.now(),
+      realName:suForm.realName,birth:suForm.birth,phone:suForm.phone,
       terms:{...suForm.terms,at:Date.now()}};
     store.set('accounts',accs);
     /* 계좌는 만들지 않는다 — 가입과 계좌 개설은 별개 절차다(v4.99) */
@@ -3964,7 +4083,9 @@ function renderAcctSet(){
   const isG=!!acc.google;
   box.innerHTML=`
     <div class="as-kv"><span>아이디</span><b class="as-id">${htmlEsc(currentUser||'')}</b></div>
-    <div class="as-kv"><span>이름</span><b>${htmlEsc(acc.name||'-')}</b></div>
+    <div class="as-kv"><span>이름</span><b>${htmlEsc(acc.realName||acc.name||'-')}</b></div>
+    <div class="as-kv"><span>생년월일</span><b>${htmlEsc(acc.birth||'-')}</b></div>
+    <div class="as-kv"><span>휴대전화</span><b>${htmlEsc(acc.phone||'-')}</b></div>
     <div class="as-kv"><span>이메일</span><b>${htmlEsc(acc.email||'-')}</b></div>
     <div class="as-kv"><span>로그인 방식</span><b>${isG?'<i class="as-g">Google 간편 로그인</i>':'아이디 · 비밀번호'}</b></div>
     <div class="as-kv"><span>가입일</span><b>${acc.created?new Date(acc.created).toLocaleDateString('ko-KR'):'-'}</b></div>
@@ -4234,7 +4355,8 @@ function openProfile(){
   const nm=guest?((userPrefs&&userPrefs.nick)||'게스트'):(acc.name||currentUser);
   $('pmAv').textContent=avatarOf(nm);$('pmName').textContent=nm;
   $('pmId').textContent=guest?'게스트 · 이 브라우저에만 저장':'@'+currentUser;
-  $('pmNameIn').value=guest?((userPrefs&&userPrefs.nick)||''):(acc.name||'');
+  /* [v8.1] 이름 하나 — 계좌 개설에 쓴 이름(realName)을 우선한다 */
+  $('pmNameIn').value=guest?((userPrefs&&userPrefs.nick)||''):(acc.realName||acc.name||'');
   $('pmEmailIn').value=guest?'':(acc.email||'');
   if($('pmBioIn'))$('pmBioIn').value=(userPrefs&&userPrefs.bio)||'';
   /* [v4.19] 프로필 첫 화면 요약 카드 — 아이디만 덩그러니 있던 자리를 채운다 */
@@ -4290,7 +4412,7 @@ $('profileBtn').onclick=openProfile;
      if(currentUser)return;                       // 회원은 기존 저장 로직이 처리
      const v=($('pmNameIn').value||'').trim().slice(0,12);
      userPrefs.nick=v||'';if(!v)delete userPrefs.nick;savePrefs();
-     $('pmProfileMsg').textContent='닉네임을 이 브라우저에 저장했어요.';
+     $('pmProfileMsg').textContent='이름을 저장했어요.';
      $('pmName').textContent=v||'게스트';paintHeaderUser();
    },true);}}
 /* 사용 시작일 기록 + 헤더 아바타 초기 반영 */
@@ -4872,7 +4994,9 @@ $('pmLogout').onclick=()=>{store.del('session');requireAuth();location.reload();
 $('pmSaveProfile').onclick=async()=>{
   const name=$('pmNameIn').value.trim(),email=$('pmEmailIn').value.trim(),acc=accounts()[currentUser];if(!acc)return;
   try{userPrefs=userPrefs||{};userPrefs.bio=($('pmBioIn')?$('pmBioIn').value.trim():'').slice(0,40);savePrefs();}catch(e){}
-  acc.name=name||currentUser;acc.email=email;const accs=accounts();accs[currentUser]=acc;store.set('accounts',accs);
+  /* [v8.1] 이름 하나로 쓴다 — 계좌 개설에도 같은 값이 쓰이도록 realName 도 함께 갱신 */
+  acc.name=name||currentUser; acc.realName=name||acc.realName||''; acc.email=email;
+  const accs=accounts();accs[currentUser]=acc;store.set('accounts',accs);
   cloudCall({action:'profile',id:currentUser,pass:acc.pass,name:acc.name,email:acc.email});
   const dn=acc.name;$('uName').textContent=dn;$('uAv').textContent=avatarOf(dn);$('pmName').textContent=dn;$('pmAv').textContent=avatarOf(dn);
   $('pmProfileMsg').style.color='var(--up)';$('pmProfileMsg').textContent='저장되었습니다.';
@@ -15189,35 +15313,183 @@ function usCompanyBrief(t){
     +(th?` ${th} 분야에 속하며, 영문명은 ${m.en}입니다.`:` 영문명은 ${m.en}입니다.`)
     +(m.etf?' 개별 종목이 아닌 지수·자산군을 추종하는 상품이라 분산 효과가 있습니다.':'');
 }
+/* ══ [v8.2] 해외 AI 종목 분석 — 국내와 같은 형식으로 다시 만든다 ═══════════
+   [무엇이 달랐나] 국내는 종합 점수·등급·게이지·가격 전략·상승 확률까지 갖춘
+   한 벌의 화면인데, 해외는 카드 4장과 문단 몇 줄뿐이었다. 같은 앱 안에서
+   같은 이름의 탭이 전혀 다른 물건이면 사용자는 둘 중 하나를 신뢰하지 못한다.
+   [무엇을 맞추나] 국내와 같은 클래스(.ai-*)를 그대로 써서 생김새를 통일한다.
+   [무엇을 빼나] 국내 전용인 '시장 분위기(코스피 업종 강세·뉴스 심리)'와
+   '수급(외국인·기관)'은 해외에 해당 데이터가 없어 넣지 않는다.
+   [무엇을 더하나] 해외에만 있는 것 — 상·하한가가 없다는 점, 환율이 손익에
+   함께 작용한다는 점, 정규장 밖(프리·애프터) 구분, 달러 기준 가격 전략. */
+function usAiCompute(){
+  const t=usSel, q=usQ[t]||{}, m=usMeta[t]||{};
+  if(q.price==null)return null;
+  const cs=(usCandles||[]).slice();
+  const px=q.price;
+  const out={t,px,name:m.kr||t,need:cs.length<20};
+  if(out.need)return out;
+
+  const closes=cs.map(c=>c.c);
+  const last=(n)=>closes.slice(-n);
+  const avg=(a)=>a.reduce((x,y)=>x+y,0)/a.length;
+  const ma5=avg(last(5)), ma20=avg(last(20));
+  const ma60=closes.length>=60?avg(last(60)):null;
+
+  /* 최근 20일 하루 변동성 */
+  const rs=[]; for(let i=closes.length-20;i<closes.length-1;i++)rs.push((closes[i+1]-closes[i])/closes[i]*100);
+  const vola=Math.sqrt(rs.reduce((a,x)=>a+x*x,0)/rs.length);
+
+  /* RSI(14) — 과열·과매도 판단 */
+  let rsi=null;
+  if(closes.length>=15){
+    let up=0,dn=0;
+    for(let i=closes.length-14;i<closes.length;i++){
+      const d=closes[i]-closes[i-1]; if(d>=0)up+=d; else dn-=d;
+    }
+    rsi=dn===0?100:100-100/(1+(up/14)/(dn/14));
+  }
+  /* 52주 위치 */
+  let pos=null;
+  if(q.w52h!=null&&q.w52l!=null&&q.w52h>q.w52l)pos=(px-q.w52l)/(q.w52h-q.w52l)*100;
+
+  /* 거래량 흐름 — 최근 5일이 20일 평균 대비 얼마나 되는가 */
+  let volR=null;
+  {const vs=cs.map(c=>c.v||0).filter(v=>v>0);
+   if(vs.length>=20){ const v5=avg(vs.slice(-5)), v20=avg(vs.slice(-20)); if(v20>0)volR=v5/v20; }}
+
+  const dRate=(q.prev)?(px-q.prev)/q.prev*100:0;
+
+  /* ── 종합 점수 ── 각 항목을 0~100 으로 두고 가중 평균한다 */
+  const sc5 =px>=ma5 ?70:30;
+  const sc20=px>=ma20?75:25;
+  const sc60=ma60==null?50:(px>=ma60?70:30);
+  /* [v8.2] RSI 70 이상을 무조건 깎으면, 잘 오르는 종목이 오히려 낮은 점수를 받는다.
+     80 이상(진짜 과열)만 크게 깎고 70~80 은 소폭만 낮춘다. */
+  const scR =rsi==null?50:(rsi>=80?32:rsi>=70?58:rsi>=55?74:rsi>=45?58:rsi>=30?45:62);
+  /* 52주 고점 부근은 '추격 부담'이지 '나쁜 종목'이 아니다 — 감점을 줄인다 */
+  const scP =pos==null?50:(pos>=92?48:pos>=60?68:pos>=40?58:pos>=15?50:60);
+  const scV =volR==null?50:(volR>=1.6?72:volR>=1.1?62:volR>=0.7?50:40);
+  const scT =dRate>=2?72:dRate>=0.5?62:dRate<=-2?32:dRate<=-0.5?44:52;
+  let sc=Math.round(sc5*0.15+sc20*0.22+sc60*0.13+scR*0.16+scP*0.12+scV*0.10+scT*0.12);
+  sc=Math.max(1,Math.min(99,sc));
+
+  const grade=sc>=78?['적극 관심','up']:sc>=62?['관심','up']
+    :sc>=45?['중립','']:sc>=30?['주의','down']:['위험','down'];
+
+  /* ── 가격 전략 ── 변동성을 폭으로 삼는다(변동이 크면 넓게) */
+  const w=Math.max(1.2,Math.min(8,vola||2));
+  const buyLo=px*(1-w*0.9/100), buyHi=px*(1-w*0.3/100);
+  const st=px*(1+w*1.4/100);
+  const lt=px*(1+w*3.2/100);
+  const stop=px*(1-w*1.8/100);
+
+  /* ── 상승 확률 ── 점수를 바탕으로 하되 변동성이 크면 폭을 넓힌다 */
+  let p=Math.round(28+(sc-50)*0.62);
+  if(vola&&vola>=3)p+=4; if(rsi!=null&&rsi>=75)p-=6;
+  p=Math.max(5,Math.min(92,p));
+
+  /* ── 키워드 ── */
+  const kw=[];
+  if(px>=ma20)kw.push(['20일선 위','up']); else kw.push(['20일선 아래','down']);
+  if(ma60!=null)kw.push([px>=ma60?'60일선 위':'60일선 아래',px>=ma60?'up':'down']);
+  if(rsi!=null){ if(rsi>=70)kw.push(['과열 구간','down']); else if(rsi<=30)kw.push(['과매도 구간','up']);
+    else kw.push([`RSI ${rsi.toFixed(0)}`,'']); }
+  if(volR!=null)kw.push([volR>=1.5?'거래 급증':volR>=1.1?'거래 증가':volR<=0.7?'거래 감소':'거래 보통',
+    volR>=1.1?'up':volR<=0.7?'down':'']);
+  if(pos!=null)kw.push([pos>=85?'52주 고점권':pos<=15?'52주 저점권':pos>=55?'상단':pos>=45?'중간':'하단',
+    pos>=85?'down':pos<=15?'up':'']);
+  if(vola)kw.push([vola>=3?'변동성 큼':vola>=1.5?'변동성 보통':'변동성 작음',vola>=3?'down':'']);
+
+  const line=sc>=78?'여러 지표가 함께 위를 가리킵니다'
+    :sc>=62?'흐름은 괜찮지만 한 번에 담기보다 나눠 사는 편이 낫습니다'
+    :sc>=45?'뚜렷한 방향이 보이지 않습니다. 지켜볼 구간입니다'
+    :sc>=30?'약한 흐름입니다. 반등을 확인한 뒤가 안전합니다'
+    :'하락 압력이 큽니다. 새로 담기에는 이릅니다';
+
+  return {...out,ma5,ma20,ma60,vola,rsi,pos,volR,dRate,sc,grade,line,
+    buyLo,buyHi,st,lt,stop,p,kw,
+    parts:[['5일선',sc5],['20일선',sc20],['60일선',sc60],['RSI',scR],
+           ['52주 위치',scP],['거래량',scV],['오늘 흐름',scT]]};
+}
 /* ② AI 종목 분석 */
 function renderUsAi(el){
-  const q=usQ[usSel]||{}, m=usMeta[usSel]||{};
-  if(q.price==null){el.innerHTML=usNoData('시세를 기다리는 중입니다','시세가 도착하면 분석을 시작합니다.');return;}
-  const d=(q.prev)?(q.price-q.prev)/q.prev*100:0;
-  let pos=null;
-  if(q.w52h!=null&&q.w52l!=null&&q.w52h>q.w52l)pos=(q.price-q.w52l)/(q.w52h-q.w52l)*100;
-  const trend=d>=2?'강한 상승':d>=0.5?'상승':d<=-2?'강한 하락':d<=-0.5?'하락':'보합';
-  const zone=pos==null?null:pos>=80?'52주 고점 부근':pos>=55?'상단':pos>=45?'중간':pos>=20?'하단':'52주 저점 부근';
+  const a=usAiCompute();
+  const m=usMeta[usSel]||{}, q=usQ[usSel]||{};
+  if(!a){ el.innerHTML=usNoData('시세를 기다리는 중입니다','시세가 도착하면 분석을 시작합니다.'); return; }
+  if(a.need){
+    el.innerHTML=`<div class="empty">AI가 ${htmlEsc(a.name)}의 일봉 데이터를 분석하는 중…</div>`;
+    try{ usEnsureCandles(); }catch(e){}
+    return;
+  }
   const sess=usSession();
-  const cs=usCandles||[];
-  let ma20=null,vola=null;
-  if(cs.length>=20){ let s=0; for(let i=cs.length-20;i<cs.length;i++)s+=cs[i].c; ma20=s/20;
-    const rs=[]; for(let i=cs.length-20;i<cs.length-1;i++)rs.push((cs[i+1].c-cs[i].c)/cs[i].c*100);
-    vola=Math.sqrt(rs.reduce((a,x)=>a+x*x,0)/rs.length); }
-  el.innerHTML=`<div class="us-ai-h"><b>AI 종목 분석</b><span class="lv">LIVE</span></div>
-    <div class="us-ai-grid">
-      <div class="us-ai-c"><small>오늘 흐름</small><b class="${dirOf(d)}">${trend} ${pctS(d)}</b></div>
-      <div class="us-ai-c"><small>52주 위치</small><b>${zone||'—'}${pos!=null?` (${pos.toFixed(0)}%)`:''}</b></div>
-      <div class="us-ai-c"><small>20일 평균</small><b class="num">${ma20?'$'+USD2(ma20):'—'}</b></div>
-      <div class="us-ai-c"><small>20일 변동성</small><b class="num">${vola?vola.toFixed(2)+'%':'—'}</b></div>
+  const fx=usFx()||0;
+  const pctUp=(v)=>((v-a.px)/a.px*100).toFixed(1);
+  const D=(v)=>'$'+USD2(v);
+  const W=(v)=>fx>0?` <small class="ai-krw">≈ ${KRW(Math.round(v*fx))}원</small>`:'';
+  const kwHtml=a.kw.map(k=>`<span class="ai-kw ${k[1]}">${htmlEsc(k[0])}</span>`).join('');
+  const now=new Date();
+
+  el.innerHTML=`<div class="ai-wrap">
+    <div class="ai-head">
+      <div class="ai-score"><div class="ai-sc-n num">${a.sc}</div><div class="ai-sc-l">종합 점수</div></div>
+      <div class="ai-hd-b">
+        <div class="ai-grade ${a.grade[1]}">${a.grade[0]}</div>
+        <div class="ai-line">${a.line}</div>
+        <div class="ai-gauge"><i style="width:${a.sc}%"></i></div>
+      </div>
     </div>
-    <div class="us-ai-txt">
-      <p><b>${m.kr||t}</b>는 현재 <b class="${dirOf(d)}">${trend}</b> 흐름입니다${ma20?`, 주가는 20일 평균선 ${q.price>=ma20?'위':'아래'}에 있습니다`:''}.</p>
-      ${zone?`<p>52주 범위에서 <b>${zone}</b>에 자리합니다. 고점 부근에서는 추격 매수 부담을, 저점 부근에서는 하락 지속 여부를 함께 살펴야 합니다.</p>`:''}
-      ${vola?`<p>최근 20일 하루 변동성은 <b>${vola.toFixed(2)}%</b>입니다. ${vola>=3?'변동이 큰 편이라 분할 매수가 안전합니다.':vola>=1.5?'평이한 수준입니다.':'비교적 안정적입니다.'}</p>`:''}
-      <p>미국 주식은 <b>상·하한가가 없어</b> 하루에도 큰 폭으로 움직일 수 있고, 원화 기준 손익은 <b>환율</b>에 함께 좌우됩니다. 현재 ${sess.label}입니다.</p>
+    <div class="ai-basis"><i class="lv-dot"></i>LIVE · 미국 ${sess.label} · ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 분석 · 일봉 ${(usCandles||[]).length}개 기준</div>
+
+    <div class="ai-sec-t">점수 근거 <span>항목별 0~100 · 가중 평균</span></div>
+    <div class="ai-parts">${a.parts.map(([nm,v])=>`
+      <div class="ai-part"><span>${nm}</span>
+        <div class="ai-pbar"><i class="${v>=60?'up':v<=40?'down':''}" style="width:${v}%"></i></div>
+        <b class="num ${v>=60?'up':v<=40?'down':''}">${v}</b></div>`).join('')}</div>
+
+    <div class="ai-sec-t">종목 키워드</div>
+    <div class="ai-kws">${kwHtml}</div>
+
+    <div class="ai-sec-t">가격 전략 <span>현재가 ${D(a.px)} 기준 · 변동성 ${a.vola.toFixed(2)}% 반영</span></div>
+    <div class="ai-cards">
+      <div class="ai-card buy"><div class="k">추천 매수가</div>
+        <div class="v num">${D(a.buyLo)}~${D(a.buyHi)}</div>
+        <div class="s num">${pctUp(a.buyHi)}% ~ ${pctUp(a.buyLo)}% 눌림 분할</div></div>
+      <div class="ai-card tgt1"><div class="k">단기 매도 목표</div>
+        <div class="v num">${D(a.st)}${W(a.st)}</div>
+        <div class="s num up">+${pctUp(a.st)}% · 3~10거래일</div></div>
+      <div class="ai-card tgt2"><div class="k">장기 매도 목표</div>
+        <div class="v num">${D(a.lt)}${W(a.lt)}</div>
+        <div class="s num up">+${pctUp(a.lt)}% · 1~6개월</div></div>
+      <div class="ai-card stop"><div class="k">손절 라인</div>
+        <div class="v num">${D(a.stop)}</div>
+        <div class="s num down">${pctUp(a.stop)}% · 이탈 시 리스크 관리</div></div>
     </div>
-    <div class="us-sum-note">공개 시세를 규칙에 따라 요약한 참고 정보이며 투자 권유가 아닙니다.</div>`;
+
+    <div class="ai-sec-t">상승 확률 <span>3거래일 내 +5% 도달 추정</span></div>
+    <div class="ai-prob"><div class="ai-prob-bar"><i style="width:${a.p}%"></i></div>
+      <b class="num ${a.p>=55?'up':a.p<=35?'down':''}">${a.p}%</b></div>
+    <div class="ai-prob-d">기술 신호 ${a.sc}점에 변동성(${a.vola.toFixed(2)}%)과 과열 여부를 함께 반영한 값입니다.</div>
+
+    <div class="ai-sec-t">지표 요약</div>
+    <div class="ai-metrics">
+      <div class="ai-mt"><span>5일 평균</span><b class="num">${D(a.ma5)}</b></div>
+      <div class="ai-mt"><span>20일 평균</span><b class="num">${D(a.ma20)}</b></div>
+      <div class="ai-mt"><span>60일 평균</span><b class="num">${a.ma60?D(a.ma60):'—'}</b></div>
+      <div class="ai-mt"><span>RSI(14)</span><b class="num ${a.rsi>=70?'down':a.rsi<=30?'up':''}">${a.rsi!=null?a.rsi.toFixed(0):'—'}</b></div>
+      <div class="ai-mt"><span>52주 위치</span><b class="num">${a.pos!=null?a.pos.toFixed(0)+'%':'—'}</b></div>
+      <div class="ai-mt"><span>거래량(5/20일)</span><b class="num">${a.volR?a.volR.toFixed(2)+'배':'—'}</b></div>
+    </div>
+
+    <div class="ai-sec-t">해외 주식에서 함께 볼 것</div>
+    <div class="ai-note us">
+      <p>· 미국 주식은 <b>상·하한가가 없습니다.</b> 하루에 30% 넘게 움직이는 일도 있어, 손절 라인을 미리 정해 두는 편이 안전합니다.</p>
+      <p>· 원화 손익은 <b>환율</b>에 함께 좌우됩니다. 주가가 올라도 환율이 내리면 원화 수익은 줄어듭니다${fx>0?` (현재 ${KRW(Math.round(fx))}원)`:''}.</p>
+      <p>· 지금은 <b>${sess.label}</b>입니다. ${sess.phase==='regular'?'정규장에는 거래가 활발해 위 지표가 가장 잘 맞습니다.':'정규장 밖에는 거래가 적어 가격이 크게 튈 수 있습니다.'}</p>
+      <p>· 매도 대금은 <b>T+1 정산</b> 뒤에 원화로 환전할 수 있습니다.</p>
+    </div>
+    <div class="us-sum-note">공개 시세를 규칙에 따라 계산한 참고 정보이며 투자 권유가 아닙니다. 과거 흐름이 미래를 보장하지 않습니다.</div>
+  </div>`;
 }
 /* ③ 시세 — 일별 표 */
 function renderUsSiseTab(el){

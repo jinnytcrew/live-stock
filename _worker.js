@@ -13282,6 +13282,53 @@ async function oauth_google_default(req2, ctx){
   let st; try{ st=await stores(); }catch{ return json2({ok:false,err:"nostore"}); }
 
   /* ⑥ 앱이 표를 들고 와 계정 정보를 받아 간다 */
+  /* ══ [v8.0] 가입 마무리 — 앱이 받아 온 본인 정보로 계정을 만든다 ═══════════ */
+  if(url.searchParams.get("finish")==="1"){
+    if(req2.method!=="POST")return json2({ok:false,err:"method"});
+    const ck0=req2.headers.get("cookie")||"";
+    const mp=/(?:^|;\s*)oa_p=([^;]+)/.exec(ck0);
+    if(!mp)return json2({ok:false,err:"expired"});
+    let pend=null;
+    try{ pend=JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(mp[1]))))); }catch(e){}
+    if(!pend||!pend.email)return json2({ok:false,err:"expired"});
+    if(Date.now()-(pend.at||0)>900000)return json2({ok:false,err:"expired"});
+    let body={}; try{ body=await req2.json(); }catch(e){}
+    const db2=await readAccDb(st);
+    db2.accounts=db2.accounts||{}; db2.users=db2.users||{};
+    const uid2=String(pend.email);
+    /* 그 사이 같은 계정이 생겼으면 그것을 그대로 쓴다 */
+    const pass2="s"+oaRand(32);
+    const acc2=db2.accounts[uid2]||{created:Date.now()};
+    acc2.name=clip(body.name||pend.gname||uid2,20);
+    acc2.email=pend.email;
+    acc2.googleSub=pend.sub;
+    acc2.realName=clip(body.realName,20);
+    acc2.birth=clip(body.birth,10);
+    acc2.phone=clip(body.phone,16);
+    acc2.terms={...(body.terms||{}),at:Date.now()};
+    acc2.salt=oaRand(16);
+    acc2.hash=await sha2562(acc2.salt+"|"+pass2);
+    delete acc2.pass;
+    db2.accounts[uid2]=acc2;
+    if(!db2.users[uid2])db2.users[uid2]={watchlist:[],watchFolders:[],holdings:[],cash:0,
+      usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
+    dbCacheSet(db2);
+    await st.acc.setJSON("db",db2).catch(()=>{});
+    const hh=new Headers({"content-type":"application/json; charset=utf-8","cache-control":"no-store"});
+    hh.append("set-cookie","oa_p=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
+    return new Response(JSON.stringify({ok:true,id:uid2,pass:pass2,
+      name:acc2.name,email:acc2.email,user:db2.users[uid2]}),{headers:hh});
+  }
+  /* 보류 정보 조회 — 가입 창에 미리 채울 값 */
+  if(url.searchParams.get("pending")==="1"){
+    const ck1=req2.headers.get("cookie")||"";
+    const m1=/(?:^|;\s*)oa_p=([^;]+)/.exec(ck1);
+    if(!m1)return json2({ok:false,err:"expired"});
+    let p1=null;
+    try{ p1=JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m1[1]))))); }catch(e){}
+    if(!p1||!p1.email)return json2({ok:false,err:"expired"});
+    return json2({ok:true,email:p1.email,gname:p1.gname||""});
+  }
   const claim=url.searchParams.get("claim");
   if(claim){
     /* [v7.4] 쿠키에서 꺼낸다 — 시차가 없어 확실하다 */
@@ -13374,15 +13421,20 @@ async function oauth_google_default(req2, ctx){
         (a.email&&String(a.email).toLowerCase()===email));
     })||"";
     let created=false;
+    /* ══ [v8.0] 처음 오는 사람은 계정을 바로 만들지 않는다 ═══════════════════
+       일반 가입과 같은 창에서 본인 정보와 약관을 받은 뒤에 만든다.
+       여기서는 구글이 알려 준 것만 담아 보내고, 앱이 창을 띄운다. */
     if(!uid){
-      /* ══ [v6.8] 아이디를 임의로 만들지 않는다 ═══════════════════════════════
-         앞부분만 잘라 쓰면 사용자가 자기 아이디를 예측할 수 없고, 겹치면
-         뒤에 숫자가 붙어 더 낯설어진다(hanyeonwoo1 같은 식).
-         구글 계정은 이메일 주소 자체가 유일하므로 그것을 그대로 아이디로 쓴다.
-         무엇으로 정해졌는지 화면에서 안내도 한다. */
-      uid=email;
-      created=true;
+      const pend={pending:1,sub:gsub,email,gname,at:Date.now()};
+      const b64p=btoa(unescape(encodeURIComponent(JSON.stringify(pend))));
+      const hp=new Headers();
+      hp.set("location",origin+"/?glogin=new");
+      hp.append("set-cookie","oa_p="+encodeURIComponent(b64p)
+        +"; Max-Age=900; Path=/; HttpOnly; Secure; SameSite=Lax");
+      hp.append("set-cookie","oa_s=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
+      return new Response(null,{status:302,headers:hp});
     }
+    /* (신규 계정 생성은 위 보류 흐름과 아래 finish 에서 처리한다) */
     /* 서버가 보관하는 무작위 비밀번호 — 사용자는 몰라도 되고, 앱이 서버와 통신할 때만 쓴다 */
     const pass="s"+oaRand(32);
     const acc=db.accounts[uid]||{name:gname,email,created:Date.now()};
@@ -13484,7 +13536,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "7.8.0";
+var APP_VER = "8.2.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

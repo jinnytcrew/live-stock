@@ -4846,3 +4846,41 @@ html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
 }
 /* [v7.5] 일반 가입 안내창의 비밀번호 안내 — 구글 파랑 대신 중립 색 */
 .gw-pw.plain{background:var(--border-soft);border-color:var(--border)}
+
+/* ══ [v8.0] 구글 가입 안내 줄 ═══════════════════════════════════════════════ */
+.su-gid{display:flex;align-items:flex-start;gap:11px;padding:13px 14px;border-radius:12px;
+  background:rgba(66,133,244,.10);border:1px solid rgba(66,133,244,.28);margin-bottom:14px}
+.su-gbadge{flex:0 0 auto;width:28px;height:28px;border-radius:8px;background:#fff;color:#4285F4;
+  font-size:15px;font-weight:900;display:grid;place-items:center}
+.su-gid>div{min-width:0}
+.su-gid small{display:block;font-size:11px;font-weight:700;color:var(--sub-2)}
+.su-gid b{display:block;margin-top:2px;font-size:13px;font-weight:900;color:var(--text);
+  word-break:break-all;line-height:1.4}
+.su-gid i{display:block;margin-top:4px;font-style:normal;font-size:11px;font-weight:600;color:var(--sub)}
+@media (max-width:560px){.su-gid{padding:11px 12px;gap:9px}.su-gid b{font-size:12.5px}}
+
+/* ══ [v8.2] 해외 AI 분석에서 새로 쓰는 조각들 ═══════════════════════════════
+   나머지는 국내와 같은 클래스를 그대로 써서 생김새가 저절로 맞는다. */
+.ai-parts{display:flex;flex-direction:column;gap:7px;margin-bottom:4px}
+.ai-part{display:flex;align-items:center;gap:10px}
+.ai-part>span{flex:0 0 76px;font-size:11.5px;font-weight:700;color:var(--sub-2)}
+.ai-pbar{flex:1;height:7px;border-radius:99px;background:var(--border-soft);overflow:hidden}
+.ai-pbar i{display:block;height:100%;border-radius:99px;background:var(--sub-2);transition:width .25s}
+.ai-pbar i.up{background:var(--up)} .ai-pbar i.down{background:var(--down)}
+.ai-part>b{flex:0 0 30px;text-align:right;font-size:12px;font-weight:900}
+/* .ai-metrics 는 1px 간격의 격자다 — 칸마다 배경을 채워야 선이 보인다 */
+.ai-mt{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  padding:11px 12px;background:var(--panel);min-width:0}
+.ai-mt span{font-size:11.5px;font-weight:700;color:var(--sub-2);white-space:nowrap}
+.ai-mt b{font-size:13px;font-weight:900;color:var(--text)}
+.ai-krw{font-size:10.5px;font-weight:700;color:var(--sub-2);white-space:nowrap}
+.ai-note.us p{margin:0 0 7px;font-size:12px;line-height:1.75;font-weight:600;color:var(--sub)}
+.ai-note.us p:last-child{margin-bottom:0}
+.ai-note.us b{color:var(--text);font-weight:800}
+@media (max-width:560px){
+  .ai-part>span{flex:0 0 62px;font-size:11px}
+  .ai-mt{padding:9px 10px}
+  .ai-mt span{font-size:11px}
+  .ai-mt b{font-size:12.5px}
+  .ai-krw{display:block;margin-top:2px}
+}
