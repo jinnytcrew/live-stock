@@ -5000,15 +5000,15 @@ html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
 /* [v9.1] 목록 격자에 캔들 열을 더한다(이름·캔들·가격·등락) */
 .sr{grid-template-columns:1fr auto auto auto}
 
-/* ══ [v9.1] 당일 캔들 ═══════════════════════════════════════════════════════
-   목록 한 줄에 오늘 하루 봉 하나. 몸통은 시가~현재가, 꼬리는 저가~고가,
-   점선은 전일 종가. 다음 날 시세가 새로 오면 저절로 초기화된다. */
-.sr-sp{width:34px;height:28px;opacity:.92;display:flex;align-items:center;justify-content:center}
+/* ══ [v9.2] 당일 캔들 — 등락률 오른쪽, 세로로 길게 ═══════════════════════════
+   미래에셋 목록처럼 맨 오른쪽 끝에 세로로 선다.
+   꼬리는 저가~고가로 칸 전체, 몸통은 그 안에서 시가~현재가만큼. */
+.sr-sp{width:22px;height:42px;margin-left:8px;opacity:.95;
+  display:flex;align-items:center;justify-content:center}
 .sr-spark{width:100%;height:100%;display:block}
 @media (max-width:560px){
-  .sr-sp{width:28px;height:26px}
+  .sr-sp{width:18px;height:36px;margin-left:6px}
 }
 @media (max-width:400px){
-  .sr-sp{width:24px;height:24px;display:flex}   /* 좁아도 캔들은 남긴다 — 폭이 작다 */
-  .sr{grid-template-columns:1fr auto auto auto}
+  .sr-sp{width:16px;height:32px;margin-left:4px}
 }

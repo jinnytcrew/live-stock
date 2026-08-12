@@ -13492,6 +13492,75 @@ async function k200nf_default(req2, ctx){
     "cache-control":"public, max-age=20, s-maxage=20",
     "access-control-allow-origin":"*"}});
 }
+/* ══ [v9.2] 시장 전체 투자자별 매매동향 ═══════════════════════════════════════
+   [무엇인가] 코스피·코스닥에서 개인·외국인·기관이 오늘 얼마를 순매수했는지.
+   증권사 앱 첫 화면에 지수와 나란히 놓이는 정보다. '누가 사고 누가 파는지'는
+   지수 숫자만으로는 알 수 없고, 흐름을 읽는 데 가장 먼저 보는 값이다.
+   [단위] 억원. 양수면 순매수, 음수면 순매도. */
+async function invtrend_default(){
+  const UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+  const out={ok:false,kospi:null,kosdaq:null,at:"",diag:[]};
+  const num=(v)=>{const n=Number(String(v==null?"":v).replace(/[,\s+]/g,""));return isFinite(n)?n:0;};
+
+  /* ① 네이버 금융 — 투자자별 매매동향(시장별) */
+  const tryNaver=async(mk)=>{
+    try{
+      const u="https://finance.naver.com/sise/investorDealTrendDay.naver?bizdate=&sosok="+(mk==="kospi"?"01":"02");
+      const h=await tget(u,6000);
+      if(!h){out.diag.push("naver/"+mk+":empty");return null;}
+      /* 표 첫 줄이 가장 최근 날짜다 */
+      const rows=[...h.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map(r=>r[1]);
+      for(const r of rows){
+        const tds=[...r.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+          .map(t=>t[1].replace(/<[^>]*>/g,"").replace(/&nbsp;/g," ").trim());
+        if(tds.length<4)continue;
+        if(!/^\d{2}\.\d{2}\.\d{2}$/.test(tds[0]))continue;
+        const per=num(tds[1]), fore=num(tds[2]), inst=num(tds[3]);
+        if(per||fore||inst){
+          return {date:tds[0],개인:Math.round(per),외국인:Math.round(fore),기관:Math.round(inst)};
+        }
+      }
+      out.diag.push("naver/"+mk+":norow");
+    }catch(e){ out.diag.push("naver/"+mk+":"+String(e).slice(0,14)); }
+    return null;
+  };
+  const [a,b]=await Promise.all([tryNaver("kospi"),tryNaver("kosdaq")]);
+  out.kospi=a; out.kosdaq=b;
+
+  /* ② 네이버가 막히면 KRX 정보데이터시스템 */
+  if(!out.kospi||!out.kosdaq){
+    try{
+      const kst=new Date(Date.now()+9*3600e3);
+      const ymd=kst.toISOString().slice(0,10).replace(/-/g,"");
+      for(const [key,mkId] of [["kospi","STK"],["kosdaq","KSQ"]]){
+        if(out[key])continue;
+        const body=new URLSearchParams({
+          bld:"dbms/MDC/STAT/standard/MDCSTAT02201",
+          locale:"ko_KR", mktId:mkId, trdDd:ymd, share:"1", money:"3", csvxls_isNo:"false"
+        });
+        const r=await fetch("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",{
+          method:"POST",
+          headers:{"User-Agent":UA,"content-type":"application/x-www-form-urlencoded; charset=UTF-8",
+            Referer:"https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd"},
+          body});
+        if(!r.ok){out.diag.push("krx/"+key+":"+r.status);continue;}
+        const j=await r.json();
+        const rows=(j&&j.output)||[];
+        const pick=(nm)=>{const f=rows.find(x=>String(x.INVST_TP_NM||"").includes(nm));
+          return f?Math.round(num(f.NETBID_TRDVAL)/1e8):0;};
+        if(rows.length)out[key]={date:ymd.slice(2,4)+"."+ymd.slice(4,6)+"."+ymd.slice(6),
+          개인:pick("개인"),외국인:pick("외국인"),기관:pick("기관")};
+      }
+    }catch(e){ out.diag.push("krx:"+String(e).slice(0,14)); }
+  }
+  out.ok=!!(out.kospi||out.kosdaq);
+  out.at=new Date(Date.now()+9*3600e3).toISOString().slice(0,16).replace("T"," ")+" KST";
+  return new Response(JSON.stringify(out),{headers:{
+    "content-type":"application/json; charset=utf-8",
+    "cache-control":"public, max-age=120, s-maxage=120",
+    "access-control-allow-origin":"*"}});
+}
+ROUTES["invtrend"]=invtrend_default;
 ROUTES["k200nf"]=k200nf_default;
 ROUTES["k200nfdiag"]=k200nfdiag_default;
 /* ══ [v6.7] 구글 간편 로그인 ═══════════════════════════════════════════════
@@ -13775,7 +13844,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "9.1.0";
+var APP_VER = "9.2.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=424';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=425';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -6160,6 +6160,58 @@ function lastNightClose(){
 var _k200nf=null, _k200nfAt=0, _k200nfBusy=false, _k200nfTry=0;
 try{ _k200nf=JSON.parse(localStorage.getItem('k200nf')||'null')||null;
   if(_k200nf&&Date.now()-(_k200nf.at||0)>18*3600e3)_k200nf=null; }catch(e){}
+/* ══ [v9.2] 투자자별 매매동향 ═══════════════════════════════════════════════
+   지수 숫자만으로는 '왜 오르내리는지'를 알 수 없다. 개인·외국인·기관 중
+   누가 사고 누가 파는지가 흐름을 읽는 첫 단서다.
+   장중에는 잠정치가, 장 마감 뒤에는 확정치가 들어온다. */
+var _invTrend=null, _ivtAt=0, _ivtBusy=false;
+try{ _invTrend=JSON.parse(localStorage.getItem('invTrend')||'null')||null;
+  if(_invTrend&&Date.now()-(_invTrend.at||0)>6*3600e3)_invTrend=null; }catch(e){}
+function invTrendLoad(force){
+  if(_ivtBusy)return;
+  if(!force&&Date.now()-_ivtAt<120000)return;
+  _ivtBusy=true; _ivtAt=Date.now();
+  fetch('/api/invtrend',{cache:'no-store'})
+    .then(r=>r.json())
+    .then(j=>{
+      if(j&&j.ok){
+        _invTrend={kospi:j.kospi,kosdaq:j.kosdaq,label:j.at,at:Date.now()};
+        try{ localStorage.setItem('invTrend',JSON.stringify(_invTrend)); }catch(e){}
+      }
+      renderInvTrend();
+    })
+    .catch(()=>renderInvTrend())
+    .finally(()=>{ _ivtBusy=false; });
+}
+function renderInvTrend(){
+  const box=$('invTrend'); if(!box)return;
+  const t=_invTrend;
+  if(!t||(!t.kospi&&!t.kosdaq)){ box.hidden=true; return; }
+  box.hidden=false;
+  /* 억원 단위 — 조 단위가 넘으면 조로 바꿔 읽기 쉽게 */
+  const N=(v)=>{
+    const n=+v||0, a=Math.abs(n);
+    const s2=n>0?'+':n<0?'-':'';
+    if(a>=10000)return s2+(a/10000).toFixed(2).replace(/\.00$/,'')+'조';
+    return s2+KRW(a)+'억';
+  };
+  const cls=(v)=>(+v>0?'up':+v<0?'down':'');
+  const one=(nm,d)=>d?`
+    <div class="ivt-card">
+      <div class="ivt-h"><b>${nm}</b><span class="ivt-d">${htmlEsc(d.date||'')}</span></div>
+      <div class="ivt-row">
+        <div class="ivt-i"><span>개인</span><b class="num ${cls(d.개인)}">${N(d.개인)}</b></div>
+        <div class="ivt-i"><span>외국인</span><b class="num ${cls(d.외국인)}">${N(d.외국인)}</b></div>
+        <div class="ivt-i"><span>기관</span><b class="num ${cls(d.기관)}">${N(d.기관)}</b></div>
+      </div>
+    </div>`:'';
+  box.innerHTML=`<div class="ivt-t">투자자별 매매동향 <span>· 순매수 금액 · 장중에는 잠정치</span></div>
+    <div class="ivt-wrap">${one('코스피',t.kospi)}${one('코스닥',t.kosdaq)}</div>`;
+}
+try{
+  setTimeout(()=>{try{ renderInvTrend(); invTrendLoad(true); }catch(e){}},1500);
+  setInterval(()=>{try{ if(currentView==='home')invTrendLoad(); }catch(e){}},120000);
+}catch(e){}
 function k200nfLoad(force){
   if(_k200nfBusy)return;
   const iv=(_k200nf&&_k200nf.price>0)?20000:6000;      // 아직 못 받았으면 더 자주
@@ -9256,8 +9308,17 @@ function stockRow(code,name,market,tag,rank){
      :has() 를 못 쓰는 브라우저에서도 어긋나지 않게 하기 위해서다. */
   return `<div class="sr${rank?' has-rk':''}" data-code="${code}" data-name="${String(name||'').replace(/"/g,'')}" data-market="${mk}">
     <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm">${name||code}${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
-    <div class="sr-sp"><canvas class="sr-spark" id="srsp-${code}"></canvas></div>
-    <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?'':arrow(dir)+' '+pctS(p)}</div></div>`;
+    <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?'':arrow(dir)+' '+pctS(p)}</div>
+    <div class="sr-sp"><canvas class="sr-spark" id="srsp-${code}"></canvas></div></div>`;
+}
+/* [v9.2] 이 두 줄이 v9.0 작업 때 덮여 'stockAll is not defined' 가 났다.
+   전 종목 목록과 그 캐시 수명을 정하는 자리다. */
+let stockAll=null,stockLoading=false;
+function stockCacheTtl(){
+  const d=new Date(), h=d.getHours(), wd=d.getDay();
+  if(wd===0||wd===6)return 12*3600e3;        // 주말 — 신규 상장이 없다
+  if(h>=7&&h<=20)return 2*3600e3;            // 평일 장 전후
+  return 8*3600e3;                           // 평일 심야
 }
 /* ══ [v9.1] 종목 목록 — 당일 캔들 ═══════════════════════════════════════════
    [무엇을 그리나] 증권사 앱 목록에 흔히 붙는 '오늘 하루 봉' 하나다.
@@ -9277,7 +9338,6 @@ function srCandlePaint(code){
   const prev=(q&&q.prevClose)||st.prevClose;
   let o=+st.open||0, hi=+st.high||0, lo=+st.low||0;
   if(!(px>0)){ cv.style.display='none'; return; }
-  /* 시가·고가·저가가 아직 없으면 현재가와 전일 종가로 최소한의 봉을 만든다 */
   if(!(o>0))o=prev>0?prev:px;
   if(!(hi>0))hi=Math.max(px,o);
   if(!(lo>0))lo=Math.min(px,o);
@@ -9285,38 +9345,40 @@ function srCandlePaint(code){
   cv.style.display='';
 
   const dpr=Math.min(2,window.devicePixelRatio||1);
-  const W=cv.clientWidth||46, H=cv.clientHeight||26;
+  const W=cv.clientWidth||26, H=cv.clientHeight||44;
   cv.width=W*dpr; cv.height=H*dpr;
   const x=cv.getContext('2d'); if(!x)return;
   x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
 
-  /* 위아래 여백을 두고, 전일 종가도 범위에 넣어 기준선이 보이게 한다 */
+  /* ══ [v9.2] 미래에셋 방식으로 맞춘다 ═══════════════════════════════════════
+     [사진에서 본 것] 세로로 긴 꼬리 + 그 위 어딘가에 놓인 작은 몸통.
+     저가~고가가 칸 전체를 쓰고, 몸통은 그 안에서 시가~현재가만큼만 차지한다.
+     그래서 '오늘 얼마나 흔들렸고 지금 그 안 어디쯤인지'가 한눈에 들어온다.
+     [예전에 이상했던 이유] 전일 종가까지 범위에 넣고 여백을 18%나 둬서
+     실제 등락폭이 눌려 보였다. 이제 저가~고가만으로 칸을 채운다. */
   let top=hi, bot=lo;
-  if(prev>0){ top=Math.max(top,prev); bot=Math.min(bot,prev); }
   let span=top-bot;
-  if(!(span>0)){ span=Math.max(px*0.004,1); top=px+span/2; bot=px-span/2; }
-  const pad=span*0.18; top+=pad; bot-=pad;
-  const Y=(v)=>H-2-(H-4)*((v-bot)/(top-bot));
+  if(!(span>0)){                       // 상·하한가 등으로 종일 한 값이면
+    span=Math.max(px*0.002,1);
+    top=px+span/2; bot=px-span/2;
+  }
+  const padY=2;
+  const Y=(v)=>H-padY-(H-padY*2)*((v-bot)/(top-bot));
 
   const up=px>=o;
   const col=up?'#e5484d':'#3b82f6';
   const cx=Math.round(W/2)+0.5;
 
-  /* 전일 종가 기준선 */
-  if(prev>0){
-    const py=Y(prev);
-    x.save(); x.setLineDash([2,2]); x.strokeStyle='rgba(128,140,160,.45)'; x.lineWidth=1;
-    x.beginPath(); x.moveTo(1,py); x.lineTo(W-1,py); x.stroke(); x.restore();
-  }
-  /* 꼬리 — 저가~고가 */
-  x.strokeStyle=col; x.lineWidth=1.4;
+  /* 꼬리 — 저가에서 고가까지 칸 전체 */
+  x.strokeStyle=col; x.lineWidth=1.2;
   x.beginPath(); x.moveTo(cx,Y(hi)); x.lineTo(cx,Y(lo)); x.stroke();
-  /* 몸통 — 시가~현재가 */
-  const bw=Math.max(5,Math.min(11,Math.round(W*0.34)));
-  const y1=Y(Math.max(o,px)), y2=Y(Math.min(o,px));
-  const bh=Math.max(1.6,y2-y1);
+
+  /* 몸통 — 시가~현재가. 폭은 꼬리보다 확실히 넓게 */
+  const bw=Math.max(6,Math.min(10,Math.round(W*0.52)));
+  const yA=Y(Math.max(o,px)), yB=Y(Math.min(o,px));
+  const bh=Math.max(2,yB-yA);
   x.fillStyle=col;
-  x.fillRect(cx-bw/2,y1,bw,bh);
+  x.fillRect(Math.round(cx-bw/2),yA,bw,bh);
 }
 /* 목록 안 캔들을 한 번에 다시 그린다 */
 function srCandlesPaint(root){
