@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=415';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=416';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3558,29 +3558,29 @@ function requireAuth(){
      예전에는 곧바로 띄워, 입장 화면이 아직 떠 있는데 그 위로 로그인 창이 먼저
      보였다(첨부 사진). 입장 화면이 사라졌다는 신호를 기다렸다가 연다.
      이미 걷혔거나 신호가 오지 않아도 1.6초 뒤에는 반드시 열어, 갇히지 않게 한다. */
-  const openGate=()=>{
-    const g2=$('authGate');
-    if(g2){g2.hidden=false;g2.classList.add('auth-force');}
-    try{document.body.classList.add('locked');}catch(e){}
-    try{oaBind();}catch(e){}          // [v6.7] 구글 버튼 배선
-  };
-  if(window.__bootGone)openGate();
-  else{
-    let done=false;
-    const fire=()=>{ if(done)return; done=true; openGate(); };
-    try{window.addEventListener('bootgone',fire,{once:true});}catch(e){}
-    setTimeout(fire,1600);
-  }
-  /* [v4.24 · 버그] 부팅 완료 신호(step 4·6·done)는 initApp() 안에만 있었다.
-     로그인 전에는 initApp 이 실행되지 않아 신호가 영영 오지 않았고,
-     입장 화면이 12초 안전장치가 터질 때까지 11%에 멈춰 있다가
-     한 번에 100%로 튀었다. 로그인 화면을 띄우는 것도 '준비 끝'이다. */
-  try{window.__boot&&(__boot.step(4),__boot.step(5),__boot.step(6),__boot.done());}catch(e){}
+  /* ══ [v8.3] 입장 화면이 걷히는 순간 홈이 잠깐 보이던 문제 ═══════════════════
+     [무엇이 잘못됐나] 순서가 뒤집혀 있었다.
+       ① 로그인 창은 '입장 화면이 사라졌다는 신호'를 기다렸다가 열고
+       ② 그 아래에서 __boot.done() 으로 입장 화면을 걷었다
+     그래서 입장 화면이 사라진 직후 ~ 로그인 창이 열리기 전까지 홈이 노출됐다.
+     [고침] 로그인 창을 '먼저' 띄우고, 그다음에 입장 화면을 걷는다.
+     로그인 창은 입장 화면(z-index 2000000)보다 아래에 있으므로 미리 열어 두어도
+     보이지 않는다. 입장 화면이 걷히면 그 자리에 로그인 창이 이미 있다. */
+  const g2=$('authGate');
+  if(g2){g2.hidden=false;g2.classList.add('auth-force');}
+  try{document.body.classList.add('locked');}catch(e){}
+  try{oaBind();}catch(e){}
+  /* 창이 실제로 그려진 뒤에 입장 화면을 걷는다(한 프레임 뒤) */
+  const finish=()=>{ try{window.__boot&&(__boot.step(4),__boot.step(5),__boot.step(6),__boot.done());}catch(e){} };
+  try{ requestAnimationFrame(()=>requestAnimationFrame(finish)); }catch(e){ finish(); }
 }
 function unlockApp(){
   const g=$('authGate');
   if(g){g.hidden=true;g.classList.remove('auth-force');}
   try{document.body.classList.remove('locked');}catch(e){}
+  /* [v8.3] 로그인이 끝나면 입장 화면도 확실히 걷는다.
+     requireAuth 로 들어온 경우 이미 걷혔지만, 남아 있을 여지를 없앤다. */
+  try{window.__boot&&__boot.done();}catch(e){}
 }
 /* 계정 전환 시 개인 기록을 그 계정 키에서 다시 읽는다 */
 function reloadPerUser(){
@@ -13063,13 +13063,18 @@ function __bootMain(){
       let ok=false;
       try{ ok=await oaConsume(); }catch(e){}
       if(!ok){ try{requireAuth();}catch(e){} }
+      /* [v8.3] 성공했든 실패했든 입장 화면은 반드시 걷는다 */
+      else try{window.__boot&&__boot.done();}catch(e){}
     })();
   }
   else{requireAuth();}
-  /* [v4.9] 화면 구성 단계 → 두 프레임 뒤(첫 페인트 확정 후) 입장화면을 걷는다.
-     로그인 화면으로 빠지는 경우에도 즉시 걷어야 입력이 가려지지 않는다. */
+  /* ══ [v8.3] 여기서 무조건 입장 화면을 걷던 것이 문제였다 ═══════════════════
+     로그인이 필요한 경우 requireAuth() 가 '로그인 창을 띄운 뒤' 직접 걷는다.
+     그런데 이 줄이 그와 상관없이 먼저 걷어 버려, 창이 열리기 전에 홈이 보였다.
+     로그인한 사용자일 때만 여기서 걷는다. */
   try{window.__boot&&__boot.step(6);}catch(e){}
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__boot&&__boot.done();}catch(e){}}));
+  if(currentUser)
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__boot&&__boot.done();}catch(e){}}));
   setTimeout(()=>{try{pingManifest();autoIconSync();}catch(e){}},4000);   // [v4.23] 아이콘 자동 동기화
 }
 
