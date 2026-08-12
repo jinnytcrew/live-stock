@@ -8577,6 +8577,55 @@ async function krFutures() {
      [방법] ① 네이버 지수 코드 후보를 넓게 훑고 ② 선물 전용 API 도 두드리고
      ③ 그래도 없으면 인베스팅닷컴에서 종목을 찾아 시세를 받는다.
      성공한 경로는 diag 에 남겨, 어느 길이 살아 있는지 나중에 확인할 수 있게 한다. */
+  /* ══ [v8.5] 트레이딩뷰 KRX 심볼 — 야간 세션이 포함된 값 ═══════════════════
+     [찾아낸 사실] 트레이딩뷰에 KRX 코스피200 선물이 'KRX:K2I1!' 로 올라와 있다.
+     KRX 직상장 심볼이라 2025년 6월부터 KRX 가 자체 운영하는 야간 세션(18:00~06:00)
+     체결가가 그대로 반영된다. 미래에셋 앱이 보여 주는 1,057.45 와 같은 계통이다.
+     [왜 이걸 1순위로] 네이버 코드 추측(전부 nodata), KRX 통계(400), 인베스팅 검색(none)이
+     모두 실패했다. 이미 이 앱에서 쓰고 있는 트레이딩뷰 경로가 가장 확실하다. */
+  if (!out.night) {
+    const TV_SYMS = ["KRX:K2I1!", "KRX:K2IZ2026", "KRX:K2I2!", "KRX:K200F1!"];
+    for (const sym of TV_SYMS) {
+      if (out.night) break;
+      try {
+        const r = await fetch("https://scanner.tradingview.com/symbol?symbol="
+          + encodeURIComponent(sym)
+          + "&fields=lp,ch,chp,prev_close_price,update_mode,volume&no_404=true", {
+          headers: { "User-Agent": UA20, Accept: "application/json",
+            Referer: "https://www.tradingview.com/" }
+        });
+        if (!r.ok) { out.diag.push("night/tv/" + sym + ":" + r.status); continue; }
+        const j = await r.json();
+        const px = num9(j && j.lp);
+        if (px > 0) {
+          takeNight(px, "tv/" + sym);
+          if (out.night) {
+            const ch = num9(j.ch), chp = num9(j.chp), pc = num9(j.prev_close_price);
+            if (ch) out.night.change = ch;
+            else if (pc > 0) out.night.change = +(px - pc).toFixed(2);
+            if (chp) out.night.rate = chp;
+            else if (pc > 0) out.night.rate = +((px - pc) / pc * 100).toFixed(2);
+          }
+        } else out.diag.push("night/tv/" + sym + ":nolp");
+      } catch (e) { out.diag.push("night/tv/" + sym + ":" + String(e).slice(0, 14)); }
+    }
+  }
+  /* ══ [v8.5] 트레이딩뷰 히스토리 — 위에서 현재가만 받았을 때 흐름을 채운다 ═══ */
+  if (out.night && (!out.night.history || out.night.history.length < 3)) {
+    try {
+      const to = Math.floor(Date.now() / 1000), from = to - 3 * 86400;
+      const r = await fetch("https://history-data.tradingview.com/history?symbol="
+        + encodeURIComponent("KRX:K2I1!") + "&resolution=5&from=" + from + "&to=" + to, {
+        headers: { "User-Agent": UA20, Accept: "application/json",
+          Referer: "https://www.tradingview.com/" }
+      });
+      if (r.ok) {
+        const j = await r.json();
+        if (j && Array.isArray(j.c) && j.c.length >= 3)
+          out.night.history = j.c.map(Number).filter((v) => v > 0).slice(-30);
+      }
+    } catch (e) {}
+  }
   /* ══ [v6.3] 코드를 추측하지 말고 네이버에 직접 물어본다 ═══════════════════
      [진단으로 확인된 사실] 제가 넣은 야간 코드 12개가 전부 'nodata' 였다.
      즉 코드 이름을 계속 찍어 맞히려던 것이 문제였다. 주간(FUT)은 잘 되므로
@@ -13536,7 +13585,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "8.3.0";
+var APP_VER = "8.5.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

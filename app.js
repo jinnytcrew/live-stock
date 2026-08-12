@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=416';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=418';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -3570,6 +3570,7 @@ function requireAuth(){
   if(g2){g2.hidden=false;g2.classList.add('auth-force');}
   try{document.body.classList.add('locked');}catch(e){}
   try{oaBind();}catch(e){}
+  try{ window.__gateShown=true; }catch(e){}   // [v8.4] 로그인 창을 거쳤음을 남긴다
   /* 창이 실제로 그려진 뒤에 입장 화면을 걷는다(한 프레임 뒤) */
   const finish=()=>{ try{window.__boot&&(__boot.step(4),__boot.step(5),__boot.step(6),__boot.done());}catch(e){} };
   try{ requestAnimationFrame(()=>requestAnimationFrame(finish)); }catch(e){ finish(); }
@@ -3578,9 +3579,19 @@ function unlockApp(){
   const g=$('authGate');
   if(g){g.hidden=true;g.classList.remove('auth-force');}
   try{document.body.classList.remove('locked');}catch(e){}
-  /* [v8.3] 로그인이 끝나면 입장 화면도 확실히 걷는다.
-     requireAuth 로 들어온 경우 이미 걷혔지만, 남아 있을 여지를 없앤다. */
-  try{window.__boot&&__boot.done();}catch(e){}
+  /* ══ [v8.4] 로그인을 마치면 입장 화면을 한 번 더 보여 준다 ═══════════════════
+     로그인 창에서 곧바로 홈이 나오면, 아직 시세·계좌를 불러오는 중이라
+     비어 있거나 반쯤 그려진 화면이 스쳐 보인다.
+     '입장 → 로그인 → 다시 입장 → 홈' 이 자연스럽고, 그 사이에 준비가 끝난다. */
+  try{
+    /* 처음 켤 때 자동 로그인되는 경우에는 입장 화면이 아직 떠 있으므로
+       다시 보여 줄 필요가 없다. '로그인 창을 거쳐 들어온 경우'에만 재생한다. */
+    const cameFromGate=!!window.__gateShown;
+    if(cameFromGate&&window.__boot&&__boot.replay&&!window.__replayed){
+      window.__replayed=true;
+      __boot.replay(1500);
+    }else{ window.__boot&&__boot.done(); }
+  }catch(e){}
 }
 /* 계정 전환 시 개인 기록을 그 계정 키에서 다시 읽는다 */
 function reloadPerUser(){
@@ -6192,11 +6203,24 @@ function nightFutFromDay(list){
      주간 979 를 '야간선물'로 보여 주면 실제(1,008선)와 달라 오정보가 된다.
      야간 시세를 실제로 받았을 때만 숫자를 쓰고, 못 받았으면 그 사실을 밝힌다.
      대신 서버가 여러 경로를 두드리므로 대개는 받아진다. */
+  /* ══ [v8.4] 카드가 영영 비어 있던 진짜 이유 ═══════════════════════════════
+     [무엇이 잘못됐나] '저장해 둔 야간 종가가 있으면 그것을 쓴다'고 만들어 두었는데,
+     그 값은 야간 시세를 한 번이라도 받아야 저장된다. 서버가 야간 시세를 못 받으면
+     저장될 일이 없고, 그러면 이 카드는 영원히 빈칸으로 남는다.
+     — 첫날부터 지금까지 한 번도 채워지지 않은 이유가 이것이다.
+     [고침] 받아 둔 값이 없으면 '주간 선물 마감가'를 쓴다.
+     야간선물은 주간과 같은 코스피200 선물이고, 야간장이 열리면 주간 마감가에서
+     이어서 움직인다. 기준이 다르다는 것은 라벨로 분명히 밝힌다.
+     빈칸보다는 '어제 어디서 끝났는지'를 아는 편이 훨씬 쓸모 있다. */
   let nc=null; try{ nc=lastNightClose(); }catch(e){}
-  /* 지난 야간장에서 받아 둔 마감가는 '오늘 야간이 아직 안 열렸을 때'만 쓴다 */
-  if(nc&&nc.price>0&&!k200NightOpen())
+  const openNow=k200NightOpen();
+  /* ① 받아 둔 야간 종가가 있으면 그것이 가장 정확하다 */
+  if(nc&&nc.price>0&&!openNow)
     return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:nc.price,
       change:nc.change||0,rate:nc.rate||0,history:nc.history||[],dayBasis:'직전 야간 마감'};
+  /* [v8.5] 주간 마감가로 채우던 것을 되돌린다.
+     주간 979 와 야간 1,057 은 전혀 다른 값이다. 틀린 숫자를 보여 주는 것은
+     빈칸보다 나쁘다 — 사용자가 그것을 진짜 야간 시세로 믿게 된다. */
   return {key:'K200NF',name:'코스피200 야간선물',tag:'선물',price:null,_wait:true};
 }
 function withNightWait(arr){
@@ -6237,7 +6261,7 @@ function idxCardHtml(x){
   return `<div class="idx-card"><div class="idx-tagline">${tag}<span class="idx-ch num ${dir}">${arrow(dir)} ${pctS(x.rate)}</span></div>
     <div class="idx-top"><span class="idx-nm"><span class="idx-nm-t">${htmlEsc(x.name)}</span></span></div>
     <div class="idx-lv num ${dir} ${fl}">${DEC(x.price)}</div><div class="idx-df num ${dir}">${signedDec(x.change)}${mktBadge(x.key,x.dayBasis)}</div>
-    ${x.dayBasis?'<div class="icw-sub">주간 마감 기준 · 야간 실시간 시세 수신 시 자동 교체</div>':''}
+    ${x.dayBasis?`<div class="icw-sub">${htmlEsc(x.dayBasis)}${/주간/.test(x.dayBasis)?' · 야간 시세 도착 시 자동 교체':''}</div>`:''}
     <canvas class="spark" id="spark-idx-${x.key}"></canvas></div>`;}
 // [개편] 주요 지수와 가상자산을 한 코너로 합치고, 분류 칩으로 걸러 볼 수 있게 한다.
 function allIndexCards(){
