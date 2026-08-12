@@ -4996,3 +4996,19 @@ html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
   .tbar-lab{font-size:10.5px}
   .ipo-detail-btn .arr{font-size:11px}
 }
+
+/* [v9.1] 목록 격자에 캔들 열을 더한다(이름·캔들·가격·등락) */
+.sr{grid-template-columns:1fr auto auto auto}
+
+/* ══ [v9.1] 당일 캔들 ═══════════════════════════════════════════════════════
+   목록 한 줄에 오늘 하루 봉 하나. 몸통은 시가~현재가, 꼬리는 저가~고가,
+   점선은 전일 종가. 다음 날 시세가 새로 오면 저절로 초기화된다. */
+.sr-sp{width:34px;height:28px;opacity:.92;display:flex;align-items:center;justify-content:center}
+.sr-spark{width:100%;height:100%;display:block}
+@media (max-width:560px){
+  .sr-sp{width:28px;height:26px}
+}
+@media (max-width:400px){
+  .sr-sp{width:24px;height:24px;display:flex}   /* 좁아도 캔들은 남긴다 — 폭이 작다 */
+  .sr{grid-template-columns:1fr auto auto auto}
+}

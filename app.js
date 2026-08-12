@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=422';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=424';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -4571,6 +4571,9 @@ function renderSettingsExtra(){
 ;
   $('goalClr').onclick=()=>{delete userPrefs.assetGoal;savePrefs();closeLiteGate();renderGoalCard();toast('warn','목표 해제','');};
 }
+/* [v9.0] 복원 과정에서 이 선언 한 줄이 빠져 'verLatest is not defined' 가 났다.
+   업데이트 확인 결과를 담아 두는 자리다. */
+let verLatest=null,verBuildLatest=null;
 function cmpVerC(a,b){const A=String(a||'0').split('.').map(x=>+x||0),B=String(b||'0').split('.').map(x=>+x||0);
   for(let i=0;i<3;i++){if((A[i]||0)>(B[i]||0))return 1;if((A[i]||0)<(B[i]||0))return -1;}return 0;}
 function renderVerCard(){
@@ -9253,21 +9256,75 @@ function stockRow(code,name,market,tag,rank){
      :has() 를 못 쓰는 브라우저에서도 어긋나지 않게 하기 위해서다. */
   return `<div class="sr${rank?' has-rk':''}" data-code="${code}" data-name="${String(name||'').replace(/"/g,'')}" data-market="${mk}">
     <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm">${name||code}${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
+    <div class="sr-sp"><canvas class="sr-spark" id="srsp-${code}"></canvas></div>
     <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?'':arrow(dir)+' '+pctS(p)}</div></div>`;
 }
+/* ══ [v9.1] 종목 목록 — 당일 캔들 ═══════════════════════════════════════════
+   [무엇을 그리나] 증권사 앱 목록에 흔히 붙는 '오늘 하루 봉' 하나다.
+     · 몸통 = 시가 ~ 현재가   (오르면 빨강, 내리면 파랑)
+     · 꼬리 = 저가 ~ 고가     (장중에 어디까지 갔다 왔는지)
+     · 가운데 점선 = 전일 종가 (오늘의 기준선)
+   [왜 이게 나은가] 한 달 흐름은 '요즘 어땠나'를 말하지만, 목록에서 정작
+   궁금한 건 '오늘 지금 어떤가'다. 시가 대비 어디에 있고, 위아래로 얼마나
+   흔들렸는지가 한 칸에 담긴다.
+   [자료] 시세에 이미 open·high·low 가 들어 있어 따로 받아올 필요가 없다.
+   장이 바뀌면 그 값이 새로 오므로 다음 날 저절로 초기화된다. */
+function srCandlePaint(code){
+  const cv=$('srsp-'+code); if(!cv)return;
+  const st=byCode[code]||{};
+  const q=(typeof dispQuote==='function')?dispQuote(code):null;
+  const px=(q&&q.price!=null)?q.price:st.price;
+  const prev=(q&&q.prevClose)||st.prevClose;
+  let o=+st.open||0, hi=+st.high||0, lo=+st.low||0;
+  if(!(px>0)){ cv.style.display='none'; return; }
+  /* 시가·고가·저가가 아직 없으면 현재가와 전일 종가로 최소한의 봉을 만든다 */
+  if(!(o>0))o=prev>0?prev:px;
+  if(!(hi>0))hi=Math.max(px,o);
+  if(!(lo>0))lo=Math.min(px,o);
+  hi=Math.max(hi,px,o); lo=Math.min(lo,px,o);
+  cv.style.display='';
 
-/* ===== 전 종목 목록(코스피·코스닥) =====
-   종목검색이 내장 66종 + 자동완성 10건에 갇혀 '삼성' 검색 시 관련 종목이 대거 누락됐다.
-   전 종목을 페이지 단위로 받아 브라우저에 캐시(24시간)하고 검색에 합친다. */
-let stockAll=null,stockLoading=false;
-/* [v2.9.7] 목록 캐시 수명을 시간대에 맞춘다.
-   예전엔 무조건 24시간이라, 서버 캐시 24시간과 겹치면 신규 상장 종목이
-   최대 이틀 동안 검색에 안 나왔다. 장이 도는 시간대에는 짧게 잡는다. */
-function stockCacheTtl(){
-  const d=new Date(), h=d.getHours(), wd=d.getDay();
-  if(wd===0||wd===6)return 12*3600e3;        // 주말 — 신규 상장이 없다
-  if(h>=7&&h<=20)return 2*3600e3;            // 평일 장 전후
-  return 8*3600e3;                           // 평일 심야
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const W=cv.clientWidth||46, H=cv.clientHeight||26;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const x=cv.getContext('2d'); if(!x)return;
+  x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
+
+  /* 위아래 여백을 두고, 전일 종가도 범위에 넣어 기준선이 보이게 한다 */
+  let top=hi, bot=lo;
+  if(prev>0){ top=Math.max(top,prev); bot=Math.min(bot,prev); }
+  let span=top-bot;
+  if(!(span>0)){ span=Math.max(px*0.004,1); top=px+span/2; bot=px-span/2; }
+  const pad=span*0.18; top+=pad; bot-=pad;
+  const Y=(v)=>H-2-(H-4)*((v-bot)/(top-bot));
+
+  const up=px>=o;
+  const col=up?'#e5484d':'#3b82f6';
+  const cx=Math.round(W/2)+0.5;
+
+  /* 전일 종가 기준선 */
+  if(prev>0){
+    const py=Y(prev);
+    x.save(); x.setLineDash([2,2]); x.strokeStyle='rgba(128,140,160,.45)'; x.lineWidth=1;
+    x.beginPath(); x.moveTo(1,py); x.lineTo(W-1,py); x.stroke(); x.restore();
+  }
+  /* 꼬리 — 저가~고가 */
+  x.strokeStyle=col; x.lineWidth=1.4;
+  x.beginPath(); x.moveTo(cx,Y(hi)); x.lineTo(cx,Y(lo)); x.stroke();
+  /* 몸통 — 시가~현재가 */
+  const bw=Math.max(5,Math.min(11,Math.round(W*0.34)));
+  const y1=Y(Math.max(o,px)), y2=Y(Math.min(o,px));
+  const bh=Math.max(1.6,y2-y1);
+  x.fillStyle=col;
+  x.fillRect(cx-bw/2,y1,bw,bh);
+}
+/* 목록 안 캔들을 한 번에 다시 그린다 */
+function srCandlesPaint(root){
+  try{
+    (root||document).querySelectorAll('.sr[data-code]').forEach(el=>{
+      srCandlePaint(el.dataset.code);
+    });
+  }catch(e){}
 }
 function loadStockCache(){
   try{const raw=JSON.parse(localStorage.getItem('stockAll')||'null');
@@ -10301,7 +10358,10 @@ function updateWatchRow(code){
 }
 /* [v4.41] 목록 클릭을 한 곳에서 갈라 준다 — 해외 티커면 해외 거래 화면으로.
    이 함수는 검색·관심·순위·보유 등 거의 모든 목록이 함께 쓰므로, 여기만 고치면 전 화면이 통일된다. */
-function bindStockClicks(root){root.querySelectorAll('[data-code]').forEach(n=>n.onclick=()=>{
+function bindStockClicks(root){
+  /* [v9.1] 목록을 그린 뒤 당일 캔들을 그린다 — 시세에 이미 있는 값이라 즉시 그려진다 */
+  try{ srCandlesPaint(root); }catch(e){}
+  root.querySelectorAll('[data-code]').forEach(n=>n.onclick=()=>{
   const c=n.dataset.code;
   if(usMeta&&usMeta[c]){ openUS(c); return; }
   if(n.dataset.name)ensureStock(c,n.dataset.name,n.dataset.market);
