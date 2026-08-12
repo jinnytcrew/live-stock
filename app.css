@@ -4884,3 +4884,115 @@ html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
   .ai-mt b{font-size:12.5px}
   .ai-krw{display:block;margin-top:2px}
 }
+
+/* ══ [v8.8] 순위 목록이 11번부터 밀리던 문제 ═══════════════════════════════
+   순위 배지가 min-width:22px + 좌우 padding 이라 두 자리 수(10 이상)부터
+   저절로 넓어졌다. 그만큼 뒤 내용이 통째로 오른쪽으로 밀렸다.
+   폭을 고정해 한 자리든 두 자리든 같은 자리에서 시작하게 한다. */
+.us-ranklist .rk,.uz-list .rk{width:26px;min-width:26px;padding:0;
+  flex:0 0 26px;box-sizing:border-box}
+.us-ranklist .rk.top,.uz-list .rk.top{width:26px;min-width:26px;flex:0 0 26px}
+@media (max-width:560px){
+  .us-ranklist .rk,.uz-list .rk{width:23px;min-width:23px;flex:0 0 23px}
+  .us-ranklist .rk.top,.uz-list .rk.top{width:23px;min-width:23px;flex:0 0 23px}
+}
+
+/* ══ [v8.9] 매집 포착기 — 타점·계획·되짚어 보기 ═══════════════════════════ */
+.ac-now{padding:14px 15px;border-radius:14px;margin:12px 0 6px;border:1px solid var(--border)}
+.ac-now.buy{background:rgba(18,183,106,.10);border-color:rgba(18,183,106,.32)}
+.ac-now.sell{background:rgba(229,72,77,.10);border-color:rgba(229,72,77,.32)}
+.ac-now.wait{background:var(--border-soft)}
+.ac-now-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ac-now-h i{font-style:normal;font-size:16px;font-weight:900}
+.ac-now.buy .ac-now-h i{color:var(--up)}
+.ac-now.sell .ac-now-h i{color:var(--down)}
+.ac-now-h b{font-size:15px;font-weight:900;color:var(--text)}
+.ac-now-k{padding:3px 9px;border-radius:99px;background:var(--panel);
+  font-size:11px;font-weight:800;color:var(--sub)}
+.ac-now-a{margin-left:auto;font-size:11px;font-weight:700;color:var(--sub-2)}
+.ac-now-w{margin-top:7px;font-size:12.5px;line-height:1.7;font-weight:600;color:var(--sub)}
+.ac-sec{margin:18px 0 9px;font-size:14px;font-weight:900;color:var(--text)}
+.ac-sec span{margin-left:6px;font-size:11px;font-weight:600;color:var(--sub-2)}
+.ac-plan{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ac-pl{padding:11px 12px;border-radius:12px;background:var(--border-soft);min-width:0}
+.ac-pl span{display:block;font-size:11px;font-weight:700;color:var(--sub-2)}
+.ac-pl b{display:block;margin-top:3px;font-size:14px;font-weight:900;color:var(--text)}
+.ac-pl i{display:block;margin-top:2px;font-style:normal;font-size:11px;font-weight:800;color:var(--sub-2)}
+.ac-pl.buy{background:rgba(59,130,246,.10)}
+.ac-pl.tgt{background:rgba(18,183,106,.10)}
+.ac-pl.stop{background:rgba(229,72,77,.10)}
+.ac-pl i.up{color:var(--up)} .ac-pl i.down{color:var(--down)}
+.ac-note{margin-top:9px;font-size:11.5px;line-height:1.7;font-weight:600;color:var(--sub-2)}
+.ac-note b{color:var(--text);font-weight:800}
+.ac-back{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ac-back>div{padding:12px;border-radius:12px;background:var(--border-soft);text-align:center}
+.ac-back span{display:block;font-size:11px;font-weight:700;color:var(--sub-2)}
+.ac-back b{display:block;margin-top:4px;font-size:16px;font-weight:900;color:var(--text)}
+.ac-sigs{display:flex;flex-direction:column;gap:7px}
+.ac-sig{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px;
+  background:var(--border-soft);flex-wrap:wrap}
+.ac-sig-t{flex:0 0 auto;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:900;color:#fff}
+.ac-sig.buy .ac-sig-t{background:var(--up)}
+.ac-sig.sell .ac-sig-t{background:var(--down)}
+.ac-sig b{font-size:12.5px;font-weight:800;color:var(--text)}
+.ac-sig i{margin-left:auto;font-style:normal;font-size:12px;font-weight:800;color:var(--sub)}
+.ac-sig em{flex:1 1 100%;font-style:normal;font-size:11px;line-height:1.6;font-weight:600;color:var(--sub-2)}
+@media (max-width:560px){
+  .ac-plan{grid-template-columns:repeat(2,1fr)}
+  .ac-pl b{font-size:13px}
+  .ac-back b{font-size:14.5px}
+  .ac-now-h b{font-size:14px}
+  .ac-now-a{margin-left:0;flex:1 1 100%}
+  .ac-sig i{margin-left:0}
+}
+.ac-tag{display:inline-block;padding:3px 8px;border-radius:6px;font-size:10.5px;font-weight:900;color:#fff}
+.ac-tag.buy{background:var(--up)} .ac-tag.sell{background:var(--down)}
+.ac-tag.wait{background:var(--sub-2)}
+.ac-now-cell small{display:block;margin-top:3px;font-size:10px;font-weight:700;color:var(--sub-2)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [v8.9] 모바일 최종 보정
+   - 로고 배지 안 대체 글자(.lgo>i)는 '이미지가 없을 때 티커 몇 글자'라
+     작아도 읽는 데 지장이 없다. 보정 대상에서 제외한다.
+   - 실제로 읽는 글자와 손으로 누르는 것만 키운다.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width:560px){
+  /* 손가락으로 누르는 것 — 최소 40px */
+  .zoom button{min-height:40px;min-width:40px}
+  .goal-preset button{min-height:40px;padding:0 12px}
+  .ac-sig-t{font-size:11px;padding:4px 9px}
+  .ac-now-cell small{font-size:11px}
+  /* 매집 포착기 표 — 좁은 화면에서 칸이 눌리지 않게 */
+  .ac-tbl th,.ac-tbl td{padding:9px 6px;font-size:12px}
+  .ac-tbl th:nth-child(2),.ac-tbl td:nth-child(2){white-space:nowrap}
+  .ac-minibar{display:none}                 /* 좁으면 점수 막대는 생략 */
+  .ac-canvas-wrap{margin:0 -2px}
+  /* 새로 만든 코너들 */
+  .ac-now{padding:12px 13px}
+  .ac-sec{font-size:13.5px;margin:15px 0 8px}
+  .ac-plan{gap:7px}
+  .ac-pl{padding:10px 11px}
+  .ac-back>div{padding:11px 8px}
+  .ac-sig{padding:9px 11px;gap:8px}
+}
+@media (max-width:400px){
+  .ac-plan{grid-template-columns:repeat(2,1fr)}
+  .ac-pl b{font-size:12.5px}
+  .ac-back{grid-template-columns:repeat(3,1fr);gap:6px}
+  .ac-back b{font-size:13.5px}
+  .ac-back span{font-size:10.5px}
+  .ac-tbl th,.ac-tbl td{padding:8px 4px;font-size:11.5px}
+}
+/* 가로 화면 — 매집 차트가 화면을 넘지 않게 */
+@media (max-height:520px) and (orientation:landscape){
+  .ac-canvas-wrap canvas{max-height:180px}
+  .ac-report{max-height:none}
+}
+
+/* [v8.9] 배지 글자 최종 보정 — 좁은 화면에서 읽히도록 */
+@media (max-width:560px){
+  .nxt-badge.sm,.cal-sure,.cal-est,.est-badge{font-size:10.5px}
+  .fx-unit{font-size:10.5px}
+  .tbar-lab{font-size:10.5px}
+  .ipo-detail-btn .arr{font-size:11px}
+}

@@ -7428,9 +7428,14 @@ async function fxHistExtra(map, from, to) {
   const need = FX_EXTRA.filter((c) => !(map[c] && map[c].length >= 3));
   if (!need.length) return;
   const syms = need.join(",");
-  /* ① exchangerate.host — 기간 조회를 한 번에 준다 */
+  /* ══ [v8.8] 직선 그래프가 나온 이유 ═══════════════════════════════════════
+     지난번에 '선이라도 그려지게' 같은 값 3개를 넣었다. 그건 수평선일 뿐
+     아무 정보도 주지 못한다 — 오히려 시세가 안 움직인 것처럼 오해하게 만든다.
+     [고침] 진짜 이력을 주는 곳을 여러 곳 두드린다.
+     끝내 못 받으면 그래프를 그리지 않는다(빈 자리가 거짓 직선보다 낫다). */
+  /* ① Frankfurter 개별 조회 — ECB 밖 통화도 일부는 준다 */
   try {
-    const j = await jget7(`https://api.exchangerate.host/timeseries?start_date=${from}&end_date=${to}&base=KRW&symbols=${syms}`, 6e3);
+    const j = await jget7(`https://api.frankfurter.dev/v1/${from}..${to}?base=KRW&symbols=${syms}`, 6e3);
     const rates = j && j.rates;
     if (rates) {
       const days = Object.keys(rates).sort().slice(-31);
@@ -7440,17 +7445,31 @@ async function fxHistExtra(map, from, to) {
       }
     }
   } catch (e) {}
-  /* ② 남은 통화는 open.er-api 로 '오늘 값'만이라도 채운다(선은 짧아도 그려진다) */
-  const still = need.filter((c) => !(map[c] && map[c].length >= 3));
-  if (!still.length) return;
-  try {
-    const j = await jget7("https://open.er-api.com/v6/latest/KRW", 5e3);
-    const rt = j && j.rates;
-    if (rt) for (const c of still) {
-      const r = Number(rt[c]);
-      if (r > 0) map[c] = [1 / r, 1 / r, 1 / r];   // 최소 3점 — 선이 그려지도록
-    }
-  } catch (e) {}
+  /* ② 남은 통화는 한 종목씩 받는다 — 여러 곳을 돌아가며 시도한다 */
+  let still = FX_EXTRA.filter((c) => !(map[c] && map[c].length >= 5));
+  for (const c of still.slice(0, 20)) {
+    /* ②-1 야후 환율 차트 — KRW=X 형식으로 30일 종가를 준다 */
+    try {
+      const j = await jget7(`https://query1.finance.yahoo.com/v8/finance/chart/${c}KRW=X?range=1mo&interval=1d`, 5e3);
+      const q = j && j.chart && j.chart.result && j.chart.result[0];
+      const cl = q && q.indicators && q.indicators.quote && q.indicators.quote[0] && q.indicators.quote[0].close;
+      if (Array.isArray(cl)) {
+        const arr = cl.map(Number).filter((v) => v > 0).slice(-31);
+        if (arr.length >= 5) { map[c] = arr; continue; }
+      }
+    } catch (e) {}
+    /* ②-2 Stooq — 통화쌍 일별 종가 */
+    try {
+      const t = await tget(`https://stooq.com/q/d/l/?s=${c.toLowerCase()}krw&i=d`, 5e3);
+      if (t && t.indexOf("Date") === 0) {
+        const rows = t.trim().split("\n").slice(1).slice(-31);
+        const arr = rows.map((r) => Number(r.split(",")[4])).filter((v) => v > 0);
+        if (arr.length >= 5) { map[c] = arr; continue; }
+      }
+    } catch (e) {}
+  }
+  /* ③ 그래도 없으면 비워 둔다 — 가짜 직선은 그리지 않는다 */
+  for (const c of FX_EXTRA) if (map[c] && map[c].length < 3) delete map[c];
 }
 async function fxHistory() {
   if (histCache.map && Date.now() - histCache.at < 36e5) return histCache.map;
@@ -13439,6 +13458,30 @@ async function k200nf_default(req2, ctx){
           num(j.fluctuationsRatio)||(pc>0?(px-pc)/pc*100:null),"naver:"+cd); }
     }
   }
+  /* ══ [v8.8] 그래프가 비어 있던 이유 — 흐름을 받아오지 않았다 ═══════════════
+     값만 받고 history 를 채우지 않아, 카드에 숫자만 나오고 선은 없었다. */
+  if (out && (!out.history || out.history.length < 3)) {
+    /* ① 트레이딩뷰 히스토리 — 5분봉 */
+    try {
+      const to2 = Math.floor(Date.now() / 1000), from2 = to2 - 2 * 86400;
+      const j = await jget("https://history-data.tradingview.com/history?symbol="
+        + encodeURIComponent("KRX:K2I1!") + "&resolution=5&from=" + from2 + "&to=" + to2,
+        { Referer: "https://www.tradingview.com/" });
+      if (j && Array.isArray(j.c) && j.c.length >= 3)
+        out.history = j.c.map(Number).filter((v) => v > 0).slice(-40);
+    } catch (e) {}
+    /* ② 인베스팅 차트 데이터 */
+    if (!out.history || out.history.length < 3) {
+      try {
+        const j = await jget("https://api.investing.com/api/financialdata/8830/historical/chart/?interval=PT5M&pointscount=60",
+          { Referer: "https://kr.investing.com/" });
+        const rows = (j && j.data) || [];
+        const arr = rows.map((r) => Number(r[4] ?? r[1])).filter((v) => v > 0).slice(-40);
+        if (arr.length >= 3) out.history = arr;
+      } catch (e) {}
+    }
+    if (!out.history || out.history.length < 3) diag.push("hist:none");
+  }
   const kst=new Date(Date.now()+9*3600e3);
   const h9=kst.getUTCHours(), wd=kst.getUTCDay();
   const open=(h9>=18)?(wd>=1&&wd<=5):(h9<6?(wd>=2&&wd<=6):false);
@@ -13732,7 +13775,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "8.7.0";
+var APP_VER = "8.9.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
