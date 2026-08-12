@@ -7417,6 +7417,41 @@ async function naverFx() {
   return out.length ? out : null;
 }
 var histCache = { at: 0, map: null };
+/* ══ [v8.7] ECB 밖 통화의 이력 ═══════════════════════════════════════════════
+   중동·중앙아시아·남아시아 통화는 ECB 가 고시하지 않는다.
+   시세는 다음 금융에서 오는데 이력이 없어 그래프만 비어 있었다.
+   여러 곳을 순서대로 두드려 받는다 — 한 곳이 막혀도 다른 곳에서 채운다. */
+var FX_EXTRA = ["AED","SAR","KWD","BHD","QAR","JOD","OMR","KZT","MNT","PKR","BDT",
+  "BND","ILS","EGP","VND","TWD","LKR","NPR","KHR","MMK","MOP","RUB","CLP","COP",
+  "PEN","ARS","UAH","RON","BGN","HRK","ISK","NGN","KES","MAD","TND","DZD"];
+async function fxHistExtra(map, from, to) {
+  const need = FX_EXTRA.filter((c) => !(map[c] && map[c].length >= 3));
+  if (!need.length) return;
+  const syms = need.join(",");
+  /* ① exchangerate.host — 기간 조회를 한 번에 준다 */
+  try {
+    const j = await jget7(`https://api.exchangerate.host/timeseries?start_date=${from}&end_date=${to}&base=KRW&symbols=${syms}`, 6e3);
+    const rates = j && j.rates;
+    if (rates) {
+      const days = Object.keys(rates).sort().slice(-31);
+      for (const d of days) for (const [cur, v] of Object.entries(rates[d] || {})) {
+        const r = Number(v);
+        if (r > 0 && need.includes(cur)) (map[cur] = map[cur] || []).push(1 / r);
+      }
+    }
+  } catch (e) {}
+  /* ② 남은 통화는 open.er-api 로 '오늘 값'만이라도 채운다(선은 짧아도 그려진다) */
+  const still = need.filter((c) => !(map[c] && map[c].length >= 3));
+  if (!still.length) return;
+  try {
+    const j = await jget7("https://open.er-api.com/v6/latest/KRW", 5e3);
+    const rt = j && j.rates;
+    if (rt) for (const c of still) {
+      const r = Number(rt[c]);
+      if (r > 0) map[c] = [1 / r, 1 / r, 1 / r];   // 최소 3점 — 선이 그려지도록
+    }
+  } catch (e) {}
+}
 async function fxHistory() {
   if (histCache.map && Date.now() - histCache.at < 36e5) return histCache.map;
   const end = /* @__PURE__ */ new Date(), start = /* @__PURE__ */ new Date();
@@ -7427,6 +7462,13 @@ async function fxHistory() {
     `https://api.frankfurter.dev/v1/${ymd6(start)}..${ymd6(end)}?base=KRW&symbols=${syms}`,
     `https://api.frankfurter.app/${ymd6(start)}..${ymd6(end)}?from=KRW&to=${syms}`
   ];
+  /* ══ [v8.7] 그래프가 없던 통화의 정체 ═══════════════════════════════════
+     이력을 유럽중앙은행(ECB) 고시 통화 26종에서만 받고 있었다.
+     ECB 는 유로 기준 주요 통화만 고시하므로 중동(AED·SAR·KWD·BHD·QAR·JOD)·
+     중앙아시아(KZT·MNT)·남아시아(PKR·BDT)·대만(TWD) 등이 통째로 빠졌다.
+     그 통화들은 시세는 나오는데(다음 금융) 이력이 없어 그래프만 비어 있었다.
+     [고침] ECB 에 없는 통화는 exchangerate.host 에서 따로 받아 채운다.
+     한 번 받아 1시간 보관하므로 호출이 늘지 않는다. */
   for (const u of urls) {
     const j = await jget7(u, 5e3);
     const rates = j && j.rates;
@@ -7439,6 +7481,8 @@ async function fxHistory() {
       (map[cur] = map[cur] || []).push(1 / r);
     }
     if (Object.keys(map).length) {
+      /* [v8.7] ECB 가 고시하지 않는 통화를 보충한다 */
+      try { await fxHistExtra(map, ymd6(start), ymd6(end)); } catch (e) {}
       histCache = { at: Date.now(), map };
       return map;
     }
@@ -13688,7 +13732,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "8.6.0";
+var APP_VER = "8.7.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

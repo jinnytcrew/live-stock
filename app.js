@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=419';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=420';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -9127,7 +9127,79 @@ function mktLabel(code){
     return '';
   }catch(e){ return ''; }
 }
+/* ══ [v8.7] 이름·코드로 미국 티커를 찾는다 ═══════════════════════════════════
+   ETF 구성종목은 'Apple Inc', 'Alphabet Inc Class A' 처럼 영문 이름만 온다.
+   내장 종목 이름과 맞춰 티커를 찾아내면 진짜 로고를 붙일 수 있다. */
+/* 이름을 맞춰 보기 좋게 다듬는다.
+   'Amazon.com Inc' → 'amazon', 'Alphabet Inc Class A' → 'alphabet',
+   'JPMorgan Chase & Co' → 'jpmorganchase' 처럼 회사 형태·등급 표기를 걷어낸다. */
+function usNameNorm(v){
+  let x=String(v||'').toLowerCase();
+  x=x.replace(/\.com\b/g,'');                       // amazon.com → amazon
+  x=x.replace(/\bclass\s+[a-c]\b/g,'');             // class a/b/c
+  x=x.replace(/\b(incorporated|inc|corporation|corp|company|co|limited|ltd|plc|holdings|holding|group|the|sponsored|adr|sa|nv|ag)\b/g,'');
+  x=x.replace(/[^a-z0-9가-힣]/g,'');
+  return x;
+}
+var _usNameIdx=null;
+function usNameIndex(){
+  if(_usNameIdx)return _usNameIdx;
+  const m={};
+  try{
+    for(const u of US_UNI){
+      const tk=u[0];
+      const norm=usNameNorm;
+      if(u[2])m[norm(u[2])]=tk;      // 한글명
+      if(u[3])m[norm(u[3])]=tk;      // 영문명
+      m[norm(tk)]=tk;
+    }
+  }catch(e){}
+  /* 흔히 다르게 적히는 이름을 별칭으로 더한다 —
+     ETF 구성종목 표기와 내장 이름이 달라 못 찾던 것들이다. */
+  const alias={
+    alphabet:'GOOGL', google:'GOOGL', jpmorganchase:'JPM', jpmorgan:'JPM',
+    berkshirehathaway:'BRK.B', metaplatforms:'META', facebook:'META',
+    exxonmobil:'XOM', johnsonjohnson:'JNJ', procterandgamble:'PG',
+    proctergamble:'PG', unitedhealth:'UNH', eversource:'ES',
+    homedepot:'HD', tsmc:'TSM', taiwansemiconductor:'TSM',
+    walmart:'WMT', visa:'V', mastercard:'MA', netflix:'NFLX',
+    walkdisney:'DIS', waltdisney:'DIS', disney:'DIS',
+    advancedmicrodevices:'AMD', internationalbusinessmachines:'IBM',
+    eliLilly:'LLY', elililly:'LLY', costcowholesale:'COST'
+  };
+  for(const [k,v] of Object.entries(alias))if(!m[k])m[k]=v;
+  _usNameIdx=m; return m;
+}
+function usTickerOf(code,name){
+  const c=String(code||'').trim();
+  /* 코드가 이미 미국 티커인 경우 */
+  if(/^[A-Z][A-Z.-]{0,5}$/.test(c)&&(US_DOMAIN[c]||US_DOMAIN[c.replace('-','.')]))return c;
+  if(!name)return '';
+  const norm=usNameNorm(name);
+  if(!norm)return '';
+  const idx=usNameIndex();
+  return idx[norm]||'';
+}
+/* 해외 로고 배지 — 서버 경로를 그대로 쓴다 */
+function usLogoTag(t,size){
+  const cls=size?('lgo '+size):'lgo';
+  const d=US_DOMAIN[t]||US_DOMAIN[String(t).replace('-','.')]||'';
+  const u='/api/uslogo?t='+encodeURIComponent(String(t).replace('.','-'))
+    +(d?'&d='+encodeURIComponent(d):'');
+  return `<span class="${cls} on"><img src="${u}" alt="" loading="lazy"
+    onerror="this.style.display='none';this.parentNode.classList.remove('on');
+             this.parentNode.textContent='${htmlEsc(String(t).slice(0,4))}'"></span>`;
+}
 function anyLogo(code,name,size){
+  /* ══ [v8.7] 해외 종목이 회색 배지로만 나오던 이유 ═══════════════════════════
+     이 함수는 국내 종목코드(6자리)를 전제로 만들어졌다. ETF 구성종목처럼
+     'NVIDIA Corp' 같은 영문 이름만 있는 줄은 코드가 티커가 아니어서
+     로고를 찾을 길이 없었고, 전부 회색 배지가 됐다.
+     [고침] 코드가 미국 티커거나 이름으로 티커를 찾을 수 있으면 해외 로고를 쓴다. */
+  try{
+    const tk=usTickerOf(code,name);
+    if(tk)return usLogoTag(tk,size);
+  }catch(e){}
   try{
     const s0=byCode[code];
     const nm=name||(s0&&s0.name)||'';
@@ -13802,6 +13874,20 @@ function usAllMatch(q){
           ③ 티커를 이름 자리에 넣지 않는다
    레버리지 배수는 국내 표기를 따라 '2배'가 아니라 2X·3X 로 적는다. */
 var US_KRMAP = {
+  /* ══ [v8.7] 화면에 영문으로 나오던 종목들 ═══════════════════════════════════
+     사진에서 확인된 것을 그대로 채운다. 레버리지 ETF 는 무엇을 몇 배로 따르는지
+     이름에 드러나야 이해할 수 있으므로 '기초자산 2배' 형식으로 적는다. */
+  CAVA:'카바그룹', NOK:'노키아', OFAL:'OFA그룹', RMCF:'로키마운틴초콜릿',
+  VELO:'벨로3D', BOXL:'박스라이트', JMIA:'주미아테크', CHOW:'차우차우클라우드',
+  BAOS:'바오성미디어', HYLN:'하일리온', BE:'블룸에너지', DRMA:'더마타테라퓨틱스',
+  MIST:'마일스톤파마', TRMB:'트림블', VLN:'발렌스반도체', AEHR:'에흐르테스트시스템즈',
+  HUMA:'휴마사이트', WYFI:'화이트파이버', DFTX:'데피니움테라퓨틱스',
+  SCNX:'사이언처홀딩스', QUBT:'퀀텀컴퓨팅', CYCU:'싸이큐리온', NBIX:'뉴로크린바이오',
+  BW:'밥콕앤윌콕스', NRGV:'에너지볼트',
+  /* ETF */
+  IWM:'러셀2000 ETF', NBIL:'NBIS 2배 ETF', NEBX:'NBIS 2배 ETF(Tradr)',
+  NBIG:'NBIS 2배 ETF(레버리지셰어스)', SMCX:'SMCI 2배 ETF', CRWG:'CRWV 2배 ETF',
+
   /* [v5.4] 화면에 영문으로 뜨던 종목 한글명 보강 */
   AG:'퍼스트머제스틱실버', B:'배릭마이닝', MPT:'메디컬프로퍼티스', RUM:'럼블',
   HROW:'해로우헬스', ENVX:'이노빅스', LITE:'루멘텀홀딩스', QS:'퀀텀스케이프',
