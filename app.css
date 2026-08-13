@@ -3134,8 +3134,16 @@ html[data-theme="dark"] .etf-row .lgo.bd{background-color:var(--lgc) !important}
 .us-sec b{font-size:15.5px;font-weight:900}
 .us-sec span{font-size:11.5px;color:var(--sub-2);font-weight:600}
 /* 종목 행 */
+/* [v9.5] 캔들 칸을 더해 5열 — 순위·로고·이름·가격·등락률·캔들 */
 .us-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:11px;align-items:center;
   padding:9px 6px;border-radius:11px;cursor:pointer}
+/* :has() 를 못 쓰는 브라우저가 있어 클래스로 못 박는다 */
+.us-row.has-sp{grid-template-columns:auto 1fr auto auto auto}
+.us-row:has(.sr-sp){grid-template-columns:auto 1fr auto auto auto}
+.us-row .sr-sp{width:18px;height:34px;margin-left:2px;flex:0 0 auto}
+@media (max-width:560px){
+  .us-row .sr-sp{width:15px;height:30px}
+}
 .us-row:hover{background:var(--border-soft)}
 .us-tick{width:44px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;
   font-weight:900;font-size:11px;letter-spacing:-.3px;flex:none}
@@ -3969,6 +3977,21 @@ html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
 .sr-2col .sr .nxt-badge,.sr-2col .sr .tag,.sr-2col .sr .mkt-tag{
   font-size:9px;padding:1px 4px;margin-left:3px;vertical-align:middle}
 .sr-2col .sr .px .mkt-badge{font-size:9px;margin-right:3px}
+
+/* ══ [v9.5] 2단 검색 결과에 캔들 칸을 더한다 ═══════════════════════════════
+   [무엇이 깨졌나] 2단은 원래 3칸(로고|이름|가격·등락 2행)으로 짜여 있었다.
+   거기에 캔들이 자기 칸 없이 끼어들어, 배치를 못 찾고 왼쪽 아래로 떨어졌다.
+   그 바람에 가격·등락률도 함께 밀렸다(첨부 사진).
+   [고침] 칸을 하나 더 만들어 캔들에게 자리를 준다. 두 행에 걸쳐 세운다. */
+.sr-2col .sr{grid-template-columns:auto 1fr auto auto}
+.sr-2col .sr .sr-sp{grid-column:4;grid-row:1/3;
+  width:18px;height:34px;margin-left:8px;align-self:center}
+/* 순위 배지가 붙는 행은 칸이 하나 더 있다 */
+.sr-2col .sr.has-rk{grid-template-columns:auto auto 1fr auto auto}
+.sr-2col .sr.has-rk .sr-sp{grid-column:5}
+@media (max-width:560px){
+  .sr-2col .sr .sr-sp{width:15px;height:30px;margin-left:6px}
+}
 
 /* 해외 행도 같은 원칙 — 두 줄로 접지 않고 한 줄 말줄임 */
 .sr-2col .uz-row{padding:10px 11px;gap:9px}
@@ -4998,7 +5021,15 @@ html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
 }
 
 /* [v9.1] 목록 격자에 캔들 열을 더한다(이름·캔들·가격·등락) */
+/* ══ [v9.5] 검색 결과 2단에서 줄이 깨지던 이유 ═══════════════════════════════
+   검색 결과는 좌우 2단(.sr-2col)이라 한 줄의 폭이 절반으로 줄어든다.
+   거기에 캔들 열까지 더하니 '이름 | 가격 | 등락률 | 캔들' 네 칸이 다 들어가지
+   못해, 가격과 등락률이 아래로 밀리고 캔들이 왼쪽 아래로 떨어졌다.
+   [고침] 가격과 등락률을 한 칸에 위아래로 묶는다. 그러면 3칸이면 되고
+   좁은 폭에서도 한 줄에 들어간다. 넓은 화면에서는 지금처럼 나란히 둔다. */
 .sr{grid-template-columns:1fr auto auto auto}
+/* 2단 격자는 3957행 이하에 이미 잘 짜여 있다(로고|이름|가격·등락률 2행).
+   여기서는 그것을 건드리지 않고, 캔들이 들어갈 칸만 오른쪽에 더한다. */
 
 /* ══ [v9.2] 당일 캔들 — 등락률 오른쪽, 세로로 길게 ═══════════════════════════
    미래에셋 목록처럼 맨 오른쪽 끝에 세로로 선다.

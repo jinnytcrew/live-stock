@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=427';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=428';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -15206,7 +15206,7 @@ function usRow(t,rank,metric){
   const mt=has?usMetricTxt(t,metric):'';
   const band=has?usBandMini(q):'';
   const rt=usRateTxt(q), cls=usRateCls(q);
-  return `<button type="button" class="us-row uz-row" data-us="${t}">
+  return `<button type="button" class="us-row uz-row has-sp" data-us="${t}">
     ${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
     <span class="us-nm uz-nm"><b>${m.kr}${m.etf?'<i class="uz-etf">ETF</i>':''}</b>
       <span class="uz-sub2">${t}<em>·</em>${mt||m.en}</span>${band}</span>
