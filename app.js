@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=425';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=427';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -9292,12 +9292,42 @@ function stockRow(code,name,market,tag,rank){
   // [수정] 프리마켓에는 NXT 취급 종목의 NXT 체결가를 보여 준다(KRX 전용은 그대로 0.00%).
   const q=dispQuote(code);
   const price=q?q.price:(s?s.price:null), prev=q?q.prevClose:(s?s.prevClose:null);
-  const diff=(price!=null&&prev)?price-prev:null,p=diff!=null?diff/prev*100:null,dir=diff==null?'flat':dirOf(diff);
+  /* ══ [v9.3] 말이 안 되는 등락률을 걸러낸다 ═══════════════════════════════════
+     [무엇이 있었나] 시스웍이 'KRX 50원 · -94.38%' 로 나왔다.
+     국내 주식은 하루 ±30% 가 한계다. 94% 하락은 있을 수 없다.
+     [왜 그런가] 액면분할·병합·감자가 있으면 전일 종가가 '조정 전 값'으로
+     남는 경우가 있다. 890원이던 주식이 50원으로 보이면 -94% 가 된다.
+     실제로는 병합 같은 사건이지 주가가 무너진 게 아니다.
+     [어떻게] ±31% 를 넘으면 등락률을 표시하지 않는다.
+     상·하한가(±30%)는 정상이므로 31% 로 잡았다. */
+  let diff=(price!=null&&prev)?price-prev:null;
+  let p=diff!=null?diff/prev*100:null;
+  let odd=false;
+  /* ══ [v9.4] 신규 상장주는 걸러내면 안 된다 ═══════════════════════════════════
+     [확인한 사실] 케이앤에스아이앤씨(+90.45%)는 8월 13일 상장한 신규 종목이다.
+     공모가 11,000원 대비 두 배 가까이 오른 것으로, 정상적인 가격이다.
+     신규 상장일에는 공모가의 60~400% 범위에서 시작해 ±30% 제한이 적용되지 않는다.
+     [어떻게 가려내나] '기준가 변경'은 가격이 크게 내려앉고(1/2 이하)
+     시가·고가·저가가 모두 새 가격대에 있는 경우다. 신규 상장은 반대로
+     가격이 위로 뛰며, 시가도 그 가격대에 함께 있다.
+     → 아래로 60% 넘게 빠진 경우만 막는다. 위로 오르는 것은 그대로 보여 준다. */
+  if(p!=null&&p<-60&&!usMeta[code]){
+    const st2=byCode[code]||{};
+    const o2=+st2.open||0;
+    /* 시가도 이미 새 가격대라면 '하루 만에 폭락'이 아니라 기준가가 바뀐 것이다 */
+    if(!(o2>0)||Math.abs(o2-price)/Math.max(price,1)<0.5){ odd=true; diff=null; p=null; }
+  }
+  const dir=diff==null?'flat':dirOf(diff);
   const cap=nxtCapability(code);
   // NXT 가능 종목에만 배지를 붙인다. 그 외(KRX 전용·확인 중)는 배지 없음.
   const badge=cap===true?(NXTLIST.halted.has(code)
       ?'<span class="nxt-badge sm halt" title="NXT 매매체결대상이지만 현재 매매거래정지 상태">NXT 정지</span>'
-      :(nxtSuspendInfo(selected)
+      /* ══ [v9.3] 목록 전체에 'NXT 일시제외' 가 붙던 이유 ═══════════════════════
+         이 줄이 code(그 줄의 종목)가 아니라 selected(지금 보고 있는 종목)를
+         검사하고 있었다. 그래서 선택한 종목 하나가 경보 대상이면
+         목록의 모든 종목에 같은 배지가 붙었다. 반대로 실제 경보 종목은
+         선택하지 않는 한 표시되지 않았다. */
+      :(nxtSuspendInfo(code)
         ?'<span class="nxt-badge sm sus" title="시장경보·거래정지 지정으로 NXT 매매가 일시 중단된 종목 · 해제 시 자동 복귀">NXT 일시제외</span>'
         :'<span class="nxt-badge sm" title="넥스트레이드 매매체결대상종목 · 08:00~20:00 거래">NXT</span>'))
     :'';
@@ -9308,7 +9338,7 @@ function stockRow(code,name,market,tag,rank){
      :has() 를 못 쓰는 브라우저에서도 어긋나지 않게 하기 위해서다. */
   return `<div class="sr${rank?' has-rk':''}" data-code="${code}" data-name="${String(name||'').replace(/"/g,'')}" data-market="${mk}">
     <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm">${name||code}${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
-    <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?'':arrow(dir)+' '+pctS(p)}</div>
+    <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?(odd?'<span class="ch-odd" title="액면분할·병합 등으로 기준가가 바뀌어 등락률을 계산할 수 없습니다">기준가 변경</span>':''):arrow(dir)+' '+pctS(p)}</div>
     <div class="sr-sp"><canvas class="sr-spark" id="srsp-${code}"></canvas></div></div>`;
 }
 /* [v9.2] 이 두 줄이 v9.0 작업 때 덮여 'stockAll is not defined' 가 났다.
@@ -9342,6 +9372,11 @@ function srCandlePaint(code){
   if(!(hi>0))hi=Math.max(px,o);
   if(!(lo>0))lo=Math.min(px,o);
   hi=Math.max(hi,px,o); lo=Math.min(lo,px,o);
+  /* [v9.3] 기준가가 바뀐 종목은 봉도 그리지 않는다 — 시가와 현재가가 30% 넘게
+     벌어지면 그날의 실제 움직임이 아니라 분할·병합 때문이다. */
+  /* [v9.4] 신규 상장주는 시가 대비 크게 움직여도 정상이다.
+     아래로 60% 넘게 빠진 경우만 봉을 그리지 않는다(기준가 변경 의심). */
+  if(o>0&&(px-o)/o<-0.6&&!usMeta[code]){ cv.style.display='none'; return; }
   cv.style.display='';
 
   const dpr=Math.min(2,window.devicePixelRatio||1);
@@ -15177,7 +15212,46 @@ function usRow(t,rank,metric){
       <span class="uz-sub2">${t}<em>·</em>${mt||m.en}</span>${band}</span>
     <span class="us-px uz-px">${has?usBadgeHtml()+'$'+USD2(q.price):'<i class="uz-wait">시세 없음</i>'}
       <small>${has?USDKR(q.price):''}</small></span>
-    <span class="uz-badge ${cls}">${rt||'—'}</span></button>`;
+    <span class="uz-badge ${cls}">${rt||'—'}</span>
+    <span class="sr-sp"><canvas class="sr-spark" id="ussp-${t.replace('.','-')}"></canvas></span></button>`;
+}
+/* ══ [v9.3] 해외 종목 당일 캔들 ═══════════════════════════════════════════════
+   국내에만 넣고 해외를 빠뜨렸다. 같은 목록인데 한쪽만 있으면 어색하다.
+   해외 시세도 open·high·low 를 함께 받아 오므로 같은 방식으로 그릴 수 있다. */
+function usCandlePaint(t){
+  const id='ussp-'+String(t).replace('.','-');
+  const cv=$(id); if(!cv)return;
+  const q=usQ[t]||{};
+  const px=q.price;
+  if(!(px>0)){ cv.style.display='none'; return; }
+  const prev=+q.prev||+q.prevClose||0;
+  let o=+q.open||0, hi=+q.high||0, lo=+q.low||0;
+  if(!(o>0))o=prev>0?prev:px;
+  if(!(hi>0))hi=Math.max(px,o);
+  if(!(lo>0))lo=Math.min(px,o);
+  hi=Math.max(hi,px,o); lo=Math.min(lo,px,o);
+  cv.style.display='';
+
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const W=cv.clientWidth||22, H=cv.clientHeight||42;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const x=cv.getContext('2d'); if(!x)return;
+  x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
+  let top=hi, bot=lo, span=top-bot;
+  if(!(span>0)){ span=Math.max(px*0.002,0.01); top=px+span/2; bot=px-span/2; }
+  const padY=2;
+  const Y=(v)=>H-padY-(H-padY*2)*((v-bot)/(top-bot));
+  const up=px>=o, col=up?'#e5484d':'#3b82f6';
+  const cx=Math.round(W/2)+0.5;
+  x.strokeStyle=col; x.lineWidth=1.2;
+  x.beginPath(); x.moveTo(cx,Y(hi)); x.lineTo(cx,Y(lo)); x.stroke();
+  const bw=Math.max(6,Math.min(10,Math.round(W*0.52)));
+  const yA=Y(Math.max(o,px)), yB=Y(Math.min(o,px));
+  x.fillStyle=col; x.fillRect(Math.round(cx-bw/2),yA,bw,Math.max(2,yB-yA));
+}
+function usCandlesPaint(root){
+  try{ (root||document).querySelectorAll('.us-row[data-us]').forEach(el=>{
+    usCandlePaint(el.dataset.us); }); }catch(e){}
 }
 /* 로딩 골격 — '···' 이나 '조회 중' 글자보다, 들어올 자리가 보이는 편이 덜 불안하다 */
 function usRowSkel(t,rank){
@@ -15520,6 +15594,8 @@ function usPaintRows(root){
     if(r){r.textContent=usRateTxt(q);
       r.classList.remove('up','down','flat'); r.classList.add('num',usRateCls(q));}
   });
+  /* [v9.3] 숫자를 갈아 끼운 뒤 당일 캔들도 다시 그린다 */
+  try{ usCandlesPaint(root); }catch(e){}
 }
 /* ══ [v4.85] 순위가 실제로 바뀌었을 때만 다시 그린다 ═══════════════════════
    [왜] 20초마다 시세가 들어올 때마다 순위표를 통째로 다시 만들면, 순서가 그대로여도
