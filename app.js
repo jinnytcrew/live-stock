@@ -1632,7 +1632,7 @@ function eaBucket(f){
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=94';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=428';                                  // [v2.6] 종목 로고
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}
@@ -8950,8 +8950,19 @@ function calStaticDetail(e){
       if(it.listing)rows+=`<div class="cd-sum"><span>상장 예정</span><b class="num">${it.listing.slice(5).replace('-','.')}</b></div>`;
       if(it.brokers&&it.brokers.length)rows+=`<div class="cd-sum"><span>청약 증권사</span><b>${it.brokers.join(', ')}</b></div>`;
       if(it.sector)rows+=`<div class="cd-sum"><span>업종</span><b>${it.sector}</b></div>`;
-      if(it.demand)rows+=`<div class="cd-sum"><span>수요예측 경쟁률</span><b class="num">${Number(it.demand).toLocaleString()}:1</b></div>`;
-      return rows+'<div class="cd-note">출처 38커뮤니케이션 · 최종 조건은 DART 공시로 확인하세요</div>';}
+      /* ══ [v9.7] 경쟁률 — 공모주에서 가장 먼저 보는 숫자 ═══════════════════════
+         수요예측은 기관이, 청약은 개인이 얼마나 몰렸는지를 말한다.
+         의무보유 확약은 상장 뒤 나올 물량이 얼마나 묶여 있는지를 가늠하게 한다. */
+      if(it.demand)rows+=`<div class="cd-sum"><span>수요예측 경쟁률</span>
+        <b class="num ${it.demand>=1000?'up':''}">${Number(it.demand).toLocaleString()} : 1</b></div>`;
+      if(it.subRate)rows+=`<div class="cd-sum"><span>청약 경쟁률</span>
+        <b class="num ${it.subRate>=1000?'up':''}">${Number(it.subRate).toLocaleString()} : 1</b></div>`;
+      if(it.lockup)rows+=`<div class="cd-sum"><span>의무보유 확약</span>
+        <b class="num">${it.lockup}%</b></div>`;
+      if(it.demand||it.subRate)rows+=`<div class="cd-hint">
+        ${it.demand>=1000?'기관 수요가 매우 많았습니다':it.demand>=500?'기관 수요가 많은 편입니다':it.demand?'기관 수요는 보통입니다':''}
+        ${it.subRate?(it.demand?' · ':'')+(it.subRate>=1000?'개인 청약도 크게 몰렸습니다':it.subRate>=300?'개인 청약이 활발했습니다':'개인 청약은 보통이었습니다'):''}</div>`;
+      return rows+'<div class="cd-note">출처 38커뮤니케이션 · 최종 조건은 DART 공시로 확인하세요<br>경쟁률이 높다고 상장 후 수익이 보장되지는 않습니다.</div>';}
     return `<div class="cd-desc">공모주 일정입니다. 홈 아래 <b>공모주 청약 캘린더</b>에서 공모가·주관사 등 자세한 조건을 확인할 수 있습니다.</div>`;
   }
   if(e.cat==='earn')return `<div class="cd-desc">미국 기업 실적 발표${e.ticker?` (<b>${String(e.ticker)}</b>)`:''}입니다. 대부분 미국 장 마감 뒤(한국시간 새벽) 공개되며, 결과에 따라 다음 날 국내 관련주가 함께 움직이는 경우가 많습니다.</div>`;
@@ -12136,6 +12147,11 @@ function ipoCardHtml(it,idx){
     </div>
     <div class="ipo-nm">${htmlEsc(it.name)}</div>
     <div class="ipo-band"><span>공모예정가</span><b>${it.priceBand?it.priceBand+'원':'미정'}</b></div>
+    ${(it.demand||it.subRate||it.lockup)?`<div class="ipo-rates">
+      ${it.demand?`<div class="ipo-rt"><span>수요예측</span><b class="num ${it.demand>=1000?'up':''}">${Number(it.demand).toLocaleString()}:1</b></div>`:''}
+      ${it.subRate?`<div class="ipo-rt"><span>청약</span><b class="num ${it.subRate>=1000?'up':''}">${Number(it.subRate).toLocaleString()}:1</b></div>`:''}
+      ${it.lockup?`<div class="ipo-rt"><span>확약</span><b class="num">${it.lockup}%</b></div>`:''}
+    </div>`:''}
     <div class="ipo-kv"><span>청약일</span><b>${fmtDot(it.subStart)}${it.subEnd?'~'+fmtDot(it.subEnd).slice(5):''}</b></div>
     <button class="ipo-detail-btn" data-exp="${idx}">세부 내용 조회 <span class="arr">${exp?'▲':'▼'}</span></button>
     <div class="ipo-detail" ${exp?'':'hidden'}>
@@ -15256,7 +15272,8 @@ function usCandlesPaint(root){
 /* 로딩 골격 — '···' 이나 '조회 중' 글자보다, 들어올 자리가 보이는 편이 덜 불안하다 */
 function usRowSkel(t,rank){
   const m=usMeta[t]||{};
-  return `<div class="uz-row uz-skel">${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
+  /* [v9.6] data-us 를 붙인다 — 이게 없어서 시세가 와도 갱신 대상에서 빠졌다 */
+  return `<div class="uz-row uz-skel" data-us="${t}">${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
     <span class="uz-nm"><b>${m.kr||''}</b><span class="sk sk-a"></span></span>
     <span class="uz-px"><span class="sk sk-b"></span><span class="sk sk-c"></span></span>
     <span class="sk sk-d"></span></div>`;
@@ -15350,7 +15367,12 @@ function renderUsLounge(){
      그 분야 25종을 처음부터 다시 받아야 해 매번 회색 막대가 보였다.
      [고침] 첫 화면에 필요한 것을 받은 직후, 나머지 전체를 곧바로 이어서 받는다.
      한 번 받아 두면 어느 칩을 눌러도 이미 채워져 있다. */
+  /* ══ [v9.6] 대표 종목과 분야 목록을 함께 먼저 받는다 ═══════════════════════
+     대표 종목은 시가총액 순(usStarsNow)이라 US_UNI 앞 12개와 다르다.
+     앞 12개만 먼저 받으면 정작 화면에 보이는 대표 종목이 늦게 채워지고,
+     분야 목록은 그 뒤로 밀렸다. 둘 다 첫 묶음에 넣는다. */
   const first=[...new Set([
+    ...(typeof usStarsNow==='function'?usStarsNow():US_UNI.slice(0,12).map(u=>u[0])),
     ...US_UNI.slice(0,12).map(u=>u[0]),
     ...US_UNI.filter(u=>u[4]===usThemeSel).map(u=>u[0])
   ])];
@@ -15483,10 +15505,19 @@ function renderUsThemeBody(){
      화면에 보이는 25종 안팎이라 한 번이면 끝난다. */
   /* [v7.1] 이미 받아 둔 것은 곧바로 숫자를 채워 넣는다 — 다시 기다리지 않는다 */
   try{ usPaintRows(box); }catch(e){}
+  /* ══ [v9.6] 분야 목록이 회색 골격으로 오래 남던 진짜 이유 ═══════════════════
+     [무엇이 문제였나] 시세가 없으면 usRow() 가 '골격'을 돌려준다. 그런데 그 골격은
+     <div class="uz-row uz-skel"> 로, data-us 속성이 없다.
+     시세가 도착한 뒤 usPaintRows() 가 '.us-row[data-us]' 를 찾아 숫자를 채우는데
+     골격은 여기에 걸리지 않는다. 그래서 값이 와도 골격이 그대로 남고,
+     다음에 화면을 통째로 다시 그릴 때까지 회색 막대가 이어졌다.
+     [고침] 시세가 오면 목록을 다시 그린다. 골격이 진짜 줄로 바뀐다. */
   const need=list.filter(t=>!(usQ[t]&&usQ[t].price!=null));
   if(need.length){
     usEnsureQuotes(need.slice(0,40),false).then(()=>{
-      if(currentView==='us'&&usPane==='find'){ try{usPaintRows(box);}catch(e){} }});
+      if(currentView==='us'&&usPane==='find'){
+        try{ renderUsThemeBody(); }catch(e){}      // 다시 그려야 골격이 사라진다
+      }});
   }
 }
 var usFxDir='toUsd';

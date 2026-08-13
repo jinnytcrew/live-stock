@@ -5044,3 +5044,49 @@ html[data-theme="dark"] .gw-note.warn{background:rgba(245,165,36,.16)}
   .sr-sp{width:16px;height:32px;margin-left:4px}
 }
 .ch-odd{font-size:11px;font-weight:700;color:var(--sub-2)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [v9.6] 국내 목록을 해외 목록과 같은 모양으로
+   같은 앱 안에서 국내는 글자로, 해외는 알약 배지로 등락률을 보여 주고 있었다.
+   나란히 놓으면 다른 화면처럼 보인다. 해외 쪽(.uz-badge)에 맞춘다.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* 등락률 — 알약 배지 */
+.sr .ch{min-width:74px;text-align:center;padding:5px 8px;border-radius:9px;
+  font-size:12.5px;font-weight:800;letter-spacing:-.2px;line-height:1.15;
+  font-variant-numeric:tabular-nums;background:var(--border-soft);color:var(--sub);
+  justify-self:end;align-self:center}
+.sr .ch.up{background:rgba(229,72,77,.11);color:var(--up)}
+.sr .ch.down{background:rgba(47,122,229,.11);color:var(--down)}
+html[data-theme="dark"] .sr .ch.up{background:rgba(255,110,115,.15)}
+html[data-theme="dark"] .sr .ch.down{background:rgba(105,160,255,.15)}
+/* 가격 — 해외처럼 굵게, 아래에 부가 정보 */
+.sr .px{font-size:14px;font-weight:900;letter-spacing:-.3px;text-align:right;
+  color:var(--text);white-space:nowrap}
+/* 줄 여백·구분선도 해외와 같게 */
+.sr{padding:11px 12px;border-radius:11px;border-bottom:0;gap:11px}
+.sr:hover{background:var(--border-soft)}
+.sr+.sr{border-top:1px solid var(--border-soft)}
+@media (max-width:560px){
+  .sr .ch{min-width:64px;font-size:11.5px;padding:4px 6px}
+  .sr .px{font-size:13px}
+  .sr{padding:10px 10px;gap:9px}
+}
+/* 2단 검색 결과는 폭이 좁아 배지를 조금 줄인다 */
+.sr-2col .sr .ch{min-width:0;padding:3px 7px;font-size:11px;justify-self:end}
+.sr-2col .sr .px{font-size:13.5px}
+
+/* ══ [v9.7] 공모주 경쟁률 ═══════════════════════════════════════════════════ */
+.ipo-rates{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.ipo-rt{padding:8px 9px;border-radius:10px;background:var(--border-soft);text-align:center;min-width:0}
+.ipo-rt span{display:block;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.ipo-rt b{display:block;margin-top:2px;font-size:12.5px;font-weight:900;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ipo-rt b.up{color:var(--up)}
+.cd-hint{margin-top:6px;padding:8px 10px;border-radius:9px;background:var(--border-soft);
+  font-size:11.5px;line-height:1.6;font-weight:600;color:var(--sub)}
+@media (max-width:560px){
+  .ipo-rates{gap:5px}
+  .ipo-rt{padding:7px 6px}
+  .ipo-rt b{font-size:11.5px}
+  .ipo-rt span{font-size:10px}
+}

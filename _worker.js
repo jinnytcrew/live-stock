@@ -7424,8 +7424,11 @@ var histCache = { at: 0, map: null };
 var FX_EXTRA = ["AED","SAR","KWD","BHD","QAR","JOD","OMR","KZT","MNT","PKR","BDT",
   "BND","ILS","EGP","VND","TWD","LKR","NPR","KHR","MMK","MOP","RUB","CLP","COP",
   "PEN","ARS","UAH","RON","BGN","HRK","ISK","NGN","KES","MAD","TND","DZD"];
-async function fxHistExtra(map, from, to) {
-  const need = FX_EXTRA.filter((c) => !(map[c] && map[c].length >= 3));
+async function fxHistExtra(map, from, to, wanted) {
+  /* [v9.7] 화면에 실제로 나오는 통화 목록(wanted)을 함께 받는다.
+     FX_EXTRA 는 미리 적어 둔 것일 뿐, 다음 금융이 주는 통화가 더 많을 수 있다. */
+  const all = [...new Set([...FX_EXTRA, ...(wanted || [])])];
+  const need = all.filter((c) => !(map[c] && map[c].length >= 3));
   if (!need.length) return;
   const syms = need.join(",");
   /* ══ [v8.8] 직선 그래프가 나온 이유 ═══════════════════════════════════════
@@ -7445,32 +7448,67 @@ async function fxHistExtra(map, from, to) {
       }
     }
   } catch (e) {}
-  /* ② 남은 통화는 한 종목씩 받는다 — 여러 곳을 돌아가며 시도한다 */
-  let still = FX_EXTRA.filter((c) => !(map[c] && map[c].length >= 5));
-  for (const c of still.slice(0, 20)) {
-    /* ②-1 야후 환율 차트 — KRW=X 형식으로 30일 종가를 준다 */
+  /* ══ [v9.7] 그래프가 비던 진짜 이유 ═══════════════════════════════════════
+     [무엇이 문제였나] ① 남은 통화를 20개만 처리했다. 다음 금융은 그보다 많은
+     통화를 주므로 뒤쪽은 아예 시도조차 못 했다.
+     ② 통화 하나씩 차례로(await) 돌았다. 통화당 최대 2회 × 20통화 = 40회를
+     한 줄로 세우니 5초 제한에 걸려 앞 몇 개만 채워지고 끝났다.
+     [고침] 전부 대상으로 삼고, 동시에 보낸다. 워커는 요청마다 별개 실행이라
+     한꺼번에 보내도 안전하다(해외 시세에서 이미 쓰는 방식이다). */
+  /* [v9.7] FX_EXTRA 만이 아니라 '아직 이력이 모자란 모든 통화'를 대상으로 삼는다.
+     ECB 목록에 있어도 그날 응답에서 빠지는 통화가 있다. */
+  let still = all.filter((c) => !(map[c] && map[c].length >= 5));
+  const grab = async (c) => {
+    /* ②-1 야후 환율 차트 — 30일 종가 */
     try {
-      const j = await jget7(`https://query1.finance.yahoo.com/v8/finance/chart/${c}KRW=X?range=1mo&interval=1d`, 5e3);
+      const j = await jget7(`https://query1.finance.yahoo.com/v8/finance/chart/${c}KRW=X?range=1mo&interval=1d`, 4500);
       const q = j && j.chart && j.chart.result && j.chart.result[0];
       const cl = q && q.indicators && q.indicators.quote && q.indicators.quote[0] && q.indicators.quote[0].close;
       if (Array.isArray(cl)) {
         const arr = cl.map(Number).filter((v) => v > 0).slice(-31);
-        if (arr.length >= 5) { map[c] = arr; continue; }
+        if (arr.length >= 5) { map[c] = arr; return; }
       }
     } catch (e) {}
     /* ②-2 Stooq — 통화쌍 일별 종가 */
     try {
-      const t = await tget(`https://stooq.com/q/d/l/?s=${c.toLowerCase()}krw&i=d`, 5e3);
+      const t = await tget(`https://stooq.com/q/d/l/?s=${c.toLowerCase()}krw&i=d`, 4500);
       if (t && t.indexOf("Date") === 0) {
         const rows = t.trim().split("\n").slice(1).slice(-31);
         const arr = rows.map((r) => Number(r.split(",")[4])).filter((v) => v > 0);
-        if (arr.length >= 5) { map[c] = arr; continue; }
+        if (arr.length >= 5) { map[c] = arr; return; }
       }
     } catch (e) {}
+    /* ②-3 달러 경유 — USD/KRW 흐름에 그 통화의 대미 환율을 곱해 만든다.
+       직접 쌍이 없는 통화(중동·중앙아시아)도 이 길로는 대개 받아진다. */
+    try {
+      const u = map.USD;
+      if (u && u.length >= 5) {
+        const j = await jget7(`https://query1.finance.yahoo.com/v8/finance/chart/${c}=X?range=1mo&interval=1d`, 4500);
+        const q = j && j.chart && j.chart.result && j.chart.result[0];
+        const cl = q && q.indicators && q.indicators.quote && q.indicators.quote[0] && q.indicators.quote[0].close;
+        if (Array.isArray(cl)) {
+          const rate = cl.map(Number).filter((v) => v > 0).slice(-31);   // 1 USD = n CUR
+          if (rate.length >= 5) {
+            const n = Math.min(rate.length, u.length);
+            const out2 = [];
+            for (let k = 0; k < n; k++) {
+              const usd = u[u.length - n + k], r2 = rate[rate.length - n + k];
+              if (usd > 0 && r2 > 0) out2.push(usd / r2);               // 1 CUR = ? KRW
+            }
+            if (out2.length >= 5) { map[c] = out2; return; }
+          }
+        }
+      }
+    } catch (e) {}
+  };
+  /* 8개씩 동시에 — 한꺼번에 다 보내면 상대 서버가 막을 수 있다 */
+  for (let k = 0; k < still.length; k += 8) {
+    await Promise.all(still.slice(k, k + 8).map(grab));
   }
   /* ③ 그래도 없으면 비워 둔다 — 가짜 직선은 그리지 않는다 */
   for (const c of FX_EXTRA) if (map[c] && map[c].length < 3) delete map[c];
 }
+var histWant = [];
 async function fxHistory() {
   if (histCache.map && Date.now() - histCache.at < 36e5) return histCache.map;
   const end = /* @__PURE__ */ new Date(), start = /* @__PURE__ */ new Date();
@@ -7501,7 +7539,7 @@ async function fxHistory() {
     }
     if (Object.keys(map).length) {
       /* [v8.7] ECB 가 고시하지 않는 통화를 보충한다 */
-      try { await fxHistExtra(map, ymd6(start), ymd6(end)); } catch (e) {}
+      try { await fxHistExtra(map, ymd6(start), ymd6(end), histWant); } catch (e) {}
       histCache = { at: Date.now(), map };
       return map;
     }
@@ -7521,12 +7559,16 @@ var fx_default = async () => {
     if (memo3.body && Date.now() - memo3.at < 3e4) {
       return new Response(memo3.body, { headers: { "content-type": "application/json", "cache-control": "s-maxage=30, stale-while-revalidate=90" } });
     }
-    const [daum, hist] = await Promise.all([daumSummaries(), fxHistory()]);
-    let list = daum, src = "daum";
+    /* ══ [v9.7] 시세를 먼저 받아 '어떤 통화가 화면에 나오는지' 확정한 뒤
+       그 목록으로 이력을 받는다. 예전에는 둘을 동시에 보내서, 이력 쪽이
+       화면에 나올 통화를 알 수 없었고 미리 적어 둔 목록만 채웠다. */
+    let list = await daumSummaries(), src = "daum";
     if (!list) {
       list = await naverFx();
       src = "naver";
     }
+    try{ histWant = (list||[]).map(x=>x&&x.cur).filter(Boolean); }catch(e){ histWant=[]; }
+    const hist = await fxHistory();
     if (!list) {
       list = Object.entries(hist).map(([cur, h]) => {
         const unit = cur === "JPY" || cur === "IDR" ? 100 : 1;
@@ -7998,6 +8040,52 @@ function parseSchedule(html) {
   }
   return items;
 }
+/* ══ [v9.7] 공모주 경쟁률 수집 ═══════════════════════════════════════════════
+   · 수요예측 경쟁률 — 기관이 몇 대 1로 신청했나 (공모가 결정의 근거)
+   · 청약 경쟁률     — 개인이 몇 대 1로 몰렸나 (상장 첫날 수급의 실마리)
+   · 의무보유 확약   — 기관이 일정 기간 안 팔겠다고 약속한 비율 (물량 부담 가늠) */
+async function ipoAttachRates(items){
+  if(!items||!items.length)return;
+  const norm=(v)=>String(v||"").replace(/\s|\(주\)|㈜/g,"");
+  const idx={};
+  for(const it of items)idx[norm(it.name)]=it;
+  const pull=async(url,pick)=>{
+    try{
+      const h=await tget(url,7000);
+      if(!h)return;
+      for(const rowM of h.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)){
+        const cells=[...rowM[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
+          .map(c=>c[1].replace(/<[^>]*>/g,"").replace(/&nbsp;/g," ").trim());
+        if(cells.length<3)continue;
+        const nm=norm(cells[0]);
+        const it=idx[nm]||Object.keys(idx).find(k=>k&&nm&&(k.includes(nm)||nm.includes(k)));
+        const target=idx[nm]||(typeof it==="string"?idx[it]:null);
+        if(!target)continue;
+        pick(target,cells);
+      }
+    }catch(e){}
+  };
+  /* [v9.7] '1,247.51:1' 에서 ':1' 을 떼고 앞 숫자만 읽는다.
+     그냥 숫자만 남기면 뒤의 1 이 붙어 1247.511 이 된다. */
+  const num=(v)=>{
+    const t=String(v||"").split(/[:：]/)[0];
+    const n=Number(t.replace(/[^0-9.]/g,""));
+    return isFinite(n)?n:0;
+  };
+  /* 수요예측 결과 — 기관 경쟁률·의무보유 확약 */
+  await pull("https://www.38.co.kr/html/fund/index.htm?o=r1",(t,c)=>{
+    for(const v of c){
+      if(/[\d,.]+\s*[:：]\s*1/.test(v)&&!t.demand)t.demand=num(v);
+      if(/%/.test(v)&&!t.lockup){const p=num(v);if(p>0&&p<=100)t.lockup=p;}
+    }
+  });
+  /* 청약 경쟁률 */
+  await pull("https://www.38.co.kr/html/fund/index.htm?o=r",(t,c)=>{
+    for(const v of c){
+      if(/[\d,.]+\s*[:：]\s*1/.test(v)){ const n=num(v); if(n>0&&!t.subRate){t.subRate=n;break;} }
+    }
+  });
+}
 var ipo_default = async (req2, context) => {
   /* [v4.8] 실패 원인: http 고정 단일 주소. Cloudflare\ud658경\uc5d0\uc11c 38\ucee4\ubba4\ub2c8\ucf00\uc774\uc158 http \uc811\uc18d\uc774 \ub9c9\ud788\uba74
      \uadf8\ub300\ub85c \uc608\uc2dc \uc77c\uc815\uc73c\ub85c \ub5a8\uc5b4\uc84c\ub2e4. https \uc6b0\uc120 + \ub2e4\uc911 \uc8fc\uc18c\ub85c \ubc14\uafb8\uace0,
@@ -8022,6 +8110,11 @@ var ipo_default = async (req2, context) => {
     }).sort((a, b) => a.subStart.localeCompare(b.subStart)).slice(0, 12);
     if (items.length > 0) {
       try { if (KV) await KV.put("ipo:last", JSON.stringify({ at: Date.now(), items })); } catch {}
+      /* ══ [v9.7] 경쟁률을 함께 붙인다 ═══════════════════════════════════════
+         공모주에서 가장 먼저 보는 숫자가 경쟁률이다. 수요예측 경쟁률은
+         기관이 얼마나 원했는지, 청약 경쟁률은 개인이 얼마나 몰렸는지를 말한다.
+         38커뮤니케이션이 두 값을 따로 표에 싣고 있어 함께 읽어 온다. */
+      try { await ipoAttachRates(items); } catch (e) {}
       return new Response(JSON.stringify({ ok: true, items }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } });
     }
     /* \uc218\uc9d1 \uc2e4\ud328 \u2014 \ub9c8\uc9c0\ub9c9 \uc131\uacf5\ubcf8(3\uc77c \uc774\ub0b4)\uc774 \uc788\uc73c\uba74 \uc608\uc2dc \ub300\uc2e0 \uadf8\uac78 \uc900\ub2e4 */
@@ -13844,7 +13937,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "9.5.0";
+var APP_VER = "9.7.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
