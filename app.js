@@ -1108,12 +1108,28 @@ function paintPicks(j){
   if(j.building){ body.innerHTML='<div class="empty" style="padding-bottom:6px">'+(j.message||'분석 중입니다…')+'</div>'+'<div class="skel-row"></div><div class="skel-row"></div><div class="skel-row"></div>'; return; }
   /* [v9.71] 후보가 0인 것은 오류가 아니다 — 조건에 맞는 자리가 없던 날이다.
      예전에는 기준 미달 종목을 억지로 채워 넣었다. 없으면 없다고 말한다. */
+  /* ══ [v9.71b] 추천이 없는 날에도 '근접 후보'는 보여 준다 ═══════════════════
+     기준 미달 종목을 추천으로 올리지 않는다는 원칙은 지키되, 화면을 통째로
+     비우면 고장인지 없는 건지 알 수 없고 어떤 종목이 근접했는지도 못 본다.
+     아래에 따로, 무엇이 모자란지와 함께 적는다. */
+  const watchHtml=(j.watch&&j.watch.length)?`
+    <div class="pk-watch">
+      <div class="pk-watch-h">근접 후보 <span>기준에 살짝 못 미친 종목 — <b>추천이 아닙니다</b></span></div>
+      ${j.watch.map(w=>`<button type="button" class="pk-watch-r" data-code="${w.code}">
+        <span class="pw-nm">${htmlEsc(w.name||w.code)}</span>
+        <span class="pw-px num">${w.price!=null?KRW(w.price):'—'}<i class="${(+w.rate||0)>=0?'up':'down'}">${(+w.rate||0)>=0?'+':''}${(+w.rate||0).toFixed(2)}%</i></span>
+        <span class="pw-why">${htmlEsc(w.why||'')}</span>
+        <span class="pw-sc num">${w.score}점</span>
+      </button>`).join('')}
+    </div>`:'';
   if(j.ok&&(!j.picks||!j.picks.length)){
-    body.innerHTML='<div class="empty"><b>오늘은 조건을 채운 종목이 없습니다</b>'
+    body.innerHTML='<div class="empty" style="padding-bottom:10px"><b>오늘은 기준을 채운 종목이 없습니다</b>'
       +'<span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.65">'
       +(j.gate&&j.gate.weakMkt?'하락 종목이 '+j.gate.breadth+'%로 시장 전체가 약합니다. ':'')
-      +'눌림목·수축·돌파 어느 자리에도 뚜렷이 해당하는 종목이 없어 추천을 내지 않았습니다.<br>'
-      +'기준에 못 미치는 종목을 채워 넣는 것보다, 쉬는 편이 낫습니다.</span></div>';
+      +'눌림목·수축·돌파 어느 자리에도 뚜렷이 해당하는 종목이 없었습니다.<br>'
+      +'기준 미달 종목을 추천으로 올리지 않는 대신, 가장 근접한 종목을 아래에 적어 둡니다.</span></div>'
+      +watchHtml;
+    try{ body.querySelectorAll('.pk-watch-r').forEach(b=>b.onclick=()=>{try{openStock(b.dataset.code);}catch(e){}}); }catch(e){}
     return; }
   if(!j.ok||!j.picks||!j.picks.length){ body.innerHTML='<div class="empty">추천 결과를 만들지 못했습니다. '+(j.why||'')+' 잠시 후 다시 시도해 주세요.</div>'; return; }
   /* [D6] 과거 추천의 실제 성과(적중률) */
@@ -4634,7 +4650,11 @@ function renderSettingsExtra(){
     srchHist=[];viewHist=[];saveHist();saveViewHist();renderHist();renderViewHist();toast('warn','기록 삭제 완료','');};
   /* [v8.9] 계정 삭제는 프로필 → 계정 설정으로 옮겼다(v6.8). 여기 배선은 쓰이지 않는다. */
 ;
-  $('goalClr').onclick=()=>{delete userPrefs.assetGoal;savePrefs();closeLiteGate();renderGoalCard();toast('warn','목표 해제','');};
+  /* [v9.71] 이 버튼은 '목표 설정' 모달이 열려 있을 때만 존재한다. 설정 화면을
+     배선하는 이 자리에서는 없을 때가 많아, 매번 화면 오류가 찍혔다(첨부 사진의
+     Cannot set properties of null (setting 'onclick')). 있을 때만 건다. */
+  const _goalClrEl=$('goalClr');
+  if(_goalClrEl)_goalClrEl.onclick=()=>{delete userPrefs.assetGoal;savePrefs();closeLiteGate();renderGoalCard();toast('warn','목표 해제','');};
 }
 /* [v9.0] 복원 과정에서 이 선언 한 줄이 빠져 'verLatest is not defined' 가 났다.
    업데이트 확인 결과를 담아 두는 자리다. */
@@ -9982,8 +10002,31 @@ function renderSearch(){
     const st=byCode[x.code]; if(st&&st.price==null){const sn=pxSnapLoad()[x.code];
       if(sn){st.price=sn.p; if(st.prevClose==null&&sn.pc!=null)st.prevClose=sn.pc; st._snap=Date.now();}}
     feed&&feed.addCode(x.code);});
-  {const _q=q; primeQuotes(shown.slice(0,60).map(x=>x.code)).then(()=>{     // [v3.6] 시세 도착 즉시 1회 재렌더
-    if(currentView==='search'&&window.__sfq!==_q&&(($('searchInput')||{}).value||'').trim()===_q){window.__sfq=_q;renderSearch();}});}
+  /* ══ [v9.71] 해외 종목이 회색 뼈대로 한참 남던 진짜 이유 ═══════════════════
+     [무엇이 잘못됐나] 검색 결과의 시세를 primeQuotes() 하나로만 받아 왔다.
+     그런데 primeQuotes 는 `byCode[c]`(국내 종목표)에 있는 코드만 처리한다.
+     해외 티커는 byCode 에 없으므로 need 목록에서 통째로 빠졌고, 결국
+     '해외 시세를 요청하는 코드가 어디에도 없는' 상태였다.
+     그런데도 일부 종목에 값이 보였던 건, 홈·해외 화면 등 다른 데서 이미 받아
+     usQ 에 남아 있던 것뿐이다. 그래서 어떤 건 즉시 나오고 어떤 건 영영 안 나왔다
+     (첨부 4번 사진 — 노보노디스크·샌디스크는 나오고 나머지는 회색).
+     [고침] 국내와 해외를 갈라, 해외는 usEnsureQuotes 로 함께 요청한다.
+     usEnsureQuotes 는 18종씩 '동시에' 보내므로 국내와 비슷한 속도로 채워진다. */
+  {const _q=q;
+   const top=shown.slice(0,60);
+   const krCodes=[],usTicks=[];
+   top.forEach(x=>{
+     const t=String(x.code||'').toUpperCase();
+     if(x.market==='US'||usMeta[t])usTicks.push(t); else krCodes.push(x.code);
+   });
+   const repaint=()=>{ if(currentView==='search'&&(($('searchInput')||{}).value||'').trim()===_q){
+     window.__sfq=_q; renderSearch(); } };
+   primeQuotes(krCodes).then(()=>{ if(window.__sfq!==_q)repaint(); });
+   if(usTicks.length){
+     /* 아직 시세가 없는 것만 요청한다 — 이미 받아 둔 종목까지 다시 부르지 않는다 */
+     const need=usTicks.filter(t=>!(usQ[t]&&usQ[t].price!=null));
+     if(need.length)usEnsureQuotes(need,true).then(repaint);
+   }}
   const loading=remoteCache[q]===null;
   /* [v2.9.7] 대상 종목 수 옆에 최근 14일 신규 상장 건수를 함께 보여 준다 */
   const _nl=recentListings(14);

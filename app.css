@@ -1903,9 +1903,14 @@ html.reduce-motion .info-tabs .lv{animation:none}
 
 /* ── 전역 폴리시 ── */
 :root{--r:16px;--shadow:0 1px 2px rgba(16,26,45,.05),0 10px 30px rgba(16,26,45,.08);--shadow-h:0 4px 10px rgba(16,26,45,.08),0 18px 44px rgba(16,26,45,.12)}
-body{background:linear-gradient(180deg,#f7f9fc 0%,#f2f5f9 240px,#f4f6f9 100%)}
+/* ══ [v9.71] 앱 배경을 연한 노란빛으로 ═══════════════════════════════════════
+   회색빛(#f7f9fc)은 차갑고 밋밋했다. 아주 옅은 크림색으로 바꿔 눈이 편하게 한다.
+   숫자(빨강·파랑)와 흰 카드가 위에 얹히므로 채도는 낮게 유지한다. */
+body{background:linear-gradient(180deg,#fdfaef 0%,#fbf6e6 240px,#fcf9f0 100%)}
 [data-theme="dark"] body{background:linear-gradient(180deg,#0d1420 0%,#0b111b 260px,#0c121d 100%)}
 ::selection{background:rgba(59,130,246,.22)}
+/* 크림색 배경 위에서 흰 카드가 묻히지 않도록 테두리를 살짝 따뜻하게 */
+html:not([data-theme="dark"]){--border:rgba(120,105,70,.16);--border-soft:rgba(120,105,70,.09)}
 *{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
 button{font-family:inherit}
 .panel{border-radius:var(--r)}
@@ -5214,3 +5219,31 @@ html[data-theme="dark"] .vp-bar-lg .d b{color:#60a5fa}
 .pk-acc-sub b{font-weight:900;color:var(--text);margin-left:3px}
 .pk-acc-n{display:block;margin-top:7px;font-size:10px;font-weight:600;color:var(--sub-2);line-height:1.5}
 .pk-acc-none{font-size:11.5px;font-weight:700;color:var(--sub)}
+
+/* ══ [v9.71] 같은 그룹인데 로고 크기가 제각각이던 문제 ═══════════════════════
+   [원인] .lgo 는 background-size:contain 이라 '원본 이미지가 품고 있는 여백'을
+   그대로 따른다. 같은 SK 계열이라도 토스·네이버·알파스퀘어에서 받아온 것마다
+   여백이 달라, 어떤 종목은 마크가 꽉 차고 어떤 종목은 작게 떠 보였다.
+   (첨부 3·4번 사진 — SK스퀘어·SK우·SK이터닉스가 서로 다른 크기)
+   [고침] 모든 로고에 같은 비율(78%)을 강제한다. 원본 여백이 어떻든 화면에서
+   차지하는 크기가 같아진다. 대체 로고(그룹 CI)는 조금 더 줄여 균형을 맞춘다. */
+.lgo.on{background-size:78%!important}
+.lgo.on.alt{background-size:70%!important}
+.lgo.xs.on{background-size:82%!important}
+.lgo.xs.on.alt{background-size:74%!important}
+
+/* [v9.71b] 근접 후보 — 추천과 확실히 구분되게 낮은 채도로 */
+.pk-watch{margin-top:6px;border:1px dashed var(--border);border-radius:14px;padding:11px 12px;background:var(--border-soft)}
+.pk-watch-h{font-size:12.5px;font-weight:900;color:var(--sub);margin-bottom:9px}
+.pk-watch-h span{display:block;font-size:10.5px;font-weight:700;color:var(--sub-2);margin-top:2px}
+.pk-watch-h b{color:var(--up)}
+.pk-watch-r{display:grid;grid-template-columns:1fr auto auto;gap:3px 10px;width:100%;text-align:left;
+  background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:9px 11px;margin-bottom:6px;
+  align-items:center;cursor:pointer}
+.pk-watch-r:last-child{margin-bottom:0}
+.pk-watch-r .pw-nm{font-size:13px;font-weight:800;color:var(--text)}
+.pk-watch-r .pw-px{font-size:12.5px;font-weight:800;text-align:right}
+.pk-watch-r .pw-px i{font-style:normal;font-size:11px;font-weight:700;margin-left:6px}
+.pk-watch-r .pw-px i.up{color:var(--up)}.pk-watch-r .pw-px i.down{color:var(--down)}
+.pk-watch-r .pw-sc{font-size:11.5px;font-weight:800;color:var(--sub-2)}
+.pk-watch-r .pw-why{grid-column:1/-1;font-size:10.5px;font-weight:700;color:var(--sub-2)}

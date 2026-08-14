@@ -3033,28 +3033,33 @@ function score(cs) {
      눌림목의 정의와 어긋난다. 조정을 받으면 5일선이 20일선 아래로 내려가는
      것이 정상이라, 이 조건을 걸면 '조정받지 않은 종목'만 남아 눌림목이
      한 건도 잡히지 않았다. 중기 추세(20일선>60일선)만 확인한다. */
-  const pullback = f.ma20 > f.ma60 && f.last > f.ma60 && f.slope20 > 0.002
-    && f.drawFromHi >= 0.03 && f.drawFromHi <= 0.15
-    && f.ext20 > -0.07 && f.ext20 < 0.09
-    && f.rsi >= 35 && f.rsi <= 62;
+  const pullback = f.ma20 > f.ma60 && f.last > f.ma60 * 0.98 && f.slope20 > 0
+    && f.drawFromHi >= 0.025 && f.drawFromHi <= 0.18
+    && f.ext20 > -0.10 && f.ext20 < 0.12
+    && f.rsi >= 33 && f.rsi <= 66;
   /* ② 수축 후 거래량 — 변동폭이 좁아진 뒤 거래가 붙기 시작 */
-  const coil = f.squeeze <= 0.62 && f.midTrend
-    && f.volRatio >= 1.5 && f.posInRange >= 0.45
-    && f.ext20 < 0.16 && f.rsi >= 45 && f.rsi <= 68;
+  const coil = f.squeeze <= 0.78 && f.midTrend
+    && f.volRatio >= 1.3 && f.posInRange >= 0.40
+    && f.ext20 < 0.20 && f.rsi >= 42 && f.rsi <= 72;
   /* ③ 거래량 동반 돌파 — 60일 고가대를 이제 막 넘어섰다 */
   /* [v9.71 정정] 돌파는 성질상 RSI가 높게 나온다 — 조용한 바닥에서 사흘만
      강하게 올라도 75~80이 된다. 74로 막으면 진짜 돌파가 전부 걸러진다.
      대신 전역 안전장치(RSI 80 초과 제외)는 그대로 두어 극단만 막는다. */
-  const breakout = f.last >= f.hi60 * 0.985 && f.last <= f.hi60 * 1.06
-    && f.volRatio >= 2.0 && f.midTrend
-    && f.ext20 <= 0.22 && f.rsi <= 79;
+  const breakout = f.last >= f.hi60 * 0.975 && f.last <= f.hi60 * 1.08
+    && f.volRatio >= 1.7 && f.midTrend
+    && f.ext20 <= 0.25 && f.rsi <= 79;
   if (pullback) setups.push("pullback");
   if (coil) setups.push("coil");
   if (breakout) setups.push("breakout");
-  if (!setups.length) return null;                             // 자리가 아니면 뽑지 않는다
+  /* ══ [v9.71b] '조건 미달이면 아무것도 안 보여 준다'는 지나쳤다 ═══════════════
+     기준 미달 종목을 '추천'으로 올리는 건 여전히 안 된다. 하지만 화면을 통째로
+     비우면 사용자는 고장인지 없는 건지 알 수 없고, 어떤 종목이 근접했는지도
+     못 본다. 자리에 들지 못한 종목은 '근접 후보'로 표시만 하고 추천에선 뺀다.
+     near=true 인 항목은 위쪽 추천 목록에 들어가지 않는다. */
+  const near = setups.length === 0;
 
   /* ── 점수 — 자리의 '질'만 본다. 이미 오른 폭에는 점수를 주지 않는다 ── */
-  let sc = 34;                    /* [v9.71] 100점이 흔하지 않도록 기준점을 낮춘다 */
+  let sc = near ? 20 : 34;        /* 자리에 못 든 종목은 낮은 점수에서 시작한다 */
   const tags = [];
   if (pullback) { sc += 18; tags.push("\uB20C\uB9BC\uBAA9"); }              // 눌림목
   if (coil)     { sc += 16; tags.push("\uBCC0\uB3D9\uD3ED \uC218\uCD95"); } // 변동폭 수축
@@ -3079,10 +3084,20 @@ function score(cs) {
   /* 유동성 가점 — 거래대금이 두터울수록 다음 날 실제로 사고팔 수 있다 */
   if (f.turnover >= 5e9) sc += 5; else if (f.turnover >= 2e9) sc += 3;
 
-  const setupLabel = pullback ? "\uB20C\uB9BC\uBAA9 \uC7AC\uC9C4\uC785" : coil ? "\uC218\uCD95 \uD6C4 \uD655\uC7A5" : "\uC800\uD56D \uB3CC\uD30C";
+  /* 근접 후보에는 '무엇이 모자란지'를 적어 준다 */
+  let nearWhy = "";
+  if (near) {
+    if (f.drawFromHi < 0.03) nearWhy = "\uACE0\uAC00\uAD8C \uBD99\uC5B4 \uB20C\uB9BC \uC5C6\uC74C";
+    else if (f.volRatio < 1.5) nearWhy = "\uAC70\uB798\uB7C9 \uC544\uC9C1 \uD55C\uC0B0\uD568";
+    else if (!f.midTrend) nearWhy = "\uC911\uAE30 \uCD94\uC138 \uBBF8\uD655\uB9BD";
+    else if (f.rsi > 68) nearWhy = "\uACFC\uC5F4 \uAD6C\uAC04";
+    else nearWhy = "\uC790\uB9AC \uBBF8\uC644\uC131";
+  }
+  const setupLabel = pullback ? "\uB20C\uB9BC\uBAA9 \uC7AC\uC9C4\uC785" : coil ? "\uC218\uCD95 \uD6C4 \uD655\uC7A5" : breakout ? "\uC800\uD56D \uB3CC\uD30C" : nearWhy;
   return {
+    near, nearWhy,
     score: Math.round(Math.max(0, Math.min(100, sc))),
-    setup: setups[0], setupLabel,
+    setup: setups[0] || null, setupLabel,
     tags: tags.slice(0, 3),
     stats: {
       ma20: Math.round(f.ma20), rsi: Math.round(f.rsi),
@@ -3160,13 +3175,24 @@ async function compute(budgetMs) {
   const breadth = uni.length ? downN / uni.length : 0.5;
   const weakMkt = breadth > 0.62;
   const minScore = weakMkt ? 62 : 55;
-  let sel = scored.filter((x) => x.score >= minScore);
+  const real = scored.filter((x) => !x.near);          // 자리에 든 종목만 '추천' 후보
+  const nearList = scored.filter((x) => x.near);       // 근접 후보 — 표시만 한다
+  let sel = real.filter((x) => x.score >= minScore);
   /* [v9.71] 예전에는 통과분이 적으면 점수순으로 8종을 억지로 채웠다.
      기준에 못 미치는 종목을 '추천'으로 올리는 것은 사용자를 속이는 일이다.
      모자라면 모자란 대로 내보내고, 왜 적은지 화면에 밝힌다. */
   const maxPick = weakMkt ? 5 : 8;
   sel = sel.slice(0, maxPick);
 
+  /* [v9.71b] 추천이 없는 날에도 화면이 비지 않도록 근접 후보를 함께 보낸다.
+     '추천'과 뒤섞지 않고 아래쪽에 따로, 무엇이 모자란지와 함께 표시한다. */
+  const watch = (sel.length ? nearList : real.concat(nearList))
+    .filter((x) => !sel.some((y) => y.code === x.code))
+    .slice(0, 8).map((s) => ({
+      code: s.code, name: s.name, market: s.market, price: s.price, rate: s.rate,
+      score: s.score, why: s.near ? (s.nearWhy || "") : `\uC810\uC218 \uBBF8\uB2EC(${s.score}\uC810)`,
+      stats: s.stats
+    }));
   const tiers = scored.slice(0, 40).map((s) => ({
     code: s.code, name: s.name, price: s.price != null ? s.price : null,
     rate: +s.rate || 0, score: Math.round(+s.score || 0), setup: s.setupLabel || ""
@@ -3179,7 +3205,7 @@ async function compute(budgetMs) {
   }));
   return {
     ok: true,                                       // 후보가 0이어도 '정상 동작'이다
-    picks, tiers,
+    picks, tiers, watch,
     scanned: scored.length,
     universe: uniN,
     roughN: rough.length,
@@ -3206,6 +3232,7 @@ async function buildAndStore(store) {
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     note: NOTE,
     picks: res.picks,
+    watch: res.watch || [],
     scanned: res.scanned,
     universe: res.universe,
     roughN: res.roughN, deep: res.deep,

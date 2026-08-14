@@ -35,9 +35,12 @@
      하므로 필수 스타일과 제어 스크립트를 인라인으로 둔다.
      실제 진행 단계는 app.js 가 window.__boot.step(n) 으로 밀어 준다. ══════ -->
 <style id="bootCss">
-/* [v9.71] bootCss 가 파싱되기 전 첫 프레임에 브라우저 기본 배경(흰색/검정)이
-   스치는 것을 막는다. html·body 부터 하늘색으로 시작한다. */
-html,body{background:#7cc0f0}
+/* ══ [v9.71 긴급수정] 앱 화면까지 하늘색이 되던 문제 ═══════════════════════
+   이 <style> 은 app.css 링크보다 '뒤'에 있다. 그래서 여기에 html,body 배경을
+   적었더니 app.css 의 body 배경을 이겨 버려, 로딩이 끝난 뒤 앱 본화면까지
+   하늘색이 됐다(첨부 1번 사진).
+   → 배경은 #bootGate 자신에게만 준다. #bootGate 는 position:fixed;inset:0 으로
+     화면을 덮으므로 첫 프레임 깜빡임도 이것으로 충분히 막힌다. */
 /* ══ [v4.23] 입장 화면 — 깊이감 있는 브랜드 스플래시로 재단장 ═══════════════
    · 은은한 오로라 배경 + 격자로 '시세 화면'의 분위기를 미리 보여 준다
    · 로고와 문구 대비를 끌어올려 밝은 곳에서도 또렷하게 읽힌다
@@ -76,7 +79,7 @@ html,body{background:#7cc0f0}
   /* ══ [v9.71] 입장 화면을 '맑은 하늘'로 ═══════════════════════════════════
      위쪽은 깊은 하늘색, 아래로 갈수록 옅어지며 지평선의 빛으로 이어진다.
      글자는 어두운 남색으로 바꿔 밝은 배경에서도 또렷하게 읽힌다. */
-  background:linear-gradient(180deg,#4aa3ec 0%,#79c2f2 34%,#a9dcf8 62%,#d8eefb 84%,#eef8fe 100%);
+  background:linear-gradient(180deg,#2f7fd4 0%,#4f9ee4 18%,#74b9ee 40%,#9fd3f6 62%,#c9e7fa 80%,#e8f5fd 93%,#f6fbff 100%);
   color:#0d2c4a;
   font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
   transition:opacity .55s ease;
@@ -100,39 +103,31 @@ html,body{background:#7cc0f0}
   filter:blur(28px)}
 @keyframes bgSun{0%,100%{transform:scale(1);opacity:.92}50%{transform:scale(1.07);opacity:1}}
 
-/* ══ 구름 — 세 겹이 서로 다른 속도로 흘러 깊이를 만든다 ═══════════════════
-   이미지 없이 CSS 로만 그린다(첫 화면이라 네트워크를 기다리면 안 된다).
-   한 겹은 여러 개의 타원 그라디언트를 겹쳐 뭉게구름 모양을 만들고,
-   가로로 200% 폭을 잡아 끊김 없이 반복시킨다. */
+/* ══ [v9.71] 구름을 실제 하늘 사진에 가깝게 ════════════════════════════════
+   [무엇이 문제였나] 동그란 그라디언트를 여러 개 겹쳐 만든 구름은 윤곽이 매끈해
+   만화처럼 보였다. 진짜 구름은 가장자리가 불규칙하게 헤지고 속이 성글다.
+   [어떻게 바꿨나] SVG feTurbulence(프랙탈 노이즈)로 구름 결을 만든다.
+   실제 구름 렌더링에 쓰는 방식이라 가장자리가 자연스럽게 흩어진다.
+   이미지 파일을 받아 오지 않고 브라우저가 직접 그리므로 첫 화면이 늦어지지 않는다.
+   세 겹을 서로 다른 배율·속도로 흘려 원근감을 준다. */
 .bg-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
-.bg-cl{position:absolute;left:0;width:200%;background-repeat:repeat-x;will-change:transform}
-.bg-cl.c1{top:8%;height:130px;opacity:.95;
-  background-image:
-    radial-gradient(58px 40px at 90px 74px,#fff 62%,transparent 66%),
-    radial-gradient(46px 46px at 148px 62px,#fff 62%,transparent 66%),
-    radial-gradient(40px 32px at 202px 76px,#fff 62%,transparent 66%),
-    radial-gradient(74px 30px at 150px 88px,#fff 60%,transparent 64%),
-    radial-gradient(44px 32px at 470px 60px,#fff 62%,transparent 66%),
-    radial-gradient(36px 26px at 522px 68px,#fff 62%,transparent 66%),
-    radial-gradient(66px 24px at 496px 78px,#fff 60%,transparent 64%);
-  background-size:640px 130px;animation:bgDrift 62s linear infinite}
-.bg-cl.c2{top:30%;height:110px;opacity:.72;
-  background-image:
-    radial-gradient(44px 30px at 70px 62px,#fff 62%,transparent 66%),
-    radial-gradient(34px 34px at 118px 52px,#fff 62%,transparent 66%),
-    radial-gradient(58px 22px at 106px 72px,#fff 60%,transparent 64%),
-    radial-gradient(40px 28px at 400px 56px,#fff 62%,transparent 66%),
-    radial-gradient(56px 20px at 420px 68px,#fff 60%,transparent 64%);
-  background-size:540px 110px;animation:bgDrift 92s linear infinite reverse}
-.bg-cl.c3{top:56%;height:150px;opacity:.5;filter:blur(1.5px);
-  background-image:
-    radial-gradient(84px 44px at 150px 92px,#fff 62%,transparent 66%),
-    radial-gradient(62px 56px at 236px 76px,#fff 62%,transparent 66%),
-    radial-gradient(110px 34px at 210px 106px,#fff 60%,transparent 64%),
-    radial-gradient(70px 40px at 640px 84px,#fff 62%,transparent 66%),
-    radial-gradient(96px 30px at 660px 102px,#fff 60%,transparent 64%);
-  background-size:840px 150px;animation:bgDrift 128s linear infinite}
-@keyframes bgDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+.bg-cl{position:absolute;left:0;width:220%;background-repeat:repeat-x;will-change:transform}
+/* 높고 성근 새털구름 */
+.bg-cl.c1{top:2%;height:38%;opacity:.55;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='300'%3E%3Cfilter id='a' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.004 0.020' numOctaves='5' seed='11'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.5 0 0 0 -0.62'/%3E%3C/filter%3E%3Crect width='900' height='300' filter='url(%23a)'/%3E%3C/svg%3E");
+  background-size:900px 100%;animation:bgDrift 150s linear infinite}
+/* 중간 높이의 뭉게구름 — 가장 뚜렷하다 */
+.bg-cl.c2{top:16%;height:46%;opacity:.92;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='340'%3E%3Cfilter id='b' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0075 0.013' numOctaves='6' seed='5'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.1 0 0 0 -0.86'/%3E%3CfeGaussianBlur stdDeviation='1.1'/%3E%3C/filter%3E%3Crect width='1000' height='340' filter='url(%23b)'/%3E%3C/svg%3E");
+  background-size:1000px 100%;animation:bgDrift 96s linear infinite}
+/* 낮게 깔린 옅은 구름 — 지평선 쪽 */
+.bg-cl.c3{top:44%;height:44%;opacity:.6;filter:blur(1px);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='320'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.011 0.008' numOctaves='5' seed='23'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.8 0 0 0 -0.78'/%3E%3C/filter%3E%3Crect width='1200' height='320' filter='url(%23c)'/%3E%3C/svg%3E");
+  background-size:1200px 100%;animation:bgDrift 190s linear infinite reverse}
+/* 아래로 갈수록 구름이 옅어져 하늘에 녹아들게 한다 */
+.bg-sky::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,transparent 0%,transparent 52%,rgba(206,234,250,.55) 78%,rgba(226,243,253,.9) 100%)}
+@keyframes bgDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-45.45%,0,0)}}
 /* 격자 — 아주 옅게 */
 .bg-grid{position:absolute;inset:0;pointer-events:none;opacity:.55;z-index:1;
   background-image:linear-gradient(rgba(255,255,255,.34) 1px,transparent 1px),
