@@ -3,8 +3,8 @@
   "short_name": "LIVE증권",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d1424",
-  "theme_color": "#0d1424",
+  "background_color": "#7cc0f0",
+  "theme_color": "#7cc0f0",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -27,7 +27,7 @@
   ],
   "id": "/",
   "description": "실시간 시세로 연습하는 국내·해외 주식 모의투자",
-  "version": "4.23.0",
+  "version": "9.71.0",
   "lang": "ko-KR",
   "dir": "ltr",
   "orientation": "any",

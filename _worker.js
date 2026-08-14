@@ -2898,7 +2898,17 @@ async function universe() {
       });
     }
   };
-  await Promise.all([pull("KOSPI", 1), pull("KOSPI", 2), pull("KOSPI", 3), pull("KOSDAQ", 1), pull("KOSDAQ", 2)]);
+  /* ══ [v9.71] 살펴보는 종목이 너무 적었다 ═══════════════════════════════════
+     코스피 3쪽 + 코스닥 2쪽 = 최대 500종만 받아 왔다. 실제 상장 종목은
+     코스피 약 950 · 코스닥 약 1,780 종이라 전체의 1/5 만 본 셈이고,
+     그나마 시가총액 순이라 하위 종목은 아예 후보에 오르지 못했다.
+     급등은 오히려 소형주에서 자주 나오므로 이 구조에서는 놓칠 수밖에 없다.
+     외부 호출 한도(★11)를 지키면서 코스피 5쪽 + 코스닥 7쪽 = 최대 1,200종으로 넓힌다. */
+  await Promise.all([
+    pull("KOSPI", 1), pull("KOSPI", 2), pull("KOSPI", 3), pull("KOSPI", 4), pull("KOSPI", 5),
+    pull("KOSDAQ", 1), pull("KOSDAQ", 2), pull("KOSDAQ", 3), pull("KOSDAQ", 4),
+    pull("KOSDAQ", 5), pull("KOSDAQ", 6), pull("KOSDAQ", 7)
+  ]);
   const seen = /* @__PURE__ */ new Set();
   return out.filter((s) => seen.has(s.code) ? false : (seen.add(s.code), true));
 }
@@ -2938,119 +2948,243 @@ function rsi(closes, n = 14) {
   const rs = up / (dn || 1e-9);
   return 100 - 100 / (1 + rs);
 }
+/* ══════════════════════════════════════════════════════════════════════════
+   [v9.71] 급등주 점수 엔진 전면 재작성
+   ─────────────────────────────────────────────────────────────────────────
+   예전 엔진이 틀렸던 이유는 계산 실수가 아니라 '무엇을 고르는가'가 잘못돼서다.
+
+     · 정배열 +26, 20일 고가 근접 +14, 20일 모멘텀 +16 …
+       점수의 대부분이 "이미 많이 오른 종목"에 몰려 있었다. 어제까지 오른 종목을
+       사는 규칙이라, 상승이 꺾이는 자리에서 사게 된다(고점 추격).
+     · 게이트가 '오늘 +1~13% 오른 종목'만 통과시켰다. 급등 다음 날은 되돌림이
+       나오는 경우가 더 많아, 하필 가장 불리한 구간만 골라 담았다.
+     · 과열 방어는 이격도 28% 하나뿐이었다.
+
+   새 엔진의 원칙 — '이미 오른 것'이 아니라 '오를 준비가 된 것'을 찾는다.
+     ① 눌림(pullback)  : 상승 추세인데 단기 조정을 받아 5일선 근처로 돌아온 자리
+     ② 수축 후 팽창    : 변동폭이 좁아진(스퀴즈) 뒤 거래량이 붙기 시작하는 자리
+     ③ 저항 돌파       : 최근 고가대를 거래량을 동반해 막 넘어선 자리
+     ④ 과열 회피       : 이격·연속 상승·RSI 과열은 강하게 감점
+     ⑤ 유동성·안정성   : 거래대금 하한, 이상 변동성 제외
+   세 갈래(①②③) 중 하나에 뚜렷이 해당해야 점수를 준다. 아무 갈래에도 속하지
+   않으면 '지금은 자리가 아니다'로 보고 후보에서 뺀다 — 억지로 채우지 않는다.
+   ══════════════════════════════════════════════════════════════════════════ */
+function sdev(a) { if (!a.length) return 0; const m = avg(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) * (x - m), 0) / a.length); }
+function feat(cs) {
+  if (!cs || cs.length < 62) return null;
+  const c = cs.map(x => +x.c || 0), h = cs.map(x => +x.h || 0), l = cs.map(x => +x.l || 0), v = cs.map(x => +x.v || 0);
+  if (c.slice(-62).some(x => !(x > 0))) return null;
+  const n = c.length, last = c[n - 1];
+  const ma = (k) => avg(c.slice(-k));
+  const ma5 = ma(5), ma10 = ma(10), ma20 = ma(20), ma60 = ma(60);
+  /* 일간 수익률과 변동성 */
+  const rets = []; for (let i = n - 21; i < n; i++) rets.push(c[i] / c[i - 1] - 1);
+  const vol20 = sdev(rets);                                    // 일간 변동성
+  /* 거래량 — 최근 3일 대 20일(직전) */
+  const vRecent = avg(v.slice(-3)), vBase = avg(v.slice(-23, -3));
+  const volRatio = vBase > 0 ? vRecent / vBase : 0;
+  /* 위치 */
+  const hi20 = Math.max(...h.slice(-20)), lo20 = Math.min(...l.slice(-20));
+  const hi60 = Math.max(...h.slice(-60));
+  const posInRange = hi20 > lo20 ? (last - lo20) / (hi20 - lo20) : 0.5;
+  /* 추세 */
+  const upTrend = ma5 > ma20 && ma20 > ma60;
+  const midTrend = last > ma20 && ma20 > ma60;
+  const slope20 = ma20 / avg(c.slice(-25, -5)) - 1;            // 20일선 기울기
+  /* 이격 */
+  const ext5 = (last - ma5) / ma5, ext20 = (last - ma20) / ma20;
+  /* 연속 상승일 — 많을수록 되돌림 위험 */
+  let runUp = 0; for (let i = n - 1; i > 0 && c[i] > c[i - 1]; i--) runUp++;
+  /* 수축(스퀴즈) — 최근 10일 폭이 그 앞 30일 폭보다 얼마나 좁은가 */
+  /* [v9.71 수정] '수축'은 팽창이 시작되기 '직전'까지를 재야 한다. 최근 며칠을
+     포함해 재면, 거래량이 붙어 폭이 커지는 순간 수축 지표가 되레 커져
+     스퀴즈 자리를 영영 못 찾는다. 최근 4일을 빼고 그 앞 구간끼리 견준다. */
+  const rng = (a, b) => { const hh = Math.max(...h.slice(a, b)), ll = Math.min(...l.slice(a, b)); return ll > 0 ? (hh - ll) / ll : 1; };
+  const rNear = rng(n - 26, n - 4), rFar = rng(n - 56, n - 26);
+  const squeeze = rFar > 0 ? rNear / rFar : 1;
+  /* 최근 되돌림 깊이 — 20일 고가 대비 */
+  const drawFromHi = hi20 > 0 ? (hi20 - last) / hi20 : 0;
+  return {
+    last, ma5, ma10, ma20, ma60, vol20, volRatio, hi20, lo20, hi60, posInRange,
+    upTrend, midTrend, slope20, ext5, ext20, runUp, squeeze, drawFromHi,
+    rsi: rsi(c, 14),
+    mom20: last / c[n - 21] - 1,
+    mom5: last / c[n - 6] - 1,
+    mom60: last / c[n - 61] - 1,
+    turnover: last * avg(v.slice(-5))                          // 최근 5일 평균 거래대금
+  };
+}
 function score(cs) {
-  if (!cs || cs.length < 35) return null;
-  const closes = cs.map((x) => x.c), highs = cs.map((x) => x.h), vols = cs.map((x) => x.v);
-  const last = closes[closes.length - 1];
-  const ma = (n) => avg(closes.slice(-n));
-  const ma5 = ma(5), ma20 = ma(20), ma60 = ma(Math.min(60, closes.length));
-  const r = rsi(closes, 14);
-  const volRecent = avg(vols.slice(-5)), volBase = avg(vols.slice(-25, -5)) || 1;
-  const volRatio = volRecent / volBase;
-  const mom20 = last / closes[closes.length - 21] - 1;
-  const mom5 = last / closes[closes.length - 6] - 1;
-  const high20 = Math.max(...highs.slice(-20));
-  const nearHigh = last / high20;
-  const extended = (last - ma20) / ma20;
-  const trendUp = last > ma5 && ma5 > ma20 && ma20 > ma60;
-  let sc = 0;
+  const f = feat(cs);
+  if (!f) return null;
+  /* ── 먼저 거를 것들 — 통과하지 못하면 후보가 아니다 ── */
+  if (f.last < 1000) return null;                              // 초저가주 제외
+  if (f.turnover < 5e8) return null;                           // 5일 평균 거래대금 5억 미만 = 유동성 부족
+  if (f.vol20 > 0.11) return null;                             // 일간 변동성 11% 초과 = 통제 불가
+  if (f.ext20 > 0.35) return null;                             // 20일선 대비 35% 초과 이격 = 과열
+  if (f.runUp >= 6) return null;                               // 6일 연속 상승 = 되돌림 구간(돌파는 연속 상승을 동반하므로 5일까지는 허용하고 아래에서 감점)
+  if (f.rsi > 80) return null;                                 // 과매수 극단
+  if (f.mom20 > 0.60) return null;                             // 한 달 60% 초과 = 이미 급등 완료
+
+  /* ── 세 갈래 자리 판정 ── */
+  const setups = [];
+  /* ① 눌림목 — 중기 추세는 살아 있고 단기 조정을 받은 자리
+     [v9.71 정정] 처음에는 upTrend(5일선>20일선>60일선)를 요구했는데, 이건
+     눌림목의 정의와 어긋난다. 조정을 받으면 5일선이 20일선 아래로 내려가는
+     것이 정상이라, 이 조건을 걸면 '조정받지 않은 종목'만 남아 눌림목이
+     한 건도 잡히지 않았다. 중기 추세(20일선>60일선)만 확인한다. */
+  const pullback = f.ma20 > f.ma60 && f.last > f.ma60 && f.slope20 > 0.002
+    && f.drawFromHi >= 0.03 && f.drawFromHi <= 0.15
+    && f.ext20 > -0.07 && f.ext20 < 0.09
+    && f.rsi >= 35 && f.rsi <= 62;
+  /* ② 수축 후 거래량 — 변동폭이 좁아진 뒤 거래가 붙기 시작 */
+  const coil = f.squeeze <= 0.62 && f.midTrend
+    && f.volRatio >= 1.5 && f.posInRange >= 0.45
+    && f.ext20 < 0.16 && f.rsi >= 45 && f.rsi <= 68;
+  /* ③ 거래량 동반 돌파 — 60일 고가대를 이제 막 넘어섰다 */
+  /* [v9.71 정정] 돌파는 성질상 RSI가 높게 나온다 — 조용한 바닥에서 사흘만
+     강하게 올라도 75~80이 된다. 74로 막으면 진짜 돌파가 전부 걸러진다.
+     대신 전역 안전장치(RSI 80 초과 제외)는 그대로 두어 극단만 막는다. */
+  const breakout = f.last >= f.hi60 * 0.985 && f.last <= f.hi60 * 1.06
+    && f.volRatio >= 2.0 && f.midTrend
+    && f.ext20 <= 0.22 && f.rsi <= 79;
+  if (pullback) setups.push("pullback");
+  if (coil) setups.push("coil");
+  if (breakout) setups.push("breakout");
+  if (!setups.length) return null;                             // 자리가 아니면 뽑지 않는다
+
+  /* ── 점수 — 자리의 '질'만 본다. 이미 오른 폭에는 점수를 주지 않는다 ── */
+  let sc = 34;                    /* [v9.71] 100점이 흔하지 않도록 기준점을 낮춘다 */
   const tags = [];
-  if (trendUp) {
-    sc += 26;
-    tags.push("\uC815\uBC30\uC5F4");
-  } else if (last > ma20) sc += 10;
-  if (last > ma5) sc += 6;
-  sc += Math.max(0, Math.min(16, mom20 * 90));
-  if (mom20 > 0.05 && mom5 > 0) tags.push("\uC0C1\uC2B9 \uBAA8\uBA58\uD140");
-  if (volRatio >= 1.2) {
-    sc += Math.min(16, (volRatio - 1) * 18);
-    tags.push("\uAC70\uB798\uB7C9 \uC99D\uAC00");
-  }
-  if (nearHigh >= 0.97) {
-    sc += 14;
-    tags.push("20\uC77C \uACE0\uAC00 \uADFC\uC811");
-  } else if (nearHigh >= 0.93) sc += 7;
-  if (r >= 52 && r <= 70) {
-    sc += 10;
-    tags.push("RSI \uAC15\uC138");
-  } else if (r > 78) {
-    sc -= 12;
-    tags.push("\uACFC\uB9E4\uC218 \uC8FC\uC758");
-  } else if (r < 40) sc -= 6;
-  if (extended > 0.28) sc -= 14;
-  else if (extended <= 0.12 && trendUp) {
-    sc += 8;
-    tags.push("\uB20C\uB9BC\uBAA9");
-  }
-  if (last < 1500) sc -= 8;
+  if (pullback) { sc += 18; tags.push("\uB20C\uB9BC\uBAA9"); }              // 눌림목
+  if (coil)     { sc += 16; tags.push("\uBCC0\uB3D9\uD3ED \uC218\uCD95"); } // 변동폭 수축
+  if (breakout) { sc += 17; tags.push("\uAC70\uB798\uB7C9 \uB3CC\uD30C"); } // 거래량 돌파
+  if (setups.length >= 2) sc += 6;                             // 두 갈래가 겹치면 더 좋은 자리
+
+  /* 추세의 질 */
+  if (f.upTrend) sc += 8;
+  sc += Math.max(-4, Math.min(8, f.slope20 * 220));            // 20일선 기울기
+  if (f.mom60 > 0 && f.mom60 < 0.5) sc += 4;                   // 중기 상승 기조
+
+  /* 거래량 — 지나치게 큰 값은 되레 감점(단발성 이벤트일 확률) */
+  if (f.volRatio >= 1.5 && f.volRatio <= 5) sc += Math.min(10, (f.volRatio - 1.2) * 4);
+  else if (f.volRatio > 8) sc -= 6;
+
+  /* 과열 방어 — 여러 겹으로 */
+  sc -= Math.max(0, (f.ext20 - 0.18)) * 60;
+  sc -= Math.max(0, (f.rsi - 68)) * 0.7;
+  sc -= f.runUp >= 3 ? (f.runUp - 2) * 4 : 0;
+  sc -= Math.max(0, (f.vol20 - 0.045)) * 130;                  // 변동성이 클수록 감점
+
+  /* 유동성 가점 — 거래대금이 두터울수록 다음 날 실제로 사고팔 수 있다 */
+  if (f.turnover >= 5e9) sc += 5; else if (f.turnover >= 2e9) sc += 3;
+
+  const setupLabel = pullback ? "\uB20C\uB9BC\uBAA9 \uC7AC\uC9C4\uC785" : coil ? "\uC218\uCD95 \uD6C4 \uD655\uC7A5" : "\uC800\uD56D \uB3CC\uD30C";
   return {
     score: Math.round(Math.max(0, Math.min(100, sc))),
-    tags: [...tags.filter((t) => /주의|과매수/.test(t)), ...tags.filter((t) => !/주의|과매수/.test(t))].slice(0, 3),
+    setup: setups[0], setupLabel,
+    tags: tags.slice(0, 3),
     stats: {
-      ma20: Math.round(ma20),
-      rsi: Math.round(r),
-      volRatio: Number(volRatio.toFixed(2)),
-      mom20: Number((mom20 * 100).toFixed(1)),
-      nearHigh: Number((nearHigh * 100).toFixed(1)),
-      trendUp
+      ma20: Math.round(f.ma20), rsi: Math.round(f.rsi),
+      volRatio: Number(f.volRatio.toFixed(2)),
+      mom20: Number((f.mom20 * 100).toFixed(1)),
+      ext20: Number((f.ext20 * 100).toFixed(1)),
+      squeeze: Number(f.squeeze.toFixed(2)),
+      drawFromHi: Number((f.drawFromHi * 100).toFixed(1)),
+      runUp: f.runUp, vol20: Number((f.vol20 * 100).toFixed(1)),
+      turnoverEok: Math.round(f.turnover / 1e8),
+      trendUp: f.upTrend,
+      /* 다음 날 운용 기준 — 자리별로 다르게 준다 */
+      entry: Math.round(pullback ? f.ma5 : f.last * 0.995),
+      stop: Math.round(Math.min(f.ma20, f.last * (1 - Math.max(0.03, f.vol20 * 2)))),
+      targetPct: Number((Math.max(3, Math.min(9, f.vol20 * 100 * 1.6)).toFixed(1)))
     }
   };
 }
 async function compute(budgetMs) {
+  /* ══ [v9.71] 후보 뽑는 방식을 바꿨다 ═══════════════════════════════════════
+     [예전] 거래대금 상위 55종만 일봉을 받아 점수를 매겼다. 급등은 거래대금
+     상위권 밖에서 훨씬 자주 나오므로, 구조적으로 대부분을 놓치는 설계였다.
+     게다가 종목당 1회씩 외부 호출이라 55회 — 워커 한 요청의 외부 호출 한도
+     (50회, ★11)를 넘겨 뒷부분은 조용히 잘려 나갔다. 즉 실제로는 40종 남짓만
+     보고 있었고, 그마저 전부 대형주였다.
+     [지금] 두 단계로 나눈다.
+       1차(공짜) : 유니버스 응답에 이미 들어 있는 값(가격·등락률·거래량·거래대금)
+                   으로 1,200종 전체를 훑어 '볼 만한 자리'만 남긴다. 외부 호출 0회.
+       2차(정밀) : 1차를 통과한 상위 38종만 일봉을 받아 정식 점수를 매긴다.
+     유니버스 12회 + 정밀 38회 = 50회 안쪽으로 한도를 지킨다. */
   const deadline = Date.now() + budgetMs;
   const uni = await universe();
   if (uni.length < 100) return { ok: false, why: "\uC720\uB2C8\uBC84\uC2A4 \uBD80\uC871" };
-  const priced = uni.filter((s) => s.price >= 1500);
-  const haveValue = priced.filter((s) => s.value > 0).length > 30;
-  const haveVol = priced.filter((s) => s.volume > 0).length > 30;
-  const cand = (haveValue ? priced.filter((s) => s.value > 0).sort((a, b) => b.value - a.value) : haveVol ? priced.filter((s) => s.volume > 0).sort((a, b) => b.volume - a.volume) : priced).slice(0, 55);
-  const byCode = new Map(cand.map((s) => [s.code, s]));
+  const uniN = uni.length;
+
+  /* ── 1차: 값싼 선별 ── */
+  const rough = uni.filter((s) => {
+    if (!(s.price >= 1000)) return false;
+    if (!(s.value >= 5e8)) return false;            // 당일 거래대금 5억 이상
+    const r = Number(s.rate) || 0;
+    if (r > 12) return false;                       // 이미 급등한 날은 다음 날 되돌림 확률이 높다
+    if (r < -8) return false;                       // 급락 중인 종목도 제외
+    return true;
+  });
+  /* 1차 순위 — 거래대금과 '적당한' 등락률을 함께 본다.
+     크게 오른 종목이 아니라, 거래는 붙었는데 아직 크게 튀지 않은 종목을 위로. */
+  rough.sort((a, b) => {
+    const q = (x) => {
+      const r = Number(x.rate) || 0;
+      const rq = r >= -1 && r <= 5 ? 1.25 : r <= 8 ? 1.0 : 0.75;   // 과열 구간은 가중치 낮춤
+      return Math.log10(Math.max(1, x.value)) * rq;
+    };
+    return q(b) - q(a);
+  });
+  const cand = rough.slice(0, 38);
+
+  /* ── 2차: 일봉을 받아 정식 점수 ── */
   const scored = [];
   let i = 0;
   const work = async () => {
     while (i < cand.length && Date.now() < deadline) {
       const s = cand[i++];
-      const cs = await candles(s.code);
-      const sig = score(cs);
+      let cs = null;
+      try { cs = await candles(s.code); } catch (e) { continue; }
+      const sig = score(cs);                        // 자리가 아니면 null → 후보에서 빠진다
       if (sig && sig.score > 0) scored.push({ ...s, ...sig });
     }
   };
-  await Promise.all(Array.from({ length: 24 }, work));
+  await Promise.all(Array.from({ length: 12 }, work));
   scored.sort((a, b) => b.score - a.score);
-  const gate = (x) => x.stats && x.stats.trendUp && x.stats.volRatio >= 2.2 && x.stats.rsi >= 48 && x.stats.rsi <= 74 && x.stats.mom20 <= 25 && Number(x.rate) >= 1 && Number(x.rate) <= 13;
-  const strong = scored.filter(gate);
-  const downN = cand.filter((c) => Number(c.rate) < 0).length;
-  const weakMkt = cand.length > 0 && downN / cand.length > 0.6;
-  const minScore = weakMkt ? 64 : 58;
-  const gatePassed = strong.length >= 5;
-  const pool2 = gatePassed ? strong : scored;
-  /* [v4.18] 게이트가 하루 3종만 통과시키는 날이 많아 화면이 늘 3개였다.
-     엄선 기준은 유지하되, 통과분이 8종 미만이면 점수순으로 8종까지 채운다. */
-  let sel = pool2.filter((x) => x.score >= minScore);
-  if (sel.length < 8) {
-    const have = new Set(sel.map((x) => x.code));
-    for (const x of pool2) { if (sel.length >= 8) break; if (have.has(x.code)) continue; have.add(x.code); sel.push(x); }
-  }
-  /* [v4.11] 엄선 통과가 3종뿐이어도 화면이 허전하지 않게, 점수순 확장 풀을
-     티어표(S/A/B/C)용으로 함께 내려 준다 — 엄선 통과분과 중복 허용(클라가 제외). */
-  const tiers = pool2.slice(0, 80).map((s) => ({ code: s.code, name: s.name, price: s.price != null ? s.price : null, rate: +s.rate || 0, score: Math.round(+s.score || 0) })).filter((x) => x.code && x.name);
-  const picks = sel.slice(0, 16).map((s) => ({
-    code: s.code,
-    name: s.name,
-    market: s.market,
-    price: s.price,
-    rate: s.rate,
-    score: s.score,
-    tags: s.tags,
-    stats: s.stats
+
+  /* ── 시장 상황에 따라 문턱을 조절한다 ──
+     하락장에서 억지로 추천을 채우면 적중률이 무너진다. 후보가 없으면 없다고 말한다. */
+  const downN = uni.filter((c) => Number(c.rate) < 0).length;
+  const breadth = uni.length ? downN / uni.length : 0.5;
+  const weakMkt = breadth > 0.62;
+  const minScore = weakMkt ? 62 : 55;
+  let sel = scored.filter((x) => x.score >= minScore);
+  /* [v9.71] 예전에는 통과분이 적으면 점수순으로 8종을 억지로 채웠다.
+     기준에 못 미치는 종목을 '추천'으로 올리는 것은 사용자를 속이는 일이다.
+     모자라면 모자란 대로 내보내고, 왜 적은지 화면에 밝힌다. */
+  const maxPick = weakMkt ? 5 : 8;
+  sel = sel.slice(0, maxPick);
+
+  const tiers = scored.slice(0, 40).map((s) => ({
+    code: s.code, name: s.name, price: s.price != null ? s.price : null,
+    rate: +s.rate || 0, score: Math.round(+s.score || 0), setup: s.setupLabel || ""
+  })).filter((x) => x.code && x.name);
+
+  const picks = sel.map((s) => ({
+    code: s.code, name: s.name, market: s.market, price: s.price, rate: s.rate,
+    score: s.score, tags: s.tags, stats: s.stats,
+    setup: s.setup, setupLabel: s.setupLabel
   }));
   return {
-    ok: picks.length > 0,
-    picks,
-    tiers,                                   // [v4.18] compute 밖에서 참조하던 것을 결과에 실어 전달
+    ok: true,                                       // 후보가 0이어도 '정상 동작'이다
+    picks, tiers,
     scanned: scored.length,
-    universe: cand.length,
-    gate: { passed: gatePassed, strongN: strong.length, minScore, weakMkt }
+    universe: uniN,
+    roughN: rough.length,
+    deep: cand.length,
+    gate: { minScore, weakMkt, breadth: Number((breadth * 100).toFixed(0)), passed: sel.length }
   };
 }
 async function buildAndStore(store) {
@@ -3059,6 +3193,10 @@ async function buildAndStore(store) {
   const targetYmd = ymd3(target);
   const res = await compute(9 * 60 * 1e3);
   if (!res.ok) return { ok: false, why: res.why };
+  /* [v9.71] 적중률을 제대로 재려면 '언제 값을 쟀는지'가 기록돼야 한다.
+     예전에는 이 정보가 없어 장중 스캔과 장 마감 후 스캔이 한 통계에 섞였다. */
+  const scanHm = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const basisKind = scanHm >= 15 * 60 + 40 ? "close" : "intraday";
   const payload = {
     ok: true,
     tiers: res.tiers || [],
@@ -3070,6 +3208,9 @@ async function buildAndStore(store) {
     picks: res.picks,
     scanned: res.scanned,
     universe: res.universe,
+    roughN: res.roughN, deep: res.deep,
+    basisKind,                                  // [v9.71] 기준가가 '종가'인지 '장중가'인지
+    basisYmd: ymd3(now),                        // 기준가를 잰 날짜
     gate: res.gate || null
   };
   if (store) {
@@ -3225,49 +3366,102 @@ async function closeOn(code, dayYmd) {
     return 0;
   }
 }
+/* ══════════════════════════════════════════════════════════════════════════
+   [v9.71] 적중률 측정 전면 재작성 — 예전 숫자가 의미 없던 이유
+   ─────────────────────────────────────────────────────────────────────────
+   ① 재는 구간이 뒤죽박죽이었다.
+      추천은 '내일 장'을 겨냥하는데, 장중(15:40 이전)에 만든 목록은 target 이
+      '오늘'이라 오늘 종가와 비교됐다. 즉 어떤 날은 '몇 시간 수익률', 어떤 날은
+      '하룻밤+하루 수익률'이 한 통계에 섞였다. 서로 다른 것을 평균 낸 값이라
+      숫자 자체가 뜻을 갖지 못했다.
+   ② 기준이 너무 헐거웠다. ret > 0 이면 무조건 적중. 아무 종목이나 찍어도
+      절반은 오르므로, 50% 근처 숫자는 '맞혔다'는 증거가 되지 못한다.
+   ③ 비교 대상이 없었다. 그날 시장이 2% 오른 날의 +1% 는 사실 부진한 결과다.
+
+   새 방식
+      · 기준가와 평가일을 기록에서 그대로 읽어, 같은 성격의 구간만 집계한다.
+      · 세 가지를 함께 낸다 —
+          목표달성률 : 종목별 목표수익(targetPct, 대개 +3~9%)에 도달했는가
+          상승비율   : 그냥 올랐는가(참고용)
+          초과성과   : 같은 기간 코스피 대비 얼마나 더/덜 올랐는가  ← 핵심 지표
+      · 표본이 30건 미만이면 비율을 내지 않는다. 적은 표본의 비율은 착시다.
+   ══════════════════════════════════════════════════════════════════════════ */
+async function idxCloseOn(sym, dayYmd) {
+  const d = dayYmd.replace(/-/g, "");
+  try {
+    const c = new AbortController(); const t = setTimeout(() => c.abort(), 4e3);
+    const r = await fetch(`https://api.finance.naver.com/siseJson.naver?symbol=${sym}&requestType=1&startTime=${d}&endTime=${d}&timeframe=day`,
+      { headers: { "User-Agent": UA7, Referer: "https://finance.naver.com/" }, signal: c.signal });
+    const txt = await r.text(); clearTimeout(t);
+    const rows = JSON.parse(String(txt).trim().replace(/'/g, '"').replace(/,\s*]/g, "]"));
+    const row = Array.isArray(rows) && rows.length > 1 ? rows[1] : null;
+    return row ? num2(row[4]) : 0;
+  } catch { return 0; }
+}
 async function scoreAccuracy(store) {
   if (!store) return null;
   let acc = null;
-  try {
-    acc = await store.get("picks:accuracy", { type: "json" });
-  } catch {
-  }
-  acc = acc || { scored: {}, total: 0, hit: 0, sumRet: 0, updatedAt: 0 };
-  const today = /* @__PURE__ */ new Date();
-  for (let back = 1; back <= 30; back++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - back);
+  try { acc = await store.get("picks:accuracy", { type: "json" }); } catch {}
+  acc = acc || { v: 9, scored: {}, updatedAt: 0 };
+  /* 방식이 바뀌었으므로 예전 집계는 버린다 — 섞이면 새 숫자도 오염된다 */
+  if (acc.v !== 9) acc = { v: 9, scored: {}, updatedAt: 0 };
+
+  const today = new Date();
+  let budget = 22;                                  // 외부 호출 한도를 지킨다
+  for (let back = 1; back <= 30 && budget > 0; back++) {
+    const d = new Date(today); d.setDate(d.getDate() - back);
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     if (acc.scored[day]) continue;
     let rec = null;
-    try {
-      rec = await store.get("picks:" + day, { type: "json" });
-    } catch {
-      continue;
-    }
+    try { rec = await store.get("picks:" + day, { type: "json" }); } catch { continue; }
     if (!rec || !rec.picks || !rec.picks.length) continue;
-    let hit = 0, n = 0, sum = 0;
-    for (const p of rec.picks.slice(0, 12)) {
-      const c = await closeOn(p.code, day);
+    /* [핵심] 장중에 만든 목록은 '내일 장' 추천이 아니다 — 집계에서 뺀다.
+       그래야 같은 성격의 구간만 남는다. */
+    if (rec.basisKind && rec.basisKind !== "close") { acc.scored[day] = { skip: "intraday" }; continue; }
+    if (!rec.basisKind) { acc.scored[day] = { skip: "legacy" }; continue; }   // 기준 정보가 없는 옛 기록
+
+    let n = 0, hitTarget = 0, hitUp = 0, sum = 0, sumEx = 0;
+    /* 같은 구간의 코스피 수익률 — 초과성과 비교용 */
+    const kPrev = await idxCloseOn("KOSPI", rec.basisYmd || day); budget--;
+    const kNow = await idxCloseOn("KOSPI", day); budget--;
+    const kRet = (kPrev > 0 && kNow > 0) ? (kNow - kPrev) / kPrev * 100 : null;
+    for (const p of rec.picks.slice(0, 10)) {
+      if (budget <= 0) break;
+      const c = await closeOn(p.code, day); budget--;
       if (!c || !p.price) continue;
       const ret = (c - p.price) / p.price * 100;
-      n++;
-      sum += ret;
-      if (ret > 0) hit++;
+      const tgt = (p.stats && p.stats.targetPct) || 5;
+      n++; sum += ret;
+      if (ret >= tgt) hitTarget++;
+      if (ret > 0) hitUp++;
+      if (kRet != null) sumEx += (ret - kRet);
     }
     if (!n) continue;
-    acc.scored[day] = { n, hit, avgRet: Number((sum / n).toFixed(2)) };
-    acc.total += n;
-    acc.hit += hit;
-    acc.sumRet += sum;
+    acc.scored[day] = {
+      n, hitTarget, hitUp,
+      avgRet: Number((sum / n).toFixed(2)),
+      kRet: kRet == null ? null : Number(kRet.toFixed(2)),
+      excess: kRet == null ? null : Number((sumEx / n).toFixed(2))
+    };
+  }
+  /* ── 합산 ── */
+  let T = 0, HT = 0, HU = 0, SR = 0, SE = 0, EN = 0, days = 0;
+  for (const k of Object.keys(acc.scored)) {
+    const v = acc.scored[k]; if (!v || v.skip || !v.n) continue;
+    days++; T += v.n; HT += v.hitTarget || 0; HU += v.hitUp || 0; SR += v.avgRet * v.n;
+    if (v.excess != null) { SE += v.excess * v.n; EN += v.n; }
   }
   acc.updatedAt = Date.now();
-  acc.hitRate = acc.total ? Number((acc.hit / acc.total * 100).toFixed(1)) : null;
-  acc.avgReturn = acc.total ? Number((acc.sumRet / acc.total).toFixed(2)) : null;
-  try {
-    await store.setJSON("picks:accuracy", acc);
-  } catch {
-  }
+  acc.total = T; acc.days = days;
+  const ENOUGH = 30;                                 // 표본이 이보다 적으면 비율을 내지 않는다
+  acc.enough = T >= ENOUGH;
+  acc.targetRate = acc.enough ? Number((HT / T * 100).toFixed(1)) : null;
+  acc.upRate = acc.enough ? Number((HU / T * 100).toFixed(1)) : null;
+  acc.avgReturn = T ? Number((SR / T).toFixed(2)) : null;
+  acc.excess = EN >= ENOUGH ? Number((SE / EN).toFixed(2)) : null;
+  /* 예전 화면 호환 */
+  acc.hitRate = acc.upRate;
+  try { await store.setJSON("picks:accuracy", acc); } catch {}
   return acc;
 }
 var UA7, num2, picks_accuracy_default;
@@ -3446,7 +3640,7 @@ async function fromList(code) {
     value: num3(x.amonut),
     // 거래대금(백만원)
     marketSum: num3(x.marketSum),
-    // 순자산총액(억원)
+    // [v9.71] 네이버 ETF 목록의 marketSum 은 시가총액(억원)이다 — 순자산총액(AUM)이 아니다
     tab: TAB[x.etfTabCode] || ""
   });
   return { ok: !!me, n: list.length, me: me ? mk(me) : null, peers: peers.map(mk), peerPool: peerPool.map(mk) };
@@ -4886,6 +5080,23 @@ function krLive() {
   if (wd === 0 || wd === 6) return false;
   return hm >= 480 && hm < 1200;
 }
+/* ══ [v9.71] 지수 전용 '지금 어디든 열려 있나' 판정 ══════════════════════════
+   [무엇이 잘못됐나] cacheHdr 의 기준인 krLive() 는 한국 시각 08:00~20:00 만
+   'live' 로 본다. 그런데 나스닥·S&P·다우가 실제로 움직이는 시간은 한국 밤
+   22:30~05:00 이다. 그 시간대에는 idle 로 잡혀 max-age=120 ·
+   stale-while-revalidate=600 이 걸렸고, 엣지 캐시가 최대 12분 지난 응답을
+   그대로 내보냈다 — 화면의 해외 지수가 실제와 다르게 보이던 큰 원인이다.
+   선물·코인은 사실상 24시간이므로, 지수 응답은 '어느 시장이든 열려 있으면'
+   짧은 캐시를 쓴다. */
+function idxLive() {
+  try {
+    const { wd, hm } = kstMin();
+    if (wd >= 1 && wd <= 5 && hm >= 480 && hm < 1200) return true;      // 국내 08:00~20:00
+    /* 미국 정규장 — 서머타임 여부와 무관하게 넉넉히 잡는다(22:00~06:00 KST) */
+    if (hm >= 1320 || hm < 360) { const d = (hm >= 1320) ? wd : (wd + 6) % 7; if (d >= 1 && d <= 5) return true; }
+    return false;
+  } catch (e) { return true; }
+}
 function cacheHdr(live, idle, isLive) {
   const on = isLive === void 0 ? krLive() : !!isLive;
   const s = on ? live : idle;
@@ -6094,7 +6305,7 @@ var etflist_default = async (req2) => {
         value: num4(x.amonut),
         // 거래대금(백만원)
         marketSum: num4(x.marketSum),
-        // 순자산(억원)
+        // [v9.71] 시가총액(억원) — 화면 라벨과 일치
         tabCode: x.etfTabCode,
         tab: TAB2[x.etfTabCode] || "\uAE30\uD0C0",
         brand: brandOf(name),
@@ -8046,12 +8257,17 @@ function parseSchedule(html) {
    · 의무보유 확약   — 기관이 일정 기간 안 팔겠다고 약속한 비율 (물량 부담 가늠) */
 async function ipoAttachRates(items){
   if(!items||!items.length)return;
-  const norm=(v)=>String(v||"").replace(/\s|\(주\)|㈜/g,"");
+  /* [v9.71] 괄호 주석('(유가)'·'(코스닥)' 등)까지 떼어야 일정 표의 이름과 맞는다 */
+  const norm=(v)=>String(v||"").replace(/\(.*?\)/g,"").replace(/\s|㈜/g,"");
   const idx={};
   for(const it of items)idx[norm(it.name)]=it;
   const pull=async(url,pick)=>{
     try{
-      const h=await tget(url,7000);
+      /* ══ [v9.71] 경쟁률이 한 번도 안 붙던 진짜 원인 ═══════════════════════
+         38커뮤니케이션은 EUC-KR 인데 tget 은 UTF-8 로만 디코드한다. 종목명이
+         전부 깨져(�) 일정 목록과 이름 매칭이 0건 — demand·subRate 가 영영
+         비어 있었다. 일정과 같은 EUC-KR 디코더로 읽는다. */
+      const h=await fetchDecoded(url,7000);
       if(!h)return;
       for(const rowM of h.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)){
         const cells=[...rowM[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
@@ -8434,6 +8650,98 @@ async function pollingIndex(codes) {
   });
   return { map, arr };
 }
+/* ══ [v9.71] 국내 지수 실시간을 여러 곳에서 받아 교차검증한다 ════════════════
+   [무엇이 잘못됐나] 지금까지 코스피·코스닥 현재가는 polling.finance.naver.com
+   한 곳에만 의존했다. 그 경로가 막히거나 형식이 바뀌면 값이 통째로 비고,
+   그러면 pack() 이 조용히 '30일 일봉의 마지막 종가'를 현재가 자리에 넣었다.
+   장중에 어제 종가가 오늘 지수처럼 보이던 이유가 이것이다.
+   [고침] 성격이 다른 세 경로를 함께 두드린다.
+     ① polling.finance.naver.com  — 실시간 전용(가장 빠름)
+     ② m.stock.naver.com  /api/index/{code}/basic — 모바일 앱이 쓰는 경로
+     ③ finance.naver.com/sise/sise_index.naver — HTML(EUC-KR) 직접 파싱
+   먼저 도착한 값을 쓰되, 다른 경로와 0.6% 넘게 어긋나면 '둘 이상이 합의한 값'을
+   고른다(한 곳의 형식 오독을 다른 두 곳이 잡아 준다).
+   등락·등락률은 받은 그대로 믿지 않고 전일 종가로 다시 계산해 일관성을 맞춘다. */
+function idxSane(o) {
+  if (!o || !(o.price > 0)) return false;
+  if (!isFinite(o.change) || !isFinite(o.rate)) return false;
+  if (Math.abs(o.rate) > 20) return false;                 // 하루 20% 넘는 지수 변동은 파싱 오류
+  return true;
+}
+/* 등락·등락률·현재가의 앞뒤를 맞춘다 — 셋 중 둘만 맞아도 나머지를 복원할 수 있다 */
+function idxNorm(price, change, rate) {
+  price = Number(price); change = Number(change); rate = Number(rate);
+  if (!(price > 0)) return null;
+  let prev = null;
+  if (isFinite(change) && change !== 0) prev = price - change;
+  if ((prev == null || !(prev > 0)) && isFinite(rate) && rate !== 0) prev = price / (1 + rate / 100);
+  if (!(prev > 0)) prev = price;
+  /* 부호가 어긋나면(절대값만 준 경우) 등락률 쪽 부호를 따른다 */
+  if (isFinite(rate) && rate !== 0 && isFinite(change) && change !== 0
+      && (rate > 0) !== (change > 0)) { change = -change; prev = price - change; }
+  const ch = price - prev;
+  return { price, change: ch, rate: prev ? ch / prev * 100 : 0, prev };
+}
+async function mstockIndex(code) {
+  try {
+    const j = await jget8(`https://m.stock.naver.com/api/index/${code}/basic`, 3500,
+      { "User-Agent": UA20, Accept: "application/json", Referer: "https://m.stock.naver.com/" });
+    if (!j) return null;
+    const d = j.result || j.datas || j;
+    const o = idxNorm(num7(d.closePrice ?? d.nv ?? d.now),
+      num7(d.compareToPreviousClosePrice ?? d.cv ?? d.change),
+      num7(d.fluctuationsRatio ?? d.cr ?? d.changeRate));
+    return idxSane(o) ? o : null;
+  } catch (e) { return null; }
+}
+async function siseIndexScrape(code) {
+  try {
+    const c = new AbortController(); const t = setTimeout(() => c.abort(), 4500);
+    const r = await fetch(`https://finance.naver.com/sise/sise_index.naver?code=${code}`,
+      { headers: { "User-Agent": UA20, Accept: "text/html,*/*", "Accept-Language": "ko",
+        Referer: "https://finance.naver.com/sise/" }, signal: c.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const h = decodeSmart9(await r.arrayBuffer(), r.headers.get("content-type"));
+    const strip = (v) => String(v || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/gi, " ").replace(/,/g, "").trim();
+    const nv = h.match(/id="now_value"[^>]*>([\s\S]*?)<\/(?:span|em|strong)>/i);
+    if (!nv) return null;
+    const price = Number(strip(nv[1]));
+    if (!(price > 0)) return null;
+    const cw = h.match(/id="change_value_and_rate"[^>]*>([\s\S]*?)<\/(?:span|em|strong)>/i);
+    let change = 0, rate = 0;
+    if (cw) {
+      const txt = strip(cw[1]);
+      const nums = txt.match(/-?\d+(?:\.\d+)?/g) || [];
+      if (nums.length >= 1) change = Number(nums[0]);
+      if (nums.length >= 2) rate = Number(nums[1]);
+      if (/하락|마이너스|down/i.test(cw[1]) || /하락/.test(txt)) { change = -Math.abs(change); rate = -Math.abs(rate); }
+    }
+    const o = idxNorm(price, change, rate);
+    return idxSane(o) ? o : null;
+  } catch (e) { return null; }
+}
+/* 세 경로의 값을 견줘 가장 믿을 만한 하나를 고른다 */
+function idxAgree(list) {
+  const ok = list.filter(idxSane);
+  if (!ok.length) return null;
+  if (ok.length === 1) return ok[0];
+  /* 서로 0.6% 안쪽인 짝이 있으면 그 무리(가장 큰 무리)의 첫 값을 쓴다 */
+  let best = null, bestN = 0;
+  for (const a of ok) {
+    const n = ok.filter(b => Math.abs(b.price - a.price) / a.price < 0.006).length;
+    if (n > bestN) { bestN = n; best = a; }
+  }
+  return best || ok[0];
+}
+async function krIndexRealtime(code, fromPolling) {
+  const [ms, sc] = await Promise.all([settle2(mstockIndex(code)), settle2(siseIndexScrape(code))]);
+  const pol = fromPolling ? idxNorm(fromPolling.price, fromPolling.change, fromPolling.rate) : null;
+  const pick = idxAgree([pol, ms, sc]);
+  if (!pick) return null;
+  return { price: pick.price, change: pick.change, rate: pick.rate,
+    src: pick === pol ? "polling" : pick === ms ? "mstock" : "sise" };
+}
 async function naverIndexHist(code) {
   try {
     const d = await jget8(`https://m.stock.naver.com/api/index/${code}/price?pageSize=30&page=1`, 3500);
@@ -8442,6 +8750,44 @@ async function naverIndexHist(code) {
   } catch {
     return [];
   }
+}
+/* ══ [v9.71] 지수 카드 스파크를 '당일 분봉'으로 ═══════════════════════════════
+   [무엇이 틀렸나] 카드의 작은 그래프가 최근 30일 '일봉 종가'였다. 오늘 +3.5%
+   갭 상승한 날에도 한 달 흐름이 하락이면 그래프는 내리막으로 보였다 — 증권사
+   앱(당일 분봉)과 전혀 다른 그림이라 '지수가 안 맞는' 인상을 줬다.
+   [고침] fchart 분봉(지수 심볼도 지원)에서 마지막 거래일 하루치를 골라 쓴다.
+   실시간이 살아 있으면 마지막 점을 현재가로 맞춘다. 분봉이 안 오면 예전처럼
+   30일 일봉으로 물러난다. 실시간이 죽은 날은 일봉을 우선한다 — 값 대체(pack)가
+   일봉 마지막 종가를 쓰기 때문이다. */
+async function idxSparkSmart(code, rt) {
+  const alive = !!(rt && rt.price);
+  if (alive) {
+    try {
+      const mc = await fchartMinute(code);
+      if (mc && mc.length > 5) {
+        const days = [...new Set(mc.map((c) => c.d.slice(0, 8)))].sort();
+        let day = mc.filter((c) => c.d.slice(0, 8) === days[days.length - 1]).map((c) => c.c);
+        if (day.length < 5 && days.length > 1)
+          day = mc.filter((c) => c.d.slice(0, 8) === days[days.length - 2]).map((c) => c.c).concat(day);
+        if (day.length > 60) {
+          const st = day.length / 60, out = [];
+          for (let i = 0; i < 60; i++) out.push(day[Math.floor(i * st)]);
+          out.push(day[day.length - 1]);
+          day = out;
+        }
+        if (day.length >= 5) {
+          if (rt.price > 0 && Math.abs(day[day.length - 1] - rt.price) / rt.price < 0.05)
+            day[day.length - 1] = rt.price;
+          return { hist: day, intraday: 1 };
+        }
+      }
+    } catch (e) {}
+  }
+  try {
+    const h = await naverIndexHist(code);
+    if (h && h.length >= 2) return { hist: h, intraday: 0 };
+  } catch (e) {}
+  return { hist: [], intraday: 0 };
 }
 async function yahooIndex2(sym) {
   const d = await jget8(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1mo&interval=1d`, 4500, { "User-Agent": UA20, "Accept": "application/json" });
@@ -8471,6 +8817,10 @@ async function cnbcIndex(sym){
   const price=usSuffixNum(d.last); if(price==null)return null;
   const chg=usSuffixNum(d.change);
   let prev=usSuffixNum(d.previous_day_closing); if(prev==null&&chg!=null)prev=price-chg;
+  /* [v9.71] 현재가·등락·등락률의 앞뒤를 맞춘다 — 셋이 어긋나면 화면 숫자가 서로 안 맞는다 */
+  const n2 = idxNorm(price, chg != null ? chg : (prev != null ? price - prev : 0),
+    usSuffixNum(d.change_pct) || 0);
+  if (n2) return { price: n2.price, change: n2.change, rate: n2.rate, history: [] };
   return { price, change:chg!=null?chg:(prev!=null?price-prev:0),
            rate:(prev&&prev>0)?(price-prev)/prev*100:(usSuffixNum(d.change_pct)||0), history:[] };
 }
@@ -9200,7 +9550,9 @@ async function krFutures() {
   return out;
 }
 function pack(name, key, cur, hist, tag) {
-  let history = hist || [], price, change, rate;
+  /* [v9.71] 실시간을 못 받아 이력 마지막 종가로 대체했을 때 stale 표시를 남긴다.
+     예전엔 표시가 없어 장중에 전일 종가가 현재가처럼 보였다(지수 부정확의 한 축). */
+  let history = hist || [], price, change, rate, stale = 0;
   if (cur && cur.price) {
     price = cur.price;
     change = cur.change;
@@ -9211,13 +9563,14 @@ function pack(name, key, cur, hist, tag) {
     const prev = history.length > 1 ? history[history.length - 2] : price;
     change = price - prev;
     rate = prev ? change / prev * 100 : 0;
+    stale = 1;
   } else {
     price = null;
     change = 0;
     rate = 0;
     history = [];
   }
-  return { key, name, price, change, rate, history, tag: tag || "" };
+  return { key, name, price, change, rate, history, tag: tag || "", stale };
 }
 var market_default = async (req2) => {
   try {
@@ -9243,8 +9596,8 @@ var market_default = async (req2) => {
       gold,
       krf
     ] = await Promise.all([
-      settle2(naverIndexHist("KOSPI")),
-      settle2(naverIndexHist("KOSDAQ")),
+      settle2(idxSparkSmart("KOSPI", idx.map.KOSPI || idx.arr[0])),
+      settle2(idxSparkSmart("KOSDAQ", idx.map.KOSDAQ || idx.arr[1])),
       settle2(worldIndex("^IXIC", "^ndq", ".IXIC")),
       settle2(worldIndex("^GSPC", "^spx", ".INX")),
       settle2(worldIndex("^DJI", "^dji", ".DJI")),
@@ -9264,7 +9617,12 @@ var market_default = async (req2) => {
       settle2(yahooOnly("GC=F")),
       settle2(krFutures())
     ]);
-    const kospi = idx.map.KOSPI || idx.arr[0], kosdaq = idx.map.KOSDAQ || idx.arr[1];
+    /* [v9.71] 폴링 값을 그대로 쓰지 않고 다른 두 경로와 견줘 확정한다 */
+    const [kospiRT, kosdaqRT] = await Promise.all([
+      settle2(krIndexRealtime("KOSPI", idx.map.KOSPI || idx.arr[0])),
+      settle2(krIndexRealtime("KOSDAQ", idx.map.KOSDAQ || idx.arr[1]))
+    ]);
+    const kospi = kospiRT || idx.map.KOSPI || idx.arr[0], kosdaq = kosdaqRT || idx.map.KOSDAQ || idx.arr[1];
     const usdRate = usdH && usdH.length ? usdH[usdH.length - 1] : 1350;
     const toKrw = (c) => c ? { price: c.price * usdRate, change: c.change * usdRate, rate: c.rate, history: (c.history || []).map((v) => v * usdRate) } : null;
     const btcK = toKrw(btc), ethK = toKrw(eth);
@@ -9272,8 +9630,8 @@ var market_default = async (req2) => {
     const body = {
       ok: true,
       indices: [
-        pack("\uCF54\uC2A4\uD53C", "KOSPI", kospi, kospiH || [], "\uAD6D\uB0B4"),
-        pack("\uCF54\uC2A4\uB2E5", "KOSDAQ", kosdaq, kosdaqH || [], "\uAD6D\uB0B4"),
+        pack("\uCF54\uC2A4\uD53C", "KOSPI", kospi, (kospiH && kospiH.hist) || [], "\uAD6D\uB0B4"),
+        pack("\uCF54\uC2A4\uB2E5", "KOSDAQ", kosdaq, (kosdaqH && kosdaqH.hist) || [], "\uAD6D\uB0B4"),
         P("\uB098\uC2A4\uB2E5 \uC885\uD569", "NASDAQ", ndq, "\uD574\uC678"),
         P("S&P 500", "SP500", spx, "\uD574\uC678"),
         P("\uB2E4\uC6B0 \uC0B0\uC5C5", "DOW", dow, "\uD574\uC678"),
@@ -9324,11 +9682,24 @@ var market_default = async (req2) => {
         missing: want.filter((k) => !have[k]),
         suspect: body.indices.filter((x) => x.price != null && Math.abs(x.rate || 0) > 25).map((x) => x.key + ":" + (x.rate || 0).toFixed(1) + "%"),
         nightBasis: krf && krf.night && krf.night.basis || "none",
+        idxSrc: { KOSPI: (kospiRT && kospiRT.src) || "polling-only", KOSDAQ: (kosdaqRT && kosdaqRT.src) || "polling-only" },
+        stale: body.indices.filter((x) => x.stale).map((x) => x.key),
         at: (/* @__PURE__ */ new Date()).toISOString()
       };
     } catch {
     }
-    return new Response(JSON.stringify(body), { headers: cacheHdr(5, 120) });
+    /* ══ [v9.71] 지수 전용 캐시 헤더 ═══════════════════════════════════════
+       cacheHdr 의 stale-while-revalidate 는 max-age 의 5배(최소 30초)라,
+       엣지가 '되받아오는 동안' 최대 35초 지난 값을 그대로 내보낼 수 있었다.
+       미국장 시간대에는 krLive 가 false 라 max-age 120 + SWR 600 —
+       최대 12분 묵은 지수가 나갔다. 지수만큼은 짧게 못 박는다. */
+    const live = idxLive(), ma = live ? 5 : 20;
+    return new Response(JSON.stringify(body), { headers: {
+      "content-type": "application/json",
+      "cache-control": `public, max-age=${ma}, stale-while-revalidate=${live ? 5 : 20}`,
+      "cloudflare-cdn-cache-control": `public, max-age=${ma}, stale-while-revalidate=${live ? 5 : 20}`,
+      "x-cache-policy": live ? `idx-live-${ma}s` : `idx-idle-${ma}s`
+    } });
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: String(e), indices: [], fx: [] }), { headers: { "content-type": "application/json" } });
   }
@@ -11508,6 +11879,26 @@ function usSuffixNum(v){                 /* "3.19T"·"52,164,057" → 숫자 */
   return n*({T:1e12,B:1e9,M:1e6,K:1e3}[(m[2]||"").toUpperCase()]||1);
 }
 function usSymDot(reu){ return usSym(reu).replace(/-/g,"."); }   /* BRK-B → BRK.B (CNBC·Cboe 표기) */
+/* ══ [v9.71] 시가총액 단위 정규화 — 원천 표기가 제각각이라 검산이 필요하다 ══
+   접미사가 있으면 이미 절대 달러, 없으면 백만 달러 표기로 본다.
+   어느 쪽으로 읽어도 발행주식수가 말이 안 되면 값을 버린다(거짓 숫자 금지). */
+function capNorm(raw, price){
+  if(raw==null||raw==="")return null;
+  const txt=String(raw).trim().replace(/[\s,$%]/g,"");
+  const hadSuffix=/[TBMK]$/i.test(txt);
+  let cap=usSuffixNum(raw);
+  if(cap==null||!(cap>0))return null;
+  if(!hadSuffix&&cap<1e8)cap=cap*1e6;          /* 접미사 없는 작은 수 = 백만 달러 표기 */
+  const shOk=(n)=>n>=1e4&&n<=5e11;             /* 발행주식수 상식 범위 */
+  if(price>0){
+    if(!shOk(cap/price)){
+      /* 읽는 방식을 뒤집어 한 번 더 — 그래도 안 맞으면 표시하지 않는다 */
+      const alt=hadSuffix?cap*1e6:cap/1e6;
+      if(shOk(alt/price))cap=alt; else return null;
+    }
+  }
+  return cap>0?cap:null;
+}
 function cnbcParse(txt){
   let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
   let arr=(j&&j.FormattedQuoteResult&&j.FormattedQuoteResult.FormattedQuote)
@@ -11518,6 +11909,7 @@ function cnbcParse(txt){
   for(const d of arr){
     if(!d||typeof d!=="object")continue;
     const pk=(...ks)=>{ for(const k of ks){ if(d[k]!=null&&d[k]!==""){ const n=usSuffixNum(d[k]); if(n!=null)return n; } } return null; };
+    const pkRaw=(...ks)=>{ for(const k of ks){ if(d[k]!=null&&d[k]!=="")return d[k]; } return null; };   /* [v9.71] 원문 그대로 — 접미사 유무를 봐야 한다 */
     const regLast=pk("last","last_price","price");
     let price=regLast;
     /* 프리·애프터 시간에는 확장거래 체결가가 따로 온다 — 있으면 그걸 현재가로 */
@@ -11538,11 +11930,19 @@ function cnbcParse(txt){
       if(ch!=null){ const dir=String(d.changetype||"").toUpperCase();
         if(dir==="DOWN"&&ch>0)ch=-ch; else if(dir==="UP"&&ch<0)ch=-ch;
         prev=+(regLast-ch).toFixed(4); } }
-    /* [v4.49] 시가총액 단위 방어 — 원천에 따라 '3.19T'(달러) 또는 '3371148'(백만달러)로 온다.
-       접미사 없이 작은 수로 오면 백만 단위로 보고 환산한다(억 단위 오표기 방지). */
-    let cap=pk("mktcapView","mktcap","market_cap");
-    if(cap!=null&&cap>0&&cap<1e8)cap=cap*1e6;
-    if(cap!=null&&!(cap>0))cap=null;
+    /* ══ [v9.71] 시가총액이 100만 배로 부풀던 오류 ═══════════════════════════
+       [무엇이 잘못됐나] v4.49 의 방어식은 "cap<1e8 이면 백만 단위" 라고 단정했다.
+       그런데 usSuffixNum 은 접미사를 이미 풀어서 돌려준다.
+         · "3371148"(백만달러 표기) → 3,371,148 → ×1e6 = 3.37조 달러 ✔ 의도대로
+         · "70.5M"(이미 달러 단위)  → 70,500,000 → ×1e6 = 70.5조 달러 ✘
+       즉 시가총액 1억 달러 미만인 소형주는 전부 100만 배로 뻥튀기됐다.
+       화면의 FGI·아이베다·리미나투스 같은 초소형주가 여기에 해당한다.
+       [고침] ① 접미사(T/B/M/K)가 붙어 온 값은 이미 달러다 — 절대 곱하지 않는다.
+              ② 접미사가 없는 작은 수만 백만 단위로 환산한다.
+              ③ 마지막으로 주가로 검산한다. 시가총액÷주가 = 발행주식수인데,
+                 이 값이 상식 범위(1만~5천억 주)를 벗어나면 표시하지 않는다.
+                 값을 지어내느니 '—' 로 두는 편이 낫다. */
+    let cap=capNorm(pkRaw("mktcapView","mktcap","market_cap"),price);
     /* 고가·저가가 현재가와 모순되면(원천 지연 혼합) 버린다 — 화면에 거짓 숫자를 남기지 않는다 */
     let hi=pk("high"), lo=pk("low");
     if(hi!=null&&price!=null&&hi<price*0.5)hi=null;
@@ -13591,62 +13991,84 @@ async function k200nf_default(req2, ctx){
    지수 숫자만으로는 알 수 없고, 흐름을 읽는 데 가장 먼저 보는 값이다.
    [단위] 억원. 양수면 순매수, 음수면 순매도. */
 async function invtrend_default(){
-  const UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+  /* ══ [v9.71] 전면 재작성 — v9.2 가 한 번도 값을 못 내던 이유 ═══════════════
+     ① 네이버 페이지는 EUC-KR 인데 tget(UTF-8 강제 디코드)으로 읽어 표가 깨졌고,
+        bizdate 를 비워 보내 표 자체가 안 오는 날이 있었다.
+        → arrayBuffer + decodeSmart9 로 읽고, bizdate 를 최근 영업일로 명시한다.
+     ② KRX 예비 경로는 '오늘' 날짜 고정이라 주말·이른 아침엔 항상 빈 표였고,
+        money 단위 가정도 어긋날 수 있었다.
+        → 최근 영업일을 차례로 시도하고, money:"1"(원)을 1e8 로 나눠 억원을 만든다.
+     단위: 억원. 양수 = 순매수, 음수 = 순매도. */
   const out={ok:false,kospi:null,kosdaq:null,at:"",diag:[]};
   const num=(v)=>{const n=Number(String(v==null?"":v).replace(/[,\s+]/g,""));return isFinite(n)?n:0;};
-
-  /* ① 네이버 금융 — 투자자별 매매동향(시장별) */
+  /* 최근 평일 후보(오늘 포함 6일) — 휴장일이면 표가 비므로 다음 후보로 넘어간다 */
+  const days=[];{let off=0;while(days.length<6&&off<10){
+    const d=new Date(Date.now()+9*3600e3-off*864e5);const w=d.getUTCDay();
+    if(w!==0&&w!==6)days.push(d.toISOString().slice(0,10).replace(/-/g,""));off++;}}
+  const sane=(o)=>{ if(!o)return false;
+    const a=[o.개인,o.외국인,o.기관];
+    if(!a.every(v=>isFinite(v)&&Math.abs(v)<300000))return false;   /* 하루 순매수 30조 초과는 파싱 오류로 본다 */
+    return a.some(v=>v!==0); };
+  /* ① 네이버 금융 — 투자자별 매매동향(일별) */
   const tryNaver=async(mk)=>{
-    try{
-      const u="https://finance.naver.com/sise/investorDealTrendDay.naver?bizdate=&sosok="+(mk==="kospi"?"01":"02");
-      const h=await tget(u,6000);
-      if(!h){out.diag.push("naver/"+mk+":empty");return null;}
-      /* 표 첫 줄이 가장 최근 날짜다 */
-      const rows=[...h.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map(r=>r[1]);
-      for(const r of rows){
-        const tds=[...r.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
-          .map(t=>t[1].replace(/<[^>]*>/g,"").replace(/&nbsp;/g," ").trim());
-        if(tds.length<4)continue;
-        if(!/^\d{2}\.\d{2}\.\d{2}$/.test(tds[0]))continue;
-        const per=num(tds[1]), fore=num(tds[2]), inst=num(tds[3]);
-        if(per||fore||inst){
-          return {date:tds[0],개인:Math.round(per),외국인:Math.round(fore),기관:Math.round(inst)};
+    for(const bd of [days[0],days[1]]){
+      if(!bd)continue;
+      try{
+        const u="https://finance.naver.com/sise/investorDealTrendDay.naver?bizdate="+bd
+          +"&sosok="+(mk==="kospi"?"01":"02");
+        const c=new AbortController();const t=setTimeout(()=>c.abort(),6500);
+        const r=await fetch(u,{headers:{ "User-Agent": UA20, Accept:"text/html,*/*",
+          "Accept-Language":"ko", Referer:"https://finance.naver.com/sise/" },signal:c.signal});
+        clearTimeout(t);
+        if(!r.ok){out.diag.push("nv/"+mk+":"+r.status);continue;}
+        const h=decodeSmart9(await r.arrayBuffer(),r.headers.get("content-type"));
+        const rows=[...h.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map(x=>x[1]);
+        for(const row of rows){
+          const tds=[...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+            .map(t2=>t2[1].replace(/<[^>]*>/g,"").replace(/&nbsp;/gi," ").trim());
+          if(tds.length<4)continue;
+          if(!/^\d{2}\.\d{2}\.\d{2}$/.test(tds[0]))continue;   /* 표 첫 데이터 행 = 가장 최근 날짜 */
+          const o={date:tds[0],개인:Math.round(num(tds[1])),외국인:Math.round(num(tds[2])),기관:Math.round(num(tds[3]))};
+          if(sane(o))return o;
         }
-      }
-      out.diag.push("naver/"+mk+":norow");
-    }catch(e){ out.diag.push("naver/"+mk+":"+String(e).slice(0,14)); }
+        out.diag.push("nv/"+mk+":norow@"+bd);
+      }catch(e){ out.diag.push("nv/"+mk+":"+String(e).slice(0,14)); }
+    }
     return null;
   };
-  const [a,b]=await Promise.all([tryNaver("kospi"),tryNaver("kosdaq")]);
-  out.kospi=a; out.kosdaq=b;
-
-  /* ② 네이버가 막히면 KRX 정보데이터시스템 */
-  if(!out.kospi||!out.kosdaq){
-    try{
-      const kst=new Date(Date.now()+9*3600e3);
-      const ymd=kst.toISOString().slice(0,10).replace(/-/g,"");
-      for(const [key,mkId] of [["kospi","STK"],["kosdaq","KSQ"]]){
-        if(out[key])continue;
+  /* ② KRX 정보데이터시스템 — 네이버가 막힌 날의 예비 경로 */
+  const tryKrx=async(key,mkId)=>{
+    for(const ymd2 of days){
+      try{
         const body=new URLSearchParams({
           bld:"dbms/MDC/STAT/standard/MDCSTAT02201",
-          locale:"ko_KR", mktId:mkId, trdDd:ymd, share:"1", money:"3", csvxls_isNo:"false"
-        });
+          locale:"ko_KR", mktId:mkId, trdDd:ymd2, share:"1", money:"1", csvxls_isNo:"false"});
+        const c=new AbortController();const t=setTimeout(()=>c.abort(),7000);
         const r=await fetch("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",{
           method:"POST",
-          headers:{"User-Agent":UA,"content-type":"application/x-www-form-urlencoded; charset=UTF-8",
+          headers:{"User-Agent":UA20,"content-type":"application/x-www-form-urlencoded; charset=UTF-8",
             Referer:"https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd"},
-          body});
+          body,signal:c.signal});
+        clearTimeout(t);
         if(!r.ok){out.diag.push("krx/"+key+":"+r.status);continue;}
         const j=await r.json();
-        const rows=(j&&j.output)||[];
-        const pick=(nm)=>{const f=rows.find(x=>String(x.INVST_TP_NM||"").includes(nm));
-          return f?Math.round(num(f.NETBID_TRDVAL)/1e8):0;};
-        if(rows.length)out[key]={date:ymd.slice(2,4)+"."+ymd.slice(4,6)+"."+ymd.slice(6),
+        const rows=(j&&(j.output||j.OutBlock_1))||[];
+        if(!rows.length){out.diag.push("krx/"+key+":empty@"+ymd2);continue;}
+        const pick=(nm)=>{const f=rows.find(x=>String(x.INVST_TP_NM||x.INVST_NM||"").includes(nm));
+          return f?Math.round(num(f.NETBID_TRDVAL)/1e8):0;};   /* money:"1" = 원 → 억원 */
+        const o={date:ymd2.slice(2,4)+"."+ymd2.slice(4,6)+"."+ymd2.slice(6),
           개인:pick("개인"),외국인:pick("외국인"),기관:pick("기관")};
-      }
-    }catch(e){ out.diag.push("krx:"+String(e).slice(0,14)); }
-  }
-  out.ok=!!(out.kospi||out.kosdaq);
+        if(sane(o))return o;
+        out.diag.push("krx/"+key+":zero@"+ymd2);
+      }catch(e){ out.diag.push("krx/"+key+":"+String(e).slice(0,14)); }
+    }
+    return null;
+  };
+  let [a,b]=await Promise.all([tryNaver("kospi"),tryNaver("kosdaq")]);
+  if(!a)a=await tryKrx("kospi","STK");
+  if(!b)b=await tryKrx("kosdaq","KSQ");
+  out.kospi=a; out.kosdaq=b;
+  out.ok=!!(a||b);
   out.at=new Date(Date.now()+9*3600e3).toISOString().slice(0,16).replace("T"," ")+" KST";
   return new Response(JSON.stringify(out),{headers:{
     "content-type":"application/json; charset=utf-8",
@@ -13937,7 +14359,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "9.7.0";
+var APP_VER = "9.71.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

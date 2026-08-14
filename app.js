@@ -1106,18 +1106,46 @@ function paintPicks(j){
   if($('picksAsOf')&&j.generatedAt){const d=new Date(j.generatedAt);$('picksAsOf').textContent='생성 '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0')+(j.cached?' · 캐시':'');}
   proLiveStamp('picksLive');
   if(j.building){ body.innerHTML='<div class="empty" style="padding-bottom:6px">'+(j.message||'분석 중입니다…')+'</div>'+'<div class="skel-row"></div><div class="skel-row"></div><div class="skel-row"></div>'; return; }
+  /* [v9.71] 후보가 0인 것은 오류가 아니다 — 조건에 맞는 자리가 없던 날이다.
+     예전에는 기준 미달 종목을 억지로 채워 넣었다. 없으면 없다고 말한다. */
+  if(j.ok&&(!j.picks||!j.picks.length)){
+    body.innerHTML='<div class="empty"><b>오늘은 조건을 채운 종목이 없습니다</b>'
+      +'<span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.65">'
+      +(j.gate&&j.gate.weakMkt?'하락 종목이 '+j.gate.breadth+'%로 시장 전체가 약합니다. ':'')
+      +'눌림목·수축·돌파 어느 자리에도 뚜렷이 해당하는 종목이 없어 추천을 내지 않았습니다.<br>'
+      +'기준에 못 미치는 종목을 채워 넣는 것보다, 쉬는 편이 낫습니다.</span></div>';
+    return; }
   if(!j.ok||!j.picks||!j.picks.length){ body.innerHTML='<div class="empty">추천 결과를 만들지 못했습니다. '+(j.why||'')+' 잠시 후 다시 시도해 주세요.</div>'; return; }
   /* [D6] 과거 추천의 실제 성과(적중률) */
+  /* ══ [v9.71] 성과 표시 재작성 ═══════════════════════════════════════════
+     예전에는 '오른 비율'만 크게 보여 줬다. 아무 종목이나 찍어도 절반은 오르므로
+     50% 근처 숫자는 잘 맞혔다는 증거가 못 된다. 진짜 봐야 할 것은
+     '같은 기간 코스피보다 얼마나 더 올랐는가(초과성과)'다. 그것을 앞에 둔다.
+     표본이 30건 미만이면 비율을 아예 내지 않는다 — 적은 표본의 비율은 착시다. */
   const a=j.accuracy;
-  const accHtml=a&&a.samples? `<div class="pk-acc">과거 추천 적중률 <b class="${a.hitRate>=50?'up':'down'}">${a.hitRate}%</b>
-      · 평균 수익률 <b class="${a.avgReturn>=0?'up':'down'}">${a.avgReturn>0?'+':''}${a.avgReturn}%</b>
-      <span class="pk-acc-n">(표본 ${a.samples.toLocaleString()}건 · 대상일 종가 기준 자동 채점)</span></div>`
-    : '<div class="pk-acc pk-acc-none">적중률은 추천이 하루 이상 쌓이면 자동으로 계산됩니다.</div>';
+  let accHtml;
+  if(a&&a.enough){
+    const ex=a.excess;
+    accHtml=`<div class="pk-acc">
+      <div class="pk-acc-main">시장 대비 <b class="${ex>0?'up':ex<0?'down':''}">${ex==null?'—':(ex>0?'+':'')+ex+'%p'}</b>
+        <i>같은 기간 코스피와 비교한 평균 초과수익</i></div>
+      <div class="pk-acc-sub">
+        <span>목표 도달 <b>${a.targetRate==null?'—':a.targetRate+'%'}</b></span>
+        <span>상승 비율 <b>${a.upRate==null?'—':a.upRate+'%'}</b></span>
+        <span>평균 수익 <b class="${a.avgReturn>=0?'up':'down'}">${a.avgReturn>0?'+':''}${a.avgReturn}%</b></span>
+      </div>
+      <div class="pk-acc-n">표본 ${a.total.toLocaleString()}건 · ${a.days}일 · 장 마감 후 만든 목록만 대상일 종가로 채점</div></div>`;
+  }else if(a&&a.total){
+    accHtml=`<div class="pk-acc pk-acc-none">채점 표본 ${a.total}건 — <b>30건이 모이면</b> 성과를 표시합니다.
+      <span class="pk-acc-n">표본이 적을 때의 비율은 우연에 가까워 숫자를 내지 않습니다.</span></div>`;
+  }else{
+    accHtml='<div class="pk-acc pk-acc-none">성과는 추천이 며칠 쌓이면 자동으로 계산됩니다.<span class="pk-acc-n">장 마감 후 생성된 목록만 채점 대상입니다.</span></div>';
+  }
   /* [A1] 확신도 — 엄선 게이트를 통과했는지 사용자가 구분할 수 있게 */
   const g=j.gate;
-  const gateHtml=g?(g.passed
-    ?`<div class="pk-gate ok">✔ 엄선 기준 통과 ${g.strongN}종 · 커트라인 ${g.minScore}점${g.weakMkt?' · <b>약세장 보수 모드</b>':''}</div>`
-    :`<div class="pk-gate warn">⚠ 오늘은 엄선 기준(추세·수급·과열 배제)을 채운 종목이 부족해 조건을 완화했습니다 — <b>확신 낮음</b></div>`)
+  const gateHtml=g?(g.passed>0
+    ?`<div class="pk-gate ok">✔ 기준 통과 ${g.passed}종 · 커트라인 ${g.minScore}점${g.weakMkt?` · <b>약세장 보수 모드</b>(하락 ${g.breadth}%)`:''}</div>`
+    :`<div class="pk-gate warn">⚠ 기준을 채운 종목이 없습니다 — 조건을 낮추지 않고 그대로 둡니다</div>`)
     :'';
   /* [A3] 최근 채점 이력 — 목표 적중률 70% 진척을 직접 확인 */
   const days=j.accDays;
@@ -1734,10 +1762,23 @@ function applyTheme(){
     const h=new Date().getHours()+new Date().getMinutes()/60;
     const dark=(h>=18.5||h<6.5);
     document.documentElement.setAttribute('data-theme',dark?'dark':'light');
+    syncThemeColor();
     return;
   }
   const t=settings.theme==='auto'?(prefersDark()?'dark':'light'):(settings.theme==='dark'?'dark':'light');
   document.documentElement.setAttribute('data-theme',t);
+  syncThemeColor();
+}
+/* ══ [v9.71] 상단 막대 색을 앱 테마에 맞춘다 ═══════════════════════════════
+   입장 화면이 낮 하늘이라 theme-color 를 하늘색으로 시작하게 바꿨다. 그대로 두면
+   앱에 들어와서도 상단이 하늘색으로 남으므로, 테마가 정해지면 여기서 되돌린다.
+   media 조건이 붙은 meta 는 조건 없는 meta 보다 우선하므로 셋 다 함께 바꾼다. */
+function syncThemeColor(){
+  try{
+    const dark=document.documentElement.getAttribute('data-theme')==='dark';
+    const c=dark?'#0f1420':'#f6f8fb';
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.setAttribute('content',c));
+  }catch(e){}
 }
 /* [D7] 시스템 테마가 바뀌면 '시스템' 설정일 때 즉시 따라간다 */
 try{const mq=window.matchMedia('(prefers-color-scheme: dark)');
@@ -1754,8 +1795,32 @@ function applyColor(){document.documentElement.setAttribute('data-color',setting
    (여유를 두어 하루 80,000회에서 갱신을 늦추기 시작한다) */
 function speedCfg(){ return {capM:2400000,capD:80000,q:[1500,3000,8000,60000],m:[3000,6000,15000,120000]}; }
 applyTheme();applyColor();
-function tickSize(p){if(p<2000)return 1;if(p<5000)return 5;if(p<20000)return 10;if(p<50000)return 50;if(p<200000)return 100;if(p<500000)return 500;return 1000;}
-const roundTick=(p)=>{const t=tickSize(p);return Math.round(p/t)*t;};
+/* ══ [v9.71] 호가단위가 코스피 기준 하나뿐이었다 ═══════════════════════════
+   [무엇이 잘못됐나] 2023년 호가단위 개편 이후 코스피와 코스닥의 단위가 다르다.
+     코스피 : 1 / 5 / 10 / 50 / 100 / 500 / 1,000  (20만·50만원에서 한 번 더 커짐)
+     코스닥 : 1 / 5 / 10 / 50 / 100                (5만원 이상은 전부 100원)
+   지금까지는 모든 종목에 코스피 표를 썼다. 그래서 20만원이 넘는 코스닥 종목
+   (에코프로비엠·알테오젠 등)의 지정가가 500원·1,000원 단위로 튕겨 나갔다 —
+   실제 거래소라면 접수되지 않는 가격이고, 상·하한가 표시도 함께 어긋났다.
+   [고침] 시장을 함께 받아 표를 갈라 쓴다. 시장을 모르면 코스피 표(기존 동작). */
+function tickSize(p,mkt){
+  if(p<2000)return 1; if(p<5000)return 5; if(p<20000)return 10; if(p<50000)return 50;
+  if(mkt==='코스닥'||mkt==='KOSDAQ')return 100;              // 코스닥은 여기서 멈춘다
+  if(p<200000)return 100; if(p<500000)return 500; return 1000;
+}
+function mktOf(code){ const m=(byCode[code]||{}).market||''; return /코스닥|KOSDAQ/i.test(m)?'코스닥':(m?'코스피':''); }
+function tickSizeOf(code,p){ return tickSize(p,mktOf(code)); }
+const roundTick=(p,mkt)=>{const t=tickSize(p,mkt);return Math.round(p/t)*t;};
+/* ══ [v9.71] 상·하한가는 반올림하면 법정 제한폭을 넘을 수 있다 ═══════════════
+   가격제한폭은 기준가 ±30% 이고, 호가단위 미만은 제한폭 '안쪽'으로 처리한다.
+     상한가 = 기준가×1.3 을 호가단위로 내림(절사)
+     하한가 = 기준가×0.7 을 호가단위로 올림(절상)
+   예전에는 둘 다 Math.round 였다. 기준가 6,750원이면
+     예전 상한가 8,780원 ← 제한폭(8,775원)을 넘는 값. 실제로는 존재할 수 없다.
+     지금 상한가 8,770원 ← 정상.
+   ※ 신규상장 첫날·정리매매 종목은 제한폭 규칙이 달라 이 계산이 맞지 않는다. */
+function limitUp(prev,mkt){ if(!(prev>0))return null; const raw=prev*1.3,t=tickSize(raw,mkt); return Math.floor(raw/t)*t; }
+function limitDown(prev,mkt){ if(!(prev>0))return null; const raw=prev*0.7,t=tickSize(raw,mkt); return Math.ceil(raw/t)*t; }
 const store={get(k){try{return JSON.parse(localStorage.getItem(k));}catch{return null;}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}},del(k){try{localStorage.removeItem(k);}catch{}}};
 /* [보안] 레거시 해시 — 구버전 계정 호환에만 쓴다. 새 비밀번호에는 쓰지 않는다. */
 function legacyHash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return 'h'+(h>>>0).toString(16);}
@@ -5543,7 +5608,28 @@ function quoteShouldPoll(){
 }
 // NXT 시간대는 KRX 정규장보다 체결이 뜸하므로 조금 느린 주기를 쓴다(호출 절약)
 function nxtOnlyWindow(){try{if(window.__NXTWIN)return true;}catch(e){} return !krxRegularOpen()&&nxtActive();}
-function marketShouldPoll(){return krxRegularOpen()||usMarketOpen();} // 지수가 실제 움직이는 시간
+/* ══ [v9.71] 지수 폴링 게이트를 실제 거래시간에 맞춘다 ═══════════════════════
+   [무엇이 잘못됐나] '국내 정규장 또는 미국 정규장'만 폴링 대상이었다. 그래서
+     · 저녁 8시(선물·코인 거래 중)   → 5분에 한 번
+     · 밤 10시 미국 프리마켓         → 5분에 한 번
+     · 오후 4~5시 항셍 장중          → 5분에 한 번
+   즉 카드에 5분 전 값이 걸려 있는 시간대가 하루의 절반이 넘었다.
+   [고침] 세 단계로 나눈다.
+     주요장(국내·미국 정규장)      → 기존 속도 그대로(3초~)
+     보조장(선물·아시아·미국 시간외·코인) → 중간 속도(15초~)
+     완전 휴장(주말 등)            → 느리게
+   호출 예산을 지키면서도 '움직이는 시장은 항상 따라간다'. */
+function mktSecondaryOpen(){
+  try{
+    if(krxTradable())return true;                       // 국내 시간외·동시호가
+    if(futuresOpen())return true;                       // 지수선물(거의 24시간)
+    if(marketOpen('N225')||marketOpen('HSI'))return true;// 아시아 지수
+    const t=nowTz('America/New_York');                  // 미국 프리·애프터(04:00~20:00 ET)
+    if(t.wd>=1&&t.wd<=5&&t.hm>=240&&t.hm<1200)return true;
+    return false;
+  }catch(e){ return false; }
+}
+function marketShouldPoll(){return krxRegularOpen()||usMarketOpen()||mktSecondaryOpen();}
 // 일 사용량에 따라 단계적으로 속도를 낮춰 하루치 예산이 오래 가도록(월/일 한도 초과 방지)
 function budgetTier(){const b=_fbGet();if(b.mc>=fnCapM()||b.dc>=fnCapD())return 3;const r=b.dc/fnCapD();return r<0.5?0:r<0.8?1:2;}
 // 장중: 빠르게(단계적) / 마감·주말·휴장: 폴링 일시중단(느린 확인만)
@@ -5690,11 +5776,15 @@ function scheduleNxtPrices(){
 function quoteIv(){ if(!quoteShouldPoll())return 60000;
   const base=speedCfg().q[budgetTier()];
   return nxtOnlyWindow()?Math.max(base,4000):base; }
-function marketIv(){ if(!marketShouldPoll())return budgetTier()===3?600000:300000; return speedCfg().m[budgetTier()]; }
+function marketIv(){
+  if(krxRegularOpen()||usMarketOpen())return speedCfg().m[budgetTier()];   // 주요장 — 가장 빠르게
+  if(mktSecondaryOpen())return [15000,30000,60000,120000][budgetTier()];   // 보조장 — 중간 속도
+  return budgetTier()===3?600000:300000;                                   // 완전 휴장
+}
 function sectorIv(){ if(!krxRegularOpen())return 600000; return [60000,90000,180000,600000][budgetTier()]; }
 
 /* ===== 지수/환율 ===== */
-let _mktBusy=false;
+let _mktBusy=false, _mktStaleTry=0;
 function scheduleMarket(){clearTimeout(window._mktT);window._mktT=setTimeout(pollMarket,marketIv());}
 async function pollMarket(){
   if(_mktBusy||document.hidden){scheduleMarket();return;} // 진행 중·백그라운드면 이번 회차 건너뛰고 다음 예약
@@ -5706,6 +5796,14 @@ async function pollMarket(){
       /* [v3.2] 서버 자가진단 보관 — 빈 지수·이상 등락률·야간선물 기준을 콘솔에서 확인 가능.
          야간선물을 못 받은 날은 카드가 아예 안 뜨므로, 왜 없는지는 여기서 본다. */
       idxHealth={health:j._health||null,futDiag:j._futDiag||null,at:new Date().toLocaleString('ko-KR')};
+      /* [v9.71] 국내·미국 지수가 직전 종가로 대체돼 왔으면(stale) 다음 회차를 앞당긴다.
+         5분을 기다리는 대신 8초 뒤 다시 두드려 실시간 값을 빨리 되찾는다. */
+      try{
+        const st=(j.indices||[]).filter(x=>x&&x.stale&&['KOSPI','KOSDAQ','NASDAQ','SP500','DOW'].includes(x.key));
+        if(st.length&&_mktStaleTry<4){ _mktStaleTry++;
+          clearTimeout(window._mktT); window._mktT=setTimeout(pollMarket,8000); }
+        else if(!st.length)_mktStaleTry=0;
+      }catch(e){}
       if(j._health&&j._health.suspect&&j._health.suspect.length)
         console.warn('[지수 점검] 등락률이 비정상적으로 큰 지수:',j._health.suspect.join(', '));
     }
@@ -6164,7 +6262,7 @@ try{ _k200nf=JSON.parse(localStorage.getItem('k200nf')||'null')||null;
    지수 숫자만으로는 '왜 오르내리는지'를 알 수 없다. 개인·외국인·기관 중
    누가 사고 누가 파는지가 흐름을 읽는 첫 단서다.
    장중에는 잠정치가, 장 마감 뒤에는 확정치가 들어온다. */
-var _invTrend=null, _ivtAt=0, _ivtBusy=false;
+var _invTrend=null, _ivtAt=0, _ivtBusy=false, _ivtTry=0;
 try{ _invTrend=JSON.parse(localStorage.getItem('invTrend')||'null')||null;
   if(_invTrend&&Date.now()-(_invTrend.at||0)>6*3600e3)_invTrend=null; }catch(e){}
 function invTrendLoad(force){
@@ -6174,13 +6272,18 @@ function invTrendLoad(force){
   fetch('/api/invtrend',{cache:'no-store'})
     .then(r=>r.json())
     .then(j=>{
-      if(j&&j.ok){
+      if(j&&j.ok&&(j.kospi||j.kosdaq)){
+        _ivtTry=0;
         _invTrend={kospi:j.kospi,kosdaq:j.kosdaq,label:j.at,at:Date.now()};
         try{ localStorage.setItem('invTrend',JSON.stringify(_invTrend)); }catch(e){}
+      }else if(++_ivtTry<=3){
+        /* [v9.71] 한 번 실패로 2분을 비워 두지 않는다 — 짧게 몇 번 더 두드린다 */
+        setTimeout(()=>{try{invTrendLoad(true);}catch(e){}},6000);
       }
       renderInvTrend();
     })
-    .catch(()=>renderInvTrend())
+    .catch(()=>{ if(++_ivtTry<=3)setTimeout(()=>{try{invTrendLoad(true);}catch(e){}},6000);
+      renderInvTrend(); })
     .finally(()=>{ _ivtBusy=false; });
 }
 function renderInvTrend(){
@@ -6378,6 +6481,7 @@ function idxCardHtml(x){
   return `<div class="idx-card"><div class="idx-tagline">${tag}<span class="idx-ch num ${dir}">${arrow(dir)} ${pctS(x.rate)}</span></div>
     <div class="idx-top"><span class="idx-nm"><span class="idx-nm-t">${htmlEsc(x.name)}</span></span></div>
     <div class="idx-lv num ${dir} ${fl}">${DEC(x.price)}</div><div class="idx-df num ${dir}">${signedDec(x.change)}${mktBadge(x.key,x.dayBasis)}</div>
+    ${x.stale?`<div class="icw-sub">실시간 수신 지연 · 직전 종가 기준</div>`:''}
     ${x.dayBasis?`<div class="icw-sub">${htmlEsc(x.dayBasis)}${/주간/.test(x.dayBasis)?' · 야간 시세 도착 시 자동 교체':''}</div>`:''}
     <canvas class="spark" id="spark-idx-${x.key}"></canvas></div>`;}
 // [개편] 주요 지수와 가상자산을 한 코너로 합치고, 분류 칩으로 걸러 볼 수 있게 한다.
@@ -9697,6 +9801,7 @@ function usPopLoad(cb){
     }
     usPop=out; usPopAt=Date.now(); _usPopStale=false; usPopSave();
     cb&&cb();
+    try{ setTimeout(usKrEnrich,600); }catch(e){}
     /* 아직 100위에 못 미치면 곧바로 한 번 더 — 서버가 다음 묶음을 받아 온다 */
     if(out.length<60&&_usPopTry<3)setTimeout(()=>usPopLoad(cb),400);   // 원천이 흔들린 날만 한 번 더
   }).catch(()=>{usPopBusy=false;_usPopTry++;});
@@ -10525,9 +10630,18 @@ function renderDetail(){
     srcLab.className='d-src '+b[1];
   }
   $('dChange').innerHTML=has?`<span class="${dir}"><span class="arrow">${arrow(dir)}</span> ${signed(diff)}</span><span class="${dir}">${pctS(p)}</span>`:'';
-  const stats=[['거래량',has?KRW(s.volume)+'주':'—'],['거래대금',s.value!=null?KRW(s.value/1e8)+'억':'—'],
+  /* ══ [v9.71] 거래량이 증권사 화면과 달라 보이던 이유를 밝힌다 ══════════════
+     서버는 KRX 정규장 누적과 NXT 시간외 누적을 합친 '통합 거래량'을 보낸다
+     (v5.5). 그런데 화면 라벨은 그냥 '거래량'이라, KRX 기준만 보여 주는
+     증권사 화면과 숫자가 달라도 이유를 알 수 없었다. 내역을 함께 적는다. */
+  const vNxt=Number(s.volNxt||0), vKrx=Number(s.volKrx||0);
+  const volLab=(vNxt>0&&vKrx>0)?`거래량 <span class="st-sub">KRX+NXT</span>`:'거래량';
+  const volVal=has?(KRW(s.volume)+'주'+((vNxt>0&&vKrx>0)?`<span class="st-sub">KRX ${KRW(vKrx)} · NXT ${KRW(vNxt)}</span>`:'')):'—';
+  const stats=[[volLab,volVal],['거래대금',s.value!=null?KRW(s.value/1e8)+'억':'—'],
     ['시가',KRW(s.open)],['고가',`<span class="up">${KRW(s.high)}</span>`],['저가',`<span class="down">${KRW(s.low)}</span>`],
-    ['전일종가',KRW(s.prevClose)],['상한가',s.prevClose?KRW(roundTick(s.prevClose*1.3)):'—'],['하한가',s.prevClose?KRW(roundTick(s.prevClose*0.7)):'—']];
+    ['전일종가',KRW(s.prevClose)],
+    ['상한가',s.prevClose?KRW(limitUp(s.prevClose,mktOf(selected))):'—'],
+    ['하한가',s.prevClose?KRW(limitDown(s.prevClose,mktOf(selected))):'—']];
   $('dStats').innerHTML=stats.map(([k,v])=>`<div class="st"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join('');
   safeRun('exRow',renderExchangeRow);
   updateStar();
@@ -11161,8 +11275,17 @@ function bizDataSentences(code,s,sector,lead){
   }
   /* 주가 위치 */
   let hi=sumStatNum(['52주최고','연중최고','최고가']),lo=sumStatNum(['52주최저','연중최저','최저가']);
+  /* ══ [v9.71] '52주'라면서 몇 년치 최고·최저를 쓰고 있었다 ═══════════════════
+     지표에서 못 받았을 때 일봉으로 메우는데, /api/chart 의 일봉은 수년치가 온다.
+     그걸 그대로 최고·최저로 삼아 '52주 최고가'라고 적었으니, 오래전 고점이
+     1년 고점으로 둔갑했다. 최근 1년(거래일 약 252개)으로 잘라서 계산한다. */
   const daily=_sumDaily[code];
-  if((!hi||!lo)&&daily&&daily.length){const H=daily.map(c=>c.h??c.c),L=daily.map(c=>c.l??c.c);hi=hi||Math.max(...H);lo=lo||Math.min(...L);}
+  if((!hi||!lo)&&daily&&daily.length){
+    const y1=daily.slice(-252);
+    const H=y1.map(c=>c.h??c.c).filter(v=>v>0),L=y1.map(c=>c.l??c.c).filter(v=>v>0);
+    if(H.length)hi=hi||Math.max(...H);
+    if(L.length)lo=lo||Math.min(...L);
+  }
   if(px!=null&&hi&&lo&&hi>lo){
     const upFromLo=(px-lo)/lo*100,dnFromHi=(hi-px)/hi*100;
     const pos=(px-lo)/(hi-lo)*100;
@@ -11466,7 +11589,11 @@ function renderInvestor(el){
    일봉 60~120개 + 실시간 시세 + 컨센서스를 종합해 키워드·매수밴드·단기/장기 목표·
    상승 확률·차트 예측을 산출한다. 30초 자동 갱신 + 시세 틱마다 2.5초 스로틀 갱신. */
 let _aiLast=0,_aiT=null;
-const tickPx=(v)=>{const t=v<2000?1:v<5000?5:v<20000?10:v<50000?50:v<200000?100:v<500000?500:1000;return Math.round(v/t)*t;};
+/* ══ [v9.71] AI 매수가·목표가·손절가도 실제 호가단위로 ═══════════════════
+   여기도 코스피 표만 있었다. 코스닥 20만원대 종목(에코프로비엠·알테오젠 등)의
+   추천가가 500원·1,000원 단위로 나와, 실제로는 낼 수 없는 주문 가격이었다.
+   tickSize(가격, 시장)를 그대로 쓴다 — 시장을 모르면 예전과 같이 코스피 기준. */
+const tickPx=(v,code)=>{const t=tickSize(v,mktOf(code||selected));return Math.round(v/t)*t;};
 function linreg(arr){const n=arr.length;let sx=0,sy=0,sxy=0,sxx=0;
   for(let i=0;i<n;i++){sx+=i;sy+=arr[i];sxy+=i*arr[i];sxx+=i*i;}
   const b=(n*sxy-sx*sy)/(n*sxx-sx*sx||1);return {slope:b,intercept:(sy-b*sx)/n};}
@@ -11561,7 +11688,18 @@ function volProfile(cd,px,bins){
 function aiCompute(code){
   const s=byCode[code];if(!s||s.price==null||!s.prevClose)return null;
   const cd=_sumDaily[code]||candleCache[code+':D'];
-  if(!cd||cd.length<40)return {need:true};
+  /* ══ [v9.71] 신규 상장주에서 AI 탭이 깨지던 두 가지 ═══════════════════════
+     ① 문턱이 어긋나 있었다. 여기서는 40봉이면 통과시켰는데 바로 아래에서 쓰는
+        dailyFeat() 는 62봉 미만이면 null 을 돌려준다. 그래서 일봉이 40~61개인
+        종목(상장 두세 달 안쪽)은 d 가 null 인 채로 d.ma20 을 읽어 그 자리에서
+        오류가 났다 — AI 탭이 아무것도 못 그리고 멈췄다.
+     ② 더 나쁜 것은 되풀이였다. 자료가 모자라면 renderAiStock 이 다시 불러오기를
+        걸고 끝나면 자신을 다시 호출하는데, 아무리 불러와도 봉 수가 늘지 않는
+        종목에서는 이 고리가 끝나지 않아 화면이 계속 돌았다.
+     [고침] 문턱을 dailyFeat 과 같은 62봉으로 맞추고, '아직 안 받아온 것'과
+     '받아왔지만 짧은 것'을 구분해 후자는 되풀이하지 않고 안내로 끝낸다. */
+  if(!cd||!cd.length)return {need:true};
+  if(cd.length<62)return {short:true,have:cd.length};
   const _dq=dispQuote(code);
   const d=dailyFeat(cd),q=qBasis(s),px=(_dq&&_dq.price!=null)?_dq.price:s.price;   // [수정] 헤더와 같은 통합가
   const closes=cd.map(x=>x.c);
@@ -11738,44 +11876,170 @@ function vpNarrative(vp,px){
   if(!P.length)P.push('매물 분포가 비교적 고르게 퍼져 있어 특정 가격대의 지지·저항이 뚜렷하지 않습니다.');
   return P.join(' ');
 }
-function drawVolProfile(cv,vp,px){
+/* ══ [v9.71] 매물대 그림 전면 재설계 — "봐도 뭔지 모르겠다"를 없앤다 ════════
+   [예전 그림의 문제]
+     ① 세로축에 가격이 하나도 없어서 막대가 '어느 가격대'인지 알 수 없었다.
+     ② 선 라벨(POC·저항·지지·현재)이 오른쪽 여백 74px 안에 겹쳐 찍혀 서로 가렸다.
+     ③ 막대 색이 파랑/빨강뿐이라 '두꺼운 곳'과 '빈 곳'이 눈에 안 들어왔다.
+     ④ 무엇이 좋고 나쁜지 그림만 봐서는 판단할 수 없었다.
+   [새 그림]
+     · 오른쪽에 가격 눈금 5칸 — 막대와 가격이 바로 이어진다.
+     · 현재가 아래=파랑(지지), 위=빨강(저항), 최대 매물대=금색으로 굵게.
+     · 밸류에어리어(거래 70% 구간)를 배경 띠 + 왼쪽 세로 괄호로 명확히.
+     · 라벨은 알약(pill) 배경 위에 얹어 어디서든 읽힌다. 겹치면 자동으로 비킨다.
+     · 현재가는 화살표 + 굵은 선으로 한눈에. */
+function drawVolProfile(cv,vp,px,fmt){
   if(!cv||!vp)return;
+  const F=fmt||((v)=>KRW(Math.round(v)));
   const dpr=window.devicePixelRatio||1;
-  const W=cv.clientWidth||480,H=cv.clientHeight||210;
+  const W=cv.clientWidth||480,H=cv.clientHeight||270;
   cv.width=W*dpr;cv.height=H*dpr;
-  const x=cv.getContext('2d');x.scale(dpr,dpr);x.clearRect(0,0,W,H);
+  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,W,H);
   const dk=document.documentElement.getAttribute('data-theme')==='dark';
-  const padL=6,padR=74,padT=8,padB=8;
-  const pw=W-padL-padR,ph=H-padT-padB;
+  const AX=Math.min(96,Math.max(72,W*0.22));          // 오른쪽 가격 눈금 폭
+  const padL=10,padT=14,padB=16;
+  const pw=W-padL-AX-10,ph=H-padT-padB;
   const maxV=Math.max.apply(null,vp.vol)||1;
-  const Y=(v)=>padT+(1-(v-vp.lo)/(vp.hi-vp.lo))*ph;
-  const bh=Math.max(1.5,ph/vp.bins-1);
+  const Y=(v)=>padT+(1-(v-vp.lo)/((vp.hi-vp.lo)||1))*ph;
+  const bh=Math.max(2,ph/vp.bins-1.5);
   const upC=getCss('--up','#e5443b'),dnC=getCss('--down','#2f74ff');
-  // 밸류에어리어 배경
-  x.fillStyle=dk?'rgba(148,163,184,.13)':'rgba(100,116,139,.10)';
-  x.fillRect(padL,Y(vp.vah),pw,Math.max(2,Y(vp.val)-Y(vp.vah)));
-  // 막대
+  const txt=dk?'#e2e8f0':'#0f172a', sub=dk?'#94a3b8':'#64748b';
+  const gold=dk?'#fbbf24':'#d97706';
+  const rrp=(X0,Y0,w,h,r)=>{const rr2=Math.min(r,h/2,w/2);x.beginPath();
+    x.moveTo(X0+rr2,Y0);x.lineTo(X0+w-rr2,Y0);x.quadraticCurveTo(X0+w,Y0,X0+w,Y0+rr2);
+    x.lineTo(X0+w,Y0+h-rr2);x.quadraticCurveTo(X0+w,Y0+h,X0+w-rr2,Y0+h);
+    x.lineTo(X0+rr2,Y0+h);x.quadraticCurveTo(X0,Y0+h,X0,Y0+h-rr2);
+    x.lineTo(X0,Y0+rr2);x.quadraticCurveTo(X0,Y0,X0+rr2,Y0);x.closePath();x.fill();};
+
+  /* ── 밸류에어리어 배경 띠 ── */
+  const vaT=Y(vp.vah),vaB=Y(vp.val);
+  x.fillStyle=dk?'rgba(148,163,184,.14)':'rgba(100,116,139,.11)';
+  x.fillRect(padL,vaT,pw,Math.max(2,vaB-vaT));
+  x.strokeStyle=dk?'rgba(148,163,184,.34)':'rgba(100,116,139,.30)';
+  x.lineWidth=1;x.setLineDash([3,3]);
+  x.beginPath();x.moveTo(padL,vaT);x.lineTo(padL+pw,vaT);
+  x.moveTo(padL,vaB);x.lineTo(padL+pw,vaB);x.stroke();x.setLineDash([]);
+  /* 왼쪽 세로 괄호 + 세로 글씨 */
+  x.strokeStyle=dk?'rgba(148,163,184,.55)':'rgba(100,116,139,.45)';x.lineWidth=1.6;
+  x.beginPath();x.moveTo(padL+1,vaT);x.lineTo(padL+1,vaB);x.stroke();
+  if(vaB-vaT>56){x.save();x.translate(padL+9,(vaT+vaB)/2);x.rotate(-Math.PI/2);
+    x.fillStyle=sub;x.font='700 9px Pretendard';x.textAlign='center';x.textBaseline='middle';
+    x.fillText('거래 70% 구간',0,0);x.restore();x.textAlign='left';}
+
+  /* ── 막대 ── */
   for(let i=0;i<vp.bins;i++){
+    if(!(vp.vol[i]>0))continue;
     const p=vp.lo+vp.step*(i+0.5);
-    const w=vp.vol[i]/maxV*pw;
+    const w=Math.max(2,vp.vol[i]/maxV*pw);
     const isPoc=i===vp.poc;
-    x.fillStyle=isPoc?(dk?'#fbbf24':'#d97706')
-      :p<=px?(dk?'rgba(96,165,250,.55)':'rgba(47,116,255,.42)')
-            :(dk?'rgba(248,113,113,.5)':'rgba(229,68,59,.38)');
-    x.fillRect(padL,Y(p)-bh/2,Math.max(1,w),bh);
+    const strong=vp.vol[i]>=maxV*0.55;
+    x.fillStyle=isPoc?gold
+      :p<=px?(dk?`rgba(96,165,250,${strong?.85:.5})`:`rgba(47,116,255,${strong?.72:.36}`+')')
+            :(dk?`rgba(248,113,113,${strong?.85:.5})`:`rgba(229,68,59,${strong?.68:.32}`+')');
+    rrp(padL,Y(p)-bh/2,w,bh,2);
   }
-  const lineAt=(v,col,dash,label,strong)=>{
+
+  /* ── 오른쪽 가격 눈금 ── */
+  const axL=padL+pw+8;
+  x.fillStyle=sub;x.font='600 9.5px Pretendard';x.textBaseline='middle';x.textAlign='left';
+  for(let t=0;t<=4;t++){
+    const v=vp.lo+(vp.hi-vp.lo)*(t/4),yy=Y(v);
+    x.strokeStyle=dk?'rgba(148,163,184,.16)':'rgba(100,116,139,.16)';x.lineWidth=1;
+    x.beginPath();x.moveTo(padL,yy);x.lineTo(axL-4,yy);x.stroke();
+    x.fillStyle=sub;x.fillText(F(v),axL,Math.min(H-6,Math.max(7,yy)));
+  }
+
+  /* ── 기준선 + 알약 라벨(겹치면 자동으로 비킨다) ── */
+  const used=[];
+  const place=(y)=>{let yy=y;for(let g=0;g<26;g++){
+      if(!used.some(u=>Math.abs(u-yy)<13))break; yy+= (g%2?-1:1)*13*Math.ceil((g+1)/2);}
+    yy=Math.max(padT+7,Math.min(H-padB+6,yy));used.push(yy);return yy;};
+  const pill=(v,col,label,strong)=>{
     if(v==null||v<vp.lo||v>vp.hi)return;
-    x.strokeStyle=col;x.lineWidth=strong?1.7:1.1;x.setLineDash(dash);
-    x.beginPath();x.moveTo(padL,Y(v));x.lineTo(W-padR+2,Y(v));x.stroke();x.setLineDash([]);
-    x.fillStyle=col;x.font=(strong?'bold ':'')+'9.5px Pretendard';x.textBaseline='middle';
-    x.fillText(label,W-padR+6,Y(v));
+    const y=Y(v);
+    x.strokeStyle=col;x.lineWidth=strong?2:1.2;x.setLineDash(strong?[]:[5,4]);
+    x.beginPath();x.moveTo(padL,y);x.lineTo(padL+pw,y);x.stroke();x.setLineDash([]);
+    x.font=(strong?'800 ':'700 ')+'9.5px Pretendard';
+    const tw=x.measureText(label).width, ly=place(y);
+    const bx=padL+pw-tw-13;
+    x.fillStyle=col;rrp(bx,ly-8,tw+11,16,8);
+    x.fillStyle='#fff';x.textAlign='left';x.textBaseline='middle';
+    x.fillText(label,bx+5.5,ly+0.5);
   };
-  lineAt(vp.pocP,dk?'#fbbf24':'#b45309',[],'POC '+KRW(Math.round(vp.pocP)),true);
-  if(vp.res)lineAt(vp.res.p,upC,[4,3],'저항 '+KRW(Math.round(vp.res.p)));
-  if(vp.sup)lineAt(vp.sup.p,dnC,[4,3],'지지 '+KRW(Math.round(vp.sup.p)));
-  lineAt(px,dk?'#e2e8f0':'#0f172a',[2,2],'현재 '+KRW(Math.round(px)),true);
+  pill(vp.pocP,gold,'최대매물 '+F(vp.pocP),true);
+  if(vp.res)pill(vp.res.p,upC,'저항 '+F(vp.res.p));
+  if(vp.sup)pill(vp.sup.p,dnC,'지지 '+F(vp.sup.p));
+  /* 현재가 — 가장 굵게 + 왼쪽 화살촉 */
+  const cy=Y(px);
+  x.strokeStyle=dk?'#f1f5f9':'#0f172a';x.lineWidth=2.2;
+  x.beginPath();x.moveTo(padL,cy);x.lineTo(padL+pw,cy);x.stroke();
+  x.fillStyle=dk?'#f1f5f9':'#0f172a';
+  x.beginPath();x.moveTo(padL-8,cy-5);x.lineTo(padL-1,cy);x.lineTo(padL-8,cy+5);x.closePath();x.fill();
+  const cl='현재 '+F(px), cw=x.measureText(cl).width;
+  const cly=place(cy);
+  x.font='800 9.5px Pretendard';
+  x.fillStyle=dk?'#f1f5f9':'#0f172a';rrp(padL+4,cly-8.5,cw+12,17,8.5);
+  x.fillStyle=dk?'#0b1120':'#fff';x.fillText(cl,padL+10,cly+0.5);
 }
+/* 매물대 요약 — 그림을 못 읽어도 이 세 줄만 보면 된다 */
+function vpKeyCards(vp,px,F){
+  F=F||((v)=>KRW(Math.round(v))+'원');
+  const gapPct=(v)=>((v-px)/px*100);
+  const c=[];
+  c.push({t:'위쪽 저항',
+    v:vp.res?F(vp.res.p):'없음',
+    s:vp.res?`${gapPct(vp.res.p)>=0?'+':''}${gapPct(vp.res.p).toFixed(1)}% 지점 · 매물 ${vp.res.w.toFixed(1)}%`:'머리 위가 비어 있어요',
+    k:vp.res&&vp.res.w>=4.5?'bad':'good'});
+  c.push({t:'아래 지지',
+    v:vp.sup?F(vp.sup.p):'없음',
+    s:vp.sup?`${gapPct(vp.sup.p).toFixed(1)}% 지점 · 매물 ${vp.sup.w.toFixed(1)}%`:'받쳐 줄 매물이 얇아요',
+    k:vp.sup?'good':'bad'});
+  c.push({t:'머리 위 매물',
+    v:Math.round(vp.overhead)+'%',
+    s:vp.overhead<=30?'가벼운 편 — 오르기 수월':vp.overhead>=60?'무거운 편 — 저항 큼':'보통 수준',
+    k:vp.overhead<=30?'good':vp.overhead>=60?'bad':'mid'});
+  return `<div class="vp-keys">${c.map(o=>`<div class="vp-key ${o.k}">
+    <span class="vk-t">${o.t}</span><b class="vk-v num">${o.v}</b><span class="vk-s">${o.s}</span></div>`).join('')}</div>`;
+}
+/* 매물대 한 덩어리 HTML — 국내·해외가 같은 모양을 쓴다 */
+function vpSectionHtml(vp,px,cvId,F){
+  F=F||((v)=>KRW(Math.round(v))+'원');
+  const brk=vp.brokeVah?'<i class="vz-b up">10일 내 상단 돌파</i>':vp.brokePoc?'<i class="vz-b up">10일 내 POC 돌파</i>':vp.lostVal?'<i class="vz-b down">10일 내 하단 이탈</i>':'';
+  return `
+  <div class="ai-sec-t">매물대 분석 <span>최근 ${vp.days}거래일 · 가격대별로 쌓인 거래량</span></div>
+  <div class="vp-card">
+    <div class="vp-zone ${vp.zone.tone}"><span class="vz-k">현재 위치</span><b>${vp.zone.label}</b>${brk}</div>
+    ${vpKeyCards(vp,px,F)}
+    <div class="vp-wrap"><canvas id="${cvId}"></canvas></div>
+    <div class="vp-lgd">
+      <span><i class="sw poc"></i>최대 매물대</span>
+      <span><i class="sw dn"></i>현재가 아래 · 지지</span>
+      <span><i class="sw up"></i>현재가 위 · 저항</span>
+      <span><i class="sw va"></i>거래 70% 구간</span>
+    </div>
+    <div class="vp-split">
+      <div class="vp-bar"><i class="d" style="width:${vp.digest.toFixed(1)}%"></i><i class="o" style="width:${vp.overhead.toFixed(1)}%"></i></div>
+      <div class="vp-bar-lg">
+        <span class="d"><b class="num">${Math.round(vp.digest)}%</b> 이미 소화한 매물<i>현재가 아래</i></span>
+        <span class="o"><b class="num">${Math.round(vp.overhead)}%</b> 머리 위 매물<i>상승을 막는 물량</i></span>
+      </div>
+    </div>
+    <details class="vp-more"><summary>자세한 수치 보기</summary>
+      <div class="ai-metrics vp-m">
+        <div><span>최대 매물대 (POC)</span><b class="num">${F(vp.pocP)}</b></div>
+        <div><span>밸류에어리어 70%</span><b class="num">${F(vp.val)} ~ ${F(vp.vah)}</b></div>
+        <div><span>매물 빈 구간 (위)</span><b class="num">${vp.gapUp?F(vp.gapUp.p):'—'}</b></div>
+        <div><span>매물 빈 구간 (아래)</span><b class="num">${vp.gapDn?F(vp.gapDn.p):'—'}</b></div>
+        <div><span>본전 매물 압력</span><b class="num ${vp.trap>=18?'down':''}">${vp.trap.toFixed(1)}%</b></div>
+        <div><span>매물벽 · 공백</span><b class="num">${vp.hvn.length}곳 · ${vp.lvn.length}곳</b></div>
+      </div>
+      <div class="vp-help">매물대는 <b>어느 가격에서 얼마나 거래됐는지</b>를 쌓아 본 것입니다. 많이 거래된 가격대에는
+      그 값에 산 사람이 많아, 주가가 다시 오면 본전 매도가 나와 <b>저항</b>이 되고, 아래에 있으면 <b>지지</b>가 됩니다.</div>
+    </details>
+    <div class="vp-narr">${vpNarrative(vp,px)}</div>
+  </div>`;
+}
+var _aiTry={};
 function renderAiStock(el,force){
   el=el||$('infoBody');if(!el)return;
   const code=selected,now=Date.now();
@@ -11783,9 +12047,22 @@ function renderAiStock(el,force){
   const a=aiCompute(code);
   const nm=(byCode[code]&&byCode[code].name)||code;
   if(!a){el.innerHTML='<div class="empty">시세 수신 중…</div>';el.dataset.ai=code;return;}
+  if(a.short){
+    /* 받아오긴 했으나 상장 기간이 짧아 지표를 만들 수 없는 종목 — 되풀이하지 않는다 */
+    el.innerHTML='<div class="empty"><b>아직 분석할 만큼 거래일이 쌓이지 않았어요</b>'
+      +'<span style="display:block;margin-top:6px;font-size:11.5px;line-height:1.6">'
+      +nm+'의 일봉은 현재 '+a.have+'거래일치입니다. 이동평균·RSI·MACD 같은 지표는 '
+      +'최소 62거래일(약 3개월)이 있어야 뜻이 생겨, 그 전에는 계산하지 않습니다.<br>'
+      +'대신 <b>차트·시세·뉴스</b> 탭에서 지금까지의 흐름을 확인하실 수 있어요.</span></div>';
+    el.dataset.ai=code;return;
+  }
   if(a.need){
     el.innerHTML='<div class="empty">AI가 '+nm+'의 일봉 데이터를 분석하는 중…</div>';el.dataset.ai=code;
-    ensureDailySummary(code).then(()=>{if(currentView==='trade'&&infoTab==='ai'&&selected===code)renderAiStock($('infoBody'),true);});
+    /* [v9.71] 되풀이 방지 — 같은 종목은 최대 3번까지만 다시 시도한다 */
+    _aiTry[code]=(_aiTry[code]||0)+1;
+    if(_aiTry[code]<=3)
+      ensureDailySummary(code).then(()=>{if(currentView==='trade'&&infoTab==='ai'&&selected===code)renderAiStock($('infoBody'),true);});
+    else el.innerHTML='<div class="empty">일봉 데이터를 받지 못했어요 · ⟳ 로 다시 시도해 주세요</div>';
     return;
   }
   _aiLast=now;el.dataset.ai=code;
@@ -11825,23 +12102,7 @@ function renderAiStock(el,force){
     <div class="ai-sec-t">상승 확률 <span>3거래일 내 +5% 도달 추정</span></div>
     <div class="ai-prob"><div class="ai-prob-bar"><i style="width:${a.p}%"></i></div><b class="num ${a.p>=55?'up':a.p<=35?'down':''}">${a.p}%</b></div>
     <div class="ai-prob-d">기술 신호 ${a.sc}점을 과거 유사 신호 통계와 시장 국면(${a.rg.label} ×${a.rg.mult})으로 보정한 값입니다.</div>
-    ${a.vp?`
-    <div class="ai-sec-t">매물대 분석 <span>최근 ${a.vp.days}거래일 · 가격대별 누적 거래량</span></div>
-    <div class="vp-zone ${a.vp.zone.tone}">현재 위치 · <b>${a.vp.zone.label}</b>${a.vp.brokeVah?' · 최근 10일 내 상단 돌파':a.vp.brokePoc?' · 최근 10일 내 POC 돌파':a.vp.lostVal?' · 최근 10일 내 하단 이탈':''}</div>
-    <div class="vp-wrap"><canvas id="aiVp"></canvas></div>
-    <div class="vp-bar"><i class="d" style="width:${a.vp.digest.toFixed(1)}%"></i><i class="o" style="width:${a.vp.overhead.toFixed(1)}%"></i></div>
-    <div class="vp-bar-lg"><span><b class="num">${Math.round(a.vp.digest)}%</b> 소화한 매물(현재가 아래)</span><span><b class="num">${Math.round(a.vp.overhead)}%</b> 머리 위 매물</span></div>
-    <div class="ai-metrics vp-m">
-      <div><span>최대 매물대 (POC)</span><b class="num">${KRW(tickPx(a.vp.pocP))}</b></div>
-      <div><span>밸류에어리어 70%</span><b class="num">${KRW(tickPx(a.vp.val))}~${KRW(tickPx(a.vp.vah))}</b></div>
-      <div><span>위쪽 매물벽 (저항)</span><b class="num ${a.vp.res?'down':''}">${a.vp.res?KRW(tickPx(a.vp.res.p))+' ('+a.vp.res.w.toFixed(1)+'%)':'없음 · 위가 비어 있음'}</b></div>
-      <div><span>아래 매물벽 (지지)</span><b class="num ${a.vp.sup?'up':''}">${a.vp.sup?KRW(tickPx(a.vp.sup.p))+' ('+a.vp.sup.w.toFixed(1)+'%)':'없음 · 하방 지지 얇음'}</b></div>
-      <div><span>매물 빈 구간 (위)</span><b class="num">${a.vp.gapUp?KRW(tickPx(a.vp.gapUp.p)):'—'}</b></div>
-      <div><span>매물 빈 구간 (아래)</span><b class="num">${a.vp.gapDn?KRW(tickPx(a.vp.gapDn.p)):'—'}</b></div>
-      <div><span>본전 매물 압력</span><b class="num ${a.vp.trap>=18?'down':''}">${a.vp.trap.toFixed(1)}%</b></div>
-      <div><span>매물벽 개수</span><b class="num">${a.vp.hvn.length}곳 · 공백 ${a.vp.lvn.length}곳</b></div>
-    </div>
-    <div class="ai-prob-d">${vpNarrative(a.vp,a.px)}</div>`:''}
+    ${a.vp?vpSectionHtml(a.vp,a.px,'aiVp'):''}
     <div class="ai-sec-t">차트 예측 <span>향후 10거래일 · 추세+변동성 시나리오</span></div>
     <div class="ai-fc"><canvas id="aiFc"></canvas>
       <div class="ai-fc-lg"><span><i class="a"></i>낙관</span><span><i class="b"></i>기본(추세 연장)</span><span><i class="c"></i>보수</span></div></div>
@@ -11877,13 +12138,27 @@ function calcConsensus(){
   // 기술적 점수(1~5)
   let tech=3;
   if(upside!=null){if(upside>0.30)tech+=2;else if(upside>0.12)tech+=1;else if(upside<-0.20)tech-=2;else if(upside<-0.05)tech-=1;}
-  if(curCandles&&curCandles.length>=20&&price){
-    const cl=curCandles.map(x=>x.c);const avg=(n)=>cl.slice(-n).reduce((s,v)=>s+v,0)/n;
-    const ma5=avg(5),ma20=avg(20);
-    if(price>ma5&&ma5>ma20)tech+=0.5;else if(price<ma5&&ma5<ma20)tech-=0.5;
+  /* ══ [v9.71] 투자의견 점수가 '보고 있는 차트'에 따라 달라지던 문제 ═══════
+     [무엇이 잘못됐나] 5·20일 이평을 curCandles 로 계산했다. curCandles 는
+     사용자가 고른 시간축의 봉이다 — 분봉 탭을 열어 두면 '5분·20분 평균'이
+     되고, 월봉이면 '5개월·20개월 평균'이 된다. 같은 종목인데 차트 탭만
+     바꿔도 AI 투자의견 점수와 등급이 달라졌다.
+     [고침] 시간축과 무관하게 항상 일봉으로 계산한다. */
+  const _tc=_sumDaily[selected]||candleCache[selected+':D']||null;
+  if(_tc&&_tc.length>=20&&price){
+    const cl=_tc.map(x=>x.c).filter(v=>v>0);
+    if(cl.length>=20){
+      const avg=(n)=>cl.slice(-n).reduce((s,v)=>s+v,0)/n;
+      const ma5=avg(5),ma20=avg(20);
+      if(price>ma5&&ma5>ma20)tech+=0.5;else if(price<ma5&&ma5<ma20)tech-=0.5;
+    }
   }
   tech=Math.max(1,Math.min(5,tech));
-  const ai=analyst!=null?(0.5*analyst+0.5*tech):tech;
+  /* [v9.71] 원천이 이상한 값을 주면 점수가 1~5를 벗어나 게이지와 등급이
+     어긋난다(예: recMean 이 0 이면 analyst=6 → '강력매수'로 굳어짐). 가둔다. */
+  if(analyst!=null){ analyst=Number(analyst);
+    if(!isFinite(analyst))analyst=null; else analyst=Math.max(1,Math.min(5,analyst)); }
+  const ai=Math.max(1,Math.min(5,analyst!=null?(0.5*analyst+0.5*tech):tech));
   return {analyst,tech,ai:Math.round(ai*10)/10,target,src,targetHigh:c.targetHigh?Number(c.targetHigh):null,targetLow:c.targetLow?Number(c.targetLow):null,upside,num:c.numAnalysts,price,est:c.estimate||null};
 }
 const scoreLabel=(s)=>s>=4.3?'강력매수':s>=3.4?'매수':s>=2.6?'중립':s>=1.7?'매도':'강력매도';
@@ -11914,13 +12189,17 @@ function renderConsensus(el){
   let finalTgt=withT.length?Math.round(withT.reduce((s,b)=>s+Number(b.target),0)/withT.length):(d.target||null);
   const isEst=!finalTgt&&d.est&&d.est.target;
   if(isEst)finalTgt=d.est.target;
-  const price0=byCode[selected]&&byCode[selected].price;
+  /* [v9.71] 위 계산(calcConsensus)은 통합가(NXT 포함)를 쓰는데 화면 표시만
+     KRX 가격을 써서, NXT 시간대에 게이지와 '현재가 대비'가 서로 다른 값을
+     기준으로 말했다. 같은 가격을 쓰도록 맞춘다. */
+  const _c0=dispQuote(selected);
+  const price0=(_c0&&_c0.price!=null)?_c0.price:(byCode[selected]&&byCode[selected].price);
   const upside=(finalTgt&&price0)?((finalTgt-price0)/price0):d.upside;
   const tHigh=isEst?d.est.high:d.targetHigh, tLow=isEst?d.est.low:d.targetLow;
   const cnt=withT.length||d.num||null;
   const srcLbl=withT.length?` (${withT.length}개 평균)`:isEst?' · AI 자동 추정':(finalTgt&&d.src?` · ${d.src}`:'');
   html+=`<div style="font-weight:800;margin:18px 0 10px">목표주가 ${isEst?'<span class="est-badge">AI 추정 · 참고용</span>':'(증권사 컨센서스)'}</div>
-  ${(function(){var p=byCode[selected]&&byCode[selected].price,h=curFund&&curFund.h52,l=curFund&&curFund.l52;
+  ${(function(){var p=price0,h=curFund&&curFund.h52,l=curFund&&curFund.l52;   /* [v9.71] 같은 기준가 사용 */
     if(!(h&&l&&h>l&&p))return '';
     var pos=Math.max(0,Math.min(100,(p-l)/(h-l)*100));
     return '<div class="w52"><div class="w52-t">52주 범위 <i>현재 '+pos.toFixed(0)+'% 지점</i></div>'
@@ -11948,7 +12227,21 @@ function renderConsensus(el){
   html+=`<div style="margin-top:14px;font-size:11px;color:var(--sub-2)">※ AI 투자의견은 공개 데이터로 자동 산출한 참고 지표이며, 투자 권유가 아닙니다.</div>`;
   el.innerHTML=html;
 }
-const numish2=(v)=>{if(v==null)return null;const n=Number(String(v).replace(/[^0-9.-]/g,''));return isNaN(n)?null:n;};
+/* ══ [v9.71] 음수 부호를 놓치던 숫자 파서 ══════════════════════════════════
+   국내 재무제표는 음수를 '△1,234' 나 '(1,234)' 로 적는 관행이 있다. 예전 파서는
+   숫자와 '-' 만 남겨서 △·괄호 표기가 전부 양수로 바뀌었다 — 적자가 흑자로
+   보이는 치명적인 오독이다. 부호를 먼저 판정한 뒤 숫자를 뽑는다.
+   또 '-' 를 아무 자리에서나 남기던 탓에 '2023-12' 같은 값이 뒤엉키기도 했다. */
+const numish2=(v)=>{
+  if(v==null)return null;
+  const t=String(v).trim();
+  const neg=/^[(\u25b3\u25bc\u25b2-]/.test(t)||/\)$/.test(t)&&/^\(/.test(t);
+  const body=t.replace(/[^0-9.]/g,'');
+  if(!body||!/[0-9]/.test(body))return null;
+  const n=Number(body);
+  if(isNaN(n))return null;
+  return neg?-n:n;
+};
 // 재무 행을 4개 탭으로 분류
 function classifyFin(title){
   const t=title.replace(/\s/g,'');
@@ -12597,9 +12890,26 @@ function drawChart(){
      ② % 라벨을 막대 '바깥 왼쪽'(봉 위) → '안쪽 오른쪽'으로 옮겨 봉을 가리지 않는다
      ③ 라벨은 최대 매물대·현재가 구간 두 곳만 ④ 설정에서 끌 수 있다 */
   if(chartCfg.ov.vp!==0){
-  const bins=10,binVol=new Array(bins).fill(0);
-  vis.forEach(c=>{let b=Math.floor((c.c-lo)/(hi-lo)*bins);b=clamp(b,0,bins-1);binVol[b]+=c.v;});
-  const totV=binVol.reduce((sm,v)=>sm+v,0)||1,bmax=Math.max(...binVol,1),binH=priceH/bins;
+  /* ══ [v9.71] 차트 매물대가 실제 분포와 달랐다 ═══════════════════════════
+     [무엇이 잘못됐나] 하루 거래량 전부를 '종가가 속한 한 칸'에만 넣었다.
+     하루 안에 오르내린 구간은 무시되므로, 실제로 거래가 두껍게 쌓인 가격대가
+     아니라 '종가가 자주 머문 칸'이 최대 매물대로 뽑혔다. 같은 종목인데
+     AI 탭 매물대(고가~저가 분배 방식)와 최대 매물대 위치가 서로 달랐다.
+     [고침] AI 탭과 같은 방식으로 통일한다 — 고가~저가에 70%를 고르게 펴고
+     체결이 몰리는 종가 칸에 30%를 더 준다. 칸도 10 → 24 로 촘촘하게. */
+  const bins=24,binVol=new Array(bins).fill(0);
+  const _rng=(hi-lo)||1;
+  const _bi=(v)=>clamp(Math.floor((v-lo)/_rng*bins),0,bins-1);
+  vis.forEach(c=>{
+    const v=+c.v||0; if(v<=0)return;
+    const a=_bi(Math.min(c.l,c.c)),b=_bi(Math.max(c.h,c.c)),cb=_bi(c.c);
+    const n=Math.max(1,b-a+1);
+    for(let i=a;i<=b;i++)binVol[i]+=v*0.7/n;
+    binVol[cb]+=v*0.3;
+  });
+  const _totRaw=binVol.reduce((sm,v)=>sm+v,0);
+  const totV=_totRaw||1,bmax=Math.max(...binVol,1),binH=priceH/bins;
+  if(_totRaw>0){   /* 거래량이 전혀 없는 종목(일부 해외)에는 그리지 않는다 — 빈 막대는 거짓 정보다 */
   const maxB=binVol.indexOf(bmax);
   let curB=Math.floor(((cs[end].c)-lo)/(hi-lo)*bins);curB=clamp(curB,0,bins-1);
   const vpMaxW=plotW*0.14,vpR=padL+plotW;
@@ -12618,6 +12928,7 @@ function drawChart(){
       ctx.fillText(pct.toFixed(1)+'%', w>tw+8 ? vpR-4 : vpR-w-3, y+bh/2);
     }}
   ctx.textAlign='left';
+  }
   }
   /* [추가] 전일 종가 기준선 — 점선 + 라벨. 봉 뒤에 깔리도록 여기서 그린다. */
   const _pcS=byCode[selected],pcV=_pcS&&_pcS.prevClose;
@@ -12827,7 +13138,8 @@ function sanitizeAccount(silent){
 
 /* ===== 주문 폼 ===== */
 function currentPrice(){return byCode[selected].price??0;}
-function getOrderPrice(){if(ordType==='market')return currentPrice();const v=userPrice!==null?userPrice:currentPrice();return Math.max(tickSize(v||1),roundTick(v));}
+function getOrderPrice(){if(ordType==='market')return currentPrice();const v=userPrice!==null?userPrice:currentPrice();
+  const mk=mktOf(selected);return Math.max(tickSize(v||1,mk),roundTick(v,mk));}   /* [v9.71] 코스닥 호가단위 반영 */
 function getQty(){return Math.max(0,parseInt(($('qtyInput').value||'0').replace(/,/g,''))||0);}
 function updateOrderTotal(){$('ordTotal').textContent=KRW(getOrderPrice()*getQty())+'원';}
 function syncPriceField(force){const inp=$('pxInput');if(force||userPrice===null){userPrice=null;inp.value=KRW(currentPrice());}
@@ -13178,10 +13490,12 @@ function renderOtList(){
 $('otSelect').onclick=()=>{otTabEx=ordExchange;$('otGate').hidden=false;renderOtList();};
 $('otClose').onclick=()=>{$('otGate').hidden=true;};
 $('otGate').onclick=(e)=>{if(e.target.id==='otGate')$('otGate').hidden=true;};
-function stepPrice(d){const base=getOrderPrice(),t=tickSize(base||1);userPrice=Math.max(t,base+d*t);$('pxInput').value=KRW(userPrice);updateOrderTotal();}
+function stepPrice(d){const base=getOrderPrice(),t=tickSize(base||1,mktOf(selected));   /* [v9.71] 코스닥 호가단위 */
+  userPrice=Math.max(t,base+d*t);$('pxInput').value=KRW(userPrice);updateOrderTotal();}
 $('pxUp').onclick=()=>stepPrice(1);$('pxDown').onclick=()=>stepPrice(-1);
 $('pxInput').addEventListener('input',e=>{userPrice=parseInt(e.target.value.replace(/[^0-9]/g,''))||0;updateOrderTotal();});
-$('pxInput').addEventListener('blur',e=>{if(userPrice!==null){userPrice=Math.max(tickSize(userPrice||1),roundTick(userPrice));e.target.value=KRW(userPrice);updateOrderTotal();}});
+$('pxInput').addEventListener('blur',e=>{if(userPrice!==null){const mk=mktOf(selected);
+  userPrice=Math.max(tickSize(userPrice||1,mk),roundTick(userPrice,mk));e.target.value=KRW(userPrice);updateOrderTotal();}});
 function setQty(q){$('qtyInput').value=KRW(Math.max(0,q));updateOrderTotal();}
 $('qtyUp').onclick=()=>setQty(getQty()+1);$('qtyDown').onclick=()=>setQty(Math.max(0,getQty()-1));
 $('qtyInput').addEventListener('input',e=>{e.target.value=e.target.value.replace(/[^0-9,]/g,'');updateOrderTotal();});
@@ -14084,6 +14398,11 @@ function usRegister(it){
     x=x.replace(/\s*[-–]\s*(Ordinary|Common|Class|Depositary|American|Registered)[\s\S]*$/i,'');
     x=x.replace(/\s+(Ord|Com|Cl)\.?\s+(Shs|Shares|Stk|[A-Z])\b[\s\S]*$/i,'');
     x=x.replace(/\s+(Shs|Shares)\s+(of\s+)?(Beneficial\s+Interest|Common\s+Stock)[\s\S]*$/i,'');
+    /* [v9.71] 대시 없이 붙는 꼬리표 — '... Common Shares'(리튬 아메리카스),
+       '... Class A Common Stock (New)'(매디슨스퀘어가든)도 뗀다 */
+    x=x.replace(/\s+Class\s+[A-C]\b(\s+Common\s+Stock)?[\s\S]*$/i,'');
+    x=x.replace(/\s+(Common|Ordinary)\s+(Stock|Shares?)(\s*\(New\))?[\s\S]*$/i,'');
+    x=x.replace(/\s*\((?:New|The)\)\s*$/i,'');
     /* 운용사 신탁명이 앞에 붙고 뒤에 진짜 상품명이 오는 ETF 는 뒤쪽을 쓴다 */
     x=x.replace(/^[A-Za-z.\s]+(?:ETF\s+Trust|Trust\s+[IVX]+|Funds?\s+Trust)\s*[-–]\s*/i,'');
     x=x.replace(/\s*[-–]\s*ADR\s*$/i,'\u0001ADR');
@@ -14192,6 +14511,48 @@ function usSearchRemote(q,cb){
       _usRemote[key]=items; cb&&cb(items); })
     .catch(()=>{ _usRemote[key]=[]; cb&&cb([]); });
 }
+/* ══ [v9.71] 한글 종목명 자동 보충 ═══════════════════════════════════════════
+   [무엇이 문제였나] 인기 목록은 네이버 인기 외에 야후·커뮤니티 원천에서도 오는데
+   그쪽에는 한글명이 없다. 표(US_KRMAP)에도 없으면 화면에 영문이 그대로 남았고,
+   그때마다 손으로 표에 이름을 적어 왔다(v5.4·v8.7) — 끝나지 않는 두더지잡기다.
+   [고침] 영문으로 남은 종목을 /api/ussearch(네이버 자동완성 — 한글명이 온다)로
+   조금씩 조회해 그 자리에서 바꿔 넣고, usDyn 에 저장해 다음 접속부터 바로 나온다.
+   HPE·IBM 처럼 이름이 원래 알파벳인 회사(4자 이하)는 건드리지 않는다. */
+var _krFix={busy:0,done:{}};
+function usKrApply(t,nm){
+  try{
+    if(usMeta[t])usMeta[t].kr=nm;
+    if(usDyn[t]){usDyn[t].kr=nm;localStorage.setItem('usDyn1',JSON.stringify(usDyn));}
+    document.querySelectorAll('[data-us="'+t+'"] .us-nm b,[data-us="'+t+'"] .uz-nm b').forEach(b=>{
+      if(b.firstChild&&b.firstChild.nodeType===3)b.firstChild.nodeValue=nm;
+    });
+  }catch(e){}
+}
+function usKrEnrich(){
+  try{
+    if(_krFix.busy>=3)return;
+    const need=Object.keys(usMeta).filter(t=>{
+      const m=usMeta[t];
+      return m&&!/[가-힣]/.test(String(m.kr||''))&&String(m.kr||m.en||'').length>4
+        &&!(typeof US_KRNAME!=='undefined'&&US_KRNAME[t])&&!_krFix.done[t];
+    }).slice(0,4);
+    need.forEach(t=>{
+      _krFix.done[t]=1; _krFix.busy++;
+      fetch('/api/ussearch?q='+encodeURIComponent(t),{cache:'no-store'})
+        .then(r=>r.json())
+        .then(j=>{
+          const hit=((j&&j.items)||[]).find(x=>String(x.t||'').toUpperCase()===t&&/[가-힣]/.test(String(x.kr||'')));
+          if(hit)usKrApply(t,String(hit.kr).trim());
+        })
+        .catch(()=>{})
+        .finally(()=>{_krFix.busy--;});
+    });
+  }catch(e){}
+}
+try{
+  setTimeout(usKrEnrich,4000);
+  setInterval(()=>{ try{ if(currentView==='us'||currentView==='search'||currentView==='home')usKrEnrich(); }catch(e){} },25000);
+}catch(e){}
 /* ══ [v4.74] 미국 전 종목 목록 — 국내처럼 '빠짐없이' 검색되게 ═══════════════
    내장 114종 + 검색으로 등록된 것만으로는 스페이스X 같은 종목이 잡히지 않았다.
    전 종목 목록(약 1만 종)을 한 번 받아 브라우저에 담아 두고 검색에 함께 쓴다. */
@@ -14368,6 +14729,22 @@ var US_KRMAP = {
   HXSCL:'SK하이닉스(ADR)', RDDT:'레딧', NTDOY:'닌텐도(ADR)', WRD:'위라이드(ADR)',
   FLNC:'플루언스에너지', INOD:'이노데이터', CRMD:'코메딕스', OCUL:'오큘러테라퓨틱스',
   REPL:'리플리뮨', AAOI:'어플라이드옵토일렉트로닉스', CRML:'크리티컬메탈스', DRTS:'알파타우메디컬',
+  /* ══ [v9.71] 화면에 영문으로 남던 종목(첨부 사진) + 자주 오르내리는 종목 ══ */
+  TPR:'태피스트리', LAC:'리튬 아메리카스', ARX:'액셀러런트',
+  MSGS:'매디슨스퀘어가든 스포츠', MSGE:'매디슨스퀘어가든 엔터',
+  BLSH:'불리시', INFQ:'인플렉션', OPEN:'오픈도어 테크놀로지스',
+  CAKE:'치즈케이크 팩토리', WEN:'웬디스', SSYS:'스트라타시스', HPE:'HPE',
+  IVDA:'아이베다 솔루션스', OTLK:'아웃룩 테라퓨틱스', FIGR:'피규어 테크놀로지',
+  FRGT:'프라이트 테크놀로지스', CLBT:'셀레브라이트', CURI:'큐리어시티스트림',
+  OMER:'오메로스', HLIT:'하모닉', LIMN:'리미나투스 파마', FGI:'FGI 인더스트리스',
+  BIVI:'바이오비', SSP:'E.W.스크립스', TTAN:'서비스타이탄',
+  MARA:'마라 홀딩스', RIOT:'라이엇 플랫폼스', CLSK:'클린스파크', HUT:'헛8',
+  AI:'C3.ai', BBAI:'빅베어.ai', SOUN:'사운드하운드 AI', SERV:'서브 로보틱스',
+  TEM:'템퍼스 AI', RXRX:'리커전 파마', NNE:'나노뉴클리어 에너지', KULR:'컬러 테크놀로지',
+  LYFT:'리프트', AAL:'아메리칸항공', DAL:'델타항공', UAL:'유나이티드항공',
+  CCL:'카니발', NCLH:'노르위전 크루즈', RCL:'로열캐리비언', LVS:'라스베이거스 샌즈',
+  SIRI:'시리우스XM', PINS:'핀터레스트', SNAP:'스냅', ZM:'줌 커뮤니케이션스',
+  DOCU:'도큐사인', TWLO:'트윌리오', PATH:'유아이패스',
   /* ETF — 배수는 국내 표기대로 2X·3X 로 적는다 */
   SPY:'S&P500 ETF', QQQ:'나스닥100 ETF', SOXX:'반도체 ETF', SCHD:'슈왑 배당주 ETF',
   SOXL:'반도체 3X', SOXS:'반도체 -3X', TQQQ:'나스닥100 3X', SQQQ:'나스닥100 -3X',
@@ -14990,12 +15367,69 @@ function usTick(t,size){
    '내용 검사(usLgHasInk)'를 빠뜨렸다. 그래서 200×200 짜리 새하얀 그림이
    버젓이 로고로 인정돼 흰 네모가 남았다(첨부 사진의 ASPI·ACRS·ACXP).
    → 크기를 통과한 뒤 내용까지 본다. 다른 출처라 읽을 수 없으면(null) 통과시킨다. */
+/* ══ [v9.71] 흰 바탕 로고 정리 — IREN·FRGT·LAC 가 흰 네모로 보이던 이유 ═════
+   [원인] 일부 원천(FMP 등)은 로고를 '흰 캔버스 위 작은 마크'로 준다. 내용 검사
+   (usLgHasInk)는 "전부 흰색"만 거르므로 작은 마크가 있으면 통과했고, .us-tick.on
+   배경이 #fff 라 화면에는 큰 흰 네모만 보였다.
+   [고침] /api/uslogo 는 같은 출처라 픽셀을 읽을 수 있다.
+     ① 가장자리가 거의 흰색/투명이면 → 흰색을 투명으로 바꾸고
+     ② 내용 영역으로 잘라(여백 14%) 다시 그린 그림으로 교체한다.
+     ③ 남은 내용까지 거의 흰색(어두운 배경용 로고)이면 배지를 어두운 색으로. */
+var _lgFixCache={};
+function usLgWhiteFix(im){
+  try{
+    const src=im.getAttribute('src')||'';
+    if(!src||src.indexOf('data:')===0)return;
+    const hit=_lgFixCache[src];
+    if(hit){ if(hit.bad){usTickBad(im);return;}
+      if(hit.url)im.src=hit.url;
+      if(hit.dark&&im.parentNode)im.parentNode.classList.add('dkbg');
+      return; }
+    const W=Math.max(16,Math.min(96,im.naturalWidth||96));
+    const H=Math.max(16,Math.min(96,im.naturalHeight||96));
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const cx=cv.getContext('2d',{willReadFrequently:true}); if(!cx)return;
+    cx.clearRect(0,0,W,H);
+    cx.drawImage(im,0,0,W,H);
+    const d=cx.getImageData(0,0,W,H), px=d.data;
+    /* 가장자리 표본 — 흰(또는 투명) 바탕 여부 */
+    let edge=0,edgeW=0;
+    const samp=(x,y)=>{const i=(y*W+x)*4; edge++;
+      if(px[i+3]<10||(px[i]>236&&px[i+1]>236&&px[i+2]>236))edgeW++;};
+    for(let x=0;x<W;x+=2){samp(x,0);samp(x,H-1);}
+    for(let y=2;y<H-2;y+=2){samp(0,y);samp(W-1,y);}
+    if(edgeW/Math.max(1,edge)<0.85){ _lgFixCache[src]={}; return; }   /* 바탕이 흰색이 아니면 손대지 않는다 */
+    /* 흰색 → 투명 + 내용 경계 상자 */
+    let minX=W,minY=H,maxX=-1,maxY=-1,inkN=0,inkLum=0;
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const i=(y*W+x)*4;
+      if(px[i+3]<10)continue;
+      if(px[i]>244&&px[i+1]>244&&px[i+2]>244){px[i+3]=0;continue;}
+      if(minX>x)minX=x; if(maxX<x)maxX=x; if(minY>y)minY=y; if(maxY<y)maxY=y;
+      inkN++; inkLum+=(px[i]*0.299+px[i+1]*0.587+px[i+2]*0.114);
+    }
+    if(maxX<0||inkN<W*H*0.004){ _lgFixCache[src]={bad:1}; usTickBad(im); return; }   /* 사실상 빈 그림 → 색 배지 */
+    cx.putImageData(d,0,0);
+    const bw=maxX-minX+1,bh=maxY-minY+1;
+    const pad=Math.round(Math.max(bw,bh)*0.14);
+    const side=Math.max(24,Math.max(bw,bh)+pad*2);
+    const out=document.createElement('canvas'); out.width=side; out.height=side;
+    const ox=out.getContext('2d');
+    ox.drawImage(cv,minX,minY,bw,bh,Math.round((side-bw)/2),Math.round((side-bh)/2),bw,bh);
+    const url=out.toDataURL('image/png');
+    const dark=inkN>0&&(inkLum/inkN)>212;   /* 남은 내용이 거의 흰색 → 어두운 배지 필요 */
+    _lgFixCache[src]={url,dark};
+    if(dark&&im.parentNode)im.parentNode.classList.add('dkbg');
+    im.src=url;
+  }catch(e){}
+}
 function usTickOk(im){
   try{
     if((im.naturalWidth||0)<16||(im.naturalHeight||0)<16){ usTickBad(im); return; }
     let ink=null;
     try{ ink=usLgHasInk(im); }catch(e){ ink=null; }
     if(ink===false){ usTickBad(im); return; }
+    usLgWhiteFix(im);                       /* [v9.71] 흰 바탕이면 투명화·크롭 */
     im.parentNode.classList.add('on');
   }catch(e){}
 }
@@ -15222,7 +15656,7 @@ function usRow(t,rank,metric){
   const mt=has?usMetricTxt(t,metric):'';
   const band=has?usBandMini(q):'';
   const rt=usRateTxt(q), cls=usRateCls(q);
-  return `<button type="button" class="us-row uz-row has-sp" data-us="${t}">
+  return `<button type="button" class="us-row uz-row has-sp${rank?' has-rk':''}" data-us="${t}">
     ${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
     <span class="us-nm uz-nm"><b>${m.kr}${m.etf?'<i class="uz-etf">ETF</i>':''}</b>
       <span class="uz-sub2">${t}<em>·</em>${mt||m.en}</span>${band}</span>
@@ -15442,6 +15876,8 @@ function renderUsRankBody(){
     return;
   }
   const rate=t=>{const q=usQ[t];return q.prev?(q.price-q.prev)/q.prev*100:0;};
+  /* [v9.71] 해외는 원천이 실제 체결대금을 주지 않는다 — 현재가×거래량 추정치다.
+     정확한 수치인 척하지 않도록 화면 설명에도 '추정'을 적는다(아래 note). */
   const val=t=>{const q=usQ[t];return (q.price||0)*(q.vol||0);};
   const rated=pool.filter(t=>usQ[t].prev);
   let list,note;
@@ -15481,13 +15917,15 @@ function renderUsRankBody(){
         :`조회수 원천에 연결하지 못했습니다`;
   }
   else {list=pool.filter(t=>usQ[t].vol).slice().sort((a,b)=>val(b)-val(a));
-        note='거래대금(가격×거래량)이 큰 순서';}
+        note='거래대금이 큰 순서 · <b>추정치</b>(현재가×거래량) — 원천이 실제 체결대금을 제공하지 않습니다';}
   if(bd){const b=usBreadth();
     bd.innerHTML=`<div class="uz-note">${note} · <b>${list.length}종</b>${b.none?` · ${b.none}종은 아직 시세 대기`:''}</div>`;}
   /* [v4.50] 정렬 기준이 된 값을 행에도 적어 준다 — 왜 이 순서인지 보이게 */
   const mk=usRankTab==='cap'?'cap':usRankTab==='val'?'val':'';
   box.innerHTML=list.length?`<div class="uz-list">${list.map((t,i)=>usRow(t,i+1,mk)).join('')}</div>`
     :`<div class="uz-empty"><b>정렬할 값이 아직 없습니다</b><span>이 기준에 필요한 항목이 시세에 담겨 오면 곧 채워집니다.</span></div>`;
+  /* [v9.71] 그린 직후 당일 캔들도 함께 — 다음 시세 주기(20초)를 기다릴 이유가 없다 */
+  try{ usCandlesPaint(box); }catch(e){}
 }
 function renderUsThemeBody(){
   const box=$('usThemeBody'); if(!box)return;
@@ -16157,21 +16595,7 @@ function renderUsAi(el){
       <div class="ai-mt"><span>거래량(5/20일)</span><b class="num">${a.volR?a.volR.toFixed(2)+'배':'—'}</b></div>
     </div>
 
-    ${a.vp?`
-    <div class="ai-sec-t">매물대 분석 <span>최근 ${a.vp.days}거래일 · 가격대별 누적 거래량</span></div>
-    <div class="vp-zone ${a.vp.zone.tone}">현재 위치 · <b>${a.vp.zone.label}</b>${a.vp.brokeVah?' · 최근 10일 내 상단 돌파':a.vp.brokePoc?' · 최근 10일 내 POC 돌파':a.vp.lostVal?' · 최근 10일 내 하단 이탈':''}</div>
-    <div class="vp-wrap"><canvas id="usAiVp"></canvas></div>
-    <div class="vp-bar"><i class="d" style="width:${a.vp.digest.toFixed(1)}%"></i><i class="o" style="width:${a.vp.overhead.toFixed(1)}%"></i></div>
-    <div class="vp-bar-lg"><span><b class="num">${Math.round(a.vp.digest)}%</b> 소화한 매물(현재가 아래)</span><span><b class="num">${Math.round(a.vp.overhead)}%</b> 머리 위 매물</span></div>
-    <div class="ai-metrics vp-m">
-      <div class="ai-mt"><span>최대 매물대 (POC)</span><b class="num">${D(a.vp.pocP)}</b></div>
-      <div class="ai-mt"><span>밸류에어리어 70%</span><b class="num">${D(a.vp.val)}~${D(a.vp.vah)}</b></div>
-      <div class="ai-mt"><span>위쪽 매물벽 (저항)</span><b class="num ${a.vp.res?'down':''}">${a.vp.res?D(a.vp.res.p)+' ('+a.vp.res.w.toFixed(1)+'%)':'없음 · 위가 비어 있음'}</b></div>
-      <div class="ai-mt"><span>아래 매물벽 (지지)</span><b class="num ${a.vp.sup?'up':''}">${a.vp.sup?D(a.vp.sup.p)+' ('+a.vp.sup.w.toFixed(1)+'%)':'없음 · 하방 지지 얇음'}</b></div>
-      <div class="ai-mt"><span>본전 매물 압력</span><b class="num ${a.vp.trap>=18?'down':''}">${a.vp.trap.toFixed(1)}%</b></div>
-      <div class="ai-mt"><span>매물벽 개수</span><b class="num">${a.vp.hvn.length}곳 · 공백 ${a.vp.lvn.length}곳</b></div>
-    </div>
-    <div class="ai-prob-d">${vpNarrative(a.vp,a.px)}</div>`:''}
+    ${a.vp?vpSectionHtml(a.vp,a.px,'usAiVp',D):''}
 
     ${a.fc?`
     <div class="ai-sec-t">차트 예측 <span>최근 흐름의 기울기를 ${a.fc.days}거래일 이어 본 참고선</span></div>
@@ -16196,7 +16620,7 @@ function renderUsAi(el){
   </div>`;
   /* [v8.6] 그림은 국내와 같은 함수를 그대로 쓴다 — 생김새가 저절로 맞는다 */
   requestAnimationFrame(()=>{
-    try{ if(a.vp)drawVolProfile($('usAiVp'),a.vp,a.px); }catch(e){}
+    try{ if(a.vp)drawVolProfile($('usAiVp'),a.vp,a.px,D); }catch(e){}   /* [v9.71] 달러 표기 */
     try{ if(a.fc)drawUsForecast($('usAiFc'),a); }catch(e){}
   });
 }

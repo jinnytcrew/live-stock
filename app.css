@@ -5090,3 +5090,127 @@ html[data-theme="dark"] .sr .ch.down{background:rgba(105,160,255,.15)}
   .ipo-rt b{font-size:11.5px}
   .ipo-rt span{font-size:10px}
 }
+
+/* ══ [v9.71] ① 해외 순위 목록 당일 캔들 ═══════════════════════════════════════
+   [원인] v9.3 이 목록 행에 당일 캔들 칸(.sr-sp)을 더했지만, 순위 목록의 격자는
+   5열(순위·로고·이름·가격·등락) 그대로였다. 자식이 6개라 캔들이 다음 줄로
+   밀려 화면에서 보이지 않았다(첨부 사진). → 순위가 붙는 행은 6열로. */
+.us-row.has-sp.has-rk{grid-template-columns:auto auto 1fr auto auto auto}
+.us-ranklist .us-row.has-sp{grid-template-columns:auto auto 1fr auto auto auto}
+
+/* ══ [v9.71] ② 어두운 바탕이 필요한 로고 ══════════════════════════════════════
+   흰 잉크 로고(어두운 배경용)는 흰 배지(#fff) 위에서 보이지 않는다 —
+   usLgWhiteFix 가 dkbg 를 붙이면 배경만 어둡게 바꾼다. */
+.us-tick.on.dkbg{background-color:#25334a!important}
+html[data-theme="dark"] .us-tick.on.dkbg{background-color:#31415c!important}
+
+/* ══ [v9.71] ③ 투자자별 매매동향 ══════════════════════════════════════════════
+   [원인] v9.2 가 화면 코드(renderInvTrend)만 넣고 .inv-trend/.ivt-* 스타일을
+   빠뜨렸다 — 데이터가 와도 맨글씨로 깨져 보일 판이었다. 스타일을 채운다. */
+.inv-trend{margin:14px 2px 2px}
+.ivt-t{font-size:13.5px;font-weight:900;margin:0 2px 9px}
+.ivt-t span{font-size:11px;font-weight:600;color:var(--sub-2)}
+.ivt-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:640px){.ivt-wrap{grid-template-columns:1fr}}
+.ivt-card{border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--panel)}
+.ivt-h{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:9px}
+.ivt-h b{font-size:13.5px;font-weight:900}
+.ivt-d{font-size:11px;color:var(--sub-2);font-weight:600}
+.ivt-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ivt-i{display:flex;flex-direction:column;gap:3px}
+.ivt-i span{font-size:11px;color:var(--sub);font-weight:700}
+.ivt-i b{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* [v9.71] 통계 칸 보조 설명(거래량 KRX/NXT 내역 등) */
+.st .st-sub{display:block;font-size:10.5px;font-weight:600;color:var(--sub-2);margin-top:2px;letter-spacing:-.2px}
+.st .k .st-sub{display:inline;margin:0 0 0 3px;font-size:10px}
+
+/* ══════════ [v9.71] 매물대 — 레이아웃·스타일 전면 개선 ══════════════════════
+   예전에는 제목·띠·캔버스·수치표가 각각 떠 있어 "무엇을 보라는 건지" 알기
+   어려웠다. 하나의 카드로 묶고, 맨 위에 결론 3장을 먼저 보여 준 다음 그림을
+   두는 순서로 바꾼다. 자세한 수치는 접어 둔다. */
+.vp-card{border:1px solid var(--border);border-radius:18px;padding:14px 14px 12px;
+  background:var(--panel);margin:2px 0 4px}
+html[data-theme="dark"] .vp-card{background:rgba(255,255,255,.02)}
+
+.vp-zone{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-size:13px;font-weight:800;
+  color:var(--text);background:var(--border-soft);border-radius:12px;padding:9px 12px;margin-bottom:11px}
+.vp-zone .vz-k{font-size:10.5px;font-weight:800;color:var(--sub-2);background:var(--panel);
+  border-radius:6px;padding:2px 7px;letter-spacing:-.2px}
+.vp-zone b{font-weight:900}
+.vp-zone .vz-b{font-style:normal;font-size:10.5px;font-weight:800;border-radius:99px;padding:2.5px 8px;margin-left:auto}
+.vp-zone .vz-b.up{color:var(--up);background:var(--up-bg)}
+.vp-zone .vz-b.down{color:var(--down);background:var(--down-bg)}
+.vp-zone.up{background:rgba(229,68,59,.08)}
+.vp-zone.down{background:rgba(47,116,255,.08)}
+
+/* 결론 3장 — 그림을 못 읽어도 여기만 보면 된다 */
+.vp-keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+@media(max-width:400px){.vp-keys{grid-template-columns:1fr;gap:6px}
+  .vp-key{display:grid;grid-template-columns:auto 1fr;align-items:baseline;gap:4px 8px}
+  .vp-key .vk-s{grid-column:1/-1}}
+.vp-key{border:1px solid var(--border);border-radius:13px;padding:9px 10px;background:var(--bg-soft,transparent)}
+.vp-key .vk-t{display:block;font-size:10.5px;font-weight:800;color:var(--sub-2);letter-spacing:-.2px}
+.vp-key .vk-v{display:block;font-size:15px;font-weight:900;margin:2px 0 1px;letter-spacing:-.4px}
+.vp-key .vk-s{display:block;font-size:10.5px;font-weight:700;color:var(--sub);line-height:1.45}
+.vp-key.good{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.07)}
+.vp-key.good .vk-v{color:#16a34a}
+html[data-theme="dark"] .vp-key.good .vk-v{color:#4ade80}
+.vp-key.bad{border-color:rgba(229,68,59,.32);background:rgba(229,68,59,.06)}
+.vp-key.bad .vk-v{color:var(--up)}
+.vp-key.mid .vk-v{color:var(--text)}
+
+.vp-wrap{position:relative;height:272px;margin:0 0 9px;border-radius:12px;overflow:hidden}
+.vp-wrap canvas{width:100%;height:100%;display:block}
+
+/* 색 설명 */
+.vp-lgd{display:flex;flex-wrap:wrap;gap:5px 13px;margin-bottom:12px;padding-bottom:11px;
+  border-bottom:1px solid var(--border-soft)}
+.vp-lgd span{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--sub)}
+.vp-lgd .sw{width:11px;height:8px;border-radius:2.5px;flex:none}
+.vp-lgd .sw.poc{background:#d97706}
+.vp-lgd .sw.dn{background:rgba(47,116,255,.62)}
+.vp-lgd .sw.up{background:rgba(229,68,59,.58)}
+.vp-lgd .sw.va{background:rgba(100,116,139,.28);box-shadow:inset 0 0 0 1px rgba(100,116,139,.5)}
+html[data-theme="dark"] .vp-lgd .sw.poc{background:#fbbf24}
+html[data-theme="dark"] .vp-lgd .sw.dn{background:rgba(96,165,250,.75)}
+html[data-theme="dark"] .vp-lgd .sw.up{background:rgba(248,113,113,.75)}
+
+/* 소화율 막대 */
+.vp-split{margin-bottom:11px}
+.vp-bar{display:flex;height:11px;border-radius:99px;overflow:hidden;background:var(--border-soft)}
+.vp-bar i{display:block;height:100%}
+.vp-bar .d{background:linear-gradient(90deg,#2563eb,#60a5fa)}
+.vp-bar .o{background:linear-gradient(90deg,#fb7185,#e5443b)}
+.vp-bar-lg{display:flex;justify-content:space-between;gap:12px;margin-top:7px}
+.vp-bar-lg span{font-size:11px;font-weight:700;color:var(--sub);line-height:1.4}
+.vp-bar-lg span.o{text-align:right}
+.vp-bar-lg b{display:block;font-size:15px;font-weight:900;letter-spacing:-.4px}
+.vp-bar-lg .d b{color:#2563eb}.vp-bar-lg .o b{color:var(--up)}
+html[data-theme="dark"] .vp-bar-lg .d b{color:#60a5fa}
+.vp-bar-lg i{display:block;font-style:normal;font-size:10px;font-weight:600;color:var(--sub-2);margin-top:1px}
+
+/* 자세한 수치 — 접어 둔다 */
+.vp-more{margin-top:2px}
+.vp-more summary{cursor:pointer;list-style:none;font-size:11.5px;font-weight:800;color:var(--sub);
+  padding:8px 11px;border:1px solid var(--border);border-radius:10px;text-align:center;transition:background .15s}
+.vp-more summary::-webkit-details-marker{display:none}
+.vp-more summary::after{content:' ▾';font-size:9px}
+.vp-more[open] summary::after{content:' ▴'}
+.vp-more summary:active{background:var(--border-soft)}
+.vp-more .vp-m{margin-top:9px}
+.vp-help{margin-top:9px;font-size:11px;line-height:1.65;color:var(--sub);
+  background:var(--border-soft);border-radius:10px;padding:9px 11px}
+.vp-help b{color:var(--text);font-weight:800}
+.vp-narr{margin-top:10px;font-size:11.5px;line-height:1.7;color:var(--sub)}
+
+/* [v9.71] 추천 성과 표시 — 초과수익을 앞에 둔다 */
+.pk-acc{border:1px solid var(--border);border-radius:14px;padding:11px 13px;margin-bottom:10px;background:var(--panel)}
+.pk-acc-main{font-size:13px;font-weight:800;color:var(--text)}
+.pk-acc-main b{font-size:19px;font-weight:900;letter-spacing:-.5px;margin:0 3px}
+.pk-acc-main i{display:block;font-style:normal;font-size:10.5px;font-weight:600;color:var(--sub-2);margin-top:2px}
+.pk-acc-sub{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:9px;padding-top:9px;border-top:1px solid var(--border-soft)}
+.pk-acc-sub span{font-size:11px;font-weight:700;color:var(--sub)}
+.pk-acc-sub b{font-weight:900;color:var(--text);margin-left:3px}
+.pk-acc-n{display:block;margin-top:7px;font-size:10px;font-weight:600;color:var(--sub-2);line-height:1.5}
+.pk-acc-none{font-size:11.5px;font-weight:700;color:var(--sub)}
