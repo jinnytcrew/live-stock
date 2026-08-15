@@ -5247,3 +5247,191 @@ html[data-theme="dark"] .vp-bar-lg .d b{color:#60a5fa}
 .pk-watch-r .pw-px i.up{color:var(--up)}.pk-watch-r .pw-px i.down{color:var(--down)}
 .pk-watch-r .pw-sc{font-size:11.5px;font-weight:800;color:var(--sub-2)}
 .pk-watch-r .pw-why{grid-column:1/-1;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+
+/* [v9.71c] 최근 검색 칩 — 줄마다 높이가 달라 보이지 않게 */
+.sh-chips{align-items:center}
+.sh-chip .lgo,.sh-chip .us-tick{flex:0 0 auto}
+.sh-chip.us .us-tick{width:24px;height:24px;font-size:8.5px;border-radius:7px}
+.sh-chip .lgo.xs{width:24px;height:24px}
+
+/* [v9.71c] 공모주 — 아직 나올 수 없는 값은 이유와 함께 */
+.ipo-rt.none b{font-size:12.5px;font-weight:800;color:var(--sub-2)}
+.ipo-rt.none b i{display:block;font-style:normal;font-size:10px;font-weight:600;
+  color:var(--sub-2);opacity:.85;margin-top:2px;line-height:1.4}
+.ipo-rt.none{background:var(--border-soft);opacity:.9}
+
+/* [v9.71c] 매집 포착기 — ★ 흡수 캔들 설명 */
+.ac-cv-help{margin-top:9px;padding:10px 12px;border-radius:11px;background:var(--border-soft);
+  font-size:11px;line-height:1.7;color:var(--sub)}
+.ac-cv-help b{color:var(--text);font-weight:800}
+
+/* ══════════ [v9.72] MY 포트폴리오 ══════════════════════════════════════════ */
+.fo-sec{margin-bottom:14px}
+.fo-sec-h{font-size:15px;font-weight:900;margin:22px 2px 10px;letter-spacing:-.4px}
+.fo-sec-h span{display:block;font-size:11px;font-weight:600;color:var(--sub-2);margin-top:2px}
+
+/* ① 오늘의 할 일 */
+.fo-todo{border:1px solid var(--border);border-radius:18px;padding:14px;background:var(--panel)}
+.fo-todo.ok{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.06)}
+.fo-todo.warn{border-color:rgba(229,68,59,.34);background:rgba(229,68,59,.05)}
+.ft-h{font-size:15px;font-weight:900;letter-spacing:-.4px}
+.ft-s{font-size:11.5px;font-weight:600;color:var(--sub);margin-top:5px;line-height:1.6}
+.ft-list{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+.ft-i{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;width:100%;text-align:left;
+  background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px 12px;cursor:pointer}
+.ft-i.fo-l3{border-left:3px solid var(--up)}
+.ft-i.fo-l2{border-left:3px solid #f59e0b}
+.ft-i.fo-l1{border-left:3px solid var(--sub-2)}
+.fi-lv{font-size:13px}
+.fi-b b{font-size:13px;font-weight:800;display:inline}
+.fi-b i{font-style:normal;font-size:11px;font-weight:800;color:var(--sub);margin-left:6px}
+.fi-d{display:block;font-size:10.5px;font-weight:600;color:var(--sub-2);margin-top:3px;line-height:1.5}
+.fi-r{font-size:13px;font-weight:900}
+.ft-f{margin-top:11px;font-size:10.5px;line-height:1.6;color:var(--sub-2)}
+.ft-f b{color:var(--sub)}
+
+/* ② 요약 */
+.fo-sum{border:1px solid var(--border);border-radius:18px;padding:14px;background:var(--panel)}
+.fs-main span{font-size:11px;font-weight:700;color:var(--sub-2)}
+.fs-main b{display:block;font-size:26px;font-weight:900;letter-spacing:-1px;margin:2px 0}
+.fs-main i{font-style:normal;font-size:13px;font-weight:800}
+.fs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:9px;margin-top:12px;
+  padding-top:12px;border-top:1px solid var(--border-soft)}
+.fs-grid>div span{display:block;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.fs-grid>div b{display:block;font-size:13.5px;font-weight:900;margin-top:2px}
+.fs-warn{margin-top:11px;padding:9px 11px;border-radius:10px;background:rgba(245,158,11,.12);
+  font-size:11px;font-weight:700;color:#b45309;line-height:1.55}
+html[data-theme="dark"] .fs-warn{color:#fbbf24}
+
+/* ③ 종목 카드 */
+.fo-card{border:1px solid var(--border);border-radius:18px;padding:13px;background:var(--panel);margin-bottom:10px}
+.fo-card.fo-l3{border-color:rgba(229,68,59,.4)}
+.fo-card.fo-l2{border-color:rgba(245,158,11,.42)}
+.fc-h{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
+.fc-t b{font-size:14.5px;font-weight:900;letter-spacing:-.3px}
+.fc-t span{display:block;font-size:10.5px;font-weight:600;color:var(--sub-2);margin-top:2px}
+.fc-p{font-size:16px;font-weight:900;text-align:right;letter-spacing:-.4px}
+.fc-p i{display:block;font-style:normal;font-size:10.5px;font-weight:700}
+.fc-bar{position:relative;height:9px;border-radius:99px;background:linear-gradient(90deg,rgba(47,116,255,.22),rgba(148,163,184,.18),rgba(229,68,59,.22));
+  margin:13px 0 6px;overflow:visible}
+.fc-bar .fb-fill{position:absolute;left:0;top:0;height:100%;border-radius:99px;background:linear-gradient(90deg,#60a5fa,#22c55e)}
+.fc-bar .fb-avg{position:absolute;top:-3px;width:2px;height:15px;background:var(--sub-2);transform:translateX(-1px)}
+.fc-bar .fb-now{position:absolute;top:-4px;width:11px;height:17px;border-radius:4px;background:var(--text);
+  transform:translateX(-5px);box-shadow:0 1px 4px rgba(0,0,0,.28)}
+.fc-bar-lg{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--sub-2)}
+.fc-noplan{margin:12px 0 4px;padding:9px 11px;border-radius:10px;border:1px dashed var(--border);
+  font-size:11px;font-weight:700;color:var(--sub-2);line-height:1.55}
+.fc-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.fc-tag{font-size:10.5px;font-weight:800;color:var(--sub);background:var(--border-soft);border-radius:99px;padding:3px 9px}
+.fc-tag.buy{color:var(--up);background:var(--up-bg)}
+.fc-tag.sell{color:var(--down);background:var(--down-bg)}
+.fc-al{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.fc-al .fa{border-radius:10px;padding:8px 10px;background:var(--border-soft)}
+.fc-al .fa.fo-l3{background:rgba(229,68,59,.09)}
+.fc-al .fa.fo-l2{background:rgba(245,158,11,.11)}
+.fc-al .fa b{display:block;font-size:11.5px;font-weight:900}
+.fc-al .fa span{display:block;font-size:10.5px;font-weight:600;color:var(--sub);margin-top:2px;line-height:1.5}
+.fc-btns{display:flex;gap:7px;margin-top:11px}
+.fc-b{flex:1;font-size:11.5px;font-weight:800;padding:9px;border-radius:10px;
+  border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer}
+.fc-b:active{background:var(--border-soft)}
+
+/* ④ 위험 */
+.fo-risk{border:1px solid var(--border);border-radius:18px;padding:14px;background:var(--panel)}
+.fr-h{font-size:14px;font-weight:900;margin-bottom:11px}
+.fr-h span{display:block;font-size:10.5px;font-weight:600;color:var(--sub-2);margin-top:2px}
+.fr-i{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 0;border-top:1px solid var(--border-soft)}
+.fri-t{font-size:12.5px;font-weight:800}
+.fri-v{font-size:13.5px;font-weight:900;text-align:right}
+.fr-i.bad .fri-v{color:var(--up)}
+.fr-i.ok .fri-v{color:#16a34a}
+html[data-theme="dark"] .fr-i.ok .fri-v{color:#4ade80}
+.fri-d{grid-column:1/-1;font-size:10.5px;font-weight:600;color:var(--sub-2);line-height:1.55}
+
+/* ⑤ 습관 */
+.fo-habit{border:1px solid var(--border);border-radius:18px;padding:14px;background:var(--panel)}
+.fh-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:10px}
+.fh-grid>div span{display:block;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.fh-grid>div b{display:block;font-size:15px;font-weight:900;margin-top:2px;letter-spacing:-.4px}
+.fh-note{margin-top:12px;padding:10px 12px;border-radius:11px;background:var(--border-soft);
+  font-size:11px;line-height:1.65;color:var(--sub)}
+.fh-note b{display:block;color:var(--text);font-weight:900;margin-bottom:3px}
+.fh-note.bad{background:rgba(229,68,59,.08)}
+.fh-f{margin-top:10px;font-size:10px;color:var(--sub-2);line-height:1.5}
+
+/* ⑥ 복기 */
+.fo-review{border:1px solid var(--border);border-radius:18px;padding:14px;background:var(--panel)}
+.fv-i{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
+  padding:10px 0;border-bottom:1px solid var(--border-soft)}
+.fv-i:last-of-type{border-bottom:0}
+.fv-k{font-size:13px;font-weight:800}
+.fv-n{font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.fv-v{font-size:14.5px;font-weight:900;min-width:64px;text-align:right}
+.fv-f{margin-top:10px;font-size:10.5px;color:var(--sub-2);line-height:1.6}
+.fo-help{margin-top:10px;font-size:11px;line-height:1.6;color:var(--sub);
+  background:var(--border-soft);border-radius:10px;padding:9px 11px}
+.fo-help b{color:var(--text);font-weight:800}
+
+/* [v9.72] 복기 — 계획 준수율 */
+.fv-keep{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:11px 12px;border-radius:12px;margin-bottom:11px}
+.fv-keep.ok{background:rgba(34,197,94,.09)}
+.fv-keep.bad{background:rgba(229,68,59,.08)}
+.fv-keep span{font-size:12px;font-weight:800;color:var(--text)}
+.fv-keep b{font-size:20px;font-weight:900;letter-spacing:-.6px;text-align:right}
+.fv-keep.ok b{color:#16a34a}.fv-keep.bad b{color:var(--up)}
+html[data-theme="dark"] .fv-keep.ok b{color:#4ade80}
+.fv-keep i{grid-column:1/-1;font-style:normal;font-size:10.5px;font-weight:600;color:var(--sub);line-height:1.6;margin-top:3px}
+.fv-keep i b{display:inline;font-size:inherit;color:var(--text);letter-spacing:0}
+
+/* [v9.72b] 오늘의 시장 — 투자자별 매매동향을 큰 칸으로 */
+.hm-inv2{margin:11px 0 9px;padding:11px;border-radius:13px;background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.12)}
+html:not([data-theme="dark"]) .hm-inv2{background:rgba(255,255,255,.55);border-color:rgba(120,105,70,.14)}
+.hi-h{font-size:11.5px;font-weight:900;margin-bottom:9px}
+.hi-h span{font-weight:600;opacity:.66;margin-left:5px;font-size:10px}
+.hi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.hi-c{text-align:center;padding:7px 3px;border-radius:9px;background:rgba(0,0,0,.06)}
+html[data-theme="dark"] .hi-c{background:rgba(255,255,255,.05)}
+.hi-c span{display:block;font-size:10px;font-weight:700;opacity:.72}
+.hi-c b{display:block;font-size:14.5px;font-weight:900;letter-spacing:-.5px;margin:2px 0 1px}
+.hi-c i{display:block;font-style:normal;font-size:9.5px;font-weight:700;opacity:.6}
+.hi-c.up b{color:var(--up)}.hi-c.down b{color:var(--down)}
+.hi-sum{margin-top:8px;font-size:10.5px;font-weight:700;opacity:.82;text-align:center}
+.hi-sum b{font-weight:900}
+.hi-wait{font-size:11px;font-weight:600;opacity:.6;padding:8px 0}
+.hm-lb{font-variant-numeric:tabular-nums}
+
+/* [v9.72b] 포트폴리오 보완 */
+.fs-fill{display:inline-block;margin-left:6px;font-size:11px;font-weight:800;padding:4px 10px;
+  border-radius:8px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}
+.fs-warn i{display:block;font-style:normal;font-size:10px;font-weight:600;opacity:.8;margin-top:5px}
+.fv-moved{padding:9px 11px;border-radius:11px;background:rgba(245,158,11,.12);margin-bottom:10px}
+.fv-moved b{font-size:15px;font-weight:900;margin-left:4px}
+.fv-moved i{display:block;font-style:normal;font-size:10.5px;font-weight:600;color:var(--sub);margin-top:3px;line-height:1.5}
+
+/* ══ [v9.72c] 국내 주도 섹터 — 해외와 같은 카드 격자 ══════════════════════════
+   해외(.us-sect)의 모양을 그대로 쓰되, 국내에만 있는 '펼쳐 보기'를 위한
+   규칙만 덧댄다. 카드가 열리면 그 칸만 높아지고 격자는 그대로 유지된다. */
+.thm-list{margin-top:4px}
+.thm-card{cursor:pointer;transition:border-color .12s,background .12s}
+.thm-card:hover{border-color:var(--border)}
+.thm-card.open{border-color:var(--sub-2);background:var(--panel)}
+.thm-card .uss-rk.top{color:#e9900a}
+.thm-card .uss-m b.up{color:var(--up)}
+.thm-card .uss-m b.down{color:var(--down)}
+.thm-card .thm-more-i{display:block;margin-top:9px;font-size:10.5px;font-weight:800;
+  color:var(--sub-2);text-align:center;padding-top:8px;border-top:1px solid var(--border-soft)}
+.thm-card .thm-detail{margin-top:10px;cursor:default}
+.thm-card.open .thm-detail{border-top:1px solid var(--border-soft);padding-top:10px}
+/* 카드 안에서는 구성 종목 표가 카드 폭에 맞아야 한다 */
+.thm-card .thm-detail table{width:100%}
+.thm-card .thm-detail .thm-load{font-size:11.5px;color:var(--sub-2);padding:10px 0;text-align:center}
+/* 좁은 화면에서는 한 줄에 하나 */
+@media(max-width:560px){.us-sect-list.thm-list{grid-template-columns:1fr}}
+
+/* [v9.72c] '내 종목' 탭 — 펼친 종목 칩 */
+.thm-card .sec-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;padding-top:10px;
+  border-top:1px solid var(--border-soft)}
+.thm-card .sec-chips .uss-t{margin:0;cursor:pointer}
+/* 카드 안 종목 칩은 눌리는 대상임을 분명히 */
+.us-sect-list .uss-t{cursor:pointer}

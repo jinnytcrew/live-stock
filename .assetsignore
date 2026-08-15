@@ -25,6 +25,7 @@ package.json
 package-lock.json
 *.zip
 *.log
+push-lib.js
 .env
 .env.*
 .dev.vars

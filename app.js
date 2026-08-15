@@ -1129,7 +1129,7 @@ function paintPicks(j){
       +'눌림목·수축·돌파 어느 자리에도 뚜렷이 해당하는 종목이 없었습니다.<br>'
       +'기준 미달 종목을 추천으로 올리지 않는 대신, 가장 근접한 종목을 아래에 적어 둡니다.</span></div>'
       +watchHtml;
-    try{ body.querySelectorAll('.pk-watch-r').forEach(b=>b.onclick=()=>{try{openStock(b.dataset.code);}catch(e){}}); }catch(e){}
+    try{ body.querySelectorAll('.pk-watch-r').forEach(b=>b.onclick=()=>{try{openTrade(b.dataset.code);}catch(e){}}); }catch(e){}
     return; }
   if(!j.ok||!j.picks||!j.picks.length){ body.innerHTML='<div class="empty">추천 결과를 만들지 못했습니다. '+(j.why||'')+' 잠시 후 다시 시도해 주세요.</div>'; return; }
   /* [D6] 과거 추천의 실제 성과(적중률) */
@@ -2584,7 +2584,8 @@ function xferNotify(items){
   const one=items.length===1?items[0]:null;
   const title=items.length===1?`${one.from||'누군가'}님이 ${KRW(one.amt)}원을 보냈어요`
     :`${items.length}건 · 총 ${KRW(tot)}원을 받았어요`;
-  const body=one&&one.memo?`“${one.memo}”`:'내 계좌에 바로 들어왔습니다';
+  /* [v9.73] 메모는 '다른 사람이 보낸' 문자열이다 — 반드시 이스케이프한다 */
+  const body=one&&one.memo?`“${htmlEsc(one.memo)}”`:'내 계좌에 바로 들어왔습니다';
   try{ notifyUser(title,body); }catch(e){}   // 화면 알림 + 브라우저 알림
   try{
     const ov=document.createElement('div');
@@ -3552,7 +3553,28 @@ function cloudSync(){
   clearTimeout(syncT);
   syncT=setTimeout(()=>cloudCall({action:'sync',id:currentUser,pass:acc.pass,
     /* 폴더·종목메모·개인설정까지 자동 저장 — 기기를 바꿔 로그인해도 그대로 복원된다(수동 내보내기 불필요) */
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}),800);
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}),_syncDelay());
+}
+/* ══ [v9.73] 서버 저장 간격을 상황에 맞게 ══════════════════════════════════
+   800ms 고정이라, 주문 화면에서 값을 조금씩 만지는 동안에도 계속 저장 요청이
+   나갔다. KV 는 하루 쓰기 한도가 있으므로 조용할 때는 넉넉히 묶는다.
+   화면을 닫거나 탭을 벗어날 때는 아래에서 즉시 한 번 밀어 넣으므로 유실은 없다. */
+function _syncDelay(){
+  try{
+    if(document.hidden)return 300;              // 곧 사라질 수 있으니 빨리 보낸다
+    return 4000;
+  }catch(e){ return 2000; }
+}
+/* 탭을 벗어나거나 앱을 닫을 때 밀린 저장을 즉시 보낸다 */
+try{
+  const flush=()=>{ try{ if(syncT){ clearTimeout(syncT); syncT=null; cloudSyncNow(); } }catch(e){} };
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden)flush(); });
+  window.addEventListener('pagehide',flush);
+}catch(e){}
+function cloudSyncNow(){
+  if(!currentUser)return; const acc=accounts()[currentUser]; if(!acc)return;
+  try{ cloudCall({action:'sync',id:currentUser,pass:acc.pass,
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}); }catch(e){}
 }
 function saveState(){ if(!currentUser)return; try{acctSnap();}catch(e){}   // [v4.40] 활성 계좌 장부 반영
   store.set('user:'+currentUser,{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash}); cloudSync(); }
@@ -4653,6 +4675,34 @@ function renderSettingsExtra(){
   /* [v9.71] 이 버튼은 '목표 설정' 모달이 열려 있을 때만 존재한다. 설정 화면을
      배선하는 이 자리에서는 없을 때가 많아, 매번 화면 오류가 찍혔다(첨부 사진의
      Cannot set properties of null (setting 'onclick')). 있을 때만 건다. */
+  /* ══ [v9.76] 푸시 알림 스위치 ══════════════════════════════════════════════
+     지원 여부·권한 상태·설치 여부에 따라 설명을 바꿔 준다. 그냥 꺼져 있으면
+     사용자는 왜 안 되는지 알 수 없다. */
+  try{
+    const sw=$('setPush'), desc=$('pushDesc'), row=$('pushTestRow');
+    const paint=()=>{
+      if(!sw)return;
+      const on=!!(_pushSub&&userPrefs.push);
+      sw.classList.toggle('on',on);
+      if(row)row.hidden=!on;
+      if(!desc)return;
+      if(!pushSupported())desc.textContent='이 브라우저는 푸시를 지원하지 않습니다';
+      else if(pushIosBlocked())desc.textContent='아이폰·아이패드는 공유 → 홈 화면에 추가 후 그 아이콘으로 열어야 합니다';
+      else if(typeof Notification!=='undefined'&&Notification.permission==='denied')
+        desc.textContent='알림이 차단돼 있습니다 · 브라우저 설정에서 허용해 주세요';
+      else if(!currentUser)desc.textContent='로그인하면 켤 수 있습니다';
+      else desc.textContent=on?'켜져 있습니다 · 앱을 닫아도 알림이 옵니다'
+        :'손절선 이탈·목표가 도달을 기기 알림으로 보내드립니다';
+    };
+    if(sw)sw.onclick=async()=>{
+      if(sw.classList.contains('on'))await pushDisable();
+      else await pushEnable();
+      paint();
+    };
+    const tb=$('pushTestBtn'); if(tb)tb.onclick=pushTest;
+    paint();
+    setTimeout(paint,3000);          // 서비스 워커 등록이 끝난 뒤 한 번 더
+  }catch(e){}
   const _goalClrEl=$('goalClr');
   if(_goalClrEl)_goalClrEl.onclick=()=>{delete userPrefs.assetGoal;savePrefs();closeLiteGate();renderGoalCard();toast('warn','목표 해제','');};
 }
@@ -5005,6 +5055,145 @@ let _sessAlerted={},_swingAlerted={};
 /* [v4.5] KST() 는 이 파일에 정의된 적이 없어 호출 즉시 ReferenceError 였다.
    try/catch 에 삼켜져 장 시작·마감 알림과 보유종목 급변동 알림이 통째로 죽어 있었다. */
 function _todayKey(){return kstDay();}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.76] 웹 푸시 — 앱을 닫아도 오는 알림 (클라이언트)
+   ─────────────────────────────────────────────────────────────────────────────
+   예전 new Notification() 은 페이지가 살아 있어야만 떴다. 서비스 워커를 등록하고
+   브라우저 푸시 서비스에 구독하면, 앱이 완전히 닫혀 있어도 알림이 온다.
+
+   [알아 둘 것]
+     · 안드로이드 크롬 : 그냥 된다
+     · 아이폰/아이패드 : iOS 16.4 이상 + '홈 화면에 추가'로 설치해야만 된다
+                        (사파리 탭에서는 애플이 푸시를 허용하지 않는다)
+     · 알림 권한을 한 번 '차단'하면 앱에서 다시 물어볼 수 없다 — 브라우저 설정에서 풀어야 한다 */
+var _swReg=null, _pushSub=null;
+async function pushInit(){
+  try{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window))return null;
+    _swReg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+    /* 알림을 눌러 들어온 경우 해당 종목으로 데려간다 */
+    navigator.serviceWorker.addEventListener('message',(e)=>{
+      const d=e&&e.data; if(!d||d.type!=='push-open')return;
+      try{ if(d.code)openTrade(d.code); else showView('folio'); }catch(err){}
+    });
+    _pushSub=await _swReg.pushManager.getSubscription();
+    if(_pushSub&&currentUser)pushRegister();      // 이미 구독돼 있으면 서버 기록만 갱신
+    return _swReg;
+  }catch(e){ return null; }
+}
+function pushSupported(){
+  return !!(('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window));
+}
+/* iOS 는 '홈 화면에 추가'된 상태에서만 푸시가 된다 — 미리 알려 주지 않으면 원인을 알 수 없다 */
+function pushIosBlocked(){
+  try{
+    const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||
+      (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+    return ios&&!standalone;
+  }catch(e){ return false; }
+}
+async function pushEnable(){
+  if(!pushSupported()){ toast('warn','이 브라우저는 푸시를 지원하지 않습니다',''); return false; }
+  if(pushIosBlocked()){
+    toast('warn','아이폰은 홈 화면에 추가해야 합니다','공유 → 홈 화면에 추가 후 그 아이콘으로 열어 주세요');
+    return false;
+  }
+  if(!currentUser){ toast('warn','로그인이 필요합니다','알림은 계정별로 보관됩니다'); return false; }
+  try{
+    if(Notification.permission==='denied'){
+      toast('warn','알림이 차단돼 있습니다','브라우저 설정 → 사이트 권한에서 알림을 허용해 주세요');
+      return false;
+    }
+    if(Notification.permission!=='granted'){
+      const p=await Notification.requestPermission();
+      if(p!=='granted'){ toast('warn','알림 권한이 필요합니다',''); return false; }
+    }
+    notifyOk=true;
+    if(!_swReg)await pushInit();
+    if(!_swReg){ toast('warn','서비스 워커 등록 실패',''); return false; }
+    await navigator.serviceWorker.ready;
+    const kr=await fetch('/api/push?act=key',{cache:'no-store'}).then(r=>r.json());
+    if(!kr||!kr.ok||!kr.key){ toast('warn','서버 키를 받지 못했습니다',''); return false; }
+    _pushSub=await _swReg.pushManager.getSubscription();
+    if(!_pushSub){
+      _pushSub=await _swReg.pushManager.subscribe({
+        userVisibleOnly:true,                       // 표준 — 조용한 푸시는 허용되지 않는다
+        applicationServerKey:kr.key
+      });
+    }
+    const ok=await pushRegister();
+    if(ok){ userPrefs.push=1; savePrefs(); toast('buy','알림을 켰습니다','앱을 닫아도 알림이 옵니다'); }
+    return ok;
+  }catch(e){
+    toast('warn','알림 설정 실패',String(e&&e.message||e).slice(0,60));
+    return false;
+  }
+}
+async function pushRegister(){
+  try{
+    if(!_pushSub||!currentUser)return false;
+    const r=await fetch('/api/push?act=sub',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({id:currentUser,sub:_pushSub.toJSON(),ua:navigator.userAgent.slice(0,60)})});
+    const j=await r.json();
+    return !!(j&&j.ok);
+  }catch(e){ return false; }
+}
+async function pushDisable(){
+  try{
+    if(_pushSub){
+      const ep=_pushSub.endpoint;
+      await fetch('/api/push?act=unsub',{method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({id:currentUser,endpoint:ep})}).catch(()=>{});
+      await _pushSub.unsubscribe().catch(()=>{});
+      _pushSub=null;
+    }
+    userPrefs.push=0; savePrefs();
+    toast('warn','알림을 껐습니다','');
+    return true;
+  }catch(e){ return false; }
+}
+async function pushTest(){
+  if(!currentUser){ toast('warn','로그인이 필요합니다',''); return; }
+  if(!_pushSub){ toast('warn','먼저 알림을 켜 주세요',''); return; }
+  toast('ok','시험 알림을 보냈습니다','앱을 닫거나 화면을 꺼도 도착합니다');
+  try{
+    const r=await fetch('/api/push?act=test',{method:'POST',
+      headers:{'content-type':'application/json'},body:JSON.stringify({id:currentUser})}).then(x=>x.json());
+    if(!r||!r.ok)toast('warn','발송 실패',(r&&(r.err||r.status))?String(r.err||r.status):'');
+  }catch(e){}
+}
+/* ══ 보유 종목 점검을 서버에 맡긴다 ══
+   푸시는 서버만 보낼 수 있으므로, 앱이 켜져 있는 동안 주기적으로 지금 상태를
+   넘겨 준다. 서버가 손절선·목표가를 견줘 필요할 때만 발송하고, 같은 알림은
+   6시간에 한 번으로 묶는다. 앱이 꺼져 있는 동안의 감시는 아래 한계 참조. */
+var _pushChkAt=0;
+async function pushCheck(force){
+  try{
+    if(!currentUser||!_pushSub)return;
+    if(!force&&Date.now()-_pushChkAt<5*60e3)return;
+    _pushChkAt=Date.now();
+    const holds=(holdings||[]).filter(h=>h&&h.qty>0).slice(0,12).map(h=>{
+      const p=(h.plan||{});
+      const st=byCode[h.code]||{};
+      return {code:h.code,name:(h.us?((usMeta[h.code]||{}).kr||h.code):(st.name||h.code)),
+        px:Number(livePx(h.code,h.avg))||0,
+        stop:Number(p.stop)||0,target:Number(p.target)||0};
+    }).filter(x=>x.px>0&&(x.stop>0||x.target>0));
+    if(!holds.length)return;
+    await fetch('/api/push?act=check',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({id:currentUser,holds})}).catch(()=>{});
+  }catch(e){}
+}
+try{
+  if(pushSupported())setTimeout(pushInit,2500);
+  setInterval(()=>{ try{ pushCheck(); }catch(e){} },5*60e3);
+}catch(e){}
+
 function notifyUser(title,body){
   try{toast('buy',title,body||'');}catch(e){}
   try{if(notifyOk&&'Notification' in window)new Notification(title,{body:body||''});}catch(e){}
@@ -5418,6 +5607,7 @@ function _showView(name){
   if(name==='us')safeRun('usLounge',renderUsLounge);
   if(name==='ustrade')safeRun('usTrade',renderUsTrade);
   if(name==='pro')safeRun('pro',()=>setProTab(proTab));
+  if(name==='folio')safeRun('folio',renderFolio);   /* [v9.72] MY 포트폴리오 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
     /* [v4.81] 국내가 전 종목을 미리 받아 두듯 해외도 미리 받는다.
@@ -7035,18 +7225,33 @@ function thmFiltered(){
   return hit;
 }
 
-function thmRowHtml(g,rank){
-  const dir=dirOf(g.rate==null?0:g.rate);
+/* ══ [v9.72c] 국내 주도 섹터를 해외와 같은 카드 모양으로 ═══════════════════
+   [무엇이 달랐나] 해외는 카드 격자(.us-sect) — 순위·이름·등락률이 한 줄에 오고,
+   그 아래 강도 막대와 대표 종목 칩이 붙는다. 국내는 4열 표(.thm-row)라
+   상승·하락 개수가 숫자로만 있고 강도를 눈으로 견줄 수 없었다.
+   좁은 화면에서는 이름이 46px 칸에 눌려 줄바꿈까지 났다.
+   [어떻게 맞췄나] 같은 카드 구조로 바꾸되, 국내에만 있는 정보(상승/하락 종목
+   수, 펼쳐서 보는 상세)는 살린다. 강도 막대의 기준값(mx)은 목록 전체의
+   최대 등락률이라 렌더 시점에 계산해 넘긴다. */
+function thmRowHtml(g,rank,mx){
+  const rate=(g.rate==null?null:g.rate);
+  const dir=dirOf(rate==null?0:rate);
   const open=thmOpen===g.no;
-  const leaders=(g.leaders||[]).map(l=>l.name).filter(Boolean).slice(0,2).join(' · ');
-  return `<div class="thm-row ${open?'open':''}" data-no="${g.no}">
-      <span class="c1"><span class="thm-rk${rank<=3?' top':''}">${rank}</span>
-        <b>${g.name}</b>${leaders?`<i>${leaders}</i>`:''}</span>
-      <span class="c2 num up">${g.up==null?'—':g.up}</span>
-      <span class="c3 num down">${g.down==null?'—':g.down}</span>
-      <span class="c4 num ${dir}">${g.rate==null?'—':pctS(g.rate)}</span>
-    </div>
-    <div class="thm-detail" id="thmd-${g.no}" ${open?'':'hidden'}></div>`;
+  const leaders=(g.leaders||[]).map(l=>l.name).filter(Boolean).slice(0,3);
+  const w=(rate==null||!mx)?0:Math.min(100,Math.abs(rate)/mx*100);
+  const tot=(g.up==null&&g.down==null)?null:((+g.up||0)+(+g.down||0));
+  return `<div class="us-sect thm-card ${open?'open':''}" data-no="${g.no}">
+      <div class="uss-h"><span class="uss-rk num${rank<=3?' top':''}">${rank}</span>
+        <b>${htmlEsc(g.name)}</b>
+        <span class="uss-avg num ${dir}">${rate==null?'—':pctS(rate)}</span></div>
+      <div class="uss-bar"><i class="${rate>=0?'up':'down'}" style="width:${w.toFixed(1)}%"></i></div>
+      <div class="uss-m">${tot!=null?`${tot}종 중 <b class="up">${g.up==null?'—':g.up}</b> 상승 · <b class="down">${g.down==null?'—':g.down}</b> 하락`:'구성 종목 집계 중'}
+        ${leaders.length?' · '+leaders.map(nm=>`<span class="uss-t">${htmlEsc(nm)}</span>`).join(''):''}</div>
+      <span class="thm-more-i">${open?'접기 ▴':'구성 종목 보기 ▾'}</span>
+      <!-- [v9.72c] 상세를 카드 '안'에 둔다. 예전처럼 형제로 두면 카드 격자에서
+           별도 칸을 차지해 엉뚱한 자리에 펼쳐진다. -->
+      <div class="thm-detail" id="thmd-${g.no}" ${open?'':'hidden'}></div>
+    </div>`;
 }
 
 function renderThemes(){
@@ -7084,12 +7289,19 @@ function renderThemes(){
   {
   }
   if(!list.length){rows.innerHTML='<div class="empty">검색 결과가 없습니다.</div>';const mb=$('thmMore');if(mb)mb.hidden=true;return;}
-  rows.innerHTML=list.slice(0,thmLimit).map((g,i)=>thmRowHtml(g,i+1)).join('');
+  /* [v9.72c] 강도 막대 기준 — 화면에 보이는 목록의 최대 등락률(0으로 나누지 않게 하한) */
+  const shown=list.slice(0,thmLimit);
+  const mx=Math.max(...shown.map(g=>Math.abs(+g.rate||0)),0.1);
+  rows.innerHTML=`<div class="us-sect-list thm-list">${shown.map((g,i)=>thmRowHtml(g,i+1,mx)).join('')}</div>`;
   const more=$('thmMore');
   if(more){more.hidden=list.length<=thmLimit;
     more.textContent=`더보기 (${Math.min(thmLimit,list.length)} / ${list.length})`;
     more.onclick=()=>{thmLimit+=40;renderThemes();};}
-  rows.querySelectorAll('.thm-row').forEach(r=>r.onclick=()=>toggleTheme(r.dataset.no));
+  /* [v9.72c] 상세 안(종목 목록)을 누른 것은 접기 신호가 아니다 — 종목만 열리게 한다 */
+  rows.querySelectorAll('.thm-card').forEach(r=>r.onclick=(e)=>{
+    if(e.target&&e.target.closest&&e.target.closest('.thm-detail'))return;
+    toggleTheme(r.dataset.no);
+  });
   if(thmOpen)renderThemeDetail(thmOpen);
 }
 
@@ -7220,21 +7432,25 @@ function renderSector(){
     const rb=$('secRetry');if(rb)rb.onclick=()=>{secLoaded=false;secError=false;pollSectors();};
     return;}
   const maxAbs=Math.max(...rows.map(r=>Math.abs(r.avg)),0.5);
-  $('sectorBody').innerHTML=rows.map((r,i)=>{
-    const dir=dirOf(r.avg),col=r.avg>0?UP:r.avg<0?DOWN:'#8a95a5';
+  /* [v9.72c] '내 종목' 탭도 같은 카드 모양으로 — 테마별·해외와 세 화면의
+     생김새가 제각각이면 같은 메뉴 안에서 길을 잃는다. */
+  $('sectorBody').innerHTML=`<div class="us-sect-list thm-list">${rows.map((r,i)=>{
+    const dir=dirOf(r.avg);
     const w=Math.max(4,Math.abs(r.avg)/maxAbs*100);
     const open=sectorOpen===r.name;
-    const chips=r.stocks.map(({s,p})=>`<div class="sec-chip" data-code="${s.code}"><span>${s.name}</span><span class="c ${dirOf(p)}">${pctS(p)}</span></div>`).join('');
-    return `<div class="panel sec-card">
-      <div class="sec-hd" data-sec="${r.name}">
-        <div class="sec-rank ${i===0?'top':''}">${i+1}</div>
-        <div><div class="sec-nm">${r.name}</div><div class="sec-meta">${r.n}개 종목 · ▲${r.up} ▼${r.down} · ${open?'접기 ▲':'종목 보기 ▼'}</div>
-          <div class="sec-bar"><i style="width:${w}%;background:${col}"></i></div></div>
-        <div class="sec-chg ${dir}">${pctS(r.avg)}</div>
-      </div>
-      ${open?`<div class="sec-stocks">${chips}</div>`:''}
-    </div>`;}).join('');
-  $('sectorBody').querySelectorAll('.sec-hd').forEach(h=>h.onclick=()=>{sectorOpen=sectorOpen===h.dataset.sec?null:h.dataset.sec;renderSector();});
+    const chips=r.stocks.map(({s,p})=>`<span class="uss-t" data-code="${s.code}">${htmlEsc(s.name)} <i class="num ${dirOf(p)}">${pctS(p)}</i></span>`).join('');
+    return `<div class="us-sect thm-card ${open?'open':''}" data-sec="${htmlEsc(r.name)}">
+      <div class="uss-h"><span class="uss-rk num${i<3?' top':''}">${i+1}</span>
+        <b>${htmlEsc(r.name)}</b>
+        <span class="uss-avg num ${dir}">${pctS(r.avg)}</span></div>
+      <div class="uss-bar"><i class="${r.avg>=0?'up':'down'}" style="width:${w}%"></i></div>
+      <div class="uss-m">${r.n}종 중 <b class="up">${r.up}</b> 상승 · <b class="down">${r.down}</b> 하락</div>
+      <span class="thm-more-i">${open?'접기 ▴':'종목 보기 ▾'}</span>
+      ${open?`<div class="thm-detail sec-chips">${chips}</div>`:''}
+    </div>`;}).join('')}</div>`;
+  $('sectorBody').querySelectorAll('.thm-card').forEach(h=>h.onclick=(e)=>{
+    if(e.target&&e.target.closest&&e.target.closest('.thm-detail'))return;   // 종목 칩은 접기 신호가 아니다
+    sectorOpen=sectorOpen===h.dataset.sec?null:h.dataset.sec;renderSector();});
   bindStockClicks($('sectorBody'));
 }
 
@@ -7342,13 +7558,38 @@ function renderHeroMarket(){
     const ks=(market.indices||[]).find(x=>x.key==='KOSPI'),kq=(market.indices||[]).find(x=>x.key==='KOSDAQ');
     const idx=(o,nm)=>o&&o.rate!=null?`<span class="hm-i"><i>${nm}</i><b class="num ${o.rate>=0?'up':'down'}">${pctS(o.rate)}</b></span>`:'';
     const drv=(m.drivers||[]).slice(0,2).map(d=>`<span class="hm-d ${d[1]}">${d[0]}</span>`).join('');
-    el.innerHTML=`<div class="hm-top"><span class="hm-t">오늘의 시장</span><span class="hm-lb ${m.score>=58?'up':m.score<=41?'down':''}">${m.label}</span></div>
-      <div class="hm-score"><b class="num">${m.score}</b><span>/100</span></div>
-      <div class="hm-gauge"><i style="width:${m.score}%"></i></div>
+    /* ══ [v9.72b] '오늘의 시장' 카드 재구성 — 투자자별 매매동향을 주인공으로 ══
+       [왜 바꿨나] 카드의 절반을 차지하던 '시장 온도 88/100'은 지수·업종·뉴스
+       심리를 섞어 만든 합성 점수다. 뜻이 부드럽고 근거를 되짚기 어렵다.
+       반면 개인·외국인·기관 순매수는 거래소가 집계한 사실이고, 증권사 앱들이
+       가장 크게 다루는 값인데 여기서는 맨 아래 한 줄로 눌려 있었다.
+       [어떻게 바꿨나] 자리를 맞바꾼다. 매매동향을 큰 칸으로 올리고, 시장 온도는
+       제목 옆 작은 배지로 남긴다. 지우지는 않는다 — 하루를 한 단어로 요약하는
+       쓸모는 있고, AI 브리핑으로 가는 길잡이이기도 하다. */
+    const invMain=invCache?(()=>{
+      const one=(nm,v,tip)=>{
+        const cls=v>=0?'up':'down';
+        return `<div class="hi-c ${cls}"><span>${nm}</span><b class="num">${fmtJo(v)}</b>
+          <i>${v>=0?'순매수':'순매도'}</i></div>`;
+      };
+      /* 오늘 시장을 누가 밀었나 — 가장 크게 산 주체 한 줄 */
+      const arr=[['외국인',invCache.foreign],['기관',invCache.inst],['개인',invCache.personal]]
+        .filter(x=>x[1]!=null);
+      const top=arr.slice().sort((a,b)=>b[1]-a[1])[0];
+      const bot=arr.slice().sort((a,b)=>a[1]-b[1])[0];
+      return `<div class="hm-inv2">
+        <div class="hi-h">투자자별 매매동향<span>코스피 · 오늘 누적</span></div>
+        <div class="hi-row">${one('외국인',invCache.foreign)}${one('기관',invCache.inst)}${one('개인',invCache.personal)}</div>
+        ${(top&&bot&&top[1]>0)?`<div class="hi-sum"><b>${top[0]}</b>이 사고 <b>${bot[0]}</b>이 파는 흐름입니다</div>`:''}
+      </div>`;
+    })():`<div class="hm-inv2 wait"><div class="hi-h">투자자별 매매동향</div>
+        <div class="hi-wait">거래소 집계를 받는 중…</div></div>`;
+    el.innerHTML=`<div class="hm-top"><span class="hm-t">오늘의 시장</span>
+      <span class="hm-lb ${m.score>=58?'up':m.score<=41?'down':''}">${m.label} ${m.score}</span></div>
       <div class="hm-idx">${idx(ks,'코스피')}${idx(kq,'코스닥')}</div>
+      ${invMain}
       ${usMoodHtml()}
       ${drv?`<div class="hm-drv">${drv}</div>`:''}
-      ${invCache?`<div class="hm-invrow">${invLineHtml(invCache)}</div>`:''}
       <div class="hm-go">AI 브리핑 자세히 →</div>`;
   if(!invCache)ensureInvestors().then(v=>{if(v&&currentView==='home')renderHeroMarket();});
   }catch(e){el.innerHTML='<div class="hm-load">시장 온도를 재는 중…</div>';}
@@ -9687,7 +9928,14 @@ function renderHist(){
   el.innerHTML=`<div class="sh-head"><span>최근 검색</span><button id="shClear">전체 삭제</button></div>
     <div class="sh-chips">${srchHist.map((h,i)=>h.q
       ?`<span class="sh-chip q" data-i="${i}"><i class="sh-ic">🔍</i><b>${h.q}</b><i class="sh-x" data-x="${i}">✕</i></span>`
-      :`<span class="sh-chip" data-i="${i}">${(h.market==='US'||usMeta[h.code])?usTick(h.code,'xs'):anyLogo(h.code,h.name,'xs')}<b>${htmlEsc(h.name)}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
+      /* ══ [v9.71c] 줄마다 칩 높이가 달라 보이던 이유 ═══════════════════════
+         해외 종목 칩은 usTick(44×34)을, 국내 칩은 .lgo.xs(24×24)를 쓴다.
+         칩을 담는 .sh-chips 는 flex 이고 기본값이 align-items:stretch 라,
+         한 줄에 해외 칩이 하나만 끼어 있어도 그 줄 전체가 34px 높이로 늘어난다.
+         그래서 해외 종목이 섞인 첫 줄만 유독 두꺼웠다(첨부 1번).
+         작게 만드는 규칙(.sh-chip.us .us-tick)은 이미 있었는데 정작 마크업에
+         us 클래스를 붙이지 않아 한 번도 적용된 적이 없었다. 이제 붙인다. */
+      :`<span class="sh-chip${(h.market==='US'||usMeta[h.code])?' us':''}" data-i="${i}">${(h.market==='US'||usMeta[h.code])?usTick(h.code,'xs'):anyLogo(h.code,h.name,'xs')}<b>${htmlEsc(h.name)}</b><i class="sh-x" data-x="${i}">✕</i></span>`).join('')}</div>`;
   el.querySelectorAll('.sh-chip').forEach(c=>c.onclick=(e)=>{
     if(e.target.classList.contains('sh-x'))return;
     const h=srchHist[+c.dataset.i]; if(!h)return;
@@ -10343,7 +10591,10 @@ function renderWatch(){
   const cnt=(f)=>f.codes.filter(c=>watchlist.includes(c)).length;
   const tabHtml=(f)=>{
     const st=f.color?` style="--fdc:${f.color}"`:'';
-    return `<button class="wl-tab${watchTab===f.id?' on':''}${f.color?' colored':''}" draggable="true" data-t="${f.id}"${st}>${f.icon?f.icon+' ':''}${f.name} <i>${cnt(f)}</i></button>`;};
+    /* [v9.73] 폴더 이름은 사용자가 직접 적는 값이다. 이스케이프 없이 HTML 에 넣으면
+       `<img src=x onerror=...>` 같은 이름으로 스크립트가 실행된다(저장형 XSS).
+       이름은 저장돼 새로고침 뒤에도 계속 실행되므로 특히 위험하다. */
+    return `<button class="wl-tab${watchTab===f.id?' on':''}${f.color?' colored':''}" draggable="true" data-t="${f.id}"${st}>${f.icon?htmlEsc(f.icon)+' ':''}${htmlEsc(f.name)} <i>${cnt(f)}</i></button>`;};
   /* [v1.99] '전체' 가상 폴더 제거 — 폴더가 곧 관심종목의 단위 */
   const tabs=`<div class="wl-tabwrap"><div class="wl-tabs" id="wlTabs">`
     +watchFolders.map(tabHtml).join('')
@@ -10465,7 +10716,7 @@ function wireWatchUi(){
     const codes=f.codes.filter(c=>watchlist.includes(c)&&byCode[c]&&byCode[c].price>0);
     if(!codes.length){toast('warn','시세 있는 종목이 없어요','잠시 뒤 다시 시도해 주세요');return;}
     const dirPick=await askChoice('일괄 목표가 알림',[{v:'up',label:'▲ 현재가보다 오르면'},{v:'down',label:'▼ 현재가보다 내리면'},{v:'both',label:'▲▼ 양방향 모두'}],
-      `'${f.icon?f.icon+' ':''}${f.name}' 폴더 ${codes.length}종목에 한 번에 설정합니다`);
+      `'${f.icon?f.icon+' ':''}${f.name}' 폴더 ${codes.length}종목에 한 번에 설정합니다`);   /* askConfirm 은 텍스트 모달 */
     if(dirPick===null)return;
     const pct=await askText('기준 % (현재가 대비)',{placeholder:'예: 5',value:'5',maxLen:4});
     if(pct===null)return;
@@ -10478,7 +10729,7 @@ function wireWatchUi(){
     saveTargets();askNotify();renderWatch();
     toast('buy','일괄 알림 설정',`${codes.length}종목 · ±${r}% 기준 ${setN}건`);};
   const del=$('wlDel'); if(del)del.onclick=async()=>{const f=folderOf(watchTab);if(!f)return;
-    const ok=await askConfirm('폴더 삭제',`'${f.icon?f.icon+' ':''}${f.name}' 폴더를 삭제할까요?\n다른 폴더에도 없는 종목은 관심종목에서 함께 해제됩니다.`,{okLabel:'삭제',danger:true});
+    const ok=await askConfirm('폴더 삭제',`'${f.icon?htmlEsc(f.icon)+' ':''}${htmlEsc(f.name)}' 폴더를 삭제할까요?\n다른 폴더에도 없는 종목은 관심종목에서 함께 해제됩니다.`,{okLabel:'삭제',danger:true});
     if(!ok)return;
     watchFolders=watchFolders.filter(x=>x.id!==watchTab);
     syncWatchUnion();                                                    // [v1.99] 고아 종목 관심 해제
@@ -10489,7 +10740,7 @@ function wireWatchUi(){
   const sx=$('wlSelX'); if(sx)sx.onclick=()=>{wlSelMode=false;wlSelSet.clear();renderWatch();};
   const sa=$('wlSelAdd'); if(sa)sa.onclick=async()=>{
     if(!wlSelSet.size){toast('warn','선택된 종목이 없어요','체크박스로 먼저 골라 주세요');return;}
-    const opts=[...watchFolders.map(f=>({v:f.id,label:`${f.icon?f.icon+' ':''}${f.name} <i>${f.codes.length}</i>`})),{v:'__new',label:'＋ 새 폴더 만들어 담기'}];
+    const opts=[...watchFolders.map(f=>({v:f.id,label:`${f.icon?htmlEsc(f.icon)+' ':''}${htmlEsc(f.name)} <i>${f.codes.length}</i>`})),{v:'__new',label:'＋ 새 폴더 만들어 담기'}];
     const pick=await askChoice(`${wlSelSet.size}개 종목을 담을 폴더`,opts);
     if(pick===null)return;
     let f=pick==='__new'?await newFolderFlow([...wlSelSet]):folderOf(pick);
@@ -10516,7 +10767,7 @@ function openFolderPop(code,btn){
   closeFolderPop();
   const s=byCode[code]||{name:code};
   const d=document.createElement('div'); d.className='fd-pop'; _fdPop=d;
-  const list=watchFolders.length?watchFolders.map(f=>`<label class="fd-it"><input type="checkbox" data-f="${f.id}" ${f.codes.includes(code)?'checked':''}> ${f.icon?f.icon+' ':''}${f.name} <i>${f.codes.filter(c=>watchlist.includes(c)).length}</i></label>`).join('')
+  const list=watchFolders.length?watchFolders.map(f=>`<label class="fd-it"><input type="checkbox" data-f="${htmlEsc(f.id)}" ${f.codes.includes(code)?'checked':''}> ${f.icon?htmlEsc(f.icon)+' ':''}${htmlEsc(f.name)} <i>${f.codes.filter(c=>watchlist.includes(c)).length}</i></label>`).join('')
     :'<div class="fd-none">아직 폴더가 없어요. 아래에서 바로 만들 수 있어요.</div>';
   d.innerHTML=`<div class="fd-hd">${s.name} · 폴더 담기</div>${list}<button class="fd-new">＋ 새 폴더 만들어 담기</button>`;
   document.body.appendChild(d);
@@ -12334,6 +12585,8 @@ function renderHoldings(){
   $('holdBody').querySelectorAll('tr[data-usopen]').forEach(tr=>{tr.onclick=(e)=>{e.stopPropagation();openUS(tr.dataset.code);};});
   bindStockClicks($('holdBody'));
   if(currentView==='account')safeRun('acctx',renderAcctExtras);   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
+  /* [v9.72] 포트폴리오 화면과 네비 점도 같은 주기로 갱신한다 — 새 타이머를 만들지 않는다 */
+  if(currentView==='folio')safeRun('folioTick',renderFolio); else safeRun('foDot',foBadge);
 }
 /* ══ [v4.28] 보유 평가 헬퍼 — 국내(원·정수)와 해외(달러·소수·환율) 공용 ══ */
 function hEvalKRW(h){
@@ -12343,6 +12596,521 @@ function hEvalKRW(h){
 function hCostKRW(h){
   try{ return h.us?Math.round((+h.avg||0)*(h.qty||0)*(usFx()||0)):Math.round((+h.avg||0)*(h.qty||0));
   }catch(e){ return 0; }}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.72] MY 포트폴리오 — 보유 종목 케어 시스템
+   ─────────────────────────────────────────────────────────────────────────────
+   [왜 만들었나] 판단 엔진(acSignals·aiCompute·매물대)은 이미 있는데, 종목을
+   검색해 들어가야만 돌아갔다. 정작 '내가 들고 있는 종목'을 알아서 봐 주는
+   경로가 없었다. 산 뒤에는 아무도 챙겨 주지 않는 셈이다.
+   [무엇이 핵심인가] 손절선·목표가 감시보다 '근거 소멸' 판정이 이 시스템의
+   값어치다. 돌파를 보고 샀는데 박스 안으로 되돌아왔다면, 손절선에 닿지
+   않았어도 살 이유가 사라진 것이다. 그건 살 때의 근거를 적어 둬야만 알 수 있다.
+   [원칙] ① 없는 값을 지어내지 않는다 — 계획이 없으면 없다고 적는다.
+          ② 알림을 아낀다 — 급한 것만 즉시, 나머지는 들어올 때 모아 보여 준다.
+          ③ 조언하지 않는다 — '지금 파세요'가 아니라 '계획과 이만큼 어긋났습니다'.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 보유 기록 확장 ── 기존 holdings 항목에 계획·케어 상태를 덧댄다.
+   기존 데이터를 건드리지 않고 없으면 만들어 주는 방식이라 마이그레이션이 필요 없다. */
+function foPlan(h){
+  if(!h)return null;
+  if(!h.plan)h.plan={};
+  if(!h.care)h.care={fired:{},snoozeTo:0};
+  if(!h.care.fired)h.care.fired={};
+  return h.plan;
+}
+/* 매수 시점에 계획을 자동으로 채운다 — 사용자에게 따로 묻지 않는다.
+   AI 분석이 이미 내놓는 진입·손절·목표를 그대로 옮기고, 최근 매집 신호가
+   있으면 그것을 '왜 샀는지'로 남긴다. */
+function foSeedPlan(code,px,isUs){
+  try{
+    const h=(holdings||[]).find(x=>x&&x.code===code);
+    if(!h)return;
+    const p=foPlan(h);
+    if(!h.buyAt)h.buyAt=Date.now();
+    if(!h.buyPx)h.buyPx=px;
+    if(!Array.isArray(h.lots))h.lots=[];
+    /* [v9.72b] 이번에 '더 산 수량'을 적어야 한다 — 예전엔 보유 총수량을 넣어
+       분할매수 이력이 10주·30주·60주처럼 부풀었다. */
+    const addQty=Math.max(0,(h.qty||0)-(h.lots.reduce((a,x)=>a+(+x.qty||0),0)));
+    h.lots.push({ts:Date.now(),qty:addQty||h.qty,px});
+    if(h.lots.length>40)h.lots=h.lots.slice(-40);
+    if(p.stop!=null&&p.target!=null)return;      // 이미 계획이 있으면 덮지 않는다
+    let a=null;
+    try{ a=isUs?null:aiCompute(code); }catch(e){}
+    if(a&&!a.need&&!a.short&&a.stats){
+      if(p.stop==null)p.stop=a.stats.stop;
+      if(p.target==null&&a.stats.targetPct)p.target=Math.round(px*(1+a.stats.targetPct/100));
+    }
+    if(p.stop==null)p.stop=Math.round(px*0.93);   // 근거가 없으면 통상적인 -7%
+    if(p.target==null)p.target=Math.round(px*1.12);
+    if(!p.why){
+      try{
+        const cs=_sumDaily[code]||candleCache[code+':D'];
+        const r=cs?acScore(cs):null;
+        const sg=(cs&&r&&r.ok)?acSignals(cs,r):null;
+        if(sg&&sg.now&&sg.now.side==='buy')p.why=sg.now.kind;
+      }catch(e){}
+    }
+    if(!p.why)p.why='수동';
+    if(!p.horizon)p.horizon='swing';
+    saveState();
+  }catch(e){}
+}
+const FO_HORIZON={short:{d:14,t:'단기 2주'},swing:{d:60,t:'스윙 2개월'},long:{d:240,t:'장기 1년'}};
+
+/* ── 근거 소멸 판정 ──
+   살 때의 근거가 아직 살아 있는지 본다. 근거마다 무너지는 모습이 다르다. */
+function foInvalidated(h,f){
+  if(!f)return null;
+  const why=(h.plan&&h.plan.why)||'';
+  if(/돌파/.test(why)){
+    if(f.last<f.boxHi*0.97)return '돌파했던 박스 안으로 되돌아왔습니다';
+  }else if(/눌림|스프링|털어내기/.test(why)){
+    if(f.ma60&&f.last<f.ma60*0.98)return '기대던 중기 추세(60일선)를 내줬습니다';
+  }else if(/수축|OBV/.test(why)){
+    if(f.volRatio<0.7&&f.last<f.ma20)return '거래도 줄고 20일선도 내줘 매집 흔적이 사라졌습니다';
+  }
+  if(f.ma20&&f.ma60&&f.ma20<f.ma60*0.98&&f.last<f.ma20)return '20일선이 60일선 아래로 내려가 추세가 꺾였습니다';
+  return null;
+}
+/* 보유 종목의 지금 상태를 한 덩어리로 만든다 */
+/* ══ [v9.72b] 무거운 분석은 캐시한다 ═══════════════════════════════════════
+   [무엇이 잘못됐나] foState 는 종목마다 acScore + acSignals 를 돌린다. 그런데
+   renderFolio 는 시세가 갱신될 때마다(장중 3초) 불리고, 네비 점을 찍는 foBadge
+   까지 foAll() 을 부르므로 포트폴리오 화면을 보고 있지 않아도 계속 돌았다.
+   보유 10종목이면 3초마다 OBV·회귀·40일 박스를 10번씩 다시 계산한 셈이다.
+   [고침] ① 결과를 60초 캐시(일봉이 바뀌면 자동 무효화)
+          ② 배지 계산은 light 모드 — 가격 기준 판정만 하고 일봉 분석은 건너뛴다 */
+var _foCache={};
+function foHeavy(code,cs){
+  const key=code+':'+cs.length+':'+(cs[cs.length-1]||{}).c;
+  const hit=_foCache[key];
+  if(hit&&Date.now()-hit.at<60000)return hit.v;
+  let v=null;
+  try{
+    const r=acScore(cs);
+    if(r&&r.ok){
+      const sg=acSignals(cs,r);
+      v={total:r.total,now:(sg&&sg.now)||null};
+    }
+  }catch(e){}
+  _foCache[key]={at:Date.now(),v};
+  /* 캐시가 무한히 늘지 않게 — 오래된 항목 정리 */
+  const ks=Object.keys(_foCache);
+  if(ks.length>60)ks.slice(0,30).forEach(k=>delete _foCache[k]);
+  return v;
+}
+function foState(h,light){
+  const us=!!h.us;
+  const s=byCode[h.code]||{};
+  /* [v9.72] 값 출처를 하나로 — 평가액(hEvalKRW)은 livePx 를 쓰므로 현재가도 같은 것을
+     써야 한다. usQ 와 byCode 가 갱신 시점이 달라 서로 어긋날 수 있기 때문이다. */
+  const px=(livePx(h.code,h.avg)??h.avg);
+  const p=foPlan(h);
+  const cost=hCostKRW(h), ev=hEvalKRW(h);
+  const pnl=ev-cost, rate=cost?pnl/cost*100:0;
+  /* [v9.72b] v9.72 이전에 산 종목은 buyAt 이 없어 보유일·무소식 판정이 통째로
+     빠졌다. 거래기록에서 '가장 오래된 매수'를 찾아 한 번만 채워 넣는다. */
+  if(!h.buyAt){
+    try{
+      const first=(tradeLog||[]).filter(t=>t&&t.code===h.code&&/^buy$|매수/i.test(String(t.side||t.type||'')))
+        .sort((a,b)=>(a.ts||0)-(b.ts||0))[0];
+      if(first&&first.ts){ h.buyAt=first.ts; }
+    }catch(e){}
+  }
+  const days=h.buyAt?Math.floor((Date.now()-h.buyAt)/864e5):null;
+  const hz=FO_HORIZON[p.horizon||'swing'];
+  const out={h,us,code:h.code,name:us?((usMeta[h.code]||{}).kr||h.code):(s.name||h.code),
+    px,cost,ev,pnl,rate,days,plan:p,hz,alerts:[],feat:null};
+  /* 계획 대비 위치 */
+  if(p.stop!=null&&px<=p.stop)out.alerts.push({lv:3,k:'손절선 이탈',d:`계획한 손절선 ${us?('$'+USD2(p.stop)):KRW(p.stop)}을 밑돌았습니다`});
+  else if(p.stop!=null&&px<=p.stop*1.02)out.alerts.push({lv:2,k:'손절선 근접',d:'손절선까지 2% 안쪽입니다'});
+  if(p.target!=null&&px>=p.target)out.alerts.push({lv:2,k:'목표가 도달',d:`계획한 목표가 ${us?('$'+USD2(p.target)):KRW(p.target)}에 닿았습니다`});
+  /* 일봉 기반 판정 — 국내만(해외는 일봉 캐시 구조가 달라 생략) */
+  if(!us&&!light){
+    try{
+      const cs=_sumDaily[h.code]||candleCache[h.code+':D'];
+      if(cs&&cs.length>=62){
+        const c=cs.map(x=>x.c),hh=cs.map(x=>x.h),ll=cs.map(x=>x.l),vv=cs.map(x=>x.v||0);
+        const n=c.length,A=(a)=>a.reduce((x,y)=>x+y,0)/(a.length||1);
+        const f={last:c[n-1],ma20:A(c.slice(-20)),ma60:A(c.slice(-60)),
+          boxHi:Math.max(...hh.slice(-41,-1)),boxLo:Math.min(...ll.slice(-41,-1)),
+          volRatio:A(vv.slice(-3))/(A(vv.slice(-23,-3))||1)};
+        out.feat=f;
+        const dead=foInvalidated(h,f);
+        if(dead)out.alerts.push({lv:2,k:'근거 소멸',d:dead});
+        /* 매도 신호 — 캐시를 거친다 */
+        const hv=foHeavy(h.code,cs);
+        if(hv){
+          if(hv.now&&hv.now.side==='sell'&&hv.now.ago<=3)
+            out.alerts.push({lv:3,k:'매도 신호 · '+hv.now.kind,d:hv.now.why});
+          out.sig=hv.now; out.acScore=hv.total;
+        }
+      }
+    }catch(e){}
+  }
+  /* 보유 기간이 계획을 넘겼는데 움직임이 없다 */
+  if(days!=null&&hz&&days>hz.d&&Math.abs(rate)<3)
+    out.alerts.push({lv:1,k:'무소식',d:`${hz.t}로 잡았는데 ${days}일째 ±3% 안에 머물러 있습니다`});
+  out.lv=out.alerts.reduce((m,a)=>Math.max(m,a.lv),0);
+  return out;
+}
+function foAll(light){ return (holdings||[]).filter(h=>h&&h.qty>0).map(h=>foState(h,light)); }
+/* ── 매도로 보유가 끝나면 그 결과를 남긴다 ──
+   복기(⑥)는 '끝난 거래'가 있어야 뜻이 생긴다. 보유 목록에서 사라지면
+   근거와 최종 수익률만 따로 보관한다(최근 200건). */
+function foArchive(code,sellPx){
+  try{
+    const h=(holdings||[]).find(x=>x&&x.code===code);
+    if(!h||!h.plan||!h.plan.why)return;
+    if(h.qty>0)return;                       // 아직 남아 있으면 끝난 것이 아니다
+    const ret=h.avg?((sellPx-h.avg)/h.avg*100):0;
+    let arr=[]; try{ arr=JSON.parse(localStorage.getItem('foClosed')||'[]')||[]; }catch(e){}
+    arr.push({code,why:h.plan.why,ret:+ret.toFixed(2),ts:Date.now(),
+      days:h.buyAt?Math.round((Date.now()-h.buyAt)/864e5):null,
+      keptStop:h.plan.stop!=null?(sellPx>=h.plan.stop?1:0):null});
+    if(arr.length>200)arr=arr.slice(-200);
+    try{ localStorage.setItem('foClosed',JSON.stringify(arr)); }catch(e){}
+  }catch(e){}
+}
+
+
+/* ══ [v9.72] MY 포트폴리오 화면 ═══════════════════════════════════════════════ */
+const FO_LV=['','fo-l1','fo-l2','fo-l3'];
+function foMoney(st,v){ return st.us?('$'+USD2(v)):(KRW(Math.round(v))+'원'); }
+
+/* ── ① 오늘의 할 일 ── 급한 것만. 없으면 없다고 말한다. */
+function foRenderTodo(list){
+  const el=$('foTodo'); if(!el)return;
+  const items=[];
+  list.forEach(st=>st.alerts.forEach(a=>items.push({st,a})));
+  items.sort((x,y)=>y.a.lv-x.a.lv);
+  const urgent=items.filter(x=>x.a.lv>=2);
+  if(!items.length){
+    el.innerHTML=`<div class="fo-todo ok"><div class="ft-h">✓ 오늘 손볼 것이 없습니다</div>
+      <div class="ft-s">보유 ${list.length}종목 모두 계획 범위 안에 있습니다. 가만히 두는 것도 결정입니다.</div></div>`;
+    return;
+  }
+  el.innerHTML=`<div class="fo-todo ${urgent.length?'warn':''}">
+    <div class="ft-h">${urgent.length?`손볼 것이 ${urgent.length}건 있습니다`:'참고할 것이 있습니다'}</div>
+    <div class="ft-list">${items.slice(0,8).map(({st,a})=>`
+      <button type="button" class="ft-i ${FO_LV[a.lv]}" data-code="${st.code}"${st.us?' data-us="1"':''}>
+        <span class="fi-lv">${a.lv>=3?'🔴':a.lv===2?'🟠':'🟡'}</span>
+        <span class="fi-b"><b>${htmlEsc(st.name)}</b><i>${htmlEsc(a.k)}</i>
+          <span class="fi-d">${htmlEsc(a.d)}</span></span>
+        <span class="fi-r num ${dirOf(st.pnl)}">${pctS(st.rate)}</span>
+      </button>`).join('')}</div>
+    <div class="ft-f">지금 무엇을 하라는 지시가 아니라, <b>세워 둔 계획과 어긋난 지점</b>을 알려 드리는 것입니다.</div>
+  </div>`;
+  el.querySelectorAll('.ft-i').forEach(b=>b.onclick=()=>{
+    try{ b.dataset.us?openUS(b.dataset.code):openTrade(b.dataset.code); }catch(e){} });
+}
+
+/* ── ② 한눈 요약 ── */
+function foRenderSum(list){
+  const el=$('foSum'); if(!el)return;
+  const ev=list.reduce((a,s)=>a+s.ev,0), cost=list.reduce((a,s)=>a+s.cost,0);
+  const pnl=ev-cost, rate=cost?pnl/cost*100:0;
+  const win=list.filter(s=>s.pnl>0).length;
+  const best=list.slice().sort((a,b)=>b.rate-a.rate)[0];
+  const worst=list.slice().sort((a,b)=>a.rate-b.rate)[0];
+  const planned=list.filter(s=>s.plan&&s.plan.stop!=null).length;
+  el.innerHTML=`<div class="fo-sum">
+    <div class="fs-main"><span>보유 평가액</span><b class="num">${KRW(ev)}원</b>
+      <i class="num ${dirOf(pnl)}">${signed(pnl)}원 · ${pctS(rate)}</i></div>
+    <div class="fs-grid">
+      <div><span>보유 종목</span><b class="num">${list.length}종목</b></div>
+      <div><span>수익 종목</span><b class="num">${win} / ${list.length}</b></div>
+      <div><span>계획 있는 종목</span><b class="num ${planned<list.length?'down':''}">${planned} / ${list.length}</b></div>
+      <div><span>최고</span><b class="num up">${best?htmlEsc(best.name)+' '+pctS(best.rate):'—'}</b></div>
+      <div><span>최저</span><b class="num down">${worst?htmlEsc(worst.name)+' '+pctS(worst.rate):'—'}</b></div>
+    </div>
+    ${planned<list.length?`<div class="fs-warn">계획(손절·목표)이 없는 종목이 ${list.length-planned}개 있습니다.
+      <button type="button" class="fs-fill" id="foFillAll">한 번에 채우기</button>
+      <i>AI 분석의 손절·목표를 기준으로 넣습니다. 각 카드에서 고칠 수 있어요.</i></div>`:''}
+  </div>`;
+  const fb=$('foFillAll');
+  if(fb)fb.onclick=()=>{
+    /* [v9.72b] 계획을 세우는 일 자체가 번거로워 비어 있는 경우가 많다.
+       AI 분석이 이미 내놓는 값으로 한 번에 채우되, 근거는 '수동'으로 남겨
+       사용자가 직접 고른 것과 구분되게 한다. */
+    let n=0;
+    (holdings||[]).forEach(h=>{
+      if(!h||!(h.qty>0))return;
+      const p=foPlan(h);
+      if(p.stop!=null&&p.target!=null)return;
+      const px=livePx(h.code,h.avg)??h.avg;
+      let a=null; try{ a=h.us?null:aiCompute(h.code); }catch(e){}
+      if(a&&!a.need&&!a.short&&a.stats){
+        if(p.stop==null)p.stop=a.stats.stop;
+        if(p.target==null&&a.stats.targetPct)p.target=Math.round(px*(1+a.stats.targetPct/100));
+      }
+      if(p.stop==null)p.stop=h.us?+(px*0.93).toFixed(2):Math.round(px*0.93);
+      if(p.target==null)p.target=h.us?+(px*1.12).toFixed(2):Math.round(px*1.12);
+      if(!p.why)p.why='수동';
+      if(!p.horizon)p.horizon='swing';
+      n++;
+    });
+    if(n){ saveState(); renderFolio(); toast('ok',n+'종목에 계획을 넣었습니다','각 카드에서 고칠 수 있습니다'); }
+  };
+}
+
+/* ── ③ 종목별 케어 카드 ── */
+function foRenderCards(list){
+  const el=$('foCards'); if(!el)return;
+  if(!list.length){ el.innerHTML='<div class="empty">보유 종목이 없습니다. 거래·주문에서 매수하면 여기서 함께 지켜봅니다.</div>'; return; }
+  const sorted=list.slice().sort((a,b)=>b.lv-a.lv||a.rate-b.rate);
+  el.innerHTML=sorted.map(st=>{
+    const p=st.plan||{};
+    /* 손절 ─ 현재가 ─ 목표 위치를 막대 하나로 */
+    let bar='';
+    if(p.stop!=null&&p.target!=null&&p.target>p.stop){
+      const pos=Math.max(0,Math.min(100,(st.px-p.stop)/(p.target-p.stop)*100));
+      const zero=Math.max(0,Math.min(100,(st.h.avg-p.stop)/(p.target-p.stop)*100));
+      bar=`<div class="fc-bar">
+        <i class="fb-fill" style="width:${pos.toFixed(1)}%"></i>
+        <i class="fb-avg" style="left:${zero.toFixed(1)}%" title="평단"></i>
+        <i class="fb-now" style="left:${pos.toFixed(1)}%"></i></div>
+      <div class="fc-bar-lg"><span>손절 ${foMoney(st,p.stop)}</span><span>평단 ${foMoney(st,st.h.avg)}</span><span>목표 ${foMoney(st,p.target)}</span></div>`;
+    }else{
+      bar=`<div class="fc-noplan">아직 계획이 없습니다 — 어디서 접고 어디서 덜지 정해 두면 여기서 지켜봅니다.</div>`;
+    }
+    return `<div class="fo-card ${FO_LV[st.lv]}">
+      <div class="fc-h">
+        ${st.us?usTick(st.code):anyLogo(st.code,st.name)}
+        <div class="fc-t"><b>${htmlEsc(st.name)}</b>
+          <span>${st.us?'🇺🇸 미국':''} ${st.h.qty}주 · 평단 ${foMoney(st,st.h.avg)}${st.days!=null?` · 보유 ${st.days}일`:''}</span></div>
+        <div class="fc-p num ${dirOf(st.pnl)}">${pctS(st.rate)}<i>${signed(st.pnl)}원</i></div>
+      </div>
+      ${bar}
+      <div class="fc-tags">
+        ${p.why?`<span class="fc-tag">근거 · ${htmlEsc(p.why)}</span>`:''}
+        ${st.hz?`<span class="fc-tag">${st.hz.t}</span>`:''}
+        ${st.acScore!=null?`<span class="fc-tag">매집 ${Math.round(st.acScore)}점</span>`:''}
+        ${st.sig?`<span class="fc-tag ${st.sig.side==='buy'?'buy':st.sig.side==='sell'?'sell':''}">${st.sig.side==='buy'?'매수':st.sig.side==='sell'?'매도':'대기'} 신호 · ${htmlEsc(st.sig.kind)}</span>`:''}
+      </div>
+      ${st.alerts.length?`<div class="fc-al">${st.alerts.map(a=>`<div class="fa ${FO_LV[a.lv]}"><b>${htmlEsc(a.k)}</b><span>${htmlEsc(a.d)}</span></div>`).join('')}</div>`:''}
+      <div class="fc-btns">
+        <button type="button" class="fc-b" data-plan="${st.code}">계획 ${p.stop!=null?'수정':'세우기'}</button>
+        <button type="button" class="fc-b" data-open="${st.code}"${st.us?' data-us="1"':''}>종목 보기</button>
+      </div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{
+    try{ b.dataset.us?openUS(b.dataset.open):openTrade(b.dataset.open); }catch(e){} });
+  el.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>foPlanModal(b.dataset.plan));
+}
+
+
+/* ── ④ 위험 점검 ── 종목 하나씩이 아니라 묶어서 봐야 보이는 것들 */
+function foRenderRisk(list){
+  const el=$('foRisk'); if(!el)return;
+  if(!list.length){ el.innerHTML=''; return; }
+  const tot=list.reduce((a,s)=>a+s.ev,0)||1;
+  const cashKrw=intOf(cash,0)+Math.round((+usdCash||0)*(usFx()||0));
+  const grand=tot+cashKrw;
+  const items=[];
+  /* 집중도 */
+  const top=list.slice().sort((a,b)=>b.ev-a.ev);
+  const w1=top[0]?top[0].ev/tot*100:0;
+  const w3=top.slice(0,3).reduce((a,s)=>a+s.ev,0)/tot*100;
+  items.push({ok:w1<=30,t:'한 종목 최대 비중',v:w1.toFixed(1)+'%',
+    d:w1>30?`${htmlEsc(top[0].name)} 하나가 보유의 ${w1.toFixed(0)}%입니다. 이 종목이 -20%면 전체가 ${(w1*0.2).toFixed(1)}% 줄어듭니다`
+      :'한 종목에 지나치게 몰려 있지 않습니다'});
+  items.push({ok:w3<=70||list.length<=3,t:'상위 3종목 합계',v:w3.toFixed(1)+'%',
+    d:(w3>70&&list.length>3)?'상위 세 종목이 대부분을 차지해 분산 효과가 크지 않습니다':'상위 편중이 심하지 않습니다'});
+  /* 섹터 쏠림 — 종목 수가 아니라 금액으로 본다 */
+  const sec={};
+  list.forEach(s=>{ const t=((byCode[s.code]||{}).tags||[])[0]||(s.us?'해외':'기타');
+    sec[t]=(sec[t]||0)+s.ev; });
+  const secTop=Object.entries(sec).sort((a,b)=>b[1]-a[1])[0];
+  const secW=secTop?secTop[1]/tot*100:0;
+  items.push({ok:secW<=45,t:'같은 업종 쏠림',v:secTop?`${htmlEsc(secTop[0])} ${secW.toFixed(0)}%`:'—',
+    d:secW>45?'같은 업종에 몰려 있으면 종목 수가 많아도 함께 움직입니다 — 분산이라 보기 어렵습니다'
+      :'업종이 한쪽으로 크게 치우치지 않았습니다'});
+  /* 현금 비중 */
+  const cashW=grand?cashKrw/grand*100:0;
+  items.push({ok:cashW>=5,t:'현금 비중',v:cashW.toFixed(1)+'%',
+    d:cashW<5?'현금이 거의 없습니다. 좋은 자리가 와도 살 수 없고, 급할 때 손해 보며 팔아야 합니다':'대응할 현금이 남아 있습니다'});
+  /* 손절선 없는 종목 */
+  const noStop=list.filter(s=>!s.plan||s.plan.stop==null).length;
+  items.push({ok:noStop===0,t:'손절선 없는 종목',v:noStop+'종목',
+    d:noStop?'어디서 접을지 정하지 않으면, 정할 수 없을 때(급락 중)에 정하게 됩니다':'모든 종목에 손절선이 있습니다'});
+  /* 최대 손실 가정 */
+  let mdd=0;
+  list.forEach(s=>{ const st=(s.plan&&s.plan.stop!=null)?s.plan.stop:s.h.avg*0.8;
+    const loss=Math.max(0,(s.px-st)/s.px)*s.ev; mdd+=loss; });
+  items.push({ok:grand?mdd/grand*100<=12:true,t:'모두 손절 시 손실',v:KRW(Math.round(mdd))+'원',
+    d:`지금 전 종목이 손절선까지 밀리면 총자산의 ${grand?(mdd/grand*100).toFixed(1):'—'}%가 줄어듭니다`});
+
+  const bad=items.filter(x=>!x.ok).length;
+  el.innerHTML=`<div class="fo-risk">
+    <div class="fr-h">${bad?`살펴볼 항목 ${bad}건`:'위험 신호 없음'}<span>보유 ${KRW(tot)}원 · 현금 ${KRW(cashKrw)}원</span></div>
+    ${items.map(x=>`<div class="fr-i ${x.ok?'ok':'bad'}">
+      <span class="fri-t">${x.t}</span><b class="fri-v num">${x.v}</b>
+      <span class="fri-d">${x.d}</span></div>`).join('')}</div>`;
+}
+
+/* ── ⑤ 매매 습관 ── 거래 기록에서 내 버릇을 읽는다 */
+function foRenderHabit(){
+  const el=$('foHabit'); if(!el)return;
+  const log=(Array.isArray(tradeLog)?tradeLog:[]).filter(t=>t&&t.code);
+  if(log.length<6){
+    el.innerHTML=`<div class="empty">거래가 <b>6건</b> 이상 쌓이면 매매 습관을 분석합니다. 현재 ${log.length}건.</div>`;
+    return;
+  }
+  /* 종목별로 매수→매도 짝을 만들어 보유일과 손익을 낸다 */
+  const byC={};
+  log.slice().sort((a,b)=>(a.ts||0)-(b.ts||0)).forEach(t=>{
+    (byC[t.code]=byC[t.code]||[]).push(t); });
+  const closed=[];
+  Object.values(byC).forEach(arr=>{
+    let q=0,cost=0,first=0;
+    arr.forEach(t=>{
+      /* [v9.72b] tradeLog 가 실제로 쓰는 필드는 side:'buy'|'sell' 이다.
+         t.type 을 먼저 보던 예전 식은 undefined 를 검사해 전부 매도로 셌다. */
+      const isBuy=/^buy$|매수/i.test(String(t.side||t.type||''));
+      const qty=+t.qty||0, px=+t.price||+t.px||0;
+      if(!(qty>0)||!(px>0))return;         // 값이 깨진 기록은 건너뛴다
+      if(isBuy){ if(q===0)first=t.ts||0; q+=qty; cost+=qty*px; }
+      else if(qty>0&&q>0){
+        const useQ=Math.min(q,qty), avg=cost/q;
+        closed.push({ret:(px-avg)/avg*100,days:first?Math.max(0,Math.round(((t.ts||0)-first)/864e5)):null});
+        cost-=avg*useQ; q-=useQ; if(q<=0){q=0;cost=0;}
+      }});
+  });
+  if(closed.length<3){
+    el.innerHTML=`<div class="empty">아직 <b>매도까지 끝난 거래</b>가 ${closed.length}건뿐입니다. 3건 이상이면 분석합니다.</div>`;
+    return;
+  }
+  const wins=closed.filter(x=>x.ret>0), losses=closed.filter(x=>x.ret<=0);
+  const avgD=(a)=>a.filter(x=>x.days!=null).length?a.filter(x=>x.days!=null).reduce((s,x)=>s+x.days,0)/a.filter(x=>x.days!=null).length:null;
+  const wd=avgD(wins), ld=avgD(losses);
+  const avgW=wins.length?wins.reduce((s,x)=>s+x.ret,0)/wins.length:0;
+  const avgL=losses.length?losses.reduce((s,x)=>s+x.ret,0)/losses.length:0;
+  const winRate=closed.length?wins.length/closed.length*100:0;
+  const pf=Math.abs(avgL)>0?(avgW*wins.length)/(Math.abs(avgL)*losses.length||1):null;
+  /* 처분효과 — 이익은 빨리 실현하고 손실은 오래 버티는 버릇 */
+  const dispo=(wd!=null&&ld!=null&&ld>wd*1.5);
+  el.innerHTML=`<div class="fo-habit">
+    <div class="fh-grid">
+      <div><span>끝난 거래</span><b class="num">${closed.length}건</b></div>
+      <div><span>승률</span><b class="num">${winRate.toFixed(0)}%</b></div>
+      <div><span>평균 수익</span><b class="num up">+${avgW.toFixed(1)}%</b></div>
+      <div><span>평균 손실</span><b class="num down">${avgL.toFixed(1)}%</b></div>
+      <div><span>이익 보유일</span><b class="num">${wd!=null?wd.toFixed(1)+'일':'—'}</b></div>
+      <div><span>손실 보유일</span><b class="num">${ld!=null?ld.toFixed(1)+'일':'—'}</b></div>
+    </div>
+    ${dispo?`<div class="fh-note bad"><b>처분효과가 보입니다</b>
+      이익 난 종목은 평균 ${wd.toFixed(1)}일 만에 팔고, 손실 난 종목은 ${ld.toFixed(1)}일을 들고 계십니다.
+      개인투자자에게 가장 흔한 버릇이고, 승률이 높아도 수익이 안 남는 주된 이유입니다.</div>`
+      :`<div class="fh-note">이익과 손실의 보유 기간이 크게 어긋나지 않습니다. 좋은 습관입니다.</div>`}
+    ${(avgW<Math.abs(avgL)&&winRate<60)?`<div class="fh-note bad"><b>손익비가 불리합니다</b>
+      평균 손실(${Math.abs(avgL).toFixed(1)}%)이 평균 수익(${avgW.toFixed(1)}%)보다 큽니다.
+      승률 ${winRate.toFixed(0)}%로는 이 손익비를 메우기 어렵습니다.</div>`:''}
+    <div class="fh-f">모의투자 기록만으로 계산한 값입니다. 표본이 적을수록 우연이 섞입니다.</div>
+  </div>`;
+}
+
+/* ── ⑥ 복기 ── 근거별로 얼마나 맞았나 */
+function foRenderReview(list){
+  const el=$('foReview'); if(!el)return;
+  const rec=[];
+  list.forEach(s=>{ if(s.plan&&s.plan.why)rec.push({why:s.plan.why,ret:s.rate,open:1}); });
+  let hist=[]; try{ hist=JSON.parse(localStorage.getItem('foClosed')||'[]')||[]; }catch(e){}
+  hist.forEach(x=>rec.push({why:x.why,ret:x.ret,open:0}));
+  if(rec.length<2){
+    el.innerHTML='<div class="empty">근거를 적어 둔 매수가 쌓이면 <b>어떤 근거가 나에게 잘 맞는지</b>를 여기서 보여 드립니다.</div>';
+    return;
+  }
+  const by={};
+  rec.forEach(r=>{ const k=r.why||'수동'; (by[k]=by[k]||[]).push(r.ret); });
+  const rows=Object.entries(by).map(([k,arr])=>({k,n:arr.length,
+    avg:arr.reduce((a,b)=>a+b,0)/arr.length, win:arr.filter(x=>x>0).length}))
+    .sort((a,b)=>b.avg-a.avg);
+  /* ══ 계획 준수율 ══ 계획이 나빴는지, 계획을 안 지켰는지를 가른다.
+     이 둘을 뭉뚱그리면 무엇을 고쳐야 할지 알 수 없다. */
+  const judged=hist.filter(x=>x.keptStop!=null);
+  const kept=judged.filter(x=>x.keptStop===1).length;
+  const keepRate=judged.length?kept/judged.length*100:null;
+  /* 손절선을 사후에 내린 횟수 — 준수율과 함께 봐야 뜻이 산다 */
+  let moved=0;
+  (holdings||[]).forEach(h=>{ if(h&&h.plan&&h.plan.movedStop)moved+=h.plan.movedStop; });
+  el.innerHTML=`<div class="fo-review">
+    ${moved?`<div class="fv-moved">손절선을 나중에 내린 횟수 <b class="num">${moved}회</b>
+      <i>기준을 옮기면 준수율은 올라가지만 실제로 지킨 것은 아닙니다.</i></div>`:''}
+    ${keepRate!=null?`<div class="fv-keep ${keepRate>=70?'ok':'bad'}">
+      <span>손절선을 지킨 비율</span><b class="num">${keepRate.toFixed(0)}%</b>
+      <i>${judged.length}건 중 ${kept}건. ${keepRate>=70
+        ? '계획대로 움직이고 계십니다. 그러면 성적이 나쁠 때 <b>계획을 고치면</b> 됩니다.'
+        : '계획을 자주 어기고 계십니다. 이 상태에서는 근거별 성적이 나빠도 <b>근거가 나쁜 건지 안 지켜서인지</b> 알 수 없습니다.'}</i></div>`:''}
+    ${rows.map(r=>`<div class="fv-i">
+      <span class="fv-k">${htmlEsc(r.k)}</span>
+      <span class="fv-n">${r.n}건 · ${r.n?Math.round(r.win/r.n*100):0}% 성공</span>
+      <b class="fv-v num ${r.avg>=0?'up':'down'}">${r.avg>=0?'+':''}${r.avg.toFixed(1)}%</b>
+    </div>`).join('')}
+    <div class="fv-f">보유 중인 종목은 <b>아직 끝나지 않은 성적</b>입니다. 표본 ${rec.length}건 —
+      10건은 넘어야 근거별 차이를 믿을 만합니다.</div>
+  </div>`;
+}
+
+/* ── 계획 세우기·수정 ── */
+function foPlanModal(code){
+  const h=(holdings||[]).find(x=>x&&x.code===code); if(!h)return;
+  const p=foPlan(h), st=foState(h);
+  const M=(v)=>h.us?USD2(v):String(Math.round(v));
+  openLiteGate(`계획 · ${htmlEsc(st.name)}`,`
+    <div class="fld2"><label>왜 샀나요 (근거)</label>
+      <select id="fpWhy">${['대량 돌파','눌림목','스프링','털어내기','20일선 회복','OBV 선행','실적·뉴스','장기 보유','수동']
+        .map(o=>`<option${p.why===o?' selected':''}>${o}</option>`).join('')}</select></div>
+    <div class="fld2"><label>목표가 — 여기까지 오르면 덜어낸다</label>
+      <input id="fpTgt" class="num" inputmode="decimal" value="${p.target!=null?M(p.target):''}" placeholder="${M(st.px*1.12)}"></div>
+    <div class="fld2"><label>손절가 — 여기까지 밀리면 접는다</label>
+      <input id="fpStop" class="num" inputmode="decimal" value="${p.stop!=null?M(p.stop):''}" placeholder="${M(st.px*0.93)}"></div>
+    <div class="fld2"><label>보유 기간</label>
+      <select id="fpHz">${Object.entries(FO_HORIZON).map(([k,v])=>`<option value="${k}"${(p.horizon||'swing')===k?' selected':''}>${v.t}</option>`).join('')}</select></div>
+    <div class="lg-row"><button class="btn-primary" id="fpSave">저장</button><button class="btn-ghost" id="fpDel">계획 지우기</button></div>
+    <div class="fo-help">계획은 <b>살 때 정해 두는 것</b>입니다. 값이 밀린 뒤에 손절가를 내리면 계획이 아니라 변명이 됩니다.</div>`);
+  const nv=(id)=>{const v=($(id).value||'').replace(/[^0-9.]/g,''); return v?Number(v):null;};
+  $('fpSave').onclick=()=>{
+    const t=nv('fpTgt'), s2=nv('fpStop');
+    if(t!=null&&s2!=null&&s2>=t){ toast('warn','손절가가 목표가보다 높습니다',''); return; }
+    /* [v9.72b] 값이 밀린 뒤 손절가를 내리는 것은 계획이 아니라 변명이다.
+       막지는 않되(사용자의 판단이다) 무슨 일을 하는지는 분명히 알린다. */
+    if(p.stop!=null&&s2!=null&&s2<p.stop*0.995){
+      const drop=((p.stop-s2)/p.stop*100).toFixed(1);
+      if(!confirm(`손절가를 ${drop}% 낮춥니다.\n\n이미 정해 둔 손절선을 값이 밀린 뒤에 내리면, 손실을 확정하지 않으려고 기준을 옮기는 것일 수 있습니다.\n\n그래도 바꾸시겠습니까?`))return;
+      p.movedStop=(p.movedStop||0)+1;
+    }
+    p.why=$('fpWhy').value; p.target=t; p.stop=s2; p.horizon=$('fpHz').value;
+    if(!h.buyAt)h.buyAt=Date.now();
+    saveState(); closeLiteGate(); renderFolio(); toast('ok','계획을 저장했습니다','');
+  };
+  $('fpDel').onclick=()=>{ h.plan={}; saveState(); closeLiteGate(); renderFolio(); toast('warn','계획을 지웠습니다',''); };
+}
+
+/* ── 화면 그리기 ── */
+function renderFolio(){
+  const list=foAll();
+  safeRun('foTodo',()=>foRenderTodo(list));
+  safeRun('foSum',()=>foRenderSum(list));
+  safeRun('foCards',()=>foRenderCards(list));
+  safeRun('foRisk',()=>foRenderRisk(list));
+  safeRun('foHabit',foRenderHabit);
+  safeRun('foReview',()=>foRenderReview(list));
+  safeRun('foDot',foBadge);
+}
+/* 네비 점 — 급한 항목이 있을 때만 */
+function foBadge(){
+  try{
+    const d=$('folioDot'); if(!d)return;
+    const n=foAll(true).filter(s=>s.lv>=2).length;   /* [v9.72b] 배지는 가벼운 판정만 */
+    d.hidden=!n;
+  }catch(e){}
+}
+
 function renderPortfolioNumbers(){
   /* [v4.5] 어떤 값이 깨져도 총자산이 NaN 으로 새지 않게 정수로 정규화한 뒤 계산한다. */
   let te=0,tc=0;(Array.isArray(holdings)?holdings:[]).forEach(h=>{
@@ -12478,16 +13246,34 @@ function ipoCardHtml(it,idx){
   return `<div class="ipo-card">
     <div class="ipo-card-top">
       <span class="dday ${dd.cls}">${dd.txt}</span>
-      ${it.demand?`<span class="ipo-int">${KRW(it.demand)}명 관심</span>`:''}
+      ${/* ══ [v9.71c] '213명 관심'은 사람 수가 아니었다 ═══════════════════════
+            it.demand 는 기관 수요예측 경쟁률(213.31:1)인데 이것을 그대로
+            '명 관심'으로 적고 있었다(첨부 2번). 관심 인원과는 아무 상관이 없다.
+            경쟁률은 아래 지표 칸에서 제대로 보여 주므로 여기서는 뺀다. */''}
       <span class="bm ${marked?'on':''}" data-bm="${idx}" title="관심 공모주">${marked?'🔖':'🏳️'}</span>
     </div>
     <div class="ipo-nm">${htmlEsc(it.name)}</div>
     <div class="ipo-band"><span>공모예정가</span><b>${it.priceBand?it.priceBand+'원':'미정'}</b></div>
-    ${(it.demand||it.subRate||it.lockup)?`<div class="ipo-rates">
-      ${it.demand?`<div class="ipo-rt"><span>수요예측</span><b class="num ${it.demand>=1000?'up':''}">${Number(it.demand).toLocaleString()}:1</b></div>`:''}
-      ${it.subRate?`<div class="ipo-rt"><span>청약</span><b class="num ${it.subRate>=1000?'up':''}">${Number(it.subRate).toLocaleString()}:1</b></div>`:''}
-      ${it.lockup?`<div class="ipo-rt"><span>확약</span><b class="num">${it.lockup}%</b></div>`:''}
-    </div>`:''}
+    ${(function(){
+      /* ══ [v9.71c] 경쟁률이 '있는 것과 없는 것'을 구분해 말한다 ══════════════
+         예전에는 값이 없으면 칸 자체를 지워, 사용자는 '앱이 못 가져온 건지
+         원래 없는 건지' 알 수 없었다(첨부 2번). 공모 절차상 수요예측은 청약
+         약 일주일 전에야 열리고, 스팩(SPAC)은 수요예측을 하지 않는다.
+         지금 단계에서 나올 수 없는 값은 그렇게 적어 준다. */
+      const isSpac=/스팩|SPAC/i.test(it.name||'');
+      const today=new Date(); today.setHours(0,0,0,0);
+      const sd=it.subStart?new Date(it.subStart):null;
+      const before=sd&&sd>today;
+      const cells=[];
+      if(it.demand!=null)cells.push(`<div class="ipo-rt"><span>수요예측</span><b class="num ${it.demand>=1000?'up':''}">${Number(it.demand).toLocaleString()}:1</b></div>`);
+      else if(isSpac)cells.push(`<div class="ipo-rt none"><span>수요예측</span><b>해당 없음<i>스팩은 수요예측을 하지 않습니다</i></b></div>`);
+      else if(before)cells.push(`<div class="ipo-rt none"><span>수요예측</span><b>예정<i>보통 청약 1주 전 공개</i></b></div>`);
+      if(it.subRate!=null)cells.push(`<div class="ipo-rt"><span>청약</span><b class="num ${it.subRate>=1000?'up':''}">${Number(it.subRate).toLocaleString()}:1</b></div>`);
+      else if(before)cells.push(`<div class="ipo-rt none"><span>청약</span><b>예정<i>청약 마감 후 공개</i></b></div>`);
+      if(it.lockup!=null)cells.push(`<div class="ipo-rt"><span>확약</span><b class="num">${it.lockup}%</b></div>`);
+      else if(it.demand!=null)cells.push(`<div class="ipo-rt none"><span>확약</span><b>미공시</b></div>`);
+      return cells.length?`<div class="ipo-rates">${cells.join('')}</div>`:'';
+    })()}
     <div class="ipo-kv"><span>청약일</span><b>${fmtDot(it.subStart)}${it.subEnd?'~'+fmtDot(it.subEnd).slice(5):''}</b></div>
     <button class="ipo-detail-btn" data-exp="${idx}">세부 내용 조회 <span class="arr">${exp?'▲':'▼'}</span></button>
     <div class="ipo-detail" ${exp?'':'hidden'}>
@@ -13683,13 +14469,15 @@ function executeOrderCore(s,o,tag){
     const h=holdings.find(x=>x.code===s.code);
     if(h){h.avg=Math.round((intOf(h.avg,price)*intOf(h.qty,0)+amount)/(intOf(h.qty,0)+qty));h.qty=intOf(h.qty,0)+qty;}
     else holdings.push({code:s.code,qty,avg:price});
+    try{ foSeedPlan(s.code,price,false); }catch(e){}   /* [v9.72] 살 때 계획을 자동으로 심는다 */
     toast('buy',s.name+' 매수 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(qty)}주 · ${KRW(price)}원 · 결제 ${KRW(c.cost)}원 · 잔고 ${KRW(cash)}원`);
   }else{
     const h=holdings.find(x=>x.code===s.code);const avg=intOf(h&&h.avg,price);
     rec.avg=avg;rec.pnl=Math.round((price-avg)*qty-fee-tax);rec.roi=avg*qty?rec.pnl/(avg*qty)*100:0;
     h.qty=intOf(h.qty,0)-qty;
     cash=intOf(cash+c.proceeds,0);
-    if(h.qty<=0)holdings.splice(holdings.indexOf(h),1);
+    /* [v9.72] 보유가 끝나면 근거·성적을 복기용으로 남긴 뒤 목록에서 뺀다 (순서 중요) */
+    if(h.qty<=0){ try{ foArchive(s.code,price); }catch(e){} holdings.splice(holdings.indexOf(h),1); }
     toast('sell',s.name+' 매도 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(qty)}주 · ${KRW(price)}원 · 정산 ${KRW(c.proceeds)}원 · 잔고 ${KRW(cash)}원`);}
   if(cash<0)cash=0;                     // 어떤 경로로도 예수금이 음수가 되지 않게 하는 최종 방어선
   tradeLog.push(rec);
@@ -13710,7 +14498,12 @@ function executeOrderCore(s,o,tag){
 }
 function toast(type,title,sub){
   const w=$('toastWrap'),t=document.createElement('div');
-  t.className='toast '+type;t.innerHTML=`<span class="ic">${type==='buy'?'▲':type==='sell'?'▼':'!'}</span><span>${title}<small>${sub}</small></span>`;
+  /* ══ [v9.73] 토스트에 들어오는 문자열을 한곳에서 막는다 ══════════════════
+     toast 는 앱 곳곳에서 불리고, 인자에는 폴더 이름·종목명·송금 메모처럼
+     사용자나 상대방이 적은 값이 자주 섞인다. 호출부마다 이스케이프를 챙기는
+     방식은 한 곳만 빠져도 뚫리므로, 출구인 여기서 일괄 처리한다.
+     이미 이스케이프된 문자열이 다시 처리돼도 화면상 차이는 없다. */
+  t.className='toast '+type;t.innerHTML=`<span class="ic">${type==='buy'?'▲':type==='sell'?'▼':'!'}</span><span>${htmlEsc(title)}<small>${htmlEsc(sub)}</small></span>`;
   w.appendChild(t);setTimeout(()=>{t.style.transition='opacity .3s,transform .3s';t.style.opacity='0';t.style.transform='translateY(10px)';setTimeout(()=>t.remove(),300);},5200);   // [v2.1] 알림 유지 시간 연장
 }
 window.addEventListener('resize',()=>{drawChart();if(currentView==='home')renderMarket();});
@@ -13889,65 +14682,149 @@ function acScore(rawBars,invRows){
    [원칙] 미래를 보지 않는다. 각 신호는 '그 시점까지의 자료'만으로 판정한다.
    그래야 과거 차트에서 그럴듯해 보이는 착시가 생기지 않는다. */
 function acSignals(rawBars,r){
+  /* ══════════════════════════════════════════════════════════════════════════
+     [v9.71d] 신호가 거의 안 뜨던 진짜 이유 — 박스 기준선이 '고정'이었다
+     ─────────────────────────────────────────────────────────────────────────
+     예전 코드는 돌파·가짜돌파 판정에 r.box.hi 하나를 썼다. 그런데 r.box.hi 는
+     '가장 최근 40일의 최고가' 다. 즉 과거 어느 시점을 보든 항상 같은 값이고,
+     그 값은 마지막 40일 안에서 정해진다. 결과가 둘 다 나빴다.
+
+       ① 신호가 안 뜬다 — 40일 최고가는 정의상 그 구간의 천장이다. 대부분의
+          날은 그보다 낮으므로 c > box.hi 가 성립할 수 없다. 돌파(SOS)·
+          재확인(LPS)·가짜돌파(UT) 세 가지가 사실상 죽어 있었다.
+          화면에 남은 건 박스와 무관한 '수급 어긋남' 정도뿐이었다(첨부 3번).
+       ② 미래를 훔쳐본다 — 코드 주석은 "미래를 보지 않는다"고 적어 놨는데,
+          정작 3개월 전 바를 판정하면서 '앞으로 40일 안에 생길 고점'을 기준으로
+          삼고 있었다. 과거 신호가 실제보다 좋아 보이는 착시의 원인이다.
+
+     [고침] 각 시점마다 '그날까지의 자료로만' 박스를 다시 계산한다(rolling).
+     bars[i-41 … i-1] 의 고가·저가를 그 시점의 박스로 쓴다. 이러면 돌파는
+     실제로 뚫은 그날 잡히고, 과거 판정에 미래가 섞이지 않는다.
+
+     아울러 자리 유형을 4개 → 8개로 넓혔다. 와이코프 신호만으로는 횡보가 없는
+     종목에서 아무것도 안 잡히기 때문에, 추세 종목에도 통하는 자리를 더했다.
+     ══════════════════════════════════════════════════════════════════════════ */
   const bars=acBars(rawBars);
   const n=bars.length;
   if(n<45||!r||!r.ok)return {buys:[],sells:[],now:null};
   const c=bars.map(b=>b.c), v=bars.map(b=>b.v), h=bars.map(b=>b.h), l=bars.map(b=>b.l);
-  const avg=(a)=>a.reduce((x,y)=>x+y,0)/a.length;
+  const avg=(a)=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
   const vAvg=(i,w)=>{const s2=Math.max(0,i-w+1);return avg(v.slice(s2,i+1))||1;};
   const maAt=(i,w)=>{const s2=Math.max(0,i-w+1);return avg(c.slice(s2,i+1));};
   const obv=acOBV(bars);
   const buys=[], sells=[];
-  const box=r.box||{};
+  /* ══ [v9.71d] 같은 자리가 며칠씩 되풀이되지 않게 ══════════════════════════
+     조건을 넓히고 나니 이번엔 반대 문제가 생겼다. '돌파 재확인'이나 'OBV 선행'
+     같은 자리는 상태가 며칠 이어지므로, 날마다 같은 신호가 다시 찍혀
+     260일 차트에 50개씩 쌓였다. 신호가 너무 많으면 없는 것과 마찬가지다.
+     같은 종류는 10거래일, 같은 방향은 3거래일 안에 다시 찍지 않는다. */
+  const seen={}, sideAt={buy:-99,sell:-99};
+  let i0=0, down0=false;
+  const put=(arr,side,o)=>{
+    /* ══ [v9.71d] 하락 추세에서는 매수 신호를 내지 않는다 ═══════════════════
+       조건을 넓히고 검증해 보니, 뚜렷한 하락장에서 매수 17.7건 대 매도 2.5건이
+       나왔다. 스프링·20일선 회복 같은 자리는 주가가 계속 신저가를 갱신하며
+       반등할 때마다 성립하기 때문이다. 이건 떨어지는 칼을 잡으라는 말과 같다.
+       60일선 아래 + 60일선 자체가 내려가는 국면에서는, 박스 상단을 실제로
+       뚫은 '대량 돌파'(추세 전환의 증거)만 남기고 나머지 매수는 막는다. */
+    if(side==='buy'&&down0&&o.kind!=='대량 돌파')return;
+    const key=side+':'+o.kind;
+    if(i0-(seen[key]==null?-99:seen[key])<10)return;
+    if(i0-sideAt[side]<3)return;
+    seen[key]=i0; sideAt[side]=i0; arr.push(o);
+  };
 
   for(let i=30;i<n;i++){
+    i0=i;
     const b=bars[i], rng=(b.h-b.l)||1e-9;
-    const pos=(b.c-b.l)/rng;                       // 종가가 캔들 어디에서 끝났나
+    const pos=(b.c-b.l)/rng;                       // 종가가 캔들 어디에서 끝났나(1=고가 마감)
     const vr=b.v/vAvg(i-1,20);                     // 그날 거래량이 평소의 몇 배
-    const ma20=maAt(i,20), ma5=maAt(i,5);
+    const ma20=maAt(i,20), ma5=maAt(i,5), ma20p=maAt(i-1,20);
+    /* 60일선과 그 기울기로 '지금이 어떤 국면인가'를 먼저 판정한다 */
+    const ma60=maAt(i,60), ma60p=maAt(Math.max(1,i-10),60);
+    down0 = b.c<ma60 && ma60<ma60p*0.995;
+    /* ── 그 시점까지의 자료로만 만든 박스 ── */
+    const s40=Math.max(0,i-41);
+    const boxHi=Math.max(...h.slice(s40,i)), boxLo=Math.min(...l.slice(s40,i));
     const prevLo=Math.min(...l.slice(Math.max(0,i-20),i));
     const prevHi=Math.max(...h.slice(Math.max(0,i-20),i));
 
-    /* ── 매수 ① 스프링 복귀 ── 하단을 저거래로 잠깐 깨고 종가는 위로 되돌림 */
-    if(b.l<prevLo&&b.c>prevLo&&pos>=0.55&&vr<=1.2)
-      buys.push({i,px:b.c,kind:'스프링',why:'하단을 잠깐 이탈했다 되돌렸습니다 — 남은 매물을 터는 마지막 시험일 수 있습니다',w:3});
-
-    /* ── 매수 ② 흡수 뒤 눌림 ── 대량 상단 마감 후 조용히 밀렸다가 20일선을 지킴 */
-    if(i>=3){
-      const s3=bars[i-2], r3=(s3.h-s3.l)||1e-9, p3=(s3.c-s3.l)/r3, v3=s3.v/vAvg(i-3,20);
-      if(v3>=1.8&&p3>=0.6&&b.c>=ma20&&b.v<=vAvg(i-1,20)*0.9&&b.c<=c[i-2])
-        buys.push({i,px:b.c,kind:'흡수 눌림',why:'대량 흡수 뒤 거래가 줄며 눌렸고 20일선을 지켰습니다',w:2});
+    /* ── 매수 ① 스프링(하단 이탈 후 되돌림) ──
+       예전에는 저거래(vr<=1.2)만 인정했는데, 실제 스프링은 '털어내기'라
+       거래가 늘며 나오는 경우가 더 흔하다. 두 형태를 모두 인정하되 무게를 나눈다. */
+    if(b.l<prevLo&&b.c>prevLo&&pos>=0.5){
+      if(vr<=1.2)put(buys,'buy',{i,px:b.c,kind:'스프링',why:'하단을 잠깐 이탈했다 조용히 되돌렸습니다 — 매물이 얇다는 뜻입니다',w:3});
+      else if(vr<=3.5)put(buys,'buy',{i,px:b.c,kind:'털어내기',why:'하단을 '+vr.toFixed(1)+'배 거래로 깼다가 되돌렸습니다 — 물량을 받아낸 자리입니다',w:3});
     }
 
-    /* ── 매수 ③ 박스 상단 대량 돌파(SOS) ── */
-    if(box.hi&&b.c>box.hi&&c[i-1]<=box.hi&&vr>=1.8&&pos>=0.6)
-      buys.push({i,px:b.c,kind:'대량 돌파',why:'박스 위를 평소의 '+vr.toFixed(1)+'배 거래로 뚫었습니다',w:3});
-
-    /* ── 매수 ④ 돌파 뒤 저거래 되돌림(LPS) ── 뚫은 자리를 눌러 확인 */
-    if(box.hi&&b.c>box.hi&&b.c<box.hi*1.06&&vr<=0.8){
-      const broke=c.slice(Math.max(0,i-10),i).some(x=>x>box.hi);
-      if(broke)buys.push({i,px:b.c,kind:'돌파 재확인',why:'뚫은 자리를 저거래로 눌러 확인하는 자리입니다',w:2});
+    /* ── 매수 ② 흡수 뒤 눌림 ──
+       예전에는 흡수 캔들이 '정확히 2일 전'일 때만 봤다. 실제로는 1~5일 뒤
+       어디서든 눌림이 나온다. 창을 넓혀 놓친 자리를 살린다. */
+    if(i>=4){
+      let absIdx=-1;
+      for(let k=1;k<=5&&i-k>0;k++){
+        const s3=bars[i-k], r3=(s3.h-s3.l)||1e-9;
+        if(s3.v/vAvg(i-k-1,20)>=1.8&&(s3.c-s3.l)/r3>=0.6){absIdx=i-k;break;}
+      }
+      if(absIdx>=0&&b.c>=ma20&&b.v<=vAvg(i-1,20)*1.0&&b.c<=c[absIdx])
+        put(buys,'buy',{i,px:b.c,kind:'흡수 눌림',why:'대량 흡수 뒤 거래가 줄며 눌렸고 20일선을 지켰습니다',w:2});
     }
 
-    /* ── 매도 ① 가짜 돌파(UT) ── 상단에서 대량인데 종가는 아래쪽 */
-    if(box.hi&&b.h>box.hi&&b.c<box.hi&&vr>=1.6&&pos<=0.4)
-      sells.push({i,px:b.c,kind:'가짜 돌파',why:'위를 찔렀지만 대량으로 밀려 아래에서 끝났습니다',w:3});
+    /* ── 매수 ③ 박스 상단 대량 돌파(SOS) ── 이제 '그날의 박스'로 판정한다 */
+    if(b.c>boxHi&&c[i-1]<=boxHi&&vr>=1.5&&pos>=0.55)
+      put(buys,'buy',{i,px:b.c,kind:'대량 돌파',why:'40일 박스 위를 평소의 '+vr.toFixed(1)+'배 거래로 뚫었습니다',w:3});
 
-    /* ── 매도 ② 어긋남 ── 가격은 신고가인데 OBV 는 따라오지 못함 */
+    /* ── 매수 ④ 돌파 뒤 저거래 되돌림(LPS) ── */
+    /* [v9.71d] 돌파 직후 '첫 눌림'만 잡는다 — 예전엔 눌린 상태가 이어지는 동안
+       날마다 다시 찍혀 신호가 수백 개로 불었다. */
+    if(b.c>boxHi*0.995&&b.c<boxHi*1.06&&vr<=0.8&&c[i-1]>b.c){
+      let brokeAt=-1;
+      for(let k=2;k<=10&&i-k>0;k++){
+        const bh=Math.max(...h.slice(Math.max(0,i-k-41),i-k));
+        if(c[i-k]>bh&&c[i-k-1]<=bh){brokeAt=i-k;break;}
+      }
+      if(brokeAt>0)put(buys,'buy',{i,px:b.c,kind:'돌파 재확인',why:'뚫은 자리를 저거래로 눌러 확인하는 자리입니다',w:2});
+    }
+
+    /* ── 매수 ⑤ 20일선 첫 회복 ── 추세 종목에서 가장 흔한 재진입 자리 */
+    if(c[i-1]<ma20p&&b.c>ma20&&vr>=1.2&&pos>=0.55)
+      put(buys,'buy',{i,px:b.c,kind:'20일선 회복',why:'20일선 아래에 있다가 거래를 늘리며 위로 올라섰습니다',w:2});
+
+    /* ── 매수 ⑥ OBV 선행 ── 가격은 제자리인데 누적 거래량만 신고 */
+    if(i>=25){
+      const oNow=obv[i], oMax=Math.max(...obv.slice(i-20,i));
+      const pFlat=Math.abs(b.c/c[i-20]-1)<=0.05;
+      /* [v9.71d] 아슬아슬한 신고는 잡음이다 — 3% 이상 앞설 때만 인정 */
+      if(oNow>oMax*1.03&&pFlat&&b.c>=ma20)
+        put(buys,'buy',{i,px:b.c,kind:'OBV 선행',why:'주가는 제자리인데 누적 거래량이 먼저 신고를 냈습니다 — 조용히 모으는 흔적입니다',w:2});
+    }
+
+    /* ── 매도 ① 가짜 돌파(UT) ── */
+    if(b.h>boxHi&&b.c<boxHi&&vr>=1.4&&pos<=0.45)
+      put(sells,'sell',{i,px:b.c,kind:'가짜 돌파',why:'위를 찔렀지만 대량으로 밀려 아래에서 끝났습니다',w:3});
+
+    /* ── 매도 ② 수급 어긋남 ── */
     if(i>=20&&b.c>=prevHi){
       const oNow=obv[i], oPrev=Math.max(...obv.slice(i-20,i));
       if(oNow<oPrev*0.985)
-        sells.push({i,px:b.c,kind:'수급 어긋남',why:'가격은 위인데 OBV가 따라오지 못합니다',w:2});
+        put(sells,'sell',{i,px:b.c,kind:'수급 어긋남',why:'가격은 위인데 OBV가 따라오지 못합니다',w:2});
     }
 
     /* ── 매도 ③ 급등 뒤 대량 음봉 ── */
     if(i>=6){
       const run=(b.c-c[i-5])/c[i-5]*100;
-      if(run>=12&&b.c<b.o&&vr>=1.7&&pos<=0.35)
-        sells.push({i,px:b.c,kind:'급등 후 이탈',why:'짧게 '+run.toFixed(0)+'% 오른 뒤 대량 음봉이 나왔습니다',w:3});
+      if(run>=10&&b.c<b.o&&vr>=1.5&&pos<=0.4)
+        put(sells,'sell',{i,px:b.c,kind:'급등 후 이탈',why:'짧게 '+run.toFixed(0)+'% 오른 뒤 대량 음봉이 나왔습니다',w:3});
     }
-  }
 
+    /* ── 매도 ④ 박스 하단 이탈 ── 매집이 실패로 끝나는 전형 */
+    if(b.c<boxLo&&c[i-1]>=boxLo&&vr>=1.3)
+      put(sells,'sell',{i,px:b.c,kind:'하단 이탈',why:'40일 박스 아래로 거래를 늘리며 무너졌습니다',w:3});
+
+    /* ── 매도 ⑤ 20일선 대량 이탈 ── */
+    if(c[i-1]>=ma20p&&b.c<ma20&&vr>=(down0?1.1:1.4)&&pos<=0.45)
+      put(sells,'sell',{i,px:b.c,kind:'20일선 이탈',why:'20일선을 거래량을 늘리며 아래로 내줬습니다',w:2});
+  }
   /* 같은 날 여러 신호가 겹치면 무게가 큰 것만 남긴다 */
   const dedup=(arr)=>{
     const m={};
@@ -13955,6 +14832,9 @@ function acSignals(rawBars,r){
     return Object.values(m).sort((a,b)=>a.i-b.i);
   };
   const B=dedup(buys), S=dedup(sells);
+  /* [v9.71d] 아래 가격대 계산은 '지금 시점의 박스'를 쓴다 — 루프 안의 rolling 박스와
+     달리 여기서는 현재 기준이 맞다(앞으로 낼 주문 가격이므로). */
+  const box=(r&&r.box)||{};
 
   /* ── 지금 무엇을 해야 하나 ── 마지막 5거래일 안의 신호를 본다 */
   const recent=(arr)=>arr.filter(x=>x.i>=n-5);
@@ -14113,7 +14993,11 @@ async function acAnalyze(code){
     ${badges.length?`<div class="ac-badges">${badges.join('')}</div>`:''}
     <div id="acSigBox"></div>
     <div class="ac-canvas-wrap"><canvas id="acCanvas"></canvas>
-      <div class="ac-cv-cap"><i>─ 종가</i><i style="color:#e9900a">─ OBV</i><i>▨ 40일 박스</i><i style="color:#12b76a">★ 흡수 캔들</i>${r.spring?'<i style="color:#12b76a">🌀 스프링</i>':''}</div></div>
+      <div class="ac-cv-cap"><i>─ 종가</i><i style="color:#e9900a">─ OBV</i><i>▨ 40일 박스</i><i style="color:#12b76a">★ 흡수 캔들</i>${r.spring?'<i style="color:#12b76a">🌀 스프링</i>':''}</div>
+      <!-- [v9.71c] ★ 이 무엇인지 물어보는 분이 많아 그 자리에서 설명한다 -->
+      <div class="ac-cv-help"><b>★ 흡수 캔들이란</b> 평소의 <b>2.2배 넘는 거래량</b>이 터졌는데도
+      주가가 그날 <b>고가 근처(위쪽 60% 지점 이상)에서 마감</b>하고, 이후 <b>3일간 4% 넘게 밀리지 않은</b> 날입니다.
+      쏟아진 매물을 누군가 받아냈다(흡수했다)고 보는 자리라 매집 신호로 셉니다.</div></div>
     <div class="ac-comps">${compsHtml}</div>
     <div class="ac-interp">${interp.map(t=>'· '+t).join('<br>')}</div>
   </div>`;
@@ -17266,6 +18150,7 @@ function usExecuteOrder(side,o){
       h.avg=+(((h.avg*h.qty)+px*qty)/(h.qty+qty)).toFixed(4);
       h.qty=+(h.qty+qty).toFixed(4);
     }else holdings.push({code:usSel,qty,avg:px,us:1,fxAvg:+fxPaid.toFixed(2)});
+    try{ foSeedPlan(usSel,px,true); }catch(e){}        /* [v9.72] 해외도 동일 */
     tradeLog.unshift({ts:Date.now(),date:kstDay(),code:usSel,name:m.kr,side:'buy',qty,price:px,
       amount:c.amount,fee:Math.round(c.feeUsd*fx),tax:0,avg:px,pnl:0,roi:0,us:1,pay,fxAt:Math.round(fxPaid)});
     toast('buy',m.kr+' 매수 체결(모의)',

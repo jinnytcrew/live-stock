@@ -79,7 +79,8 @@
   /* ══ [v9.71] 입장 화면을 '맑은 하늘'로 ═══════════════════════════════════
      위쪽은 깊은 하늘색, 아래로 갈수록 옅어지며 지평선의 빛으로 이어진다.
      글자는 어두운 남색으로 바꿔 밝은 배경에서도 또렷하게 읽힌다. */
-  background:linear-gradient(180deg,#2f7fd4 0%,#4f9ee4 18%,#74b9ee 40%,#9fd3f6 62%,#c9e7fa 80%,#e8f5fd 93%,#f6fbff 100%);
+  /* [v9.71c] 천정은 사진처럼 짙은 코발트블루, 지평선은 뽀얗게 — 실제 맑은 날의 색 */
+  background:linear-gradient(180deg,#0d6fd4 0%,#1580e0 14%,#3b9ae9 32%,#6bb8f1 52%,#9ad4f7 70%,#c6e6fb 85%,#e6f4fd 95%,#f4fbff 100%);
   color:#0d2c4a;
   font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
   transition:opacity .55s ease;
@@ -103,36 +104,36 @@
   filter:blur(28px)}
 @keyframes bgSun{0%,100%{transform:scale(1);opacity:.92}50%{transform:scale(1.07);opacity:1}}
 
-/* ══ [v9.71] 구름을 실제 하늘 사진에 가깝게 ════════════════════════════════
-   [무엇이 문제였나] 동그란 그라디언트를 여러 개 겹쳐 만든 구름은 윤곽이 매끈해
-   만화처럼 보였다. 진짜 구름은 가장자리가 불규칙하게 헤지고 속이 성글다.
-   [어떻게 바꿨나] SVG feTurbulence(프랙탈 노이즈)로 구름 결을 만든다.
-   실제 구름 렌더링에 쓰는 방식이라 가장자리가 자연스럽게 흩어진다.
-   이미지 파일을 받아 오지 않고 브라우저가 직접 그리므로 첫 화면이 늦어지지 않는다.
-   세 겹을 서로 다른 배율·속도로 흘려 원근감을 준다. */
+/* ══ [v9.71c] 구름 다시 만들기 — 안개가 아니라 '뭉게구름'으로 ════════════════
+   [지난 판의 문제] feTurbulence 를 그대로 흰색으로 깔았더니 노이즈가 화면 전체에
+   옅게 퍼져 안개·연무처럼 보였다. 실제 맑은 하늘(첨부 5번)은 그 반대다 —
+   파란 하늘이 대부분이고, 흰 구름은 '덩어리'로 뚝뚝 떨어져 있다.
+   [이번 판] 알파를 가파르게 잘라 노이즈 상위 값만 남긴다.
+     alpha = 6.2·N − 3.55  →  N이 0.573 넘는 곳만 구름이 되고 그 아래는 완전 투명.
+   그래서 구름이 덩어리로 끊기고 사이로 파란 하늘이 그대로 보인다.
+   octave 를 줄여 잔결을 없애고, 가장자리는 살짝 흐려 솜처럼 만든다. */
 .bg-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
 .bg-cl{position:absolute;left:0;width:220%;background-repeat:repeat-x;will-change:transform}
-/* 높고 성근 새털구름 */
-.bg-cl.c1{top:2%;height:38%;opacity:.55;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='300'%3E%3Cfilter id='a' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.004 0.020' numOctaves='5' seed='11'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.5 0 0 0 -0.62'/%3E%3C/filter%3E%3Crect width='900' height='300' filter='url(%23a)'/%3E%3C/svg%3E");
-  background-size:900px 100%;animation:bgDrift 150s linear infinite}
-/* 중간 높이의 뭉게구름 — 가장 뚜렷하다 */
-.bg-cl.c2{top:16%;height:46%;opacity:.92;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='340'%3E%3Cfilter id='b' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0075 0.013' numOctaves='6' seed='5'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.1 0 0 0 -0.86'/%3E%3CfeGaussianBlur stdDeviation='1.1'/%3E%3C/filter%3E%3Crect width='1000' height='340' filter='url(%23b)'/%3E%3C/svg%3E");
-  background-size:1000px 100%;animation:bgDrift 96s linear infinite}
-/* 낮게 깔린 옅은 구름 — 지평선 쪽 */
-.bg-cl.c3{top:44%;height:44%;opacity:.6;filter:blur(1px);
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='320'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.011 0.008' numOctaves='5' seed='23'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.8 0 0 0 -0.78'/%3E%3C/filter%3E%3Crect width='1200' height='320' filter='url(%23c)'/%3E%3C/svg%3E");
-  background-size:1200px 100%;animation:bgDrift 190s linear infinite reverse}
-/* 아래로 갈수록 구름이 옅어져 하늘에 녹아들게 한다 */
+/* 높이 뜬 작은 조각구름 — 멀리 있어 작고 성글다 */
+.bg-cl.c1{top:6%;height:26%;opacity:.9;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1100' height='240'%3E%3Cfilter id='a' x='-10%25' y='-10%25' width='120%25' height='120%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.014 0.028' numOctaves='3' seed='19'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 7 0 0 0 -4.15'/%3E%3CfeGaussianBlur stdDeviation='1.4'/%3E%3C/filter%3E%3Crect width='1100' height='240' filter='url(%23a)'/%3E%3C/svg%3E");
+  background-size:1100px 100%;animation:bgDrift 165s linear infinite}
+/* 주인공 뭉게구름 — 크고 또렷하다 */
+.bg-cl.c2{top:16%;height:40%;opacity:1;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1250' height='360'%3E%3Cfilter id='b' x='-10%25' y='-10%25' width='120%25' height='120%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0055 0.011' numOctaves='4' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 6.2 0 0 0 -3.55'/%3E%3CfeGaussianBlur stdDeviation='2.2'/%3E%3C/filter%3E%3Crect width='1250' height='360' filter='url(%23b)'/%3E%3C/svg%3E");
+  background-size:1250px 100%;animation:bgDrift 108s linear infinite}
+/* 지평선 쪽 낮은 구름띠 — 원근 때문에 납작하고 옅다 */
+.bg-cl.c3{top:46%;height:30%;opacity:.72;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1500' height='260'%3E%3Cfilter id='c' x='-10%25' y='-10%25' width='120%25' height='120%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.010 0.030' numOctaves='3' seed='31'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 6.6 0 0 0 -3.95'/%3E%3CfeGaussianBlur stdDeviation='1.8'/%3E%3C/filter%3E%3Crect width='1500' height='260' filter='url(%23c)'/%3E%3C/svg%3E");
+  background-size:1500px 100%;animation:bgDrift 205s linear infinite reverse}
+/* 아래로 갈수록 대기가 뿌옇게 — 실제 하늘의 원근감 */
 .bg-sky::after{content:'';position:absolute;inset:0;pointer-events:none;
-  background:linear-gradient(180deg,transparent 0%,transparent 52%,rgba(206,234,250,.55) 78%,rgba(226,243,253,.9) 100%)}
+  background:linear-gradient(180deg,transparent 0%,transparent 56%,rgba(214,238,252,.5) 80%,rgba(233,246,254,.88) 100%)}
 @keyframes bgDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-45.45%,0,0)}}
 /* 격자 — 아주 옅게 */
-.bg-grid{position:absolute;inset:0;pointer-events:none;opacity:.55;z-index:1;
-  background-image:linear-gradient(rgba(255,255,255,.34) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(255,255,255,.24) 1px,transparent 1px);
-  background-size:58px 58px;
+/* [v9.71c] 격자무늬 제거 — 밤하늘 배경일 때 쓰던 장식인데, 하늘 사진 위에
+   흰 모눈이 겹쳐 창틀처럼 보였다(첨부 4번). 하늘에는 격자가 없다. */
+.bg-grid{display:none;
   -webkit-mask-image:radial-gradient(ellipse at 50% 42%,#000 30%,transparent 78%);
           mask-image:radial-gradient(ellipse at 50% 42%,#000 30%,transparent 78%)}
 
@@ -484,6 +485,13 @@
         <span class="set-btns"><button class="set-btn" id="nxtStatBtn">상태 확인</button><button class="set-btn" id="nxtManBtn">관리자 갱신</button></span></div>
 
       <div class="set-sec">알림</div>
+      <!-- [v9.76] 웹 푸시 — 앱을 닫아도 오는 알림 -->
+      <div class="set-row"><div class="set-info"><div class="set-t">앱을 닫아도 알림 받기</div>
+        <div class="set-d" id="pushDesc">손절선 이탈·목표가 도달을 기기 알림으로 보내드립니다</div></div>
+        <button class="sw" id="setPush" role="switch" aria-label="푸시 알림"><span class="knob"></span></button></div>
+      <div class="set-row" id="pushTestRow" hidden><div class="set-info"><div class="set-t">알림 시험</div>
+        <div class="set-d">앱을 닫거나 화면을 꺼도 도착하는지 확인해 보세요</div></div>
+        <button class="btn-ghost" id="pushTestBtn" style="flex:none;padding:8px 14px;font-size:12px">보내기</button></div>
       <div class="set-row"><div class="set-info"><div class="set-t">목표가 알림</div><div class="set-d">설정한 가격에 닿으면 알려줍니다</div></div>
         <button class="sw" id="setAlTarget" role="switch" aria-label="목표가 알림"><span class="knob"></span></button></div>
       <div class="set-row"><div class="set-info"><div class="set-t">장 시작·마감 1분 전 알림</div></div>
@@ -660,6 +668,7 @@
       <button data-view="watch">관심종목</button>
       <button data-view="trade">거래·주문</button>
       <button data-view="account">내 계좌</button>
+      <button data-view="folio">MY 포트폴리오<i class="nav-dot" id="folioDot" hidden></i></button>
       <button data-view="clan">클랜<i class="nav-dot" id="clanDot" hidden></i></button>
       <button data-view="friend">친구<i class="nav-dot" id="frDot" hidden></i></button>
     </nav>
@@ -1016,7 +1025,7 @@
         <div class="thm-sorts" id="thmSorts"></div>
       </div>
       <div class="thm-sum" id="thmSum"></div>
-      <div class="thm-head"><span class="c1">테마명</span><span class="c2">상승</span><span class="c3">하락</span><span class="c4">등락률</span></div>
+      <!-- [v9.72c] 표 머리글 제거 — 국내도 해외와 같은 카드 격자로 바뀌어 열 개념이 없어졌다 -->
       <div id="thmRows"></div>
       <button class="etf-more" id="thmMore" hidden>더보기</button>
     </div>
@@ -1405,6 +1414,36 @@
   </section>
 
   <!-- ACCOUNT -->
+  <!-- ══ [v9.72] MY 포트폴리오 — 보유 종목 케어 ═══════════════════════════════
+       '내 계좌'가 얼마인지를 보여 준다면, 여기는 지금 무엇을 해야 하는지를 본다.
+       코너 순서는 급한 것부터: 오늘 할 일 → 종목별 상태 → 위험 → 규율 → 복기 -->
+  <section class="view" id="view-folio" hidden>
+    <div class="page-title">MY 포트폴리오</div>
+    <div class="page-sub">보유 종목을 계획과 견줘 지켜봅니다. 실제 매매가 아니며 모든 손익은 가상입니다.</div>
+
+    <!-- ① 오늘의 할 일 -->
+    <div class="fo-sec" id="foTodo"></div>
+
+    <!-- ② 한눈 요약 -->
+    <div class="fo-sec" id="foSum"></div>
+
+    <!-- ③ 종목별 케어 카드 -->
+    <div class="fo-sec-h">종목별 상태<span>계획 대비 지금 어디쯤인지</span></div>
+    <div class="fo-sec" id="foCards"></div>
+
+    <!-- ④ 위험 점검 -->
+    <div class="fo-sec-h">위험 점검<span>묶어서 봐야 보이는 것들</span></div>
+    <div class="fo-sec" id="foRisk"></div>
+
+    <!-- ⑤ 매매 습관 -->
+    <div class="fo-sec-h">매매 습관<span>거래 기록에서 읽어낸 내 버릇</span></div>
+    <div class="fo-sec" id="foHabit"></div>
+
+    <!-- ⑥ 복기 -->
+    <div class="fo-sec-h">복기<span>근거별로 얼마나 맞았나</span></div>
+    <div class="fo-sec" id="foReview"></div>
+  </section>
+
   <section class="view" id="view-account" hidden>
     <div class="page-title">내 계좌</div>
     <div class="page-sub">보유 종목을 실시간 시세로 평가합니다. 예수금은 직접 설정할 수 있습니다.</div>
@@ -1502,6 +1541,7 @@
   <button data-bv="pro"><i>📊</i><span>고급</span></button>
   <button data-bv="watch"><i>⭐</i><span>관심</span></button>
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
+  <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
 <script type="module" src="/app.js?v=430"></script>
 </body>

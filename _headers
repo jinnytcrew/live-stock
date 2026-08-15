@@ -23,3 +23,11 @@
   Cache-Control: no-cache, must-revalidate
 /index.html
   Cache-Control: no-cache, must-revalidate
+
+# [v9.76] 서비스 워커는 절대 캐시하지 않는다.
+# 낡은 sw.js 가 남으면 알림 코드를 고쳐도 반영되지 않고, 브라우저는
+# 스코프 밖의 sw 를 거부하므로 최상위 경로에 그대로 둔다.
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Content-Type: application/javascript; charset=utf-8
+  Service-Worker-Allowed: /

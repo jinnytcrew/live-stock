@@ -3152,16 +3152,24 @@ async function compute(budgetMs) {
     };
     return q(b) - q(a);
   });
-  const cand = rough.slice(0, 38);
+  /* ══ [v9.73] 외부호출 한도를 실측으로 맞춘다 ═══════════════════════════════
+     Cloudflare Workers 는 한 요청이 만들 수 있는 외부호출(subrequest)이 50회다.
+     지금 구성은 universe 12회 + 정밀조사 38회 = 정확히 50회 — 한도에 딱 붙어 있다.
+     여기에 지수·환율 등 다른 호출이 하나라도 끼면 그 순간 뒷부분이 통째로
+     실패하고, 그 실패는 catch 에 먹혀 '후보가 적은 날'처럼 조용히 넘어간다.
+     여유분 8회를 남겨 30종으로 줄인다. 1차 선별을 거친 상위 30종이라
+     실제 후보 품질에는 거의 영향이 없다. */
+  const cand = rough.slice(0, 30);
 
   /* ── 2차: 일봉을 받아 정식 점수 ── */
   const scored = [];
-  let i = 0;
+  let i = 0, fetched = 0, failed = 0;
   const work = async () => {
     while (i < cand.length && Date.now() < deadline) {
       const s = cand[i++];
       let cs = null;
-      try { cs = await candles(s.code); } catch (e) { continue; }
+      fetched++;
+      try { cs = await candles(s.code); } catch (e) { failed++; continue; }
       const sig = score(cs);                        // 자리가 아니면 null → 후보에서 빠진다
       if (sig && sig.score > 0) scored.push({ ...s, ...sig });
     }
@@ -3210,6 +3218,8 @@ async function compute(budgetMs) {
     universe: uniN,
     roughN: rough.length,
     deep: cand.length,
+    /* [v9.73] 실제 외부호출 수 — 한도(50)에 얼마나 가까운지 눈으로 확인한다 */
+    subreq: { universe: 12, candles: fetched, total: 12 + fetched, limit: 50, failed },
     gate: { minScore, weakMkt, breadth: Number((breadth * 100).toFixed(0)), passed: sel.length }
   };
 }
@@ -4520,18 +4530,34 @@ async function setPassword(acc, pass) {
 }
 var TRY_WINDOW = 15 * 60 * 1e3;
 var TRY_MAX = 10;
-function tooManyTries(db, id) {
+/* ══ [v9.75] 로그인 시도 기록을 계정과 함께 둔다 ═══════════════════════════
+   예전에는 db.tries 에 모아 두고 공유 키를 쓸 때 함께 저장했다. 그런데 공유 키
+   쓰기를 없앴으므로, 그대로 두면 실패 기록이 요청이 끝나는 순간 사라져
+   무차별 대입을 막지 못한다. 시도 기록은 그 계정의 것이므로 계정 객체에 담는다.
+   계정은 acc:<id> 에 따로 저장되니 다른 사람과 부딪히지도 않는다. */
+function triesOf(db, id, acc) {
+  const a = acc || (db.accounts && db.accounts[id]) || null;
+  if (a && Array.isArray(a._tries)) return a._tries;
   if (!db.tries) db.tries = {};
+  return db.tries[id] || [];
+}
+function tooManyTries(db, id, acc) {
   const now = Date.now();
-  const list = (db.tries[id] || []).filter((t) => now - t < TRY_WINDOW);
-  db.tries[id] = list;
+  const list = triesOf(db, id, acc).filter((t) => now - t < TRY_WINDOW);
+  const a = acc || (db.accounts && db.accounts[id]);
+  if (a) a._tries = list; else { if (!db.tries) db.tries = {}; db.tries[id] = list; }
   return list.length >= TRY_MAX;
 }
-function noteFail(db, id) {
+function noteFail(db, id, acc) {
+  const a = acc || (db.accounts && db.accounts[id]);
+  const now = Date.now();
+  if (a) { a._tries = (Array.isArray(a._tries) ? a._tries : []).concat(now); return; }
   if (!db.tries) db.tries = {};
-  (db.tries[id] = db.tries[id] || []).push(Date.now());
+  (db.tries[id] = db.tries[id] || []).push(now);
 }
-function clearTries(db, id) {
+function clearTries(db, id, acc) {
+  const a = acc || (db.accounts && db.accounts[id]);
+  if (a) delete a._tries;
   if (db.tries) delete db.tries[id];
 }
 async function openStore() {
@@ -4581,14 +4607,52 @@ var accounts_default = async (req2) => {
         if (!db.users[k]) db.users[k] = c.users[k];
     }
   }
-  const saveDb = async () => {
+  /* ══ [v9.73] KV 쓰기 한도(무료 1,000회/일)를 지키기 위한 두 겹 방어 ═════════
+     [무엇이 문제였나] 모든 사용자 데이터가 "db" 키 하나에 들어 있고, 저장이
+     필요할 때마다 통째로 다시 쓴다. 그래서
+       ① 한 사람이 관심종목 하나만 바꿔도 전원의 데이터를 다시 쓴다(쓰기 증폭).
+       ② 로그인 실패·프로필 조회 같은 읽기성 동작까지 saveDb 를 부른다.
+       ③ 거래를 자주 하면 800ms 마다 한 번씩 쓰기가 나가, 활동적인 사용자
+          몇 명만으로도 하루 1,000회에 닿는다. 한도를 넘으면 쓰기가 조용히
+          실패해 '저장은 됐다는데 새로고침하면 사라지는' 증상이 된다.
+     [고침] ㉠ 내용이 실제로 바뀌었을 때만 쓴다(직전 저장본과 지문 비교).
+            ㉡ 최소 간격을 둬 연속 쓰기를 묶는다. 값은 메모리 캐시에 이미
+               반영되므로 같은 워커 인스턴스에서는 즉시 읽힌다.
+     ※ 근본 해결은 사용자별 키로 쪼개는 것이다(아래 주석 참조). */
+  const saveDb = async (force) => {
     if (!dbLoaded) return false;                 // 로드 실패 상태에서는 쓰지 않는다
     if (!db.accounts || typeof db.accounts !== "object") return false;
+    /* ══ [v9.74] db 에는 계정 정보만 남긴다 ═══════════════════════════════════
+       사용자 데이터는 usr:<id> 로 옮겼으므로, db 를 쓸 때 users 를 함께 실어
+       보내면 옛 자리에 낡은 사본이 계속 되살아난다(그리고 값도 커진다).
+       원본은 지우지 않되, 새로 쓰는 db 에는 담지 않는다. 이미 옮겨진 사람은
+       usrLoad 가 usr:<id> 를 먼저 보므로 되돌아갈 일이 없다. */
+    try {
+      const moved = Object.keys(db.users || {}).filter((k) => _usrCache[k]);
+      for (const k2 of moved) delete db.users[k2];
+    } catch (e) {}
+    try {
+      const sig = JSON.stringify(db).length + ":" + Object.keys(db.users || {}).length
+        + ":" + Object.keys(db.accounts || {}).length;
+      const now = Date.now();
+      if (!force && globalThis.__dbSig === sig) return true;          // 내용 그대로면 쓰지 않는다
+      if (!force && globalThis.__dbAt && now - globalThis.__dbAt < 3000) {
+        globalThis.__dbPending = sig;                                  // 3초 안의 연속 쓰기는 묶는다
+        return true;
+      }
+      globalThis.__dbSig = sig; globalThis.__dbAt = now;
+    } catch (e) {}
     /* [v4.25 · 치명] 여기서 saveDb() 를 다시 불러 무한 재귀가 났다.
        비밀번호가 맞아 로그인이 성공하는 순간 clearTries → saveDb() 에서
        스택이 터지고 워커가 500 을 반환 → 클라이언트는 "서버 연결 실패"로 보였다.
        즉 '올바른 비밀번호일수록 반드시 실패하는' 구조였다. 실제 저장을 호출한다. */
-    try { dbCacheSet(db); await store.setJSON("db", db); return true; } catch (e) { return false; }
+    /* ══ [v9.75] 공유 키 "db" 에는 더 이상 쓰지 않는다 ═══════════════════════
+       계정은 acc:<id>, 사용자 데이터는 usr:<id> 로 각자 옮겨졌다. 여기서 통째로
+       다시 쓰면 그 순간 다른 사람의 최신 변경을 낡은 사본으로 덮게 된다.
+       예전 데이터를 읽기 위한 원본으로만 남겨 두고, 쓰기는 하지 않는다.
+       (로그인 시도 횟수 같은 임시 값은 요청 안에서만 쓰이므로 유실돼도 무해하다) */
+    try { dbCacheSet(db); } catch (e) {}
+    return true;
   };
   if (!db.accounts) db.accounts = {};
   if (!db.users) db.users = {};
@@ -4599,15 +4663,44 @@ var accounts_default = async (req2) => {
   const { action, pass, legacy } = body;
   const rawId = String(body.id == null ? "" : body.id);
   let id = rawId.trim().toLowerCase();
+  /* ══ [v9.75] 이 요청이 다룰 계정을 계정별 키에서 먼저 불러온다 ═════════════
+     아래 로직은 예전처럼 db.accounts[id] 로 읽고 쓰되, 저장만 saveAcc 로
+     바꿔 acc:<id> 하나만 건드린다. 남의 계정을 덮을 방법이 없어진다. */
+  if (id) {
+    try { const a0 = await accLoad(store, id, db); if (a0) db.accounts[id] = a0; } catch (e) {}
+  }
+  const saveAcc = async (uid) => {
+    const k3 = uid || id;
+    if (!k3) return false;
+    return await accSave(store, k3, db.accounts[k3]);
+  };
   if (id && !db.accounts[id]) {
     const hit = Object.keys(db.accounts).find((k) => k.trim().toLowerCase() === id);
     if (hit && hit !== id) {                       // 옛 키 → 정규화 키로 이전
       db.accounts[id] = db.accounts[hit]; delete db.accounts[hit];
+      try { await accSave(store, id, db.accounts[id]); await accDelete(store, hit, null); } catch (e) {}
       if (db.users[hit]) { db.users[id] = db.users[hit]; delete db.users[hit]; }
       try { await saveDb(); } catch (e) { }
+      /* [v9.74] 옛 키에 있던 사용자 데이터도 새 키로 옮긴다 */
+      try {
+        const prev = await usrLoad(store, hit, db);
+        if (prev != null) { await usrSave(store, id, prev); await usrDelete(store, hit); }
+      } catch (e) {}
     }
   }
   const acc = id ? db.accounts[id] : null;
+  /* ══ [v9.74] 이 요청이 다룰 사용자의 데이터만 계정별 키에서 불러온다 ═══════
+     모든 db.users 접근이 단일 id 를 대상으로 하므로, 여기서 한 번 채워 두면
+     아래 로직은 예전과 똑같이 db.users[id] 로 읽고 쓸 수 있다.
+     저장만 saveUser(id) 로 바꿔 usr:<id> 하나만 건드리게 한다. */
+  if (id) {
+    try { const u = await usrLoad(store, id, db); if (u != null) db.users[id] = u; } catch (e) {}
+  }
+  const saveUser = async (uid) => {
+    const k2 = uid || id;
+    if (!k2) return false;
+    return await usrSave(store, k2, db.users[k2] || {});
+  };
   if (["login", "sync", "profile"].includes(action) && id && tooManyTries(db, id))   // [v4.24] ensure(복구)는 잠금 대상에서 제외
     return json({ ok: false, err: "toomany", retryAfterMin: 15 });
   try {
@@ -4616,8 +4709,13 @@ var accounts_default = async (req2) => {
       if (!credOk(pass)) return json({ ok: false, err: "weak" });     // [v4.50] 화면 우회 차단
       if (body.acctPass && !credOk(body.acctPass)) return json({ ok: false, err: "weak" });
       if (db.accounts[id]) return json({ ok: false, err: "exists" });
+      /* [v9.75] 같은 순간 같은 아이디로 가입이 겹치면 먼저 만든 쪽을 남긴다 */
+      { const dup = await accLoad(store, id, null);
+        if (dup) return json({ ok: false, err: "exists" }); }
       db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: Date.now() }, pass);
+      await saveAcc(id);
       db.users[id] = { watchlist: ["005930", "000660", "035420"], holdings: [], cash: Number(body.cash) || 0, ipoPlans: [], acctPass: body.acctPass || "" };
+      await usrSave(store, id, db.users[id]);        /* [v9.74] 사용자 데이터는 제 키에 */
       await saveDb();
       return json({ ok: true });
     }
@@ -4627,9 +4725,10 @@ var accounts_default = async (req2) => {
       const acc = db.accounts[id];
       if (!acc) return json({ ok: false, err: "nouser" });
       const v = await verify(acc, pass, legacy);
-      if (!v.ok) { noteFail(db, id); await saveDb(); return json({ ok: false, err: "wrongpass" }); }
+      if (!v.ok) { noteFail(db, id); await saveAcc(id); return json({ ok: false, err: "wrongpass" }); }   /* [v9.75] 계정 키에 기록 */
       if (!credOk(body.newPass)) return json({ ok: false, err: "weak" });
       db.accounts[id] = await setPassword(acc, body.newPass);
+      await saveAcc(id);                              /* [v9.75] */
       await saveDb();
       return json({ ok: true });
     }
@@ -4638,7 +4737,9 @@ var accounts_default = async (req2) => {
       if (!credOk(pass)) return json({ ok: false, err: "weak" });     // [v4.50] 복구 경로도 같은 형식만
       if (!db.accounts[id]) {
         db.accounts[id] = await setPassword({ name: body.name || id, email: body.email || "", acctPass: body.acctPass || "", created: body.created || Date.now() }, pass);
+        await saveAcc(id);                            /* [v9.75] */
         db.users[id] = body.user || { watchlist: [], holdings: [], cash: 0, ipoPlans: [] };
+        await usrSave(store, id, db.users[id]);      /* [v9.74] */
         await saveDb();
         return json({ ok: true, created: true });
       }
@@ -4646,14 +4747,15 @@ var accounts_default = async (req2) => {
         const v = await verify(db.accounts[id], pass, legacy);
         if (!v.ok) {
           noteFail(db, id);
-          await saveDb();
+          await saveAcc(id);                          /* [v9.75] */
           return json({ ok: false, err: "exists-diff" });
         }
         if (v.upgraded || v.rehash) {
           await setPassword(db.accounts[id], pass);
+          await saveAcc(id);                          /* [v9.75] */
           await saveDb();
         }
-        clearTries(db, id);
+        clearTries(db, id); await saveAcc(id);          /* [v9.75] */
         return json({ ok: true, created: false });
       }
     }
@@ -4666,13 +4768,13 @@ var accounts_default = async (req2) => {
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await saveDb();
+        await saveAcc(id);       /* [v9.75] 잠금 카운트는 계정 키에 남는다 */
         return json({ ok: false, err: "invalid" });
       }
       if (v.upgraded || v.rehash) {
         await setPassword(acc, pass);
       }
-      clearTries(db, id);
+      clearTries(db, id); await saveAcc(id);          /* [v9.75] */
       await saveDb();
       return json({ ok: true, name: acc.name, email: acc.email, created: acc.created, user: db.users[id] || {} });
     }
@@ -4680,25 +4782,31 @@ var accounts_default = async (req2) => {
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await saveDb();
+        await saveAcc(id);       /* [v9.75] 잠금 카운트는 계정 키에 남는다 */
         return json({ ok: false, err: "invalid" });
       }
-      if (v.upgraded || v.rehash) await setPassword(acc, pass);
-      clearTries(db, id);
+      if (v.upgraded || v.rehash) { await setPassword(acc, pass); await saveAcc(id); }   /* [v9.75] */
+      clearTries(db, id); await saveAcc(id);          /* [v9.75] */
       db.users[id] = body.user || db.users[id] || {};
-      await saveDb();
-      return json({ ok: true });
+      /* ══ [v9.74] 여기가 핵심이다 ═══════════════════════════════════════════
+         동기화는 앱에서 가장 자주 일어나는 쓰기다. 예전에는 이 한 줄이 전체 db 를
+         다시 썼기 때문에, 비슷한 시각에 저장한 다른 사람의 변경이 통째로 날아갔다.
+         이제 자기 키만 쓴다 — 서로 덮어쓸 수 없다. */
+      const okU = await usrSave(store, id, db.users[id]);
+      return json({ ok: true, stored: okU ? "usr" : "fail" });
     }
     if (action === "delete") {
       if (!acc) return json({ ok: false, err: "noacct" });
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await saveDb();
+        await saveAcc(id);                            /* [v9.75] */
         return json({ ok: false, err: "wrongpass" });
       }
+      await accDelete(store, id, db.accounts[id]);   /* [v9.75] 계정 키·되찾기 키까지 */
       delete db.accounts[id];
       delete db.users[id];
+      await usrDelete(store, id);                    /* [v9.74] 계정별 키도 함께 지운다 */
       if (db.tries) delete db.tries[id];
       await saveDb();
       return json({ ok: true, deleted: id });
@@ -4707,11 +4815,11 @@ var accounts_default = async (req2) => {
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
         noteFail(db, id);
-        await saveDb();
+        await saveAcc(id);       /* [v9.75] 잠금 카운트는 계정 키에 남는다 */
         return json({ ok: false, err: "invalid" });
       }
-      if (v.upgraded || v.rehash) await setPassword(acc, pass);
-      clearTries(db, id);
+      if (v.upgraded || v.rehash) { await setPassword(acc, pass); await saveAcc(id); }   /* [v9.75] */
+      clearTries(db, id); await saveAcc(id);          /* [v9.75] */
       if (body.name != null) acc.name = body.name;
       if (body.email != null) acc.email = body.email;
       if (body.newPass) {
@@ -4721,7 +4829,7 @@ var accounts_default = async (req2) => {
       if (body.acctPass) {
         if (!credOk(body.acctPass)) return json({ ok: false, err: "weak" });  // [v4.50]
         acc.acctPass = body.acctPass;
-        if (db.users[id]) db.users[id].acctPass = body.acctPass;
+        if (db.users[id]) { db.users[id].acctPass = body.acctPass; await usrSave(store, id, db.users[id]); }   /* [v9.74] */
       }
       await saveDb();
       return json({ ok: true });
@@ -5435,6 +5543,305 @@ var EMBLEMS = ["\u{1F6E1}\uFE0F", "\u2694\uFE0F", "\u{1F525}", "\u{1F680}", "\u{
    [고침] 방금 쓴 계정 DB 를 이 작업자의 기억에 잠깐 담아 둔다.
    같은 작업자에게 들어온 요청이면 KV 대신 이 기억을 쓴다.
    (작업자가 바뀌면 KV 를 보는데, 그때쯤이면 이미 퍼져 있다) */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.74] 사용자 데이터를 계정별 키로 분리한다
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇이 잘못돼 있었나]
+   모든 사람의 데이터가 KV 의 "db" 키 하나에 통째로 들어 있었다. 저장은
+   '읽어서 → 통째로 다시 쓰기' 방식이라, 두 사람이 비슷한 시각에 저장하면
+   이런 일이 벌어진다.
+
+       A 가 db 를 읽음 (A잔고 100만, B잔고 500만)
+       B 가 db 를 읽음 (같은 값)
+       A 가 매수 → db 를 통째로 씀 (A잔고 90만, B잔고 500만)
+       B 가 매수 → 자기가 읽어 둔 낡은 사본을 씀 (A잔고 100만, B잔고 480만)
+       → A 의 매수가 통째로 사라진다.
+
+   KV 는 트랜잭션이 없어 이 경합을 막을 방법이 없다. 또 한 사람이 관심종목
+   하나만 바꿔도 전원의 데이터를 다시 쓰므로 쓰기 한도(1,000회/일)도 빨리 닳는다.
+
+   [어떻게 바꾸나]
+   자주 바뀌고 덩치가 큰 '사용자 데이터'만 계정별 키로 뗀다.
+       usr:<id>  → 그 사람의 보유·거래·관심종목 …
+       db        → 계정 정보(이름·비밀번호 해시)만 남는다. 가입·비밀번호 변경
+                   같은 드문 일에만 바뀌므로 경합 확률이 사실상 없다.
+   이제 A 의 저장은 usr:A 만, B 의 저장은 usr:B 만 건드린다. 서로 덮어쓸 수 없다.
+
+   [기존 데이터는]
+   처음 접근할 때 db.users 안에 있던 값을 usr:<id> 로 옮겨 적고, 원본은 지우지
+   않고 그대로 둔다. 옮기기가 실패하거나 배포를 되돌려도 예전 코드가 그대로
+   읽을 수 있어야 하기 때문이다. 읽을 때는 usr:<id> 를 먼저 보고, 없으면
+   db.users[id] 로 물러난다. 사용자는 아무것도 하지 않아도 된다. */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.75] 계정 정보도 계정별 키로 분리한다 — 공유 키를 완전히 없앤다
+   ─────────────────────────────────────────────────────────────────────────────
+   v9.74 에서 사용자 데이터(보유·거래)는 usr:<id> 로 뗐지만, 계정 정보(이름·
+   비밀번호 해시)는 여전히 "db" 한 곳에 모여 있었다. 가입·비밀번호 변경은 드문
+   일이라 부딪힐 확률이 낮을 뿐, 구조상 같은 유실이 그대로 남아 있었다.
+       두 사람이 같은 순간에 가입 → 나중 쓰기가 앞사람 계정을 통째로 지운다.
+   '드무니까 괜찮다'는 것은 고친 게 아니다. 계정도 제 키를 갖게 한다.
+
+   [왜 지금은 가능한가]
+   쪼개기를 막던 것은 "전체 계정 목록을 훑는 코드"였다. 실제로 세어 보니 그런
+   곳은 하나도 없었고, 전부 아래 세 가지 찾기였다.
+       ① 아이디로 찾기          → acc:<id> 를 직접 읽으면 된다
+       ② 대소문자 무시하고 찾기 → 키를 소문자로 정규화해 두면 ①과 같아진다
+       ③ 구글 sub·이메일로 찾기 → 가리키는 키를 따로 둔다(gsub:… / mail:…)
+   그래서 목록 인덱스(그 자체가 또 하나의 공유 키가 됐을 것)가 필요 없다.
+
+   [기존 데이터]
+   usr 과 같은 방식이다. acc:<id> 가 없으면 예전 db.accounts[id] 에서 읽고,
+   읽는 김에 새 자리로 옮겨 적는다. 원본은 지우지 않아 되돌릴 수 있다. */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.76] 웹 푸시 — 앱을 닫아도 오는 알림
+   ─────────────────────────────────────────────────────────────────────────────
+   [지금까지 왜 안 왔나] new Notification() 은 페이지가 살아 있어야만 뜬다.
+   앱을 닫으면 그 코드를 돌릴 주체가 없어 알림도 없다. 진짜 푸시는 브라우저
+   제조사의 푸시 서버(FCM·Mozilla 등)가 대신 배달해 주는 구조라야 한다.
+
+   [필요한 것 네 가지]
+     ① 서비스 워커  — 앱이 닫혀도 브라우저가 깨워 주는 작은 스크립트
+     ② 구독 정보    — 그 기기로 배달할 주소(endpoint)와 암호키 두 개
+     ③ VAPID        — "이 푸시는 우리 서버가 보낸 것"임을 증명하는 서명
+     ④ 본문 암호화  — 푸시 서버는 내용을 볼 수 없어야 한다(RFC 8291)
+
+   이 파일은 ③·④를 담당한다. 표준 그대로 구현했고, 아래 규격을 따른다.
+     RFC 8291 (Message Encryption) · RFC 8188 (aes128gcm) · RFC 8292 (VAPID)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── base64url 변환 ── 푸시 규격은 패딩 없는 base64url 을 쓴다 ── */
+function b64uToBytes(s) {
+  s = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function bytesToB64u(buf) {
+  const b = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function cat() {
+  let n = 0;
+  for (const a of arguments) n += a.length;
+  const out = new Uint8Array(n);
+  let o = 0;
+  for (const a of arguments) { out.set(a, o); o += a.length; }
+  return out;
+}
+const utf8 = (s) => new TextEncoder().encode(s);
+
+/* ── HKDF (RFC 5869) — 푸시 규격이 요구하는 키 유도 ── */
+async function hmac(keyBytes, data) {
+  const k = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", k, data));
+}
+async function hkdf(salt, ikm, info, len) {
+  const prk = await hmac(salt, ikm);
+  const out = await hmac(prk, cat(info, new Uint8Array([1])));
+  return out.slice(0, len);
+}
+
+/* ══ VAPID 키 만들기 — 한 번만 만들어 저장해 두고 계속 쓴다 ══ */
+async function vapidGenerate() {
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const pub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));       // 65바이트 비압축 점
+  const jwk = await crypto.subtle.exportKey("jwk", kp.privateKey);
+  return { publicKey: bytesToB64u(pub), privateJwk: jwk };
+}
+
+/* ══ VAPID 서명 — "우리가 보냈다"는 증명서(JWT) ══ */
+async function vapidAuth(privateJwk, publicKeyB64u, audience, subject) {
+  const key = await crypto.subtle.importKey("jwk", privateJwk,
+    { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const header = bytesToB64u(utf8(JSON.stringify({ typ: "JWT", alg: "ES256" })));
+  const body = bytesToB64u(utf8(JSON.stringify({
+    aud: audience,
+    exp: Math.floor(Date.now() / 1000) + 12 * 3600,     // 12시간 (규격 상한 24시간)
+    sub: subject || "mailto:admin@example.com"
+  })));
+  const signingInput = utf8(header + "." + body);
+  const sig = new Uint8Array(await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" }, key, signingInput));   // WebCrypto 는 r||s 64바이트를 준다
+  const jwt = header + "." + body + "." + bytesToB64u(sig);
+  return "vapid t=" + jwt + ", k=" + publicKeyB64u;
+}
+
+/* ══ 본문 암호화 (RFC 8291 / aes128gcm) ══
+   푸시 서버는 배달만 할 뿐 내용을 읽을 수 없어야 한다. 그래서 브라우저가 준
+   공개키(p256dh)와 비밀값(auth)으로 우리만 아는 열쇠를 만들어 잠근다. */
+async function encryptPayload(p256dhB64u, authB64u, plaintext) {
+  const uaPub = b64uToBytes(p256dhB64u);          // 65바이트
+  const authSecret = b64uToBytes(authB64u);       // 16바이트
+  if (uaPub.length !== 65) throw new Error("bad p256dh");
+
+  /* ① 우리 쪽 일회용 키쌍 */
+  const kp = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const asPub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+
+  /* ② 상대 공개키와 합쳐 공유 비밀을 만든다 */
+  const uaKey = await crypto.subtle.importKey("raw", uaPub, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: uaKey }, kp.privateKey, 256));
+
+  /* ③ 규격이 정한 순서대로 열쇠를 유도한다 */
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyInfo = cat(utf8("WebPush: info"), new Uint8Array([0]), uaPub, asPub);
+  const ikm = await hkdf(authSecret, shared, keyInfo, 32);
+  const cek = await hkdf(salt, ikm, cat(utf8("Content-Encoding: aes128gcm"), new Uint8Array([0])), 16);
+  const nonce = await hkdf(salt, ikm, cat(utf8("Content-Encoding: nonce"), new Uint8Array([0])), 12);
+
+  /* ④ 마지막 조각 표시(0x02)를 붙여 잠근다 */
+  const padded = cat(utf8(plaintext), new Uint8Array([2]));
+  const aesKey = await crypto.subtle.importKey("raw", cek, { name: "AES-GCM" }, false, ["encrypt"]);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, aesKey, padded));
+
+  /* ⑤ 머리말(소금 + 조각크기 + 우리 공개키) 뒤에 암호문을 붙인다 */
+  const rs = new Uint8Array(4);
+  new DataView(rs.buffer).setUint32(0, 4096);
+  return cat(salt, rs, new Uint8Array([asPub.length]), asPub, ct);
+}
+
+/* ══ 실제 발송 ══
+   돌려주는 값의 gone=true 는 '이 구독은 더 이상 유효하지 않다'는 뜻이다.
+   (기기를 초기화했거나 알림을 껐을 때) 호출한 쪽에서 구독을 지워야 한다. */
+async function pushSend(sub, payloadObj, vapid, opts) {
+  const o = opts || {};
+  try {
+    if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth)
+      return { ok: false, err: "badsub" };
+    const body = await encryptPayload(sub.keys.p256dh, sub.keys.auth, JSON.stringify(payloadObj || {}));
+    const aud = new URL(sub.endpoint).origin;
+    const auth = await vapidAuth(vapid.privateJwk, vapid.publicKey, aud, o.subject);
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 8000);
+    let r;
+    try {
+      r = await fetch(sub.endpoint, {
+        method: "POST",
+        headers: {
+          "authorization": auth,
+          "content-encoding": "aes128gcm",
+          "content-type": "application/octet-stream",
+          "ttl": String(o.ttl == null ? 3600 : o.ttl),
+          "urgency": o.urgency || "normal"
+        },
+        body
+      });
+    } finally { clearTimeout(t); }
+    /* 404·410 = 구독 소멸. 그 외 4xx 는 우리 잘못일 수 있으므로 구분해 알린다. */
+    if (r.status === 404 || r.status === 410) return { ok: false, gone: true, status: r.status };
+    if (!r.ok) {
+      let detail = "";
+      try { detail = (await r.text()).slice(0, 200); } catch (e) {}
+      return { ok: false, status: r.status, detail };
+    }
+    return { ok: true, status: r.status };
+  } catch (e) {
+    return { ok: false, err: String(e && e.message || e).slice(0, 120) };
+  }
+}
+
+const _pushTest = { b64uToBytes, bytesToB64u, hkdf, encryptPayload, vapidAuth };
+
+
+var _accCache = {};
+const ACC_CACHE_MS = 20000;
+const accKeyOf = (id) => "acc:" + String(id == null ? "" : id).trim().toLowerCase();
+async function accLoad(st, id, legacyDb) {
+  const key = String(id == null ? "" : id).trim().toLowerCase();
+  if (!key) return null;
+  const c = _accCache[key];
+  if (c && Date.now() - c.at < ACC_CACHE_MS) return c.v;
+  let v = null;
+  try { v = await st.get(accKeyOf(key), { type: "json" }); } catch (e) { v = null; }
+  if (v == null && legacyDb && legacyDb.accounts) {
+    /* 옛 자리 — 정확한 키, 없으면 대소문자만 다른 키까지 훑는다(이전 대상 찾기) */
+    let hit = legacyDb.accounts[key];
+    if (!hit) {
+      const k2 = Object.keys(legacyDb.accounts).find((x) => x.trim().toLowerCase() === key);
+      if (k2) hit = legacyDb.accounts[k2];
+    }
+    if (hit) {
+      v = hit;
+      try { await st.setJSON(accKeyOf(key), v); } catch (e) {}   // 읽는 김에 이관
+      try { await accIndex(st, key, v); } catch (e) {}
+    }
+  }
+  _accCache[key] = { v, at: Date.now() };
+  return v;
+}
+/* 구글 로그인이 쓰는 되찾기용 키 — 계정마다 따로라 서로 부딪히지 않는다 */
+async function accIndex(st, id, acc) {
+  if (!id || !acc) return;
+  try {
+    if (acc.googleSub) await st.setJSON("gsub:" + acc.googleSub, { id });
+    if (acc.email) await st.setJSON("mail:" + String(acc.email).trim().toLowerCase(), { id });
+  } catch (e) {}
+}
+async function accSave(st, id, acc) {
+  const key = String(id == null ? "" : id).trim().toLowerCase();
+  if (!key) return false;
+  _accCache[key] = { v: acc, at: Date.now() };
+  try { await st.setJSON(accKeyOf(key), acc); } catch (e) { return false; }
+  await accIndex(st, key, acc);
+  return true;
+}
+async function accDelete(st, id, acc) {
+  const key = String(id == null ? "" : id).trim().toLowerCase();
+  if (!key) return;
+  delete _accCache[key];
+  try { await st.del(accKeyOf(key)); } catch (e) {}
+  try {
+    if (acc && acc.googleSub) await st.del("gsub:" + acc.googleSub);
+    if (acc && acc.email) await st.del("mail:" + String(acc.email).trim().toLowerCase());
+  } catch (e) {}
+}
+/* 구글 sub·이메일로 계정 아이디를 되찾는다. 새 키를 먼저 보고, 없으면 옛 db 를 훑는다. */
+async function accFindByGoogle(st, gsub, email, legacyDb) {
+  const tryKey = async (k) => {
+    try { const r = await st.get(k, { type: "json" }); return (r && r.id) || null; } catch (e) { return null; }
+  };
+  let id = gsub ? await tryKey("gsub:" + gsub) : null;
+  if (!id && email) id = await tryKey("mail:" + String(email).trim().toLowerCase());
+  if (id) return id;
+  if (legacyDb && legacyDb.accounts) {
+    const k = Object.keys(legacyDb.accounts).find((x) => {
+      const a = legacyDb.accounts[x];
+      return a && ((a.googleSub && a.googleSub === gsub) ||
+        (a.email && String(a.email).toLowerCase() === String(email || "").toLowerCase()));
+    });
+    if (k) return k;
+  }
+  return "";
+}
+var _usrCache = {};                       // id -> {v, at}  같은 요청 안에서 두 번 읽지 않게
+const USR_CACHE_MS = 20000;
+async function usrLoad(st, id, legacyDb) {
+  if (!id) return null;
+  const c = _usrCache[id];
+  if (c && Date.now() - c.at < USR_CACHE_MS) return c.v;
+  let v = null;
+  try { v = await st.get("usr:" + id, { type: "json" }); } catch (e) { v = null; }
+  if (v == null && legacyDb && legacyDb.users && legacyDb.users[id]) {
+    v = legacyDb.users[id];               // 아직 안 옮겨진 계정 — 옛 자리에서 읽는다
+    try { await st.setJSON("usr:" + id, v); } catch (e) {}   // 읽는 김에 옮겨 둔다
+  }
+  _usrCache[id] = { v, at: Date.now() };
+  return v;
+}
+async function usrSave(st, id, val) {
+  if (!id) return false;
+  _usrCache[id] = { v: val, at: Date.now() };
+  try { await st.setJSON("usr:" + id, val); return true; } catch (e) { return false; }
+}
+async function usrDelete(st, id) {
+  if (!id) return;
+  delete _usrCache[id];
+  try { await st.del("usr:" + id); } catch (e) {}
+}
 var _dbCache=null, _dbCacheAt=0;
 var DB_CACHE_MS=90000;
 function dbCacheGet(){
@@ -5443,18 +5850,21 @@ function dbCacheGet(){
 }
 function dbCacheSet(db){ _dbCache=db; _dbCacheAt=Date.now(); }
 /* 계정 DB 를 읽는다 — 방금 쓴 것이 있으면 그것을 먼저 본다 */
+/* [v9.75] readAccDb 가 돌려주는 db 에 저장소 손잡이를 달아 둔다.
+   verifyUser 같은 하위 함수가 계정별 키를 읽으려면 st 가 필요한데,
+   호출부를 전부 고치는 것보다 여기서 한 번 붙이는 편이 안전하다. */
 async function readAccDb(st){
   const c=dbCacheGet();
   const kv=await st.acc.get("db",{type:"json"}).catch(()=>null);
-  if(!kv)return c||{accounts:{},users:{}};
-  if(!c)return kv;
+  if(!kv)return Object.assign(c||{accounts:{},users:{}},{__st:st&&st.acc});
+  if(!c)return Object.assign(kv,{__st:st&&st.acc});
   /* 둘 다 있으면 계정 수가 많은 쪽(더 최신)을 쓰고, 캐시에만 있는 계정을 합친다 */
   const merged={accounts:{...kv.accounts},users:{...(kv.users||{})}};
   for(const k of Object.keys(c.accounts||{}))
     if(!merged.accounts[k])merged.accounts[k]=c.accounts[k];
   for(const k of Object.keys(c.users||{}))
     if(!merged.users[k])merged.users[k]=c.users[k];
-  return merged;
+  return Object.assign(merged,{__st:st&&st.acc});
 }
 async function stores() {
   const mod = await Promise.resolve().then(() => (init_blobs_shim(), blobs_shim_exports));
@@ -5465,7 +5875,14 @@ async function stores() {
 }
 async function verifyUser(db, id, pass, legacy) {
   if (!id) return false;
-  const acc = db.accounts && db.accounts[id];
+  /* ══ [v9.75] 계정을 계정별 키(acc:<id>)에서도 찾는다 ═════════════════════
+     계정이 옮겨진 뒤로는 db.accounts 가 비어 있을 수 있다. 여기만 고치면
+     클랜·친구의 모든 호출부가 한 번에 새 구조를 따르게 된다.
+     키는 소문자로 정규화돼 있으므로 대소문자 차이도 여기서 함께 흡수된다. */
+  let acc = (db.accounts && (db.accounts[id] || db.accounts[String(id).trim().toLowerCase()])) || null;
+  if (!acc) {
+    try { acc = await accLoad(db.__st || null, id, db); } catch (e) { acc = null; }
+  }
   if (!acc) return false;
   if (acc.salt && acc.hash) {
     if (pass && await derive2(acc.salt, pass) === acc.hash) return acc;
@@ -5532,7 +5949,7 @@ var clan_default = async (req2) => {
     if (cid) user.clanId = cid;
     else delete user.clanId;
     db.accounts[uid] = user;
-    await st.acc.setJSON("db", db);
+    await accSave(st.acc, uid, user);      /* [v9.75] 계정별 키에 — 남의 계정을 덮지 않는다 */
   };
   const isLeader = (c) => c.leader === uid;
   const isStaff = (c) => c.leader === uid || c.members[uid] && c.members[uid].role === "sub";
@@ -5758,7 +6175,7 @@ var clan_default = async (req2) => {
         if (tu) {
           tu.clanId = c.cid;
           db.accounts[t] = tu;
-          await st.acc.setJSON("db", db);
+          await accSave(st.acc, t, tu);       /* [v9.75] 상대 계정도 제 키에 */
         }
         pushFeed(c, `\u{1F389} ${p.name}\uB2D8\uC774 \uD074\uB79C\uC5D0 \uD569\uB958\uD588\uC2B5\uB2C8\uB2E4`);
         sysChat(c, `${p.name}\uB2D8\uC774 \uC785\uC7A5\uD588\uC2B5\uB2C8\uB2E4`);
@@ -5779,7 +6196,7 @@ var clan_default = async (req2) => {
         if (tu && tu.clanId === c.cid) {
           delete tu.clanId;
           db.accounts[t] = tu;
-          await st.acc.setJSON("db", db);
+          await accSave(st.acc, t, tu);       /* [v9.75] 상대 계정도 제 키에 */
         }
       }
       await saveClan(c);
@@ -5805,10 +6222,15 @@ var clan_default = async (req2) => {
       /* 구성원 전원의 소속을 푼다 — 안 풀면 '이미 클랜에 속해 있다'며 새 클랜을 못 만든다 */
       let touched = 0;
       for (const mid of ids) {
-        const a = db.accounts && db.accounts[mid];
-        if (a && a.clanId === c.cid) { delete a.clanId; db.accounts[mid] = a; touched++; }
+        /* [v9.75] 구성원 계정도 각자의 키에서 읽고 각자의 키에 쓴다 */
+        let a = (db.accounts && db.accounts[mid]) || null;
+        if (!a) { try { a = await accLoad(st.acc, mid, db); } catch (e) { a = null; } }
+        if (a && a.clanId === c.cid) {
+          delete a.clanId; db.accounts[mid] = a; touched++;
+          try { await accSave(st.acc, mid, a); } catch (e) {}
+        }
       }
-      if (touched) await st.acc.setJSON("db", db);
+      /* [v9.75] 위에서 계정마다 이미 저장했으므로 공유 키는 건드리지 않는다 */
       return json2({ ok: true, disbanded: true, n: ids.length });
     }
     if (act === "leave") {
@@ -6722,7 +7144,14 @@ async function stores2() {
 }
 async function verifyUser2(db, id, pass, legacy) {
   if (!id) return false;
-  const acc = db.accounts && db.accounts[id];
+  /* ══ [v9.75] 계정을 계정별 키(acc:<id>)에서도 찾는다 ═════════════════════
+     계정이 옮겨진 뒤로는 db.accounts 가 비어 있을 수 있다. 여기만 고치면
+     클랜·친구의 모든 호출부가 한 번에 새 구조를 따르게 된다.
+     키는 소문자로 정규화돼 있으므로 대소문자 차이도 여기서 함께 흡수된다. */
+  let acc = (db.accounts && (db.accounts[id] || db.accounts[String(id).trim().toLowerCase()])) || null;
+  if (!acc) {
+    try { acc = await accLoad(db.__st || null, id, db); } catch (e) { acc = null; }
+  }
   if (!acc) return false;
   if (acc.salt && acc.hash) {
     if (pass && await derive3(acc.salt, pass) === acc.hash) return acc;
@@ -8284,50 +8713,83 @@ function parseSchedule(html) {
    · 의무보유 확약   — 기관이 일정 기간 안 팔겠다고 약속한 비율 (물량 부담 가늠) */
 async function ipoAttachRates(items){
   if(!items||!items.length)return;
-  /* [v9.71] 괄호 주석('(유가)'·'(코스닥)' 등)까지 떼어야 일정 표의 이름과 맞는다 */
+  /* ══ [v9.71c] 경쟁률이 종목마다 들쭉날쭉하던 이유 ═══════════════════════════
+     [예전 방식] 표의 각 칸을 순서 없이 훑으며 "':1' 이 들어간 칸 = 경쟁률",
+     "'%' 가 들어간 칸 = 확약" 으로 찍었다. 그런데 38커뮤니케이션 표에는
+     공모가·상단초과율·기관참여건수 등 '%'와 숫자가 들어간 칸이 여럿이라,
+     어떤 종목은 엉뚱한 칸을 물고 어떤 종목은 아무것도 못 물었다.
+     확약이 정말 0% 인 종목도 (p>0 조건 때문에) 통째로 버려졌다.
+     [지금] 표의 머리글(<th> 또는 첫 행)을 읽어 '어느 열이 무엇인지' 먼저 정한 뒤
+     그 열만 읽는다. 열을 못 찾은 표는 값을 만들어 내지 않고 그냥 넘어간다. */
   const norm=(v)=>String(v||"").replace(/\(.*?\)/g,"").replace(/\s|㈜/g,"");
   const idx={};
   for(const it of items)idx[norm(it.name)]=it;
-  const pull=async(url,pick)=>{
-    try{
-      /* ══ [v9.71] 경쟁률이 한 번도 안 붙던 진짜 원인 ═══════════════════════
-         38커뮤니케이션은 EUC-KR 인데 tget 은 UTF-8 로만 디코드한다. 종목명이
-         전부 깨져(�) 일정 목록과 이름 매칭이 0건 — demand·subRate 가 영영
-         비어 있었다. 일정과 같은 EUC-KR 디코더로 읽는다. */
-      const h=await fetchDecoded(url,7000);
-      if(!h)return;
-      for(const rowM of h.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)){
-        const cells=[...rowM[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
-          .map(c=>c[1].replace(/<[^>]*>/g,"").replace(/&nbsp;/g," ").trim());
-        if(cells.length<3)continue;
-        const nm=norm(cells[0]);
-        const it=idx[nm]||Object.keys(idx).find(k=>k&&nm&&(k.includes(nm)||nm.includes(k)));
-        const target=idx[nm]||(typeof it==="string"?idx[it]:null);
-        if(!target)continue;
-        pick(target,cells);
-      }
-    }catch(e){}
+  const findTarget=(rawName)=>{
+    const nm=norm(rawName);
+    if(!nm)return null;
+    if(idx[nm])return idx[nm];
+    const k=Object.keys(idx).find(k2=>k2&&(k2.includes(nm)||nm.includes(k2)));
+    return k?idx[k]:null;
   };
-  /* [v9.7] '1,247.51:1' 에서 ':1' 을 떼고 앞 숫자만 읽는다.
-     그냥 숫자만 남기면 뒤의 1 이 붙어 1247.511 이 된다. */
+  /* '1,247.51:1' → 1247.51 ( ':1' 을 떼지 않으면 뒤의 1이 붙어 값이 틀어진다 ) */
   const num=(v)=>{
     const t=String(v||"").split(/[:：]/)[0];
     const n=Number(t.replace(/[^0-9.]/g,""));
-    return isFinite(n)?n:0;
+    return isFinite(n)?n:null;
   };
-  /* 수요예측 결과 — 기관 경쟁률·의무보유 확약 */
-  await pull("https://www.38.co.kr/html/fund/index.htm?o=r1",(t,c)=>{
-    for(const v of c){
-      if(/[\d,.]+\s*[:：]\s*1/.test(v)&&!t.demand)t.demand=num(v);
-      if(/%/.test(v)&&!t.lockup){const p=num(v);if(p>0&&p<=100)t.lockup=p;}
+  const cellsOf=(rowHtml)=>[...rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
+    .map(c=>c[1].replace(/<[^>]*>/g," ").replace(/&nbsp;/g," ").replace(/\s+/g," ").trim());
+  /* 머리글에서 열 위치를 찾는다 */
+  const colFind=(head,pats)=>{
+    for(let i2=0;i2<head.length;i2++){
+      const h=head[i2].replace(/\s/g,"");
+      for(const p2 of pats)if(p2.test(h))return i2;
     }
-  });
-  /* 청약 경쟁률 */
-  await pull("https://www.38.co.kr/html/fund/index.htm?o=r",(t,c)=>{
-    for(const v of c){
-      if(/[\d,.]+\s*[:：]\s*1/.test(v)){ const n=num(v); if(n>0&&!t.subRate){t.subRate=n;break;} }
-    }
-  });
+    return -1;
+  };
+  const pull=async(url,cols,apply)=>{
+    try{
+      const h=await fetchDecoded(url,7000);
+      if(!h)return 0;
+      const rows=[...h.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map(m=>cellsOf(m[1]));
+      /* 머리글 행 찾기 — 종목명 열이 있고 원하는 열도 있는 행 */
+      let head=null,nameCol=-1,map=null;
+      for(const r of rows){
+        if(r.length<3)continue;
+        const nc=colFind(r,[/종목명/,/기업명/,/회사명/,/^종목$/]);
+        if(nc<0)continue;
+        const m={};
+        for(const k of Object.keys(cols))m[k]=colFind(r,cols[k]);
+        if(Object.keys(cols).some(k=>m[k]>=0)){ head=r; nameCol=nc; map=m; break; }
+      }
+      if(!head)return 0;
+      let hit=0;
+      for(const r of rows){
+        if(r===head||r.length<=nameCol)continue;
+        const t=findTarget(r[nameCol]);
+        if(!t)continue;
+        if(apply(t,r,map))hit++;
+      }
+      return hit;
+    }catch(e){ return 0; }
+  };
+  /* ① 수요예측 결과 — 기관 경쟁률 · 의무보유 확약 */
+  await pull("https://www.38.co.kr/html/fund/index.htm?o=r1",
+    { demand:[/기관경쟁률/,/경쟁률/], lockup:[/의무보유/,/확약/] },
+    (t,r,m)=>{
+      let done=false;
+      if(m.demand>=0&&t.demand==null){ const v=num(r[m.demand]); if(v!=null&&v>0){t.demand=v;done=true;} }
+      /* 확약 0% 도 '정보 없음'이 아니라 엄연한 값이다 — 0 이면 0 으로 적는다 */
+      if(m.lockup>=0&&t.lockup==null){ const v=num(r[m.lockup]); if(v!=null&&v>=0&&v<=100){t.lockup=v;done=true;} }
+      return done;
+    });
+  /* ② 청약 경쟁률 */
+  await pull("https://www.38.co.kr/html/fund/index.htm?o=r",
+    { subRate:[/청약경쟁률/,/경쟁률/] },
+    (t,r,m)=>{
+      if(m.subRate>=0&&t.subRate==null){ const v=num(r[m.subRate]); if(v!=null&&v>0){t.subRate=v;return true;} }
+      return false;
+    });
 }
 var ipo_default = async (req2, context) => {
   /* [v4.8] 실패 원인: http 고정 단일 주소. Cloudflare\ud658경\uc5d0\uc11c 38\ucee4\ubba4\ub2c8\ucf00\uc774\uc158 http \uc811\uc18d\uc774 \ub9c9\ud788\uba74
@@ -8640,6 +9102,19 @@ var UA20 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 var H = { "User-Agent": UA20, "Referer": "https://finance.naver.com/", "Accept": "application/json" };
 var num7 = (v) => Number(String(v ?? "").replace(/,/g, "")) || 0;
 var ymd5 = (d) => d.toISOString().slice(0, 10);
+/* ══ [v9.73] 타임아웃 없는 fetch 를 없앤다 ═══════════════════════════════════
+   외부 서버가 응답을 붙잡고 놓지 않으면 워커 요청 하나가 통째로 매달린다.
+   Cloudflare 는 일정 시간이 지나면 요청을 끊지만, 그때까지 CPU·연결이 묶여
+   같은 시간대의 다른 요청까지 느려진다. 타임아웃이 빠져 있던 곳(트레이딩뷰,
+   구글 OAuth)에 공용 헬퍼를 씌운다. */
+async function fetchOpt(url, opt, ms) {
+  /* 기존 fetchTO(url, ms, headers) 와 인자 순서가 달라 이름을 나눈다 —
+     같은 이름으로 두면 나중 선언이 앞의 것을 덮어 호출부가 조용히 어긋난다. */
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms || 6000);
+  try { return await fetch(url, { ...(opt || {}), signal: c.signal }); }
+  finally { clearTimeout(t); }
+}
 async function jget8(url, ms = 4e3, headers = H) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
@@ -9121,7 +9596,7 @@ async function krFutures() {
     for (const sym of TV_SYMS) {
       if (out.night) break;
       try {
-        const r = await fetch("https://scanner.tradingview.com/symbol?symbol="
+        const r = await fetchOpt("https://scanner.tradingview.com/symbol?symbol="
           + encodeURIComponent(sym)
           + "&fields=lp,ch,chp,prev_close_price,update_mode,volume&no_404=true", {
           headers: { "User-Agent": UA20, Accept: "application/json",
@@ -9147,7 +9622,7 @@ async function krFutures() {
   if (out.night && (!out.night.history || out.night.history.length < 3)) {
     try {
       const to = Math.floor(Date.now() / 1000), from = to - 3 * 86400;
-      const r = await fetch("https://history-data.tradingview.com/history?symbol="
+      const r = await fetchOpt("https://history-data.tradingview.com/history?symbol="
         + encodeURIComponent("KRX:K2I1!") + "&resolution=5&from=" + from + "&to=" + to, {
         headers: { "User-Agent": UA20, Accept: "application/json",
           Referer: "https://www.tradingview.com/" }
@@ -9599,6 +10074,131 @@ function pack(name, key, cur, hist, tag) {
   }
   return { key, name, price, change, rate, history, tag: tag || "", stale };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.76] /api/push — 구독 관리와 발송
+   ─────────────────────────────────────────────────────────────────────────────
+   act=key    공개키 받기 (없으면 그 자리에서 만들어 저장)
+   act=sub    구독 등록 (POST)
+   act=unsub  구독 해제 (POST)
+   act=test   나에게 시험 발송 (POST)
+   act=check  내 보유 종목을 점검해 필요하면 발송 (POST · 앱이 주기적으로 호출)
+   구독은 push:<id> 에 계정별로 저장한다 — 계정·사용자 데이터와 같은 원칙이다. */
+async function pushVapid(st) {
+  /* VAPID 키는 한 번 만들면 계속 같은 것을 써야 한다. 바뀌면 기존 구독이 전부
+     무효가 되므로, 만들어 두고 절대 다시 만들지 않는다. */
+  let v = null;
+  try { v = await st.get("push:vapid", { type: "json" }); } catch (e) {}
+  if (v && v.publicKey && v.privateJwk) return v;
+  v = await vapidGenerate();
+  try { await st.setJSON("push:vapid", v); } catch (e) { return null; }
+  return v;
+}
+async function pushSubsOf(st, id) {
+  try { const r = await st.get("push:" + id, { type: "json" }); return Array.isArray(r) ? r : []; }
+  catch (e) { return []; }
+}
+async function pushSubsSet(st, id, arr) {
+  try { await st.setJSON("push:" + id, (arr || []).slice(-5)); return true; } catch (e) { return false; }
+}
+/* 한 사람의 모든 기기로 보낸다. 죽은 구독은 그 자리에서 정리한다. */
+async function pushToUser(st, id, payload, opts) {
+  const v = await pushVapid(st);
+  if (!v) return { ok: false, err: "nokey" };
+  const subs = await pushSubsOf(st, id);
+  if (!subs.length) return { ok: false, err: "nosub" };
+  let sent = 0; const keep = [];
+  for (const s of subs) {
+    const r = await pushSend(s, payload, v, opts);
+    if (r.ok) { sent++; keep.push(s); }
+    else if (!r.gone) keep.push(s);          // 일시적 실패는 살려 둔다
+  }
+  if (keep.length !== subs.length) await pushSubsSet(st, id, keep);
+  return { ok: sent > 0, sent, total: subs.length };
+}
+
+var push_default = async (req2, context) => {
+  const st = (await blobStore()) || null;
+  const url = new URL(req2.url);
+  const act = url.searchParams.get("act") || "key";
+  const J = (o, code) => new Response(JSON.stringify(o), {
+    status: code || 200,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
+  });
+  if (!st) return J({ ok: false, err: "nostore" }, 500);
+
+  if (act === "key") {
+    const v = await pushVapid(st);
+    return J(v ? { ok: true, key: v.publicKey } : { ok: false, err: "nokey" });
+  }
+  let body = {};
+  try { body = await req2.json(); } catch (e) {}
+  const id = String(body.id || "").trim().toLowerCase();
+  if (!id) return J({ ok: false, err: "noid" }, 400);
+
+  if (act === "sub") {
+    const sub = body.sub;
+    if (!sub || !sub.endpoint || !sub.keys) return J({ ok: false, err: "badsub" }, 400);
+    const subs = (await pushSubsOf(st, id)).filter(x =>
+      x && x.endpoint !== sub.endpoint && x.endpoint !== body.old);
+    subs.push({ endpoint: sub.endpoint, keys: sub.keys, at: Date.now(), ua: String(body.ua || "").slice(0, 60) });
+    await pushSubsSet(st, id, subs);
+    return J({ ok: true, n: subs.length });
+  }
+  if (act === "unsub") {
+    const ep = String(body.endpoint || "");
+    const subs = (await pushSubsOf(st, id)).filter(x => x && x.endpoint !== ep);
+    await pushSubsSet(st, id, subs);
+    return J({ ok: true, n: subs.length });
+  }
+  if (act === "test") {
+    const r = await pushToUser(st, id, {
+      title: "LIVE증권 · 알림 시험",
+      body: "이 알림이 보이면 앱을 닫아도 알림이 옵니다.",
+      tag: "live-test", renotify: true, level: 1, url: "/"
+    }, { urgency: "high" });
+    return J(r);
+  }
+  if (act === "check") {
+    /* ══ 보유 종목 점검 ══
+       앱이 살아 있을 때 이 경로를 부르면, 서버가 저장된 보유·계획을 시세와 견줘
+       필요한 알림만 보낸다. 같은 내용을 되풀이하지 않도록 마지막 발송을 기억한다.
+       ※ 워커의 외부호출 한도(50)를 지키려고 한 번에 최대 12종목만 본다. */
+    const holds = Array.isArray(body.holds) ? body.holds.slice(0, 12) : [];
+    if (!holds.length) return J({ ok: true, sent: 0, why: "nohold" });
+    let state = {};
+    try { state = (await st.get("pushst:" + id, { type: "json" })) || {}; } catch (e) {}
+    const now = Date.now();
+    const out = [];
+    for (const h of holds) {
+      if (!h || !h.code || !(h.px > 0)) continue;
+      const k = h.code;
+      const prev = state[k] || {};
+      let hit = null;
+      if (h.stop > 0 && h.px <= h.stop) hit = { kind: "손절선 이탈", lv: 3, msg: `${h.name} ${h.px.toLocaleString()} · 손절선 ${Number(h.stop).toLocaleString()} 아래` };
+      else if (h.target > 0 && h.px >= h.target) hit = { kind: "목표가 도달", lv: 2, msg: `${h.name} ${h.px.toLocaleString()} · 목표가 도달` };
+      if (hit) hit.code = k;
+      if (!hit) { if (prev.kind) delete state[k]; continue; }
+      /* 같은 종류의 알림은 6시간에 한 번만 */
+      if (prev.kind === hit.kind && now - (prev.at || 0) < 6 * 3600e3) continue;
+      state[k] = { kind: hit.kind, at: now };
+      out.push(hit);
+    }
+    if (!out.length) { try { await st.setJSON("pushst:" + id, state); } catch (e) {} return J({ ok: true, sent: 0 }); }
+    out.sort((a, b) => b.lv - a.lv);
+    const top = out[0];
+    const more = out.length > 1 ? ` 외 ${out.length - 1}건` : "";
+    const r = await pushToUser(st, id, {
+      title: `LIVE증권 · ${top.kind}${more}`,
+      body: top.msg, level: top.lv, code: out.length === 1 ? (top.code || "") : "",
+      tag: "live-care", renotify: true, url: "/"
+    }, { urgency: top.lv >= 3 ? "high" : "normal" });
+    try { await st.setJSON("pushst:" + id, state); } catch (e) {}
+    return J({ ...r, alerts: out.length });
+  }
+  return J({ ok: false, err: "act" }, 400);
+};
+
 var market_default = async (req2) => {
   try {
     const idx = await settle2(pollingIndex("KOSPI,KOSDAQ")) || { map: {}, arr: [] };
@@ -11532,6 +12132,7 @@ var ROUTES = {
   "logo": logo_default,
   "logoscan": logoscan_default,
   "market": market_default,
+  "push": push_default,          /* [v9.76] 웹 푸시 */
   "meta": meta_default,
   "news": news_default,
   "nxt": nxt_default,
@@ -14148,7 +14749,9 @@ async function oauth_google_default(req2, ctx){
     const uid2=String(pend.email);
     /* 그 사이 같은 계정이 생겼으면 그것을 그대로 쓴다 */
     const pass2="s"+oaRand(32);
-    const acc2=db2.accounts[uid2]||{created:Date.now()};
+    let acc2=null;
+    try{ acc2=await accLoad(st.acc,uid2,db2); }catch(e){}
+    acc2=acc2||db2.accounts[uid2]||{created:Date.now()};
     acc2.name=clip(body.name||pend.gname||uid2,20);
     acc2.email=pend.email;
     acc2.googleSub=pend.sub;
@@ -14160,14 +14763,23 @@ async function oauth_google_default(req2, ctx){
     acc2.hash=await sha2562(acc2.salt+"|"+pass2);
     delete acc2.pass;
     db2.accounts[uid2]=acc2;
-    if(!db2.users[uid2])db2.users[uid2]={watchlist:[],watchFolders:[],holdings:[],cash:0,
-      usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
+    await accSave(st.acc,uid2,acc2);      /* [v9.75] */
+    /* [v9.74] 가입 마무리도 계정별 키를 먼저 본다 — 재가입 시 기존 데이터를
+       빈 값으로 덮지 않기 위해서다. */
+    let guser2=null;
+    try{ guser2=await usrLoad(st.acc,uid2,db2); }catch(e){}
+    if(guser2==null){
+      guser2={watchlist:[],watchFolders:[],holdings:[],cash:0,
+        usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
+      try{ await usrSave(st.acc,uid2,guser2); }catch(e){}
+    }
+    db2.users[uid2]=guser2;
     dbCacheSet(db2);
-    await st.acc.setJSON("db",db2).catch(()=>{});
+    /* [v9.75] 계정·사용자 모두 제 키에 저장했으므로 공유 키는 쓰지 않는다 */
     const hh=new Headers({"content-type":"application/json; charset=utf-8","cache-control":"no-store"});
     hh.append("set-cookie","oa_p=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
     return new Response(JSON.stringify({ok:true,id:uid2,pass:pass2,
-      name:acc2.name,email:acc2.email,user:db2.users[uid2]}),{headers:hh});
+      name:acc2.name,email:acc2.email,user:guser2}),{headers:hh});
   }
   /* 보류 정보 조회 — 가입 창에 미리 채울 값 */
   if(url.searchParams.get("pending")==="1"){
@@ -14246,14 +14858,14 @@ async function oauth_google_default(req2, ctx){
 
   try{
     /* ④ code → 토큰 → 사용자 정보 */
-    const tr=await fetch("https://oauth2.googleapis.com/token",{method:"POST",
+    const tr=await fetchOpt("https://oauth2.googleapis.com/token",{method:"POST",
       headers:{"content-type":"application/x-www-form-urlencoded"},
       body:new URLSearchParams({code,client_id:CID,client_secret:CSEC,
         redirect_uri:redirect,grant_type:"authorization_code"})});
     if(!tr.ok)return back("token");
     const tj=await tr.json();
     if(!tj||!tj.access_token)return back("token");
-    const ur=await fetch("https://www.googleapis.com/oauth2/v3/userinfo",
+    const ur=await fetchOpt("https://www.googleapis.com/oauth2/v3/userinfo",
       {headers:{authorization:"Bearer "+tj.access_token}});
     if(!ur.ok)return back("profile");
     const uj=await ur.json();
@@ -14265,11 +14877,9 @@ async function oauth_google_default(req2, ctx){
     /* ⑤ 계정을 찾거나 만든다 */
     const db=await st.acc.get("db",{type:"json"}).catch(()=>null)||{accounts:{},users:{}};
     db.accounts=db.accounts||{}; db.users=db.users||{};
-    let uid=Object.keys(db.accounts).find(k=>{
-      const a=db.accounts[k];
-      return a&&((a.googleSub&&a.googleSub===gsub)||
-        (a.email&&String(a.email).toLowerCase()===email));
-    })||"";
+    /* [v9.75] 전체 계정을 훑는 대신 되찾기 키(gsub:… / mail:…)로 바로 찾는다.
+       예전 계정은 그 키가 아직 없으므로 옛 db 도 함께 살핀다. */
+    let uid=await accFindByGoogle(st.acc,gsub,email,db)||"";
     let created=false;
     /* ══ [v8.0] 처음 오는 사람은 계정을 바로 만들지 않는다 ═══════════════════
        일반 가입과 같은 창에서 본인 정보와 약관을 받은 뒤에 만든다.
@@ -14287,7 +14897,9 @@ async function oauth_google_default(req2, ctx){
     /* (신규 계정 생성은 위 보류 흐름과 아래 finish 에서 처리한다) */
     /* 서버가 보관하는 무작위 비밀번호 — 사용자는 몰라도 되고, 앱이 서버와 통신할 때만 쓴다 */
     const pass="s"+oaRand(32);
-    const acc=db.accounts[uid]||{name:gname,email,created:Date.now()};
+    let acc=null;
+    try{ acc=await accLoad(st.acc,uid,db); }catch(e){}
+    acc=acc||db.accounts[uid]||{name:gname,email,created:Date.now()};
     acc.name=acc.name||gname;
     acc.email=acc.email||email;
     acc.googleSub=gsub;
@@ -14295,10 +14907,22 @@ async function oauth_google_default(req2, ctx){
     acc.hash=await sha2562(acc.salt+"|"+pass);
     delete acc.pass;
     db.accounts[uid]=acc;
-    if(!db.users[uid])db.users[uid]={watchlist:[],watchFolders:[],holdings:[],cash:0,
-      usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
+    await accSave(st.acc,uid,acc);        /* [v9.75] 계정별 키에 */
+    /* ══ [v9.74] 구글 로그인도 사용자 데이터는 계정별 키에서 읽고 쓴다 ═══════
+       예전에는 db.users[uid] 만 봤기 때문에, 이미 usr:<uid> 로 옮겨진 사람이
+       구글로 로그인하면 '빈 계정'을 새로 만들어 쿠키에 실어 보냈다.
+       앱은 그 빈 데이터를 받아 화면에 덮어썼을 것이다 — 보유 종목이 사라지는
+       종류의 사고다. 반드시 계정별 키를 먼저 확인한다. */
+    let guser=null;
+    try{ guser=await usrLoad(st.acc,uid,db); }catch(e){}
+    if(guser==null){
+      guser={watchlist:[],watchFolders:[],holdings:[],cash:0,
+        usdCash:0,ipoPlans:[],acctType:"general",acctActive:"",acctList:[],acctBooks:{}};
+      try{ await usrSave(st.acc,uid,guser); }catch(e){}
+    }
+    db.users[uid]=guser;
     dbCacheSet(db);                       // [v7.5] 방금 쓴 계정을 기억해 둔다
-    await st.acc.setJSON("db",db).catch(()=>{});
+    /* [v9.75] 계정·사용자 모두 제 키에 저장했으므로 공유 키는 쓰지 않는다 */
 
     /* ══ [v7.4] 표를 KV 에 두면 못 받는다 ═══════════════════════════════════
        [무엇이 문제였나] KV 는 쓴 값이 전 세계에 퍼지는 데 시간이 걸린다(최대 1분).
@@ -14308,7 +14932,7 @@ async function oauth_google_default(req2, ctx){
        [고침] 쿠키로 건네준다. 쿠키는 같은 응답에 실려 오므로 시차가 없다.
        HttpOnly 라 자바스크립트가 훔쳐볼 수 없고, 3분 뒤 저절로 사라진다. */
     const payload={id:uid,pass,name:acc.name,email:acc.email,
-      created:!!created,user:db.users[uid],at:Date.now()};
+      created:!!created,user:guser,at:Date.now()};
     const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
     const h=new Headers();
     h.set("location",origin+"/?glogin=ok");
@@ -14386,12 +15010,29 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "9.71.0";
+var APP_VER = "9.76.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
-      return onRequest({ request, env, waitUntil: ctx.waitUntil.bind(ctx), next: () => env.ASSETS.fetch(request) });
+      /* ══ [v9.73] 외부호출(subrequest) 실측 계측 ═══════════════════════════════
+         Cloudflare Workers 는 한 요청이 만들 수 있는 외부호출이 50회다. 넘으면
+         그 뒤 호출이 전부 실패하는데, 우리 코드는 try/catch 로 감싸 둔 곳이 많아
+         '데이터가 좀 부족한 날'처럼 조용히 넘어간다 — 가장 찾기 어려운 종류의 고장이다.
+         호출 수를 세어 응답 헤더(x-subreq)로 내보내면, 어느 라우트가 한도에
+         가까운지 추측이 아니라 숫자로 볼 수 있다. 한도에 근접하면 로그도 남긴다. */
+      const _origFetch = globalThis.fetch;
+      let _n = 0;
+      globalThis.fetch = function (...a) { _n++; return _origFetch.apply(this, a); };
+      try {
+        const r = await onRequest({ request, env, waitUntil: ctx.waitUntil.bind(ctx), next: () => env.ASSETS.fetch(request) });
+        try {
+          const h = new Headers(r.headers);
+          h.set("x-subreq", String(_n));
+          if (_n >= 42) { h.set("x-subreq-warn", "near-limit"); console.log("[subreq] " + url.pathname + " = " + _n + "/50"); }
+          return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h });
+        } catch (e) { return r; }
+      } finally { globalThis.fetch = _origFetch; }
     }
     /* ══ [v4.21 · 정정] v4.18 의 진단은 틀렸다 ═══════════════════════════════
        _headers 는 Pages 전용이 아니라 Workers 정적 자산에서도 정식 지원된다.
