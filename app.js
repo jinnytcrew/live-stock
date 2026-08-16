@@ -5543,7 +5543,7 @@ function renderAll(){
         다시 누를 때만 실제로 나간다
    [방법] 주소창에 눈에 띄지 않는 표식을 하나 쌓아 두고, 뒤로 가기가 그것을
    소비하게 한다. 표식을 다시 채워 넣으면 계속 우리가 받아 처리할 수 있다. */
-var _navStack=[], _navGuard=false, _exitAt=0, _navBusy=false;
+var _navStack=[], _navGuard=false, _exitAt=0, _navBusy=false, _scrollPos={};
 
 /* 지금 화면에 열려 있는 창을 찾는다(가장 나중에 열린 것부터) */
 function topOverlay(){
@@ -5654,12 +5654,23 @@ function _showView(name){
       _exitAt=0;                       // 화면을 옮겼으면 종료 대기는 취소한다
     }
   }catch(e){}
+  /* ══ [v9.89] 뒤로 가기 하면 늘 맨 위로 튀던 문제 ═══════════════════════════
+     검색 목록을 한참 내려서 종목을 열고 뒤로 가면, 목록 맨 위로 돌아갔다.
+     보던 자리를 다시 찾아 내려가야 해서 번거롭다.
+     화면을 떠날 때 스크롤 위치를 적어 두고, 뒤로 가기로 돌아온 경우에만 되돌린다.
+     (탭을 눌러 새로 들어간 경우는 맨 위가 맞다) */
+  try{ if(currentView&&currentView!==name)_scrollPos[currentView]=window.scrollY||0; }catch(e){}
+  const _back=_navBusy;
   currentView=name;
   document.querySelectorAll('.view').forEach(v=>v.hidden=(v.id!=='view-'+name));
   const navName=(name==='ustrade')?'us':name;   // [v4.28] 해외 거래 화면도 '해외 주식' 탭 유지
   document.querySelectorAll('.main-nav button').forEach(b=>b.classList.toggle('on',b.dataset.view===navName));
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.bv===name));   // 모바일 하단 내비 동기화
-  $('mainNav').classList.remove('open');window.scrollTo(0,0);
+  $('mainNav').classList.remove('open');
+  if(_back&&_scrollPos[name]>0){
+    const y=_scrollPos[name];
+    requestAnimationFrame(()=>{ try{window.scrollTo(0,y);}catch(e){} });
+  }else window.scrollTo(0,0);
   {const cta=$('usCta'); if(cta)cta.hidden=(name!=='ustrade');}   // [v4.50] 주문바는 상세에서만
   try{usBadgeSync();}catch(e){}                     // [v4.88] 화면을 옮길 때 장 구분 맞추기
   /* [v9.81] 호가 탭을 떠나면 갱신을 멈춘다 — 안 보는 화면을 계속 부르지 않는다 */
@@ -5717,6 +5728,12 @@ function openTrade(code){
     try{pushHist(code,s0.name||code,s0.market||'');}catch(e){}});
   safeRun('openTrade:feed',()=>{feed&&feed.addCode(code,{pin:true});});
   safeRun('openTrade:quote',()=>ensureQuote(code));
+  /* ══ [v9.90] 종목을 열면 호가도 함께 받아 둔다 ═══════════════════════════
+     시장가·손절 체결가를 호가로 계산하도록 바꿨는데, 호가 탭을 한 번도 열지
+     않으면 _obData 가 비어 '현재가 ±1틱' 어림값으로 떨어진다. 주문 화면에서
+     바로 사고파는 것이 가장 흔한 흐름이므로 진입할 때 미리 받아 둔다.
+     (한 종목당 1회, 3초 캐시라 요청이 늘지 않는다) */
+  safeRun('openTrade:ob',()=>{ try{ obLoad(code); }catch(e){} });
   safeRun('openTrade:nxt',()=>ensureNxt(code));
   safeRun('openTrade:ex',()=>loadExchange(code));
   safeRun('openTrade:acct',()=>renderOrdAcct());          // [v4.56] 주문 계좌 선택
@@ -8749,7 +8766,20 @@ function openHoldGate(){
     toast('buy','보유 관리 저장',(sp?`손절 ${KRW(sp)} `:'')+(tp?`익절 ${KRW(tp)}`:'')||'설정 저장');
     if(currentView==='account'){safeRun('holdings',renderHoldings);safeRun('autocard',renderAutoCard);}
   };
-  $('hgClear').onclick=()=>{delete h.stopPx;delete h.takePx;delete h.divPct;delete h.targetPct;saveState();closeLiteGate();toast('warn','보유 관리 해제','');};
+  /* [v9.89] 손절·익절이 걸려 있는데 확인 없이 지우면, 자동 매도가 조용히 꺼진다.
+     되돌릴 수 없고 본인도 모르는 사이 보호장치가 사라지므로 한 번 묻는다. */
+  $('hgClear').onclick=async()=>{
+    const on=[h.stopPx?'손절':'',h.takePx?'익절':'',h.trailPct?'트레일링':''].filter(Boolean);
+    if(on.length){
+      const ok=await askConfirm('보유 관리 해제',
+        `${on.join('·')} 설정이 지워집니다.\n자동 매도가 더 이상 작동하지 않습니다.`,
+        {okLabel:'해제',danger:true});
+      if(!ok)return;
+    }
+    delete h.stopPx;delete h.takePx;delete h.divPct;delete h.targetPct;
+    delete h.trailPct;delete h.trailHi;
+    saveState();closeLiteGate();toast('warn','보유 관리 해제','');
+  };
 }
 /* 내 계좌: 예약·자동 카드 + 배당 + 리밸런싱 */
 function renderAutoCard(){
@@ -8868,12 +8898,28 @@ function autoOrderTick(){
   /* 예약 지정가 */
   for(const o of bookOrders.slice()){
     const q=dispQuote(o.code);if(!q||q.price==null)continue;
+    /* ══ [v9.90] 예약 주문의 체결가를 실제 거래소처럼 ═══════════════════════
+       [무엇이 달랐나] 조건에 닿으면 '지정가 그대로' 체결시켰다. 실제로는
+       시장이 내 지정가를 지나쳐 내려가면 그보다 좋은 값에 체결된다.
+         예) 5만원 매수 예약 → 시장이 49,000원까지 내려가면 49,000원에 산다
+       유리한 쪽을 버리고 있었던 셈이라, 실제보다 나쁜 결과가 기록됐다.
+       [고침] 매수는 지정가와 현재가 중 '싼 쪽', 매도는 '비싼 쪽'에 체결한다.
+       호가창 자료가 있으면 상대 호가를 우선해 더 정확하게 잡는다. */
     const hit=o.side==='buy'?q.price<=o.price:q.price>=o.price;
     if(!hit)continue;
     const st=byCode[o.code];if(!st)continue;
+    let fill=o.price;
+    try{
+      const ob=_obData[o.code];
+      const best=(ob&&ob.ok)?(o.side==='buy'?ob.bestAsk:ob.bestBid):null;
+      const mkt=(best>0)?best:q.price;
+      fill=(o.side==='buy')?Math.min(o.price,mkt):Math.max(o.price,mkt);
+      if(!(fill>0))fill=o.price;
+    }catch(e){ fill=o.price; }
     /* [v4.5] 예전엔 체결을 시도하기 '전에' 예약을 지웠다. 예수금이 모자라 체결이
        실패하면 예약이 아무 안내 없이 사라졌다. 성공했을 때만 목록에서 뺀다. */
-    const okd=executeOrderCore(st,{side:o.side,price:o.price,qty:o.qty},'예약 체결');
+    const okd=executeOrderCore(st,{side:o.side,price:fill,qty:o.qty},
+      '예약 체결'+(fill!==o.price?` · ${KRW(fill)}원에 유리 체결`:''));
     if(okd){bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;}
     else if(o.side==='buy'&&orderCost('buy',o.price,o.qty).cost>cash){
       bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;
@@ -8910,17 +8956,34 @@ function autoOrderTick(){
     const useStop=(h.stopPx!=null)?h.stopPx:stopAt;
     if(!_canTrade)continue;                     // 장이 닫혀 있으면 판정만 하고 팔지 않는다
     if(useStop!=null&&q.price<=useStop){
-      /* [v9.82] 태그를 먼저 정한다 — 지운 뒤에 h.trailPct 를 보면 항상 거짓이 된다 */
-      const px=q.price, tag=h.trailPct?'트레일링 손절':'손절 자동';
+      /* ══ [v9.90] 손절은 시장가 매도다 — 매수 1호가에 팔린다 ═══════════════
+         손절선에 닿는 순간의 '현재가'로 팔린다고 계산하면 실제보다 좋게 나온다.
+         손절은 급하게 던지는 주문이라 매수 1호가(그 순간 사겠다는 가장 높은 값)에
+         체결되고, 그 값은 현재가보다 낮다. 스프레드만큼 손실이 더 난다.
+         이걸 반영하지 않으면 '계획대로 손절하면 딱 그 값에 막힌다'고 착각하게 된다. */
+      const tag=h.trailPct?'트레일링 손절':'손절 자동';
+      let px=q.price;
+      try{
+        const ob=_obData[h.code];
+        if(ob&&ob.ok&&ob.bestBid>0)px=Math.min(px,ob.bestBid);
+        else{ const t=tickSize(px,mktOf(h.code)); px=Math.max(t,px-t); }
+      }catch(e){}
       delete h.stopPx;delete h.takePx;delete h.trailPct;delete h.trailHi;
       if(h.plan){h.plan.autoStop=0;h.plan.autoTake=0;}
       executeOrderCore(st,{side:'sell',price:px,qty:h.qty},tag);
       changed=true;continue;}
     if(takeAt!=null&&q.price>=takeAt){
-      const px=q.price;delete h.stopPx;delete h.takePx;delete h.trailPct;delete h.trailHi;
+      /* 익절도 같은 이유로 매수 1호가에 팔린다 */
+      let px=q.price;
+      try{
+        const ob=_obData[h.code];
+        if(ob&&ob.ok&&ob.bestBid>0)px=Math.min(px,ob.bestBid);
+      }catch(e){}
+      delete h.stopPx;delete h.takePx;delete h.trailPct;delete h.trailHi;
       if(h.plan){h.plan.autoStop=0;h.plan.autoTake=0;}
       executeOrderCore(st,{side:'sell',price:px,qty:h.qty},'익절 자동');changed=true;}
   }
+  try{ fxAlertCheck(); }catch(e){}          /* [v9.87] 환율 알림도 같은 주기로 */
   /* 가격 알림(도달 시 1회) */
   for(const [c,a] of Object.entries(priceAlerts)){
     const q=dispQuote(c);if(!q||q.price==null)continue;
@@ -9231,6 +9294,7 @@ function renderHome(){
     });
   });
   safeRun('homenews',renderHomeNews);
+  safeRun('fxAlerts',renderFxAlerts);        /* [v9.87] 환율 알림 */
 }
 
 /* ===== 투자 캘린더 (실제 일정) ===== */
@@ -11443,7 +11507,31 @@ async function loadFundamentals(code){
   fundCache[code]=merged;
   if(selected===code){curFund=merged;renderInfo();}
 }
+/* ══ [v9.89] 종목 정보 탭이 화면 밖으로 넘칠 때 ═══════════════════════════
+   탭이 11개로 늘어 좁은 화면에서는 절반이 가려진다. 가로로 밀 수 있다는 것을
+   모르면 '백테스트·컨센서스 같은 게 있는 줄도 모르는' 상태가 된다.
+   오른쪽에 넘침 표시를 켜고, 지금 고른 탭이 화면 밖이면 보이는 자리로 끌어온다. */
+function infoTabsSync(){
+  try{
+    const t=document.querySelector('.info-tabs'); if(!t)return;
+    const more=t.scrollWidth-t.clientWidth-t.scrollLeft>8;
+    t.classList.toggle('has-more',more);
+    t.classList.toggle('has-prev',t.scrollLeft>8);
+    const on=t.querySelector('button.on');
+    if(on){
+      const l=on.offsetLeft, r=l+on.offsetWidth;
+      if(l<t.scrollLeft||r>t.scrollLeft+t.clientWidth)
+        t.scrollTo({left:Math.max(0,l-24),behavior:'smooth'});
+    }
+  }catch(e){}
+}
+try{
+  const _t=document.querySelector('.info-tabs');
+  if(_t)_t.addEventListener('scroll',()=>{try{infoTabsSync();}catch(e){}},{passive:true});
+  window.addEventListener('resize',()=>{try{infoTabsSync();}catch(e){}});
+}catch(e){}
 function renderInfo(){
+  try{ infoTabsSync(); }catch(e){}
   const el=$('infoBody'),cc=$('chartCard');
   if(infoTab==='chart'){
     if(cc)cc.hidden=false; el.style.display='none';
@@ -11453,6 +11541,7 @@ function renderInfo(){
   if(cc)cc.hidden=true; el.style.display='';
   if(infoTab==='sise'){renderSise(el);return;}
   if(infoTab==='asking'){renderAsking(el);obStart();return;}   /* [v9.81] 호가 */
+  if(infoTab==='backtest'){renderSimBt(el);return;}            /* [v9.88] 백테스트 */
   if(infoTab==='news'){renderNews(el);return;}
   if(infoTab==='ai'){renderAiStock(el);return;}
   const etfMode=isFundLike(selected);
@@ -11475,12 +11564,17 @@ function renderInfo(){
   if(infoTab==='summary')renderSummary(el);
   else if(infoTab==='investor'){
     renderInvestor(el);
-    /* [v9.84] 투자자별 아래에 공매도 잔고를 함께 둔다 — 수급을 함께 봐야 뜻이 산다 */
-    try{
-      const box=document.createElement('div');
-      box.className='srt-wrap'; el.appendChild(box);
-      renderShort(box,selected);
-    }catch(e){}
+    /* ══ [v9.86] 공매도 잔고 코너를 내린다 ═══════════════════════════════════
+       [무엇을 확인했나] KRX 정보데이터시스템(data.krx.co.kr)이 우리 요청을
+       거부한다. 두 경로 모두 HTTP 400 에 본문 "LOGOUT" 만 돌아왔다.
+         · getJsonData.cmd  — 세션 쿠키를 받아 붙여도 LOGOUT
+         · GenerateOTP      — OTP 발급 자체가 LOGOUT (길이 6)
+       Codespaces 와 Cloudflare Workers 양쪽에서 같은 결과였다. bld 코드나
+       파라미터 문제가 아니라, 거래소가 브라우저 아닌 접근을 차단하는 것이다.
+       [왜 지우나] 항상 '자료를 받지 못했습니다'만 뜨는 칸은 없느니만 못하다.
+       고장인가 싶어 계속 눌러 보게 만들고, 앱 전체가 미덥지 않아 보인다.
+       코드(renderShort·/api/srt)는 남겨 둔다 — 거래소 정책이 바뀌거나
+       다른 경로를 찾으면 이 한 줄만 되살리면 된다. */
   }
   else if(infoTab==='consensus')renderConsensus(el);
   else renderFinance(el);
@@ -11863,6 +11957,247 @@ function smoothBizText(raw,name){
 let siseMode='date';
 
 
+
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.88] 백테스트 — "그때 샀다면 어땠을까"
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇을 계산하나] 과거 어느 시점에 사서 지금까지 들고 있었다면의 결과다.
+   단순 수익률만 내면 오해하기 쉬워, 실제로 겪었을 것들을 함께 보여 준다.
+     · 최대 낙폭(MDD) — 도중에 얼마나 깊이 물렸는가. 이걸 못 견디면 실제로는
+       끝까지 못 들고 있는다. 결과보다 이 숫자가 더 중요할 때가 많다.
+     · 코스피 대비 — 시장이 오른 시기라면 수익이 나도 잘한 게 아니다.
+     · 적립식 비교 — 한 번에 사는 것과 매달 나눠 사는 것의 차이.
+   [데이터 제약] 이 앱의 일봉은 약 2년치다. 그보다 긴 기간은 주봉으로 계산한다.
+   주봉은 주 단위라 진입 시점이 며칠 어긋날 수 있어, 화면에 그 사실을 밝힌다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var SB_TERMS=[
+  {k:'6m', t:'6개월', d:182},
+  {k:'1y', t:'1년',   d:365},
+  {k:'2y', t:'2년',   d:730},
+  {k:'3y', t:'3년',   d:1095},
+  {k:'5y', t:'5년',   d:1825},
+];
+var sbTerm='1y', sbAmt=1000000, sbMode='lump', sbData={}, sbBusy={};
+/* 기간에 맞는 봉을 고른다 — 2년 넘으면 주봉이라야 자료가 닿는다 */
+function sbNeedTf(days){ return days>700?'W':'D'; }
+function sbLoad(code,tf){
+  const key=code+':'+tf;
+  if(sbData[key])return Promise.resolve(sbData[key]);
+  if(sbBusy[key])return Promise.resolve(null);
+  sbBusy[key]=1;
+  return fetch(`/api/chart?code=${encodeURIComponent(code)}&tf=${tf}`,{cache:'default'})
+    .then(r=>r.json())
+    .then(j=>{ const c=(j&&j.candles)||[]; sbData[key]=c; return c; })
+    .catch(()=>{ sbData[key]=[]; return []; })
+    .finally(()=>{ sbBusy[key]=0; });
+}
+/* 실제 계산 — 값을 지어내지 않고, 자료가 닿는 만큼만 쓴다 */
+function sbRun(candles,days,amount,mode){
+  if(!candles||candles.length<8)return null;
+  const cut=Date.now()-days*864e5;
+  const toTs=(d)=>{ const s=String(d||''); if(s.length<8)return 0;
+    return new Date(+s.slice(0,4),+s.slice(4,6)-1,+s.slice(6,8)).getTime(); };
+  const arr=candles.filter(c=>c&&c.c>0&&toTs(c.d)>=cut);
+  if(arr.length<6)return null;
+  const first=arr[0], last=arr[arr.length-1];
+  const realDays=Math.max(1,Math.round((toTs(last.d)-toTs(first.d))/864e5));
+  let qty, invested, note='';
+  if(mode==='dca'){
+    /* 적립식 — 기간을 12등분해 나눠 산다(월 단위에 가깝게) */
+    const n=Math.min(12,Math.max(2,Math.floor(arr.length/4)));
+    const per=amount/n;
+    qty=0; invested=0;
+    for(let i=0;i<n;i++){
+      const c=arr[Math.floor(i*(arr.length-1)/(n-1||1))];
+      if(!c||!(c.c>0))continue;
+      qty+=per/c.c; invested+=per;
+    }
+    note=`${n}회에 나눠 매수`;
+  }else{
+    qty=amount/first.c; invested=amount; note='한 번에 매수';
+  }
+  const nowVal=qty*last.c;
+  const pnl=nowVal-invested;
+  const ret=invested?pnl/invested*100:0;
+  /* 연환산 — 기간이 1년과 크게 다를 때 비교하려면 필요하다 */
+  const yrs=realDays/365;
+  const cagr=(yrs>0.2&&invested>0&&nowVal>0)?((Math.pow(nowVal/invested,1/yrs)-1)*100):null;
+  /* 최대 낙폭 — 고점 대비 얼마나 깊이 빠졌는가 */
+  let peak=arr[0].c, mdd=0, mddAt='';
+  arr.forEach(c=>{ if(c.c>peak)peak=c.c;
+    const dd=(c.c-peak)/peak*100;
+    if(dd<mdd){mdd=dd;mddAt=c.d;} });
+  /* 기간 내 최고·최저 */
+  const hi=Math.max(...arr.map(c=>c.h??c.c)), lo=Math.min(...arr.map(c=>c.l??c.c));
+  return {
+    from:first.d, to:last.d, realDays, n:arr.length,
+    buyPx:first.c, nowPx:last.c, qty, invested, nowVal:Math.round(nowVal),
+    pnl:Math.round(pnl), ret, cagr, mdd, mddAt, hi, lo, note,
+    best:Math.round(amount/first.c*hi-amount),      // 고점에 팔았다면
+  };
+}
+
+
+/* 백테스트 화면 — 종목 정보 탭에 붙는다 */
+function renderSimBt(el){
+  const code=selected;
+  const term=SB_TERMS.find(t=>t.k===sbTerm)||SB_TERMS[1];
+  const tf=sbNeedTf(term.d);
+  const key=code+':'+tf;
+  const cs=sbData[key];
+  const head=`
+    <div class="sb-ctl">
+      <div class="sb-terms">${SB_TERMS.map(t=>
+        `<button data-sbt="${t.k}" class="${t.k===sbTerm?'on':''}">${t.t}</button>`).join('')}</div>
+      <div class="sb-modes">
+        <button data-sbm="lump" class="${sbMode==='lump'?'on':''}">한 번에</button>
+        <button data-sbm="dca" class="${sbMode==='dca'?'on':''}">나눠서</button>
+      </div>
+      <div class="sb-amt"><label>투자금</label>
+        <select id="sbAmtSel">${[100000,500000,1000000,3000000,5000000,10000000].map(v=>
+          `<option value="${v}"${v===sbAmt?' selected':''}>${KRW(v)}원</option>`).join('')}</select></div>
+    </div>`;
+  const bind=()=>{
+    el.querySelectorAll('[data-sbt]').forEach(b=>b.onclick=()=>{sbTerm=b.dataset.sbt;renderSimBt(el);});
+    el.querySelectorAll('[data-sbm]').forEach(b=>b.onclick=()=>{sbMode=b.dataset.sbm;renderSimBt(el);});
+    const a=$('sbAmtSel'); if(a)a.onchange=()=>{sbAmt=+a.value;renderSimBt(el);};
+  };
+  if(cs===undefined){
+    el.innerHTML=head+'<div class="empty">과거 시세를 불러오는 중…</div>'; bind();
+    sbLoad(code,tf).then(()=>{ if(selected===code&&infoTab==='backtest')renderSimBt(el); });
+    return;
+  }
+  const r=sbRun(cs,term.d,sbAmt,sbMode);
+  if(!r){
+    el.innerHTML=head+`<div class="empty"><b>이 기간을 계산할 자료가 없습니다</b>
+      <span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.6">
+      상장한 지 얼마 안 됐거나 과거 시세가 닿지 않습니다. 더 짧은 기간을 골라 보세요.<br>
+      없는 값을 만들어 계산하지 않습니다.</span></div>`;
+    bind(); return;
+  }
+  const dt=(d)=>`${d.slice(0,4)}.${d.slice(4,6)}.${d.slice(6,8)}`;
+  const up=r.pnl>=0;
+  el.innerHTML=head+`
+    <div class="sb-main ${up?'up':'down'}">
+      <div class="sb-q">${dt(r.from)}에 <b>${KRW(sbAmt)}원</b>어치 샀다면</div>
+      <div class="sb-v num">${KRW(r.nowVal)}<i>원</i></div>
+      <div class="sb-p num">${up?'+':''}${KRW(r.pnl)}원 · ${up?'+':''}${r.ret.toFixed(1)}%</div>
+      ${r.cagr!=null?`<div class="sb-cagr">연평균 <b>${r.cagr>=0?'+':''}${r.cagr.toFixed(1)}%</b> · ${r.note}</div>`:`<div class="sb-cagr">${r.note}</div>`}
+    </div>
+    <div class="sb-grid">
+      <div><span>매수가</span><b class="num">${KRW(Math.round(r.buyPx))}</b></div>
+      <div><span>현재가</span><b class="num">${KRW(Math.round(r.nowPx))}</b></div>
+      <div><span>보유 수량</span><b class="num">${r.qty>=10?KRW(Math.round(r.qty)):r.qty.toFixed(2)}주</b></div>
+      <div><span>보유 기간</span><b class="num">${r.realDays}일</b></div>
+    </div>
+    <div class="sb-mdd">
+      <div class="sb-mdd-h">가는 길에 겪었을 것</div>
+      <div class="sb-mdd-v"><span>최대 낙폭</span><b class="num down">${r.mdd.toFixed(1)}%</b>
+        ${r.mddAt?`<i>${dt(r.mddAt)}</i>`:''}</div>
+      <div class="sb-mdd-bar"><i style="width:${Math.min(100,Math.abs(r.mdd)).toFixed(1)}%"></i></div>
+      <div class="sb-mdd-d">${Math.abs(r.mdd)>=30
+        ? `한때 고점 대비 <b>${Math.abs(r.mdd).toFixed(0)}%</b>까지 빠졌습니다. 100만원이 ${KRW(Math.round(1000000*(1+r.mdd/100)))}원이 되는 구간을 견뎌야 지금 결과에 닿습니다.`
+        : Math.abs(r.mdd)>=15 ? `중간에 <b>${Math.abs(r.mdd).toFixed(0)}%</b>가량 밀린 적이 있습니다.`
+        : `큰 흔들림 없이 온 편입니다(최대 ${Math.abs(r.mdd).toFixed(0)}%).`}</div>
+    </div>
+    <div class="sb-note">
+      <b>${tf==='W'?'주봉':'일봉'}으로 계산</b>했습니다.${tf==='W'?' 2년이 넘는 기간은 일봉 자료가 닿지 않아 주 단위로 계산하며, 진입 시점이 며칠 어긋날 수 있습니다.':''}<br>
+      배당·수수료·세금은 넣지 않았습니다. <b>지난 결과가 앞날을 말해 주지는 않습니다.</b>
+    </div>`;
+  bind();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.87] 환율 알림
+   ─────────────────────────────────────────────────────────────────────────────
+   해외 주식을 하면 환율이 종목만큼 중요하다. 같은 주가라도 환율이 30원 움직이면
+   수익률이 2% 넘게 달라진다. 그런데 지금까지 환율은 '조회'만 됐다.
+   가격 알림과 같은 구조로, 목표 환율에 닿으면 알려 준다.
+     fxAlerts = { 'USD': {above: 1450, below: 1350} }
+   [주의] 도달하면 그 조건만 지운다(가격 알림과 같은 규칙). 계속 울리면 소용없다. */
+var fxAlerts={};
+try{ fxAlerts=JSON.parse(localStorage.getItem('fxAlerts')||'{}')||{}; }catch(e){ fxAlerts={}; }
+function fxAlertSave(){ try{ localStorage.setItem('fxAlerts',JSON.stringify(fxAlerts)); }catch(e){} }
+/* 지금 환율 — 통화별로 얻는다(USD 는 전용 함수가 더 정확하다) */
+function fxRateOf(cur){
+  try{
+    if(cur==='USD'){ const f=usFx(); if(f>0)return f; }
+    const r=(fxLive&&fxLive[cur]);
+    if(r>0)return r;
+    const hit=(fxData||[]).find(x=>x&&(x.code===cur||x.cur===cur));
+    return hit?(+hit.price||+hit.rate||0):0;
+  }catch(e){ return 0; }
+}
+function fxAlertCheck(){
+  try{
+    let changed=false;
+    for(const [cur,a] of Object.entries(fxAlerts)){
+      if(!a)continue;
+      const v=fxRateOf(cur);
+      if(!(v>0))continue;
+      if(a.above&&v>=a.above){
+        notifyUser(`환율 알림 · ${cur} 상승`,`${cur} ${DEC(v)}원 — 설정한 ${DEC(a.above)}원에 닿았습니다`);
+        toast('sell',`${cur} ${DEC(v)}원 도달`,`목표 ${DEC(a.above)}원 이상`);
+        delete a.above; changed=true;
+      }
+      if(a.below&&v<=a.below){
+        notifyUser(`환율 알림 · ${cur} 하락`,`${cur} ${DEC(v)}원 — 설정한 ${DEC(a.below)}원에 닿았습니다`);
+        toast('buy',`${cur} ${DEC(v)}원 도달`,`목표 ${DEC(a.below)}원 이하 · 환전하기 좋은 자리일 수 있습니다`);
+        delete a.below; changed=true;
+      }
+      if(!a.above&&!a.below)delete fxAlerts[cur];
+    }
+    if(changed){ fxAlertSave(); try{renderFxAlerts();}catch(e){} }
+  }catch(e){}
+}
+/* 환율 알림 설정 화면 */
+function fxAlertModal(cur){
+  cur=cur||'USD';
+  const now=fxRateOf(cur);
+  const a=fxAlerts[cur]||{};
+  openLiteGate(`${cur} 환율 알림`,`
+    <div class="fxa-now"><span>현재 ${cur}</span><b class="num">${now>0?DEC(now)+'원':'—'}</b></div>
+    <div class="fld2"><label>이 값 <b>이상</b>이면 알림 <small style="font-weight:600;color:var(--sub-2)">— 팔기 좋은 자리</small></label>
+      <input id="fxaUp" class="num" inputmode="decimal" value="${a.above||''}" placeholder="${now>0?DEC(now*1.02):'예: 1450'}"></div>
+    <div class="fld2"><label>이 값 <b>이하</b>면 알림 <small style="font-weight:600;color:var(--sub-2)">— 사기 좋은 자리</small></label>
+      <input id="fxaDn" class="num" inputmode="decimal" value="${a.below||''}" placeholder="${now>0?DEC(now*0.98):'예: 1350'}"></div>
+    <div class="lg-row"><button class="btn-primary" id="fxaSave">저장</button>
+      <button class="btn-ghost" id="fxaDel">알림 끄기</button></div>
+    <div class="fxa-note">환율이 30원만 움직여도 해외 주식 수익률이 2% 넘게 달라집니다.
+      한 번 울리면 그 조건은 꺼집니다 — 같은 알림이 되풀이되지 않게 하기 위해서입니다.<br>
+      <b>앱이 켜져 있을 때만</b> 확인합니다.</div>`);
+  const nv=(id)=>{const v=($(id).value||'').replace(/[^0-9.]/g,''); return v?Number(v):null;};
+  $('fxaSave').onclick=()=>{
+    const up=nv('fxaUp'), dn=nv('fxaDn');
+    if(up!=null&&dn!=null&&dn>=up){ toast('warn','아래 값이 위 값보다 큽니다',''); return; }
+    if(up==null&&dn==null){ delete fxAlerts[cur]; }
+    else fxAlerts[cur]={...(up!=null?{above:up}:{}),...(dn!=null?{below:dn}:{})};
+    fxAlertSave(); closeLiteGate(); try{renderFxAlerts();}catch(e){}
+    toast('ok','환율 알림을 설정했습니다',
+      [up!=null?`${DEC(up)}원 이상`:'',dn!=null?`${DEC(dn)}원 이하`:''].filter(Boolean).join(' · '));
+  };
+  $('fxaDel').onclick=()=>{ delete fxAlerts[cur]; fxAlertSave(); closeLiteGate();
+    try{renderFxAlerts();}catch(e){} toast('warn','환율 알림을 껐습니다',''); };
+}
+/* 내 계좌 화면의 환전 코너 아래에 현재 설정을 보여 준다 */
+function renderFxAlerts(){
+  const el=$('fxAlertBox'); if(!el)return;
+  const keys=Object.keys(fxAlerts).filter(k=>fxAlerts[k]&&(fxAlerts[k].above||fxAlerts[k].below));
+  el.innerHTML=`<div class="fxa-h">환율 알림
+      <button type="button" class="fxa-add" id="fxaAdd">＋ USD 알림</button></div>
+    ${keys.length?keys.map(k=>{
+      const a=fxAlerts[k], now=fxRateOf(k);
+      return `<button type="button" class="fxa-r" data-fxa="${k}">
+        <span class="fxa-c">${k}</span>
+        <span class="fxa-v num">${now>0?DEC(now)+'원':'—'}</span>
+        <span class="fxa-t">${[a.above?`↑ ${DEC(a.above)}`:'',a.below?`↓ ${DEC(a.below)}`:''].filter(Boolean).join('  ')}</span>
+      </button>`;}).join('')
+      :`<div class="fxa-none">설정된 환율 알림이 없습니다. 목표 환율을 정해 두면 닿았을 때 알려드립니다.</div>`}`;
+  const ad=$('fxaAdd'); if(ad)ad.onclick=()=>fxAlertModal('USD');
+  el.querySelectorAll('[data-fxa]').forEach(b=>b.onclick=()=>fxAlertModal(b.dataset.fxa));
+}
 
 /* ══════════════════════════════════════════════════════════════════════════════
    [v9.84] 공매도 잔고 화면
@@ -14523,12 +14858,49 @@ function sanitizeAccount(silent){
 
 /* ===== 주문 폼 ===== */
 function currentPrice(){return byCode[selected].price??0;}
-function getOrderPrice(){if(ordType==='market')return currentPrice();const v=userPrice!==null?userPrice:currentPrice();
-  const mk=mktOf(selected);return Math.max(tickSize(v||1,mk),roundTick(v,mk));}   /* [v9.71] 코스닥 호가단위 반영 */
+/* ══ [v9.90] 시장가는 '현재가'가 아니라 '상대 호가'에 체결된다 ═══════════════
+   [무엇이 잘못돼 있었나] 시장가 주문의 체결가를 currentPrice() 즉 마지막 체결가로
+   잡았다. 실제 거래소는 다르다. 시장가 매수는 매도 1호가(가장 싼 매도 주문)를
+   물어 가고, 시장가 매도는 매수 1호가에 팔린다. 현재가와 최우선 호가 사이에는
+   늘 스프레드가 있으므로, 지금 방식은 매번 스프레드만큼 유리하게 체결됐다.
+   삼성전자처럼 스프레드가 500원인 종목이면 한 주에 500원씩 공짜로 얻는 셈이다.
+   [고침] 호가창 자료가 있으면 그 값을 쓴다. 없으면(장외·미조회) 현재가로 물러나되
+   최소한 호가단위 하나만큼은 불리하게 잡는다 — 유리한 쪽으로 어림하지 않는다. */
+function obBest(side){
+  try{
+    const d=_obData[selected];
+    if(!d||!d.ok)return null;
+    /* 매수는 매도호가를, 매도는 매수호가를 물어 간다 */
+    const v=(side==='buy')?d.bestAsk:d.bestBid;
+    return (v>0)?v:null;
+  }catch(e){ return null; }
+}
+function marketFillPrice(side){
+  const b=obBest(side);
+  if(b)return b;
+  const cur=currentPrice();
+  if(!(cur>0))return 0;
+  /* 호가를 모를 때는 스프레드를 한 틱으로 가정하고 불리하게 잡는다 */
+  const t=tickSize(cur,mktOf(selected));
+  return side==='buy'?cur+t:Math.max(t,cur-t);
+}
+function getOrderPrice(){
+  if(ordType==='market')return marketFillPrice(ordSide);
+  const v=userPrice!==null?userPrice:currentPrice();
+  const mk=mktOf(selected);return Math.max(tickSize(v||1,mk),roundTick(v,mk));}
 function getQty(){return Math.max(0,parseInt(($('qtyInput').value||'0').replace(/,/g,''))||0);}
-function updateOrderTotal(){$('ordTotal').textContent=KRW(getOrderPrice()*getQty())+'원';}
+function updateOrderTotal(){
+  /* [v9.90] 시장가일 때는 호가가 오래되면 체결가 추정이 어긋난다 — 조용히 갱신한다 */
+  try{ if(ordType==='market'&&currentView==='trade'&&(!_obAt[selected]||Date.now()-_obAt[selected]>15000))
+    obLoad(selected,true).then(()=>{ try{ if(currentView==='trade')updateOrderTotal(); }catch(e){} }); }catch(e){}
+  $('ordTotal').textContent=KRW(getOrderPrice()*getQty())+'원';}
 function syncPriceField(force){const inp=$('pxInput');if(force||userPrice===null){userPrice=null;inp.value=KRW(currentPrice());}
-  $('priceHint').textContent='현재가 '+KRW(currentPrice());syncMaxQty();updateOrderTotal();}
+  /* [v9.90] 현재가만 보여 주면 시장가로 얼마에 살지 알 수 없다 — 최우선 호가를 함께 */
+  /* obBest('buy') = 매수 시 물어 갈 매도1호가, obBest('sell') = 매도 시 팔릴 매수1호가 */
+  const _ask=obBest('buy'), _bid=obBest('sell');
+  $('priceHint').textContent='현재가 '+KRW(currentPrice())
+    +((_ask||_bid)?`  ·  매도호가 ${_ask!=null?KRW(_ask):'—'} / 매수호가 ${_bid!=null?KRW(_bid):'—'}`:'');
+  syncMaxQty();updateOrderTotal();}
 function syncMaxQty(){const h=holdings.find(x=>x.code===selected);
   /* [v4.5] 수수료까지 감당 가능한 수량만 '가능'으로 표시한다. 예전엔 수수료를 빼먹어
      표시된 최대치를 그대로 주문하면 반드시 '예수금 부족'으로 거절됐다. */

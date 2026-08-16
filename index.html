@@ -79,15 +79,20 @@
   /* ══ [v9.71] 입장 화면을 '맑은 하늘'로 ═══════════════════════════════════
      위쪽은 깊은 하늘색, 아래로 갈수록 옅어지며 지평선의 빛으로 이어진다.
      글자는 어두운 남색으로 바꿔 밝은 배경에서도 또렷하게 읽힌다. */
-  /* ══ [v9.77] 구름을 걷고 '하늘색 그라데이션'만 남긴다 ═══════════════════════
-     구름 무늬(feTurbulence)는 가까이서 보면 결이 반복돼 얼룩처럼 보였다.
-     위는 진한 하늘, 아래로 갈수록 연해지는 색만으로 깔끔하게 간다.
-     단계를 촘촘히 둬야 넓은 화면에서 띠(밴딩)가 생기지 않는다. */
+  /* ══ [v9.87] 배경과 글자가 서로 잡아먹던 문제 ═══════════════════════════════
+     [무엇이 잘못됐나] 밝은 하늘색 위에 어두운 남색 글자를 얹었는데, 배경이 위에서
+     아래로 크게 변해 어느 높이에 있느냐에 따라 대비가 널뛰었다. 실제로 재 보니
+       · 워드마크(#0d2c4a) 대 상단 배경 : 3.03 : 1  (권장 4.5 미달)
+       · '증권'(주황 #ef7c05) 대 상단   : 1.69 : 1  ← 거의 안 보이는 수준
+     주황 글자를 밝은 하늘 위에 놓은 것이 결정적이었다. 둘 다 밝아서 구분이 안 된다.
+     [어떻게 바꿨나] 배경을 어둡게 뒤집는다. 깊은 남색 → 푸른 남색으로 내려가며,
+     글자는 흰색·연한 하늘색·주황을 쓴다. 같은 방식으로 다시 재니 모든 조합이
+     4.5 : 1 을 넘는다(가장 낮은 것이 5.14). 주황 로고도 9.00 : 1 로 또렷해진다.
+     밤하늘로 돌아간 것이 아니라, '해 지기 직전의 깊은 하늘' 쪽이다. */
   background:linear-gradient(180deg,
-    #1173d8 0%, #1a80e2 10%, #2b8fe8 20%, #3f9eee 30%, #57adf2 40%,
-    #71bcf5 50%, #8ccbf8 60%, #a8d9fa 70%, #c3e5fc 80%, #daeffd 88%,
-    #ecf7fe 95%, #f7fcff 100%);
-  color:#0d2c4a;
+    #08192f 0%, #0a1f3d 12%, #0e2a4e 24%, #123a63 40%,
+    #17456f 55%, #1b4c7b 70%, #1d5285 84%, #205a8f 100%);
+  color:#eaf3fb;
   font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
   transition:opacity .55s ease;
   padding:max(26px,env(safe-area-inset-top))
@@ -102,13 +107,14 @@
 /* 햇살 — 오른쪽 위에서 부드럽게 번진다 */
 #bootGate::before,#bootGate::after{content:'';position:absolute;border-radius:50%;pointer-events:none}
 /* [v9.77] 해는 은은하게만 — 그라데이션을 해치지 않을 정도로 */
-#bootGate::before{width:70vw;height:70vw;max-width:480px;max-height:480px;top:-22vw;right:-16vw;
-  background:radial-gradient(circle,rgba(255,250,228,.55),rgba(255,242,190,.24) 30%,transparent 66%);
-  filter:blur(24px);animation:bgSun 9s ease-in-out infinite}
+/* [v9.87] 어두운 배경에 맞춰 '해'가 아니라 은은한 빛무리로 */
+#bootGate::before{width:86vw;height:86vw;max-width:620px;max-height:620px;top:-30vw;right:-22vw;
+  background:radial-gradient(circle,rgba(70,150,240,.30),rgba(40,110,200,.13) 34%,transparent 68%);
+  filter:blur(40px);animation:bgSun 9s ease-in-out infinite}
 /* 지평선의 옅은 빛 */
-#bootGate::after{width:150vw;height:60vw;max-height:420px;border-radius:50% 50% 0 0;bottom:-14vw;left:-25vw;
-  background:radial-gradient(ellipse at 50% 100%,rgba(255,255,255,.82),rgba(255,255,255,.25) 46%,transparent 74%);
-  filter:blur(28px)}
+#bootGate::after{width:150vw;height:60vw;max-height:420px;border-radius:50% 50% 0 0;bottom:-16vw;left:-25vw;
+  background:radial-gradient(ellipse at 50% 100%,rgba(90,175,255,.24),rgba(60,130,215,.10) 48%,transparent 76%);
+  filter:blur(34px)}
 @keyframes bgSun{0%,100%{transform:scale(1);opacity:.92}50%{transform:scale(1.07);opacity:1}}
 
 /* [v9.77] 구름 레이어 제거 — 그라데이션만으로 간다.
@@ -138,13 +144,14 @@
   background:radial-gradient(circle,rgba(245,179,15,.42),transparent 68%);filter:blur(14px);z-index:-1}
 @keyframes bgPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
 .bg-wm{font-size:clamp(54px,11vw,78px);font-weight:900;letter-spacing:-2.2px;line-height:1;
-  color:#0d2c4a;text-shadow:0 2px 14px rgba(255,255,255,.75)}
-.bg-wm b{background:linear-gradient(180deg,#ff9f1a,#ef7c05);-webkit-background-clip:text;background-clip:text;
-  -webkit-text-fill-color:transparent;color:#ef7c05}
-.bg-tag{font-size:clamp(15px,3.4vw,19px);font-weight:800;color:#14507f;letter-spacing:-.3px;
+  color:#ffffff;text-shadow:0 2px 18px rgba(0,0,0,.45)}
+/* 주황은 밝은 쪽으로 올린다 — 어두운 배경에서 9:1 대비가 나온다 */
+.bg-wm b{background:linear-gradient(180deg,#ffc247,#ffb020);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:#ffb020;filter:drop-shadow(0 2px 10px rgba(255,160,20,.35))}
+.bg-tag{font-size:clamp(15px,3.4vw,19px);font-weight:800;color:#cfe4f7;letter-spacing:-.3px;
   margin-top:16px;text-align:center;
-  background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.9);border-radius:99px;
-  padding:8px 18px;backdrop-filter:blur(8px);box-shadow:0 6px 20px rgba(28,90,150,.13)}
+  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:99px;
+  padding:8px 18px;backdrop-filter:blur(8px)}
 .bg-charwrap{position:relative;display:grid;place-items:center;margin-top:clamp(6px,2vw,14px)}
 .bg-charwrap::before{content:'';position:absolute;width:clamp(260px,56vw,400px);aspect-ratio:1.5;border-radius:50%;
   background:radial-gradient(ellipse,rgba(245,160,25,.20),rgba(245,160,25,.06) 52%,transparent 72%)}
@@ -152,20 +159,20 @@
    그림자를 한 겹으로만 두면 배경에 묻혀 흐릿해 보인다.
    따뜻한 색 번짐을 아래에 깔고, 위로 살짝 떠 있게 해 깔끔하게 보이게 한다. */
 .bg-charwrap{position:relative;display:grid;place-items:center;margin-top:6px}
-.bg-charwrap::before{content:'';position:absolute;width:64%;height:32%;bottom:5%;
-  background:radial-gradient(ellipse at center,rgba(255,255,255,.9),rgba(255,255,255,.35) 55%,transparent 74%);
-  filter:blur(22px);pointer-events:none}
+.bg-charwrap::before{content:'';position:absolute;width:66%;height:34%;bottom:4%;
+  background:radial-gradient(ellipse at center,rgba(90,170,250,.42),rgba(60,130,210,.16) 58%,transparent 76%);
+  filter:blur(26px);pointer-events:none}
 .bg-char{position:relative;width:clamp(250px,50vw,360px);max-height:34vh;object-fit:contain;
-  filter:drop-shadow(0 14px 26px rgba(23,78,130,.28)) drop-shadow(0 2px 6px rgba(255,255,255,.7));
+  filter:drop-shadow(0 14px 30px rgba(0,0,0,.5));
   animation:bgFloat 3.6s ease-in-out infinite}
 @keyframes bgFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
 
 /* 아래 — 상태 문구 + 진행바 */
 /* [v9.71] 진행 영역을 반투명 유리판 카드로 — 구름 위에 떠 있는 느낌 */
 .bg-low{position:relative;z-index:2;width:min(540px,93vw);margin-bottom:20px;flex:none;
-  background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.92);
-  border-radius:20px;padding:15px 17px 14px;backdrop-filter:blur(14px);
-  box-shadow:0 14px 40px rgba(23,78,130,.16),inset 0 1px 0 rgba(255,255,255,.9)}
+  background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);
+  border-radius:20px;padding:15px 17px 14px;backdrop-filter:blur(16px);
+  box-shadow:0 16px 44px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.14)}
 /* ══ [v4.25] 진행 표시를 전부 CSS 애니메이션으로 ═══════════════════════════
    [무엇이 잘못됐나] 진행바와 문구를 setInterval 로 그렸다. 그런데 부팅 중
    app.js 가 메인 스레드를 길게 점유하면 타이머가 아예 돌지 못해, 막대가 11%에
@@ -174,7 +181,7 @@
    메인 스레드가 막혀도 컴포지터에서 계속 움직이고, 문구도 opacity 키프레임으로
    스스로 넘어간다. JS 는 '끝났다'는 신호만 준다. */
 .bg-status{position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-  font-size:clamp(14.5px,3.1vw,16.5px);font-weight:800;letter-spacing:-.3px;padding-bottom:11px;color:#0d3559;
+  font-size:clamp(14.5px,3.1vw,16.5px);font-weight:800;letter-spacing:-.3px;padding-bottom:11px;color:#ffffff;
   min-height:24px}
 .bg-msgs{position:relative;flex:1 1 auto;min-width:0;display:block;height:1.35em}
 .bg-msgs b{position:absolute;left:0;top:0;width:100%;font-weight:800;opacity:0;
@@ -191,23 +198,23 @@
 #bootGate.fin .bg-msgs b.fin{opacity:1}
 @keyframes bgMsgCycle{0%{opacity:0}1%{opacity:1}14.6%{opacity:1}15.6%{opacity:0}100%{opacity:0}}
 .bg-meta{display:flex;align-items:baseline;gap:10px;flex:none}
-.bg-pct{font-style:normal;font-size:16.5px;font-weight:900;color:#0d3559;font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+.bg-pct{font-style:normal;font-size:16.5px;font-weight:900;color:#ffffff;font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
 .bg-pct::after{content:'2%';animation:bgPctNum 7.2s steps(1,end) forwards}
 #bootGate.fin .bg-pct::after{content:'100%';animation:none}
 @keyframes bgPctNum{0.0%{content:"2%"}4.9%{content:"2%"}9.6%{content:"4%"}14.1%{content:"6%"}18.4%{content:"8%"}22.5%{content:"12%"}26.5%{content:"15%"}30.3%{content:"20%"}34.0%{content:"24%"}37.7%{content:"29%"}41.2%{content:"34%"}44.8%{content:"40%"}48.3%{content:"45%"}51.7%{content:"51%"}55.2%{content:"56%"}58.8%{content:"62%"}62.3%{content:"67%"}66.0%{content:"72%"}69.7%{content:"76%"}73.5%{content:"81%"}77.5%{content:"84%"}81.6%{content:"88%"}85.9%{content:"90%"}90.4%{content:"92%"}95.1%{content:"94%"}100.0%{content:"94%"}}
-.bg-step{font-style:normal;font-size:11.5px;font-weight:800;color:#b45309;flex:none;
-  background:rgba(255,196,80,.28);border:1px solid rgba(214,140,20,.42);border-radius:99px;padding:2.5px 9px}
+.bg-step{font-style:normal;font-size:11.5px;font-weight:800;color:#ffc247;flex:none;
+  background:rgba(255,176,32,.16);border:1px solid rgba(255,176,32,.34);border-radius:99px;padding:2.5px 9px}
 .bg-step::after{content:'1 / 6';animation:bgStepNum 7.2s steps(1,end) forwards}
 @keyframes bgStepNum{
   0%{content:'1 / 6'}14.6%{content:'2 / 6'}29.2%{content:'3 / 6'}
   43.8%{content:'4 / 6'}58.3%{content:'5 / 6'}72.9%{content:'6 / 6'}100%{content:'6 / 6'}}
 #bootGate.fin .bg-step::after{content:'완료';animation:none}
 .bg-bar{position:relative;width:100%;height:9px;border-radius:99px;overflow:hidden;
-  background:rgba(18,72,120,.13);box-shadow:inset 0 1px 2px rgba(18,72,120,.18)}
+  background:rgba(255,255,255,.14);box-shadow:inset 0 1px 3px rgba(0,0,0,.3)}
 .bg-fill{position:absolute;inset:0;border-radius:99px;transform-origin:left center;
   transform:scaleX(.02);will-change:transform;
-  background:linear-gradient(90deg,#ffc93c,#f5a30d 58%,#ff7a2f);
-  box-shadow:0 2px 12px rgba(240,140,10,.5);
+  background:linear-gradient(90deg,#ffd166,#ffb020 58%,#ff8a3d);
+  box-shadow:0 0 16px rgba(255,176,32,.55);
   animation:bgGrow 7.2s cubic-bezier(.42,0,.58,1) forwards}
 @keyframes bgGrow{from{transform:scaleX(.02)}to{transform:scaleX(.94)}}
 #bootGate.fin .bg-fill{animation:none;transform:scaleX(1);transition:transform .45s cubic-bezier(.25,.8,.3,1)}
@@ -216,21 +223,20 @@
   background-size:220% 100%;animation:bgShine 1.7s linear infinite}
 @keyframes bgShine{0%{background-position:200% 0}100%{background-position:-60% 0}}
 .bg-tip{margin-top:15px;display:flex;align-items:center;justify-content:center;gap:9px;min-height:22px}
-.bg-tipb{flex:none;font-size:10.5px;font-weight:900;letter-spacing:.6px;color:#fff;
-  background:linear-gradient(135deg,#ffb020,#ef7c05);border-radius:6px;padding:2.5px 7px;
-  box-shadow:0 3px 10px rgba(239,124,5,.3)}
-.bg-tip span{font-size:13px;font-weight:700;color:#1b5182;transition:opacity .3s;
+.bg-tipb{flex:none;font-size:10.5px;font-weight:900;letter-spacing:.6px;color:#0a1f3d;
+  background:linear-gradient(135deg,#ffd166,#ffb020);border-radius:6px;padding:2.5px 7px;
+  box-shadow:0 3px 10px rgba(255,176,32,.28)}
+.bg-tip span{font-size:13px;font-weight:700;color:#cfe4f7;transition:opacity .3s;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bg-ver{position:absolute;z-index:3;top:max(14px,env(safe-area-inset-top));
   right:max(16px,calc(env(safe-area-inset-right) + 8px));
-  font-size:12px;font-weight:900;color:#14507f;letter-spacing:.2px;
-  background:rgba(255,255,255,.68);border:1px solid rgba(255,255,255,.95);
-  border-radius:99px;padding:5px 13px;backdrop-filter:blur(8px);
-  box-shadow:0 4px 14px rgba(23,78,130,.14)}
+  font-size:12px;font-weight:900;color:#ffc247;letter-spacing:.2px;
+  background:rgba(255,176,32,.13);border:1px solid rgba(255,176,32,.3);
+  border-radius:99px;padding:5px 13px;backdrop-filter:blur(8px)}
 
 .bg-foot{position:relative;z-index:2;flex:0 0 auto;width:min(600px,88vw);max-width:100%;text-align:center;
-  font-size:11.5px;line-height:1.7;color:rgba(20,66,110,.72);font-weight:700;
-  border-top:1px solid rgba(255,255,255,.75);padding-top:13px;
+  font-size:11.5px;line-height:1.7;color:#b3d2ec;font-weight:700;
+  border-top:1px solid rgba(255,255,255,.14);padding-top:13px;
   /* 자리는 마지막까지 지킨다 — 공간이 모자라면 위쪽(로고·마스코트)이 먼저 줄어든다 */
   padding-bottom:2px}
 /* 세로가 아주 짧으면 둘째 줄 안내는 접는다 — 반쯤 잘린 글자를 남기는 것보다 낫다 */
@@ -241,7 +247,7 @@
   .bg-mark{width:86px;height:86px;font-size:48px;border-radius:22px}
   .bg-wm{font-size:34px}}
 @media (max-height:420px){.bg-mid{display:none}}
-.bg-foot b{font-weight:900;color:#0d3559}
+.bg-foot b{font-weight:900;color:#eaf3fb}
 @media (prefers-reduced-motion:reduce){
   .bg-mark,.bg-char,.bg-fill::after,#bootGate::before,#bootGate::after,.bg-cl{animation:none}
   .bg-fill{animation-duration:7.2s}}
@@ -366,8 +372,8 @@
     </div>
     <div class="modal-body">
       <div id="loginForm">
-        <div class="fld2"><label>아이디</label><input id="liId" autocomplete="username" placeholder="아이디"></div>
-        <div class="fld2"><label>비밀번호</label><input id="liPw" type="password" autocomplete="current-password" placeholder="비밀번호"></div>
+        <div class="fld2"><label>아이디</label><input id="liId" aria-label="아이디" autocomplete="username" placeholder="아이디"></div>
+        <div class="fld2"><label>비밀번호</label><input id="liPw" aria-label="비밀번호" type="password" autocomplete="current-password" placeholder="비밀번호"></div>
         <div class="modal-msg" id="liMsg"></div>
         <button class="modal-btn" id="doLogin">로그인</button>
 
@@ -405,7 +411,9 @@
         <div class="modal-msg" id="suMsg"></div>
         <div class="su-nav" id="suNav"></div>
       </div>
-      </div>
+      <!-- [v9.87] 여기에 짝 없는 </div> 가 하나 더 있었다. 브라우저가 알아서
+           바로잡아 줘서 화면은 멀쩡했지만, 구조가 어긋난 채로 두면 나중에
+           이 부근에 무언가를 넣을 때 엉뚱한 자리에 들어간다. -->
     </div>
   </div>
 </div>
@@ -463,7 +471,7 @@
       <div class="set-row"><div class="set-info"><div class="set-t">데이터 절약 모드</div><div class="set-d">미니 차트(스파크라인)를 그리지 않습니다</div></div>
         <button class="sw" id="setSaver" role="switch" aria-label="데이터 절약"><span class="knob"></span></button></div>
       <div class="set-row"><div class="set-info"><div class="set-t">캐시 비우기</div><div class="set-d">종목 목록·차트·기업정보를 새로 받아옵니다</div></div>
-        <button class="set-btn" id="setCacheClear">비우기</button></div>
+        <button class="set-btn" id="setCacheClear" aria-label="캐시 비우기">비우기</button></div>
       <div class="set-row"><div class="set-info"><div class="set-t">실제 시장 시간으로 매수/매도</div><div class="set-d" id="setRealDesc">—</div></div>
         <button class="sw" id="setReal" role="switch" aria-label="실제 시장 시간"><span class="knob"></span></button></div>
       <div class="set-row"><div class="set-info"><div class="set-t">NXT 명단</div><div class="set-d" id="nxtStatTxt">—</div><div class="set-d" id="nxtStatMsg"></div></div>
@@ -493,7 +501,7 @@
       <div class="set-row"><div class="set-info"><div class="set-t">예수금 리셋</div><div class="set-d">가상 예수금을 원하는 금액으로 재설정</div></div>
         <button class="set-btn" id="setCashReset">변경</button></div>
       <div class="set-row"><div class="set-info"><div class="set-t">검색·열람 기록 삭제</div></div>
-        <button class="set-btn" id="setHistClear">삭제</button></div>
+        <button class="set-btn" id="setHistClear" aria-label="기록 지우기">삭제</button></div>
       <!-- [v6.8] 계정 삭제는 프로필 → 계정 설정으로 옮겼다.
              계정에 관한 일은 한곳에 모여 있어야 찾기 쉽다. -->
       <div class="set-about">💾 <b>자동 저장</b> — 관심종목·폴더·보유·메모·설정 등 모든 데이터는 바꾸는 즉시 이 브라우저와 클라우드 계정에 <b>실시간 자동 저장</b>됩니다. 따로 내보내기·백업할 필요가 없어요.</div>
@@ -510,8 +518,8 @@
       </div>
       <div class="adm-panel" id="admPanel" hidden>
         <div class="set-sec">🔐 관리자 · 업데이트 공지 편집</div>
-        <input class="ask-in" id="admTok" type="password" placeholder="관리자 토큰 (환경변수 NXT_ADMIN_TOKEN 값)">
-        <input class="ask-in" id="admVer" placeholder="버전 (예: 1.92.0)">
+        <input class="ask-in" id="admTok" aria-label="관리 토큰" type="password" placeholder="관리자 토큰 (환경변수 NXT_ADMIN_TOKEN 값)">
+        <input class="ask-in" id="admVer" aria-label="버전" placeholder="버전 (예: 1.92.0)">
         <textarea class="ask-in ask-area" id="admNotes" rows="4" placeholder="업데이트 내용 — 한 줄에 하나씩"></textarea>
         <div class="set-btns"><button class="set-btn" id="admLoad">현재 공지 불러오기</button><button class="set-btn primary" id="admSave">공지 게시</button></div>
         <div class="set-d" id="admMsg"></div>
@@ -536,9 +544,9 @@
         <!-- [v8.1] 닉네임을 없애고 이름 하나로 쓴다. 두 개를 따로 두니
              계좌 개설의 실명과 섞여 혼란만 생겼다. -->
         <div class="fld2"><label>이름 <small style="font-weight:600;color:var(--sub-2)">— 클랜·친구에게도 이 이름으로 보입니다</small></label>
-          <input id="pmNameIn" placeholder="홍길동" maxlength="20"></div>
-        <div class="fld2"><label>이메일</label><input id="pmEmailIn" placeholder="이메일 (선택)"></div>
-        <div class="fld2"><label>한 줄 소개</label><input id="pmBioIn" placeholder="예: 반도체 위주로 연습 중" maxlength="40"></div>
+          <input id="pmNameIn" aria-label="이름" placeholder="홍길동" maxlength="20"></div>
+        <div class="fld2"><label>이메일</label><input id="pmEmailIn" aria-label="이메일" placeholder="이메일 (선택)"></div>
+        <div class="fld2"><label>한 줄 소개</label><input id="pmBioIn" aria-label="소개" placeholder="예: 반도체 위주로 연습 중" maxlength="40"></div>
         <div class="pm-msg" id="pmProfileMsg"></div>
         <button class="modal-btn" id="pmSaveProfile">프로필 저장</button>
       </div>
@@ -594,9 +602,9 @@
         <button class="btn-primary" id="pmLoginGo">로그인 / 회원가입</button>
       </div>
       <div class="pm-pane" id="pm-security" hidden>
-        <div class="fld2"><label>새 로그인 비밀번호</label><input id="pmPw" type="password" autocomplete="new-password" placeholder="8자 이상 · 영문+숫자+특수문자 (변경 시에만)"></div><div class="pw-meter" id="pmPwMeter" hidden></div>
-        <div class="fld2"><label>새 로그인 비밀번호 확인</label><input id="pmPw2" type="password" autocomplete="new-password" placeholder="위와 같게 한 번 더"></div>
-        <div class="fld2"><label>새 계좌 비밀번호 (숫자 4자리)</label><input id="pmAcct" type="password" inputmode="numeric" maxlength="4" placeholder="변경 시에만 입력"></div>
+        <div class="fld2"><label>새 로그인 비밀번호</label><input id="pmPw" aria-label="새 비밀번호" type="password" autocomplete="new-password" placeholder="8자 이상 · 영문+숫자+특수문자 (변경 시에만)"></div><div class="pw-meter" id="pmPwMeter" hidden></div>
+        <div class="fld2"><label>새 로그인 비밀번호 확인</label><input id="pmPw2" aria-label="새 비밀번호 확인" type="password" autocomplete="new-password" placeholder="위와 같게 한 번 더"></div>
+        <div class="fld2"><label>새 계좌 비밀번호 (숫자 4자리)</label><input id="pmAcct" aria-label="계좌 비밀번호" type="password" inputmode="numeric" maxlength="4" placeholder="변경 시에만 입력"></div>
         <div class="pm-msg" id="pmSecMsg"></div>
         <button class="modal-btn" id="pmSaveSec">변경 저장</button>
       </div>
@@ -850,7 +858,7 @@
           <div class="ai-top"><b>AI 브리핑</b><span class="ai-cat" id="aiCat">브리핑</span><span class="ai-live" id="aiLive">실시간</span><span class="ai-time" id="aiTime">—</span></div>
           <div class="ai-bubble"><div class="ai-text" id="aiText">시장을 살펴보는 중이에요…</div></div>
           <div class="ai-foot-r"><div class="ai-dots" id="aiDots"></div>
-            <button class="ai-next" id="aiNext">다음 ›</button></div>
+            <button class="ai-next" id="aiNext" aria-label="다음 브리핑">다음 ›</button></div>
         </div>
       </div>
     </div>
@@ -896,6 +904,8 @@
         <div class="fx-rail" id="fxRow"></div>
         <button class="idx-arrow r" id="fxNext" aria-label="다음">›</button>
       </div>
+      <!-- [v9.87] 환율 알림 — 해외 주식에서 환율은 종목만큼 중요하다 -->
+      <div class="fxa-box" id="fxAlertBox"></div>
     </div>
     <div class="sec">
       <div class="sec-title">공모주 투자 플래너 <span class="more" id="ipoRefresh">새로고침 ⟳</span></div>
@@ -914,7 +924,7 @@
   <section class="view" id="view-search" hidden>
     <div class="page-title">종목검색</div>
     <div class="page-sub">종목명 또는 6자리 코드로 검색. 누르면 실시간 시세와 함께 거래 화면이 열립니다.</div>
-    <div class="search-box"><input id="searchInput" placeholder="종목명·코드로 전체 상장 종목·ETF 검색 (예: 삼성전자, SOL AI반도체TOP2플러스, 000660)" autocomplete="off"><span class="sb-kbd" aria-hidden="true">/</span><button class="sb-clear" id="searchClear" hidden aria-label="지우기">✕</button></div>
+    <div class="search-box"><input id="searchInput" aria-label="종목 검색" placeholder="종목명·코드로 전체 상장 종목·ETF 검색 (예: 삼성전자, SOL AI반도체TOP2플러스, 000660)" autocomplete="off"><span class="sb-kbd" aria-hidden="true">/</span><button class="sb-clear" id="searchClear" hidden aria-label="지우기">✕</button></div>
     <div class="srch-hist" id="srchHist" hidden></div>
     <div class="srch-hist" id="viewHist" hidden></div>
     <div class="srch-short" id="srchShort"></div>
@@ -1005,7 +1015,7 @@
 
     <div id="secPaneGroup">
       <div class="thm-tools">
-        <div class="thm-search"><input id="thmSearch" placeholder="테마·업종 검색 (예: 반도체, 로봇, 원전)" autocomplete="off">
+        <div class="thm-search"><input id="thmSearch" aria-label="테마·업종 검색" placeholder="테마·업종 검색 (예: 반도체, 로봇, 원전)" autocomplete="off">
           <button class="thm-x" id="thmClear" hidden aria-label="지우기">✕</button></div>
         <div class="thm-sorts" id="thmSorts"></div>
       </div>
@@ -1033,7 +1043,7 @@
       <div class="sec-title">전체 ETF 탐색</div>
       <div class="panel etf-browser">
         <div class="etf-filter">
-          <input id="etfSearch" placeholder="ETF명·코드 검색 (예: 반도체, KODEX 200, 미국)" autocomplete="off">
+          <input id="etfSearch" aria-label="ETF 검색" placeholder="ETF명·코드 검색 (예: 반도체, KODEX 200, 미국)" autocomplete="off">
         </div>
         <div class="etf-chips" id="etfTabs"></div>
         <div class="etf-chips sub" id="etfSorts"></div>
@@ -1081,7 +1091,7 @@
     <div class="uz-pane" id="uspane-find">
       <div class="uz-searchbar">
         <span class="uz-si" aria-hidden="true">🔍</span>
-        <input id="usSearch" placeholder="티커 · 종목명 검색 (NVDA, 엔비디아, 테슬라)" autocomplete="off">
+        <input id="usSearch" aria-label="해외 종목 검색" placeholder="티커 · 종목명 검색 (NVDA, 엔비디아, 테슬라)" autocomplete="off">
         <button class="uz-sx" id="usSearchClear" hidden aria-label="검색어 지우기">✕</button>
       </div>
       <div id="usSearchOut"></div>
@@ -1185,7 +1195,7 @@
         </div>
         <div class="ac-search-row">
           <div class="ac-search-wrap">
-            <input id="acSearch" placeholder="종목명 또는 코드 검색 — 예: 삼성전자, 005930" autocomplete="off">
+            <input id="acSearch" aria-label="종목 검색" placeholder="종목명 또는 코드 검색 — 예: 삼성전자, 005930" autocomplete="off">
             <div class="ac-sug" id="acSug" hidden></div>
           </div>
           <button class="scr-run" id="acRun" disabled>정밀 분석</button>
@@ -1245,12 +1255,12 @@
       <div class="panel pro-panel">
         <div class="pro-head"><div><b>조건 검색기</b><span>24시간 자동 재검색 · 개장 전엔 마지막 장 기준으로 계속 작동</span></div><div class="pro-head-r"><span class="pro-live" id="scrLive"></span></div></div>
         <div class="scr-grid">
-          <label>등락률(%) <input id="scrChgMin" type="number" step="0.5" placeholder="최소"> ~ <input id="scrChgMax" type="number" step="0.5" placeholder="최대"></label>
-          <label>거래대금(억) <input id="scrValMin" type="number" step="10" placeholder="최소"> ~ <input id="scrValMax" type="number" step="10" placeholder="최대"></label>
-          <label>주가(원) <input id="scrPxMin" type="number" step="1000" placeholder="최소"> ~ <input id="scrPxMax" type="number" step="1000" placeholder="최대"></label>
-          <label>거래량(주) 최소 <input id="scrVolMin" type="number" step="10000" placeholder="예: 100000"></label>
-          <label>종가 위치(%) <input id="scrPosMin" type="number" step="5" placeholder="최소"> ~ <input id="scrPosMax" type="number" step="5" placeholder="최대"></label>
-          <label>시가 대비(%) 최소 <input id="scrBodyMin" type="number" step="0.5" placeholder="양봉 강도"></label>
+          <label>등락률(%) <input id="scrChgMin" aria-label="등락률 최소" type="number" step="0.5" placeholder="최소"> ~ <input id="scrChgMax" aria-label="등락률 최대" type="number" step="0.5" placeholder="최대"></label>
+          <label>거래대금(억) <input id="scrValMin" aria-label="거래대금 최소" type="number" step="10" placeholder="최소"> ~ <input id="scrValMax" aria-label="거래대금 최대" type="number" step="10" placeholder="최대"></label>
+          <label>주가(원) <input id="scrPxMin" aria-label="가격 최소" type="number" step="1000" placeholder="최소"> ~ <input id="scrPxMax" aria-label="가격 최대" type="number" step="1000" placeholder="최대"></label>
+          <label>거래량(주) 최소 <input id="scrVolMin" aria-label="거래량 최소" type="number" step="10000" placeholder="예: 100000"></label>
+          <label>종가 위치(%) <input id="scrPosMin" aria-label="위치 최소" type="number" step="5" placeholder="최소"> ~ <input id="scrPosMax" aria-label="위치 최대" type="number" step="5" placeholder="최대"></label>
+          <label>시가 대비(%) 최소 <input id="scrBodyMin" aria-label="몸통 비율 최소" type="number" step="0.5" placeholder="양봉 강도"></label>
           <label>시장 <select id="scrMkt"><option value="">전체</option><option>코스피</option><option>코스닥</option></select></label>
           <label>종류 <select id="scrKind"><option value="">전체</option><option value="stock">주식만</option><option value="etf">ETF·ETN만</option></select></label>
           <label>NXT <select id="scrNxt"><option value="">전체</option><option value="y">거래 가능</option><option value="n">불가</option></select></label>
@@ -1301,10 +1311,10 @@
       <div class="panel pro-panel">
         <div class="pro-head"><div><b>리스크 계산기</b><span>손절 기준으로 적정 매수 수량을 계산합니다</span></div></div>
         <div class="scr-grid">
-          <label>총 투자금(원) <input id="rkCap" type="number" placeholder="예: 10000000"></label>
-          <label>허용 손실(%) <input id="rkRisk" type="number" step="0.5" value="2"></label>
-          <label>매수가(원) <input id="rkBuy" type="number" placeholder="예: 50000"></label>
-          <label>손절가(원) <input id="rkStop" type="number" placeholder="예: 47500"></label>
+          <label>총 투자금(원) <input id="rkCap" aria-label="투자 원금" type="number" placeholder="예: 10000000"></label>
+          <label>허용 손실(%) <input id="rkRisk" aria-label="감내 손실률" type="number" step="0.5" value="2"></label>
+          <label>매수가(원) <input id="rkBuy" aria-label="매수가" type="number" placeholder="예: 50000"></label>
+          <label>손절가(원) <input id="rkStop" aria-label="손절가" type="number" placeholder="예: 47500"></label>
         </div>
         <button class="scr-run" id="rkRun">계산</button>
         <div id="rkBody"></div>
@@ -1380,6 +1390,7 @@
         <button data-info="chart">차트</button>
         <button data-info="sise">시세</button>
         <button data-info="asking">호가</button>
+        <button data-info="backtest">백테스트</button>
         <button data-info="news">뉴스</button>
         <button data-info="etf" id="tabEtf" hidden>ETF정보</button>
         <button data-info="investor">투자자별</button>
