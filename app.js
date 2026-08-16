@@ -1472,7 +1472,7 @@ async function runLogoAudit(){
         코넥스는 목록 제공 범위 밖이라 포함되지 않습니다.
         '자체'는 그 종목 코드로 직접 찾은 로고, '본주대체'는 우선주가 본주 로고를 쓴 경우, '그룹대체'는 계열사가 그룹 대표 로고를 쓴 경우입니다(모두 실제 CI와 일치).
         맨 아래 목록은 회사 자체에 CI 이미지가 없는 종목입니다(신규 상장 직후·초소형주 등). 오류가 아니라 색 배지로 표시하는 것이 정상이며, 증권사 앱도 같은 방식입니다. 탐색 계획 버전 v${logoPlanVer()}.</div></div>
-        <table class="ea-tbl"><thead><tr><th>소스</th><th>건수</th><th>비중</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <div class="table-wrap"><table class="ea-tbl"><thead><tr><th>소스</th><th>건수</th><th>비중</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
     const listOf=(arr,label,cls,fmt)=>arr.length?`<div class="ea-grp ${cls||''}">${label} <b>${arr.length.toLocaleString()}</b></div>
       <div class="ea-list">${arr.slice(0,40).map(fmt).join('')}</div>
@@ -6411,21 +6411,21 @@ function openHoursSheet(){
     <div class="cc-body">
       ${k.special?`<div class="hr-sp">⏰ 오늘은 <b>${k.special}</b> — 아래 시간이 모두 ${k.shift}분씩 뒤로 밀립니다</div>`:""}<div class="hr-now">지금 <b>${marketSession().label}</b><div class="hr-d">${marketSession().sub}</div></div>
       <div class="cc-sec">KRX 한국거래소</div>
-      <table class="hr-tb"><tbody>
+      <div class="table-wrap"><table class="hr-tb"><tbody>
       ${R('08:30~08:40','장전 시간외 종가','전일 종가로 체결',on(M(8,30),M(8,40)))}
       ${R('08:30~09:00','장 시작 동시호가','주문을 모아 09:00 시가를 단일가로 결정',on(M(8,30),M(9,0)))}
       ${R('09:00~15:20','정규장 접속매매','실시간 체결',on(M(9,0),M(15,20)))}
       ${R('15:20~15:30','장 마감 동시호가','15:30 종가를 단일가로 결정',on(M(15,20),M(15,30)))}
       ${R('15:40~16:00','장후 시간외 종가','당일 종가로 체결',on(M(15,40),M(16,0)))}
       ${R('16:00~18:00','시간외 단일가','10분 단위 · 당일 종가 ±10% (가격제한폭 내)',on(M(16,0),M(18,0)))}
-      </tbody></table>
+      </tbody></table></div>
       <div class="cc-sec">NXT 넥스트레이드</div>
-      <table class="hr-tb"><tbody>
+      <div class="table-wrap"><table class="hr-tb"><tbody>
       ${R('08:00~08:50','프리마켓','KRX보다 30분 일찍 시작 · 지정가 주문만',onS(T(8,0),T(8,50)))}
       ${R('09:00:30~15:20','메인마켓','KRX 시가 형성을 기다려 30초 늦게 개시 · SOR이 유리한 쪽으로 배분',onS(T(9,0,30),T(15,20)))}
       ${R('15:30~15:40','애프터마켓 단일가','호가만 접수하고 15:40에 체결',onS(T(15,30),T(15,40)))}
       ${R('15:40~20:00','애프터마켓 경쟁매매','저녁 8시까지 · 지정가 주문만',onS(T(15,40),T(20,0)))}
-      </tbody></table>
+      </tbody></table></div>
       <div class="hr-note">NXT는 <b>08:50~09:00:30</b>과 <b>15:20~15:30</b>에 쉽니다. KRX가 시가·종가를 단일가로 정하는 시간과 겹치지 않게 하기 위해서예요.<br>
       NXT에서 거래되는 종목은 <b>KRX 시간외 단일가(16:00~18:00)를 이용할 수 없습니다</b> — 그 시간엔 NXT 애프터마켓으로 주문하세요.<br>
       프리마켓과 애프터마켓은 지정가 주문만 받고, 가격제한폭은 KRX와 같은 전일 종가 ±30%입니다.<br>
@@ -10008,7 +10008,7 @@ function stockRow(code,name,market,tag,rank){
   /* [v4.65] 순위 유무를 클래스로 알려 준다 — 2단 배치에서 칸 수가 달라지고,
      :has() 를 못 쓰는 브라우저에서도 어긋나지 않게 하기 위해서다. */
   return `<div class="sr${rank?' has-rk':''}" data-code="${code}" data-name="${String(name||'').replace(/"/g,'')}" data-market="${mk}">
-    <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm">${name||code}${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
+    <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm"><span class="nm-t">${name||code}</span>${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
     <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?(odd?'<span class="ch-odd" title="액면분할·병합 등으로 기준가가 바뀌어 등락률을 계산할 수 없습니다">기준가 변경</span>':''):arrow(dir)+' '+pctS(p)}</div>
     <div class="sr-sp"><canvas class="sr-spark" id="srsp-${code}"></canvas></div></div>`;
 }
@@ -10431,7 +10431,7 @@ function usRankSection(){
       if(usMeta[t])return usRow(t,i+1,'val');
       /* 등록에 실패한 종목(거래소 미상)도 버리지 않고 값만 보여 준다 */
       return `<div class="sr us-row has-rk"><div class="sr-l"><span class="rk${i<3?' top':''}">${i+1}</span>
-        <div class="sr-t"><div class="nm">${htmlEsc(x.kr||x.en||t)}</div>
+        <div class="sr-t"><div class="nm"><span class="nm-t">${htmlEsc(x.kr||x.en||t)}</span></div>
           <div class="cd num">${t} · 거래대금 ${amt(x.val)}</div></div></div>
         <div class="px num">${x.px?'$'+USD2(x.px):'—'}</div>
         <div class="ch num ${x.rate>=0?'up':'down'}">${x.rate!=null?(x.rate>=0?'+':'')+x.rate.toFixed(2)+'%':'—'}</div>
@@ -10909,7 +10909,7 @@ async function runEtfProbe(){
     if(!rows.length){if(stat)stat.innerHTML='탐색 결과가 비어 있습니다. 잠시 후 다시 시도해 주세요.';return;}
     const ok=rows.filter(x=>x.hasKeyword==='Y'||(x.arrays&&x.arrays!=='')).length;
     if(stat)stat.innerHTML=`대상 <b>${j.code||code}</b> · 소스 ${rows.length}곳 탐색 · 구성종목 확보 가능 <b>${ok}</b>곳`;
-    if(fails)fails.innerHTML='<table class="ea-tbl"><thead><tr><th>소스</th><th>상태</th><th>크기</th><th>키워드</th><th>배열/표</th><th>비고</th></tr></thead><tbody>'
+    if(fails)fails.innerHTML='<div class="table-wrap"><table class="ea-tbl"><thead><tr><th>소스</th><th>상태</th><th>크기</th><th>키워드</th><th>배열/표</th><th>비고</th></tr></thead><tbody>'
       +rows.map(x=>`<tr>
         <td>${x.name||''}</td>
         <td class="num">${x.err?'<span class="dn">실패</span>':(x.status??'')}</td>
@@ -10917,7 +10917,7 @@ async function runEtfProbe(){
         <td class="num">${x.hasKeyword==='Y'?'<b class="up">Y</b>':'N'}</td>
         <td class="num">${x.json==='Y'?('JSON '+(x.arrays||'-')):('표 '+(x.tables??0)+'/'+(x.pdfTables??0))}</td>
         <td>${(x.err||x.keys||'').toString().slice(0,60)}</td></tr>`).join('')
-      +'</tbody></table>';
+      +'</tbody></table></div>';
   }catch(e){
     if(stat)stat.innerHTML='데이터 소스 탐색에 실패했습니다. ('+String(e&&e.message||e).slice(0,60)+')';
   }
@@ -11013,7 +11013,7 @@ function renderWatch(){
   const mine=watchSortMode==='mine';
   const body=!codes.length
     ?'<div class="empty">이 폴더가 비어 있습니다.<br>종목 화면에서 ☆ 별을 누르고 이 폴더를 선택해 담아 보세요.</div>'
-    :`<table><thead><tr><th>종목</th><th>현재가</th><th>전일대비</th><th>등락률</th><th class="cdl-th">봉</th><th>거래량</th><th>목표가 알림</th></tr></thead><tbody id="watchBody">`
+    :`<div class="table-wrap"><table><thead><tr><th>종목</th><th>현재가</th><th>전일대비</th><th>등락률</th><th class="cdl-th">봉</th><th>거래량</th><th>목표가 알림</th></tr></thead><tbody id="watchBody">`
     +rows.map(s=>{const wv=watchCells(s.code);
       const sel=wlSelMode?`<label class="wl-ck" onclick="event.stopPropagation()"><input type="checkbox" data-sel="${s.code}" ${wlSelSet.has(s.code)?'checked':''}></label>`:'';
       const mv=(mine&&!wlSelMode)?`<span class="wl-mv"><button data-mv="-1" data-code="${s.code}" aria-label="위로">▲</button><button data-mv="1" data-code="${s.code}" aria-label="아래로">▼</button></span>`:'';
@@ -11021,7 +11021,7 @@ function renderWatch(){
       return `<tr data-code="${s.code}"><td><div class="td-l">${sel}${mv}${anyLogo(s.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${nxtB}${s.tags&&s.tags[0]?`<span class="tag">${s.tags[0]}</span>`:mktTag(s.code,s.market)}<button class="wl-fd" data-fd="${s.code}" aria-label="폴더에 담기">폴더</button><br><span class="cd num">${s.code}</span></div></div></td>
       <td class="num ${wv.dir}" id="wpx-${s.code}">${wv.px}</td><td class="num ${wv.dir}">${wv.diff}</td>
       <td class="num ${wv.dir}">${wv.rate}</td><td class="cdl-td" id="wcd-${s.code}">${miniCandle(s.code)}</td><td class="num">${wv.vol}</td>
-      <td>${targetCell(s.code)}</td></tr>`;}).join('')+`</tbody></table>`;
+      <td>${targetCell(s.code)}</td></tr>`;}).join('')+`</tbody></table></div>`;
   const selBar=wlSelMode?`<div class="wl-selbar"><b>${wlSelSet.size}</b>개 선택
       <button class="wl-mini" id="wlSelAdd">폴더에 담기</button>
       ${curF?`<button class="wl-mini danger" id="wlSelRm">이 폴더에서 빼기</button>`:''}
@@ -12960,8 +12960,8 @@ function renderSummary(el,extraTop,extraBottom){
     const retOf=(arr,n)=>{if(!arr||arr.length<=n)return null;const cl=arr.map(c=>c.c);const past=cl[cl.length-1-n];return past?(cl[cl.length-1]-past)/past*100:null;};
     const cell=(v)=>`<td class="num ${v==null?'':(v>0?'up':'down')}">${v==null?'—':pctS(v)}</td>`;
     const row=(nm,arr)=>`<tr><td>${nm}</td>${cell(retOf(arr,21))}${cell(retOf(arr,42))}${cell(retOf(arr,63))}</tr>`;
-    html+=card('기간별 수익률',`<table class="fin-table"><thead><tr><th>${isFundLike(code)?'ETF':'종목/벤치마크'}</th><th>1개월</th><th>2개월</th><th>3개월</th></tr></thead>
-      <tbody>${row(s.name,daily)}${(bench&&bench.length&&!isFundLike(code))?row(mk.label,bench):''}</tbody></table>`);
+    html+=card('기간별 수익률',`<div class="table-wrap"><table class="fin-table"><thead><tr><th>${isFundLike(code)?'ETF':'종목/벤치마크'}</th><th>1개월</th><th>2개월</th><th>3개월</th></tr></thead>
+      <tbody>${row(s.name,daily)}${(bench&&bench.length&&!isFundLike(code))?row(mk.label,bench):''}</tbody></table></div>`);
   }
 
   // 최근 현황 (매수/매도 흐름 자동 분석)
@@ -16464,7 +16464,7 @@ async function acScan(){
   /* [v8.9] '지금 살 자리'가 먼저 보이도록 정렬한다 — 점수만으로는 시점을 알 수 없다 */
   const wOf=(x)=>{const n2=x.r._sig&&x.r._sig.now;return n2&&n2.side==='buy'?2:n2&&n2.side==='sell'?0:1;};
   out.sort((a,b)=>(wOf(b)-wOf(a))||(b.r.total-a.r.total));
-  body.innerHTML=out.length?`<table class="ac-tbl"><thead><tr><th>종목</th><th>매집 점수</th><th>단계</th><th>지금</th></tr></thead><tbody>
+  body.innerHTML=out.length?`<div class="table-wrap"><table class="ac-tbl"><thead><tr><th>종목</th><th>매집 점수</th><th>단계</th><th>지금</th></tr></thead><tbody>
     ${out.map(({c,r})=>{const st=byCode[c]||{};
       const nw=r._sig&&r._sig.now;
       const sig=nw?`<span class="ac-tag ${nw.side}">${nw.side==='buy'?'매수':nw.side==='sell'?'매도':'대기'}</span>`
@@ -16473,7 +16473,7 @@ async function acScan(){
       return `<tr data-c="${c}"><td>${acDispName(c)} <span class="num" style="color:var(--sub-2);font-size:11px">${c}</span></td>
         <td><span class="sc num">${r.total}</span><span class="ac-minibar"><i style="width:${r.total}%"></i></span></td>
         <td class="st-cell">${r.stage}</td><td class="ac-now-cell">${sig}</td></tr>`;}).join('')}
-    </tbody></table><div class="empty" style="margin-top:8px">행을 누르면 수급까지 포함한 정밀 분석으로 이어집니다 (스캔은 속도를 위해 수급 제외 점수).</div>`
+    </tbody></table></div><div class="empty" style="margin-top:8px">행을 누르면 수급까지 포함한 정밀 분석으로 이어집니다 (스캔은 속도를 위해 수급 제외 점수).</div>`
     :`<div class="empty">점수를 계산할 수 있는 종목이 없었습니다 (상장 45일 미만 등).</div>`;
   body.querySelectorAll('tr[data-c]').forEach(tr=>tr.onclick=()=>{
     acCode=tr.dataset.c;$('acSearch').value=acDispName(acCode);$('acRun').disabled=false;
@@ -17947,7 +17947,8 @@ function usRow(t,rank,metric){
   return `<div class="sr us-row${rank?' has-rk':''}" data-us="${t}" data-code="${t}" role="button" tabindex="0">
     <div class="sr-l">${rank?`<span class="rk${rank<=3?' top':''}">${rank}</span>`:''}${usTick(t)}
       <div class="sr-t">
-        <div class="nm">${htmlEsc(m.kr||t)}${m.etf?'<span class="tag">ETF</span>':''}</div>
+        <!-- [v10.2] 이름을 span 으로 감싼다 — 말줄임을 이름에만 걸어야 뒤의 배지가 안 잘린다 -->
+        <div class="nm"><span class="nm-t">${htmlEsc(m.kr||t)}</span>${m.etf?'<span class="tag">ETF</span>':''}</div>
         <div class="cd num">${t}${(mt||m.en)?' · '+htmlEsc(mt||m.en):''}</div>
       </div></div>
     <div class="px num ${cls}">${has?usBadgeHtml()+'$'+USD2(q.price):'—'}
@@ -17999,7 +18000,7 @@ function usRowSkel(t,rank){
   /* [v9.93] 골격도 본 행과 같은 격자를 써야 시세가 와도 자리가 안 흔들린다 */
   return `<div class="sr us-row skel${rank?' has-rk':''}" data-us="${t}" data-code="${t}">
     <div class="sr-l">${rank?`<span class="rk${rank<=3?' top':''}">${rank}</span>`:''}${usTick(t)}
-      <div class="sr-t"><div class="nm">${htmlEsc(m.kr||t)}</div>
+      <div class="sr-t"><div class="nm"><span class="nm-t">${htmlEsc(m.kr||t)}</span></div>
         <div class="cd num">${t}</div></div></div>
     <div class="px num"><i class="uz-wait">시세 대기</i></div>
     <div class="ch num">—</div>

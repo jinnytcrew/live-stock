@@ -5820,3 +5820,104 @@ html:not([data-theme="dark"]) .hm-x{border-top-color:rgba(120,105,70,.16)}
 .hx-k{font-size:11px;font-weight:700;opacity:.72}
 .hx-v{font-size:13.5px;font-weight:900;text-align:right}
 .hx-s{font-size:10.5px;font-weight:700;opacity:.66;min-width:64px;text-align:right}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v10.1] 모바일 정리 — 파일 맨 끝에 두어 앞의 규칙들을 확실히 덮는다
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇이 문제였나]
+     ① 창(모달)이 아래로 스크롤되지 않았다. 바깥 .modal 에 overflow:hidden 이
+        걸려 있는데 안쪽 본문에는 max-height:72vh 같은 값이 따로 붙어 있어,
+        본문이 모달보다 커지면 잘린 채 스크롤도 막혔다(첨부 2·5번).
+     ② 표가 화면 밖으로 넘쳐 오른쪽 칸이 잘렸다. 가로 스크롤 껍데기가 없는
+        표가 여럿 있었다(첨부 3·4·11번).
+     ③ 목록에서 종목명 옆 배지가 줄바꿈돼 한 줄이 세 줄이 됐다(첨부 9번).
+   [어떻게 고치나] 크기를 조금씩 손보는 대신 규칙을 하나로 세운다.
+     · 창 = 세로 flex. 머리말은 고정, 본문만 스크롤. 높이는 dvh 로 잡는다
+       (주소창이 접혔다 펴져도 어긋나지 않는다).
+     · 표 = 껍데기가 가로 스크롤을 맡는다.
+     · 한 줄짜리 정보는 절대 줄바꿈하지 않는다(nowrap + 말줄임).
+   ══════════════════════════════════════════════════════════════════════════════ */
+@media (max-width:720px){
+
+  /* ── ① 창(모달) — 본문만 스크롤 ─────────────────────────────────────── */
+  .overlay{padding:0;align-items:flex-end}
+  .overlay .modal{
+    width:100%;max-width:none;border-radius:20px 20px 0 0;
+    max-height:88dvh;max-height:88vh;                 /* dvh 미지원 대비 */
+    display:flex;flex-direction:column;overflow:hidden}
+  .overlay .modal-head{flex:0 0 auto}
+  /* 본문 후보 — 어느 이름을 쓰든 하나만 스크롤 담당 */
+  .overlay .modal-body,.overlay .lite-body,.overlay .set-body,
+  .overlay .pm-body,.overlay .ae-sheet,.overlay .ixd-wrap{
+    flex:1 1 auto;min-height:0;max-height:none;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+  /* 창 안의 탭 줄은 가로로 밀 수 있게 */
+  .overlay .modal .pm-tabs,.overlay .modal .set-tabs,.overlay .modal .ae-steps{
+    overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap}
+  .overlay .modal .pm-tabs::-webkit-scrollbar,
+  .overlay .modal .set-tabs::-webkit-scrollbar{display:none}
+  .overlay .modal .pm-tabs>*,.overlay .modal .set-tabs>*{flex:0 0 auto}
+
+  /* ── ② 표 — 껍데기가 가로 스크롤 ────────────────────────────────────── */
+  .table-wrap,.cmp-wrap,.tbl-scroll{
+    overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+  table{max-width:100%}
+  /* 표 머리글이 '보…' 처럼 잘리지 않게 최소 폭을 준다 */
+  .table-wrap table,.cmp-wrap table{min-width:520px}
+  th,td{white-space:nowrap}
+
+  /* ── ③ 목록 한 줄 유지 ──────────────────────────────────────────────── */
+  .sr .sr-l{min-width:0}
+  .sr .sr-t{min-width:0;flex:1 1 auto}
+  /* [v10.2] 말줄임은 '이름'에만 건다. 예전처럼 .nm 전체에 걸면 뒤따르는
+     배지(ETF·NXT)가 통째로 잘려 화면 밖으로 사라졌다(320px 에서 실측 22px 넘침). */
+  .sr .nm{white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:5px;min-width:0}
+  .sr .nm>*{flex:0 0 auto}
+  .sr .nm .nm-t{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sr .cd{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 이름 옆 시장 배지는 아래 코드 줄에 이미 나온다 — 좁은 화면에서는 뺀다 */
+  .sr .nm .mkt-tag,.sr .nm .mk-tag{display:none}
+  .sr .px,.sr .ch{white-space:nowrap}
+  /* 해외 행도 같은 규칙 */
+  .sr.us-row .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* ── ④ 가로로 넘치는 칩 줄들 ───────────────────────────────────────── */
+  .rank-tabs,.mkt-tabs,.info-tabs,.us-chips,.idx-chips,.sec-chips{
+    overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap}
+  .rank-tabs::-webkit-scrollbar,.mkt-tabs::-webkit-scrollbar{display:none}
+  .rank-tabs>button,.mkt-tabs>button{flex:0 0 auto;white-space:nowrap}
+
+  /* ── ⑤ 화면 전체가 가로로 새지 않게 ────────────────────────────────── */
+  html,body{overflow-x:hidden}
+  .sec,.panel,.card{max-width:100%}
+}
+
+/* 아주 좁은 화면(360px 이하)에서 한 번 더 줄인다 */
+@media (max-width:380px){
+  .sr .nm{font-size:13.5px}
+  .sr .px{font-size:13px}
+  .sr .ch{font-size:11.5px;min-width:0}
+  .table-wrap table,.cmp-wrap table{min-width:460px}
+}
+
+/* ══ [v10.1] 차트 위 글자가 서로 겹치던 문제 ═══════════════════════════════════
+   .chart-legend(top:14px) 아래 .chart-ma(top:34px) 를 절대 위치로 겹쳐 놓았다.
+   넓은 화면에서는 MA 값 네 개가 한 줄에 들어가지만, 폰에서는 두 줄로 접히면서
+   아래 .chart-vplg 와 캔들 영역을 덮어 버렸다(첨부 1번).
+   좁은 화면에서는 이들을 흐름 안에 두어 서로 밀어내게 한다. 겹칠 수가 없어진다. */
+@media (max-width:720px){
+  /* [주의] 캔버스는 부모(.chart-box)의 getBoundingClientRect() 를 그대로 크기로
+     쓴다. 그래서 .chart-box 를 height:auto 로 두면 '캔버스가 부모를 키우고
+     부모가 캔버스를 키우는' 되먹임이 생긴다. 높이는 반드시 고정값으로 둔다.
+     대신 겹치던 글자들만 캔버스 위쪽 바깥으로 빼낸다. */
+  .chart-box{height:340px;padding:8px 6px 6px}
+  /* 라벨을 캔버스 위 별도 줄로 — 절대위치를 풀되 부모 높이는 건드리지 않는다 */
+  .chart-labels{display:block;padding:2px 4px 6px}
+  .chart-labels .chart-legend,.chart-labels .chart-ma,.chart-labels .chart-vplg{
+    position:static;left:auto;top:auto;bottom:auto;margin:0 0 3px}
+  .chart-labels .chart-ma{font-size:10.5px;gap:3px 10px}
+  .chart-labels .chart-vplg{display:inline-flex}
+}
+/* 넓은 화면에서는 껍데기가 없는 것처럼 — 라벨이 예전처럼 차트 위에 겹쳐 뜬다 */
+.chart-labels{display:contents}

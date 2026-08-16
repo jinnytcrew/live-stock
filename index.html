@@ -70,7 +70,11 @@
      정확히 맞춰지며, 이게 모든 브라우저에서 안전하다.
      dvh 를 쓸 수 있으면 그때만 더 정밀하게 맞춘다. */
 #bootGate{position:fixed;inset:0;
-  z-index:2000000;display:grid;grid-template-rows:minmax(0,1fr) auto auto;
+  /* [v10.2] 격자에 열을 명시하지 않으면 열 폭이 '가장 넓은 자식'에 맞춰 늘어난다.
+     그래서 320px 화면에서 안쪽 폭 272px 를 넘어 303px 가 되고, 내용 전체가
+     오른쪽으로 16px 밀렸다. minmax(0,1fr) 로 열이 컨테이너를 넘지 못하게 못 박는다. */
+  z-index:2000000;display:grid;grid-template-columns:minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr) auto auto;
   justify-items:center;align-content:stretch;
   /* [v4.97] 축소해도 뚫리지 않도록 넉넉히 덮는다. 화면보다 조금 크게 잡고
      넘치는 부분은 잘라내면, 확대·축소 어느 쪽에서도 틈이 생기지 않는다. */
@@ -129,34 +133,77 @@
           mask-image:radial-gradient(ellipse at 50% 42%,#000 30%,transparent 78%)}
 
 /* 가운데 */
-.bg-mid{position:relative;min-height:0;height:100%;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;width:min(560px,94vw);z-index:3;overflow:hidden}
+/* ══ [v10.0] 배치를 여백이 아니라 '칸'으로 정한다 ═══════════════════════════
+   지금까지 margin 을 더하고 빼며 맞추려다 세 번 연속 어긋났다. 그래서 규칙을
+   바꾼다. bg-mid 를 두 칸짜리 격자로 만들어
+     1행 = 로고+태그 (내용만큼)
+     2행 = 그래프    (남는 세로 전부)
+   그래프는 그 칸 안에서 가운데 정렬된다. 화면이 커지든 작아지든 '남는 공간의
+   한가운데'라는 뜻이 그대로 유지되므로, 더 이상 여백을 손볼 일이 없다.
+   justify-content:center 와 flex:1 을 함께 쓰면 서로 상충한다 — 그게 지난
+   판에서 그래프가 위로 붙은 이유다. */
+/* [v10.2] 320px 에서 5px 넘치던 이유 — 격자 자식의 min-width 는 auto 라
+   안쪽 nowrap 글자가 지정 폭(94vw)을 밀어냈다. min-width:0 으로 막는다. */
+/* ══ [v10.2] 입장 화면이 오른쪽으로 12~14px 치우쳐 있던 이유 ═══════════════════
+   #bootGate 에 좌우 24px 여백이 있는데 자식들은 vw(화면 전체 폭) 기준으로
+   폭을 잡았다. 94vw 는 여백을 뺀 안쪽 폭보다 크므로 오른쪽으로 밀려 나가고,
+   overflow:hidden 에 잘려 '가운데가 아닌 것처럼' 보였다.
+   자식은 부모 안쪽 폭(100%)을 기준으로 잡아야 정확히 가운데에 온다. */
+.bg-mid{position:relative;min-height:0;min-width:0;height:100%;width:100%;max-width:560px;
+  box-sizing:border-box;z-index:3;overflow:hidden;
+  display:grid;grid-template-rows:auto minmax(0,1fr);justify-items:center;align-items:start}
+/* [v10.0] 세로가 짧은 화면에서는 위 여백을 줄여 그래프 칸을 확보한다.
+   1600x1000 기준 로고묶음 311px / 그래프칸 469px, 360x640 에서도 그래프칸 207px 확보. */
+.bg-head{display:flex;flex-direction:column;align-items:center;padding-top:clamp(14px,4.5vh,56px);
+  width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+/* [v10.2] 320px 에서 부모를 밀어내던 마지막 원인 — flex 자식의 기본 min-width 는
+   auto 라, 안쪽 nowrap 워드마크가 부모 폭을 넘겨 버렸다. 연쇄로 min-width:0 을
+   걸고, 그래도 좁으면 워드마크가 스스로 줄어들도록 flex-shrink 를 연다. */
+.bg-logo{display:flex;align-items:center;justify-content:center;gap:clamp(8px,2.4vw,22px);
+  max-width:100%;min-width:0;overflow:hidden}
+.bg-logo .bg-wm{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:clip}
+@media (max-height:700px){
+  .bg-head{padding-top:10px}
+  .bg-tag{margin-top:12px;padding:7px 16px}
+}
 .bg-logo{display:flex;align-items:center;gap:clamp(14px,3.4vw,22px)}
 /* [v5.9] 입장 화면 로고·글자를 키운다 — 첫 화면이 작아 심심했다 */
-.bg-mark{position:relative;width:clamp(124px,24vw,190px);height:clamp(124px,24vw,190px);
-  border-radius:clamp(26px,5.2vw,38px);
+.bg-mark{position:relative;flex:0 0 auto;
+  width:clamp(66px,17vw,190px);height:clamp(66px,17vw,190px);
+  border-radius:clamp(16px,4vw,38px);
   background:linear-gradient(140deg,#ffc93c,#f5a30d 55%,#e07c05);
-  display:grid;place-items:center;font-weight:900;font-size:clamp(56px,11vw,84px);color:#fff;line-height:1;
+  display:grid;place-items:center;font-weight:900;font-size:clamp(32px,8vw,84px);color:#fff;line-height:1;
   box-shadow:0 16px 38px rgba(210,120,10,.34),0 2px 0 rgba(255,255,255,.55) inset,
               0 0 0 5px rgba(255,255,255,.42);
   animation:bgPulse 2.6s ease-in-out infinite}
 .bg-mark::after{content:'';position:absolute;inset:-14%;border-radius:inherit;
   background:radial-gradient(circle,rgba(245,179,15,.42),transparent 68%);filter:blur(14px);z-index:-1}
 @keyframes bgPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
-/* [v9.91] 화면이 넓어 로고가 작아 보였다 — 워드마크를 키운다 */
-.bg-wm{font-size:clamp(64px,13.5vw,104px);font-weight:900;letter-spacing:-2.8px;line-height:1;
+/* ══ [v10.1] 'LIVE 증권'이 두 줄로 깨지던 이유 ═══════════════════════════════
+   폰 화면은 보통 411 CSS px 다. 그런데 최소값을 64px 로 못 박아 두어
+     로고 124px + 간격 22px + 글자 306px = 452px  >  화면 411px
+   이 되어 '증'과 '권'이 갈라졌다(첨부 6번). 최소값을 줄이고, 무엇보다
+   글자가 절대 갈라지지 않게 nowrap 을 건다 — 화면이 아무리 좁아도 한 줄이다. */
+.bg-wm{font-size:clamp(34px,9.2vw,104px);font-weight:900;letter-spacing:-2.2px;line-height:1.05;
+  white-space:nowrap;
   color:#ffffff;text-shadow:0 2px 18px rgba(0,0,0,.45)}
 /* 주황은 밝은 쪽으로 올린다 — 어두운 배경에서 9:1 대비가 나온다 */
 .bg-wm b{background:linear-gradient(180deg,#ffc247,#ffb020);-webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:#ffb020;filter:drop-shadow(0 2px 10px rgba(255,160,20,.35))}
-.bg-tag{font-size:clamp(17px,3.9vw,23px);font-weight:800;color:#cfe4f7;letter-spacing:-.3px;
-  margin-top:20px;text-align:center;
+/* ══ [v10.2] 슬로건이 모든 폰에서 두 줄로 접혔다(실측 41~44px, 한 줄은 19~22px)
+   ─ 글자 수가 17자라 3.4vw 로는 320~430px 화면에 절대 안 들어간다.
+     한 줄에 들어갈 크기로 낮추고 nowrap 을 걸어 다시 접히지 않게 한다. */
+/* [v10.2] 320px 화면 안쪽 폭은 272px 인데 이 칩이 212px + 좌우 패딩 48px = 260px
+   까지 커져 부모를 밀어냈다(실측 중심 +16px 어긋남). 패딩을 화면에 맞춰 줄인다. */
+.bg-tag{font-size:clamp(10.5px,2.9vw,23px);font-weight:800;color:#cfe4f7;letter-spacing:-.4px;
+  white-space:nowrap;max-width:100%;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;
+  margin-top:clamp(10px,2.2vh,20px);text-align:center;
   background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:99px;
-  padding:10px 24px;backdrop-filter:blur(8px)}
+  padding:clamp(6px,1.6vw,10px) clamp(10px,4vw,24px);backdrop-filter:blur(8px)}
 /* [v9.99] 그래프가 위로 붙어 보이던 문제 — 로고와 진행 카드 사이의 남는 공간을
    그림이 차지하고 그 안에서 가운데 정렬되게 한다(고정 여백 대신 flex 로 배분). */
-.bg-charwrap{position:relative;flex:1 1 auto;min-height:0;width:100%;
-  display:grid;place-items:center;margin-top:clamp(10px,3vw,26px)}
+.bg-charwrap{position:relative;width:100%;height:100%;min-height:0;
+  display:grid;place-items:center}
 .bg-charwrap::before{content:'';position:absolute;width:clamp(260px,56vw,400px);aspect-ratio:1.5;border-radius:50%;
   background:radial-gradient(ellipse,rgba(245,160,25,.20),rgba(245,160,25,.06) 52%,transparent 72%)}
 /* ══ [v5.9] 차트 그림을 더 또렷하고 부드럽게 ═══════════════════════════════
@@ -167,15 +214,16 @@
   background:radial-gradient(ellipse at center,rgba(90,170,250,.42),rgba(60,130,210,.16) 58%,transparent 76%);
   filter:blur(26px);pointer-events:none}
 /* [v9.91] 그래프 그림이 작고 아래로 처져 있었다 — 키우고 위로 당긴다 */
-.bg-char{position:relative;width:clamp(320px,62vw,520px);max-height:40vh;object-fit:contain;
-  margin-top:-2vh;
+/* [v10.0] margin 으로 위치를 밀지 않는다 — 칸 안에서 가운데면 충분하다 */
+.bg-char{position:relative;width:clamp(320px,62vw,520px);max-height:100%;object-fit:contain;
   filter:drop-shadow(0 14px 30px rgba(0,0,0,.5));
   animation:bgFloat 3.6s ease-in-out infinite}
 @keyframes bgFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
 
 /* 아래 — 상태 문구 + 진행바 */
 /* [v9.71] 진행 영역을 반투명 유리판 카드로 — 구름 위에 떠 있는 느낌 */
-.bg-low{position:relative;z-index:2;width:min(540px,93vw);margin-bottom:20px;flex:none;
+.bg-low{position:relative;z-index:2;width:100%;max-width:540px;
+  box-sizing:border-box;margin-bottom:20px;flex:none;
   background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);
   border-radius:20px;padding:15px 17px 14px;backdrop-filter:blur(16px);
   box-shadow:0 16px 44px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.14)}
@@ -240,7 +288,7 @@
   background:rgba(255,176,32,.13);border:1px solid rgba(255,176,32,.3);
   border-radius:99px;padding:5px 13px;backdrop-filter:blur(8px)}
 
-.bg-foot{position:relative;z-index:2;flex:0 0 auto;width:min(600px,88vw);max-width:100%;text-align:center;
+.bg-foot{position:relative;z-index:2;flex:0 0 auto;width:100%;max-width:600px;text-align:center;
   font-size:11.5px;line-height:1.7;color:#b3d2ec;font-weight:700;
   border-top:1px solid rgba(255,255,255,.14);padding-top:13px;
   /* 자리는 마지막까지 지킨다 — 공간이 모자라면 위쪽(로고·마스코트)이 먼저 줄어든다 */
@@ -274,9 +322,12 @@
   <div class="bg-grid" aria-hidden="true"></div>
   <div class="bg-ver" id="bgVerBadge">v—</div>
   <div class="bg-mid">
-    <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
-    <div class="bg-tag">투자 라이프를 리드하다, LIVE 증권</div>
-      <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=392" alt="" aria-hidden="true" decoding="async"></div>
+    <!-- [v10.0] 로고+태그를 한 덩어리(bg-head)로 묶어 격자 1행에 넣는다 -->
+    <div class="bg-head">
+      <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
+      <div class="bg-tag">투자 라이프를 리드하다, LIVE 증권</div>
+    </div>
+    <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=392" alt="" aria-hidden="true" decoding="async"></div>
   </div>
   <div class="bg-low">
     <div class="bg-status">
@@ -1414,7 +1465,9 @@
           <div class="ma-seg" id="maSeg"></div>
           <div class="zoom"><button class="cc-gear" id="ccGear" title="차트 설정" aria-label="차트 설정">⚙</button><button id="zoomOut" aria-label="줄이기">－</button><button id="zoomIn" aria-label="늘리기">＋</button><button id="zoomReset" title="맨 앞으로" aria-label="새로고침">⟳</button></div>
         </div>
-        <div class="chart-box"><div class="chart-legend" id="chartLegend"></div><div class="chart-ma" id="chartMa"></div><div class="chart-vplg"><b>매물대</b><span><i class="poc"></i>최대 거래</span><span><i class="cur"></i>현재가 구간</span></div><div class="chart-tip" id="chartTip" hidden></div><canvas id="chart"></canvas></div><div class="chart-hint2">드래그 이동 · 휠·핀치 확대축소 · 마우스를 올리면 값 표시</div>
+        <!-- [v10.1] 좁은 화면에서 겹치던 라벨들을 캔버스 바깥 줄(.chart-labels)로 옮긴다.
+     넓은 화면에서는 .chart-labels 가 display:contents 라 예전처럼 차트 위에 겹쳐 뜬다. -->
+<div class="chart-box"><div class="chart-labels"><div class="chart-legend" id="chartLegend"></div><div class="chart-ma" id="chartMa"></div><div class="chart-vplg"><b>매물대</b><span><i class="poc"></i>최대 거래</span><span><i class="cur"></i>현재가 구간</span></div></div><div class="chart-tip" id="chartTip" hidden></div><canvas id="chart"></canvas></div><div class="chart-hint2">드래그 이동 · 휠·핀치 확대축소 · 마우스를 올리면 값 표시</div>
       </div></div>
       <div class="info-body" id="infoBody"></div>
     </div>
