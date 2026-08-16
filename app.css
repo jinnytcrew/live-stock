@@ -3146,11 +3146,13 @@ html[data-theme="dark"] .etf-row .lgo.bd{background-color:var(--lgc) !important}
 .us-sec span{font-size:11.5px;color:var(--sub-2);font-weight:600}
 /* 종목 행 */
 /* [v9.5] 캔들 칸을 더해 5열 — 순위·로고·이름·가격·등락률·캔들 */
-.us-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:11px;align-items:center;
+/* [v9.99] .sr 과 함께 쓰인 행은 .sr 격자를 따른다 — 아래 규칙은 옛 구조 전용 */
+.sr.us-row{grid-template-columns:1fr auto auto auto}
+.us-row:not(.sr){display:grid;grid-template-columns:auto 1fr auto auto;gap:11px;align-items:center;
   padding:9px 6px;border-radius:11px;cursor:pointer}
 /* :has() 를 못 쓰는 브라우저가 있어 클래스로 못 박는다 */
-.us-row.has-sp{grid-template-columns:auto 1fr auto auto auto}
-.us-row:has(.sr-sp){grid-template-columns:auto 1fr auto auto auto}
+.us-row:not(.sr).has-sp{grid-template-columns:auto 1fr auto auto auto}
+.us-row:not(.sr):has(.sr-sp){grid-template-columns:auto 1fr auto auto auto}
 .us-row .sr-sp{width:18px;height:34px;margin-left:2px;flex:0 0 auto}
 @media (max-width:560px){
   .us-row .sr-sp{width:15px;height:30px}
@@ -3375,8 +3377,15 @@ html[data-theme="dark"] .mkt-tabs button.on{background:linear-gradient(135deg,#4
   .us-ranklist{grid-template-columns:1fr 1fr;column-gap:22px}
   .us-ranklist .us-row:nth-last-child(2){border-bottom:none}
 }
-.us-ranklist .us-row{grid-template-columns:auto auto 1fr auto auto;padding:11px 8px;
-  border-bottom:1px solid var(--border-soft)}
+/* ══ [v9.99] 해외 목록에서 주가가 엉뚱한 자리에 찍히던 이유 ═══════════════════
+   v9.93 에서 해외 행을 국내(.sr)와 같은 구조로 바꿨는데, 옛 규칙이 그대로 남아
+   `.us-ranklist .us-row` 가 5열 격자(auto auto 1fr auto auto)를 강제하고 있었다.
+   새 마크업의 자식은 [로고+이름] [가격] [등락] [캔들] 네 개인데 격자는 5열이라,
+   각 칸이 한 칸씩 밀려 주가가 이름 옆에 붙어 버렸다(첨부 3번).
+   .sr 이 자기 격자를 쓰도록 이 규칙에서 격자 지정을 뺀다.
+   (예전 구조를 쓰는 곳이 남아 있을 수 있어 .us-row 단독 규칙은 그대로 둔다) */
+.us-ranklist .us-row{padding:11px 8px;border-bottom:1px solid var(--border-soft)}
+.us-ranklist .sr.us-row{grid-template-columns:1fr auto auto auto}
 .us-ranklist .us-row:last-child{border-bottom:none}
 .us-rk{min-width:22px;text-align:center;font-size:12.5px;font-weight:900;color:var(--sub-2)}
 .us-ranklist .us-row:nth-child(-n+3) .us-rk{color:#e5484d}
@@ -5788,3 +5797,26 @@ html[data-theme="dark"] .srt-lv.ok{color:#4ade80}
 .sr.us-row .uz-wait{font-style:normal;font-size:11px;font-weight:700;color:var(--sub-2)}
 /* 예전 해외 전용 목록 규칙이 새 구조를 방해하지 않게 */
 .us-ranklist .sr.us-row{min-width:0}
+
+/* ══ [v9.99] 지수 상세 — 종목 화면처럼 넓게 ═══════════════════════════════ */
+.lite-modal.ixd-modal{max-width:min(860px,94vw);width:min(860px,94vw)}
+.ixd-modal .lite-body{padding:14px 16px 18px}
+.ixd-wrap{max-height:78vh;overflow-y:auto}
+.ixd-cv{position:relative;height:min(46vh,340px)}
+.ixd-zoom{position:absolute;right:8px;bottom:8px;display:flex;align-items:center;gap:6px;
+  background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:3px 6px;
+  box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.ixd-zoom button{width:26px;height:26px;border-radius:50%;border:0;background:var(--border-soft);
+  color:var(--text);font-size:15px;font-weight:900;line-height:1;cursor:pointer}
+.ixd-zoom button:active{background:var(--sub-2);color:var(--bg)}
+.ixd-zoom span{font-size:10.5px;font-weight:800;color:var(--sub-2);min-width:34px;text-align:center}
+@media(max-width:560px){.ixd-cv{height:38vh}}
+
+/* [v9.99] 오늘의 장 — 아래 여백에 넣는 보조 정보 */
+.hm-x{margin-top:10px;border-top:1px solid rgba(255,255,255,.12);padding-top:10px}
+html:not([data-theme="dark"]) .hm-x{border-top-color:rgba(120,105,70,.16)}
+.hm-x-r{display:grid;grid-template-columns:auto auto 1fr auto;gap:8px;align-items:baseline;padding:5px 0}
+.hx-i{font-size:12px}
+.hx-k{font-size:11px;font-weight:700;opacity:.72}
+.hx-v{font-size:13.5px;font-weight:900;text-align:right}
+.hx-s{font-size:10.5px;font-weight:700;opacity:.66;min-width:64px;text-align:right}

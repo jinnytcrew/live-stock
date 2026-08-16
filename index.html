@@ -153,7 +153,10 @@
   margin-top:20px;text-align:center;
   background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:99px;
   padding:10px 24px;backdrop-filter:blur(8px)}
-.bg-charwrap{position:relative;display:grid;place-items:center;margin-top:clamp(6px,2vw,14px)}
+/* [v9.99] 그래프가 위로 붙어 보이던 문제 — 로고와 진행 카드 사이의 남는 공간을
+   그림이 차지하고 그 안에서 가운데 정렬되게 한다(고정 여백 대신 flex 로 배분). */
+.bg-charwrap{position:relative;flex:1 1 auto;min-height:0;width:100%;
+  display:grid;place-items:center;margin-top:clamp(10px,3vw,26px)}
 .bg-charwrap::before{content:'';position:absolute;width:clamp(260px,56vw,400px);aspect-ratio:1.5;border-radius:50%;
   background:radial-gradient(ellipse,rgba(245,160,25,.20),rgba(245,160,25,.06) 52%,transparent 72%)}
 /* ══ [v5.9] 차트 그림을 더 또렷하고 부드럽게 ═══════════════════════════════

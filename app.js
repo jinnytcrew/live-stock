@@ -5706,7 +5706,7 @@ function _showView(name){
   if(name==='us')safeRun('usLounge',renderUsLounge);
   if(name==='ustrade')safeRun('usTrade',renderUsTrade);
   if(name==='pro')safeRun('pro',()=>setProTab(proTab));
-  if(name==='folio')safeRun('folio',renderFolio);   /* [v9.72] MY 포트폴리오 */
+  if(name==='folio')safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); });   /* [v9.99] 들어올 때는 전체 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
     /* [v4.81] 국내가 전 종목을 미리 받아 두듯 해외도 미리 받는다.
@@ -7719,6 +7719,41 @@ function hmSessionInfo(){
   if(hm<20*60)    return mk('after','off','NXT 애프터마켓',20*60-hm,'20:00 종료');
   return mk('closed','off','장 마감',null,'내일 09:00 개장');
 }
+/* ══ [v9.99] '오늘의 장' 아래 빈 공간 채우기 ═══════════════════════════════
+   국내·미국 두 칸만 두니 카드 아래가 허전했다. 억지로 채우지 않고, 그 자리에
+   있으면 실제로 쓸모 있는 것을 넣는다 — 다음 일정까지 남은 시간과 환율이다.
+   둘 다 이미 받아 둔 값이라 새 요청이 없다. */
+function hmExtra(){
+  try{
+    const rows=[];
+    /* ① 다음 개장/마감까지 남은 시간 — 지금 몇 시인지 계산하지 않아도 되게 */
+    const S=hmSessionInfo();
+    if(S&&S.untilMin!=null){
+      const h=Math.floor(S.untilMin/60), m=S.untilMin%60;
+      rows.push(['⏱','다음 전환',(h?h+'시간 ':'')+m+'분 뒤',S.next]);
+    }
+    /* ② 원·달러 — 해외 주식을 하면 종목만큼 중요하다 */
+    const fx=(typeof usFx==='function')?usFx():0;
+    if(fx>0){
+      /* 전일 대비는 원천이 주지 않는다 — 없는 값을 만들지 않고 매수 환율을 대신 적는다 */
+      const buy=(typeof usFxBuy==='function')?usFxBuy():null;
+      rows.push(['💱','원·달러',DEC(fx)+'원',buy?('살 때 '+DEC(buy)):'실시간']);
+    }
+    /* ③ 공모주 청약이 임박했으면 알려 준다 */
+    try{
+      const near=(ipoPlans||[]).filter(x=>x&&x.subStart)
+        .map(x=>({n:x.name,d:Math.ceil((new Date(x.subStart)-Date.now())/864e5)}))
+        .filter(x=>x.d>=0&&x.d<=7).sort((a,b)=>a.d-b.d)[0];
+      if(near)rows.push(['🎯','청약 임박',near.n,near.d===0?'오늘':'D-'+near.d]);
+    }catch(e){}
+    if(!rows.length)return '';
+    return `<div class="hm-x">${rows.map(r=>`
+      <div class="hm-x-r"><span class="hx-i">${r[0]}</span>
+        <span class="hx-k">${htmlEsc(r[1])}</span>
+        <b class="hx-v num">${htmlEsc(r[2])}</b>
+        <span class="hx-s">${htmlEsc(r[3])}</span></div>`).join('')}</div>`;
+  }catch(e){ return ''; }
+}
 function renderHeroMarket(){
   const el=$('heroMarket'); if(!el)return;
   try{
@@ -7770,6 +7805,7 @@ function renderHeroMarket(){
           ix(nas,'나스닥')+ix(snp,'S&P 500'))}
       </div>
       ${breadth}
+      ${hmExtra()}
       <div class="hm-go">AI 브리핑 자세히 →</div>`;
   }catch(e){ el.innerHTML='<div class="hm-load">시장 상태를 확인하는 중…</div>'; }
 }
@@ -12107,12 +12143,16 @@ let siseMode='date';
    들어 있다. 새로 받아올 것 없이 있는 자료를 화면으로 옮긴다.
    [한계] 해외 지수·선물은 일봉 원천이 달라 차트가 없을 수 있다 — 그때는
    차트 자리를 비우고 이유를 적는다. 빈 캔버스를 두면 고장으로 보인다. */
-var idxDetail=null, idxDetTf='D', idxDetData={};
+var idxDetail=null, idxDetTf='D', idxDetData={}, idxDetN=120;
 function idxOpen(key){
   const x=(market.indices||[]).find(v=>v.key===key);
   if(!x)return;
   idxDetail=key;
+  /* ══ [v9.99] 좁은 모달 대신 넓은 화면으로 ═══════════════════════════════════
+     지수 상세를 작은 모달에 넣었더니 차트가 눌려 확대·축소도 안 되고, 종목
+     화면과 생김새도 달랐다. 모달을 넓게 쓰도록 클래스를 얹는다. */
   openLiteGate(x.name,`<div id="idxDetBody" class="ixd-wrap"><div class="empty">불러오는 중…</div></div>`);
+  try{ const g=$('liteGate'); if(g){ const m=g.querySelector('.lite-modal'); if(m)m.classList.add('ixd-modal'); } }catch(e){}
   renderIdxDetail();
 }
 function idxChartable(key){ return key==='KOSPI'||key==='KOSDAQ'; }
@@ -12144,13 +12184,26 @@ function renderIdxDetail(){
     ${idxChartable(key)?`
       <div class="ixd-tf">${['D','W','M'].map(t=>
         `<button data-ixtf="${t}" class="${t===idxDetTf?'on':''}">${{D:'일',W:'주',M:'월'}[t]}</button>`).join('')}</div>
-      <div class="ixd-cv"><canvas id="idxDetCv"></canvas></div>`
+      <div class="ixd-cv"><canvas id="idxDetCv"></canvas>
+        <div class="ixd-zoom">
+          <button type="button" data-ixz="out" aria-label="축소">−</button>
+          <span id="ixdRange">${idxDetN}봉</span>
+          <button type="button" data-ixz="in" aria-label="확대">＋</button>
+        </div></div>`
       :`<div class="ixd-nochart">이 지수는 과거 차트 자료가 제공되지 않습니다.<br>
          <span>위 값은 실시간 시세이며, 코스피·코스닥은 차트를 볼 수 있습니다.</span></div>`}
     <div class="ixd-spark"><div class="ixd-sp-h">오늘 흐름</div>
       <canvas id="idxDetSpark"></canvas></div>
     <div class="ixd-note">지수는 종목이 아니어서 매매할 수 없습니다. 지수를 따라가는 ETF 로 거래하실 수 있습니다.</div>`;
   el.querySelectorAll('[data-ixtf]').forEach(b=>b.onclick=()=>{idxDetTf=b.dataset.ixtf;renderIdxDetail();});
+  /* [v9.99] 확대·축소 — 보이는 봉 개수를 조절한다 */
+  el.querySelectorAll('[data-ixz]').forEach(b=>b.onclick=()=>{
+    const dir=b.dataset.ixz;
+    idxDetN=dir==='in'?Math.max(30,Math.round(idxDetN*0.7)):Math.min(400,Math.round(idxDetN*1.4));
+    const r=$('ixdRange'); if(r)r.textContent=idxDetN+'봉';
+    const ck=idxDetail+':'+idxDetTf;
+    if(idxDetData[ck])drawIdxChart(idxDetData[ck]);
+  });
   /* 오늘 흐름 스파크 */
   try{ if(hasH)drawSpark($('idxDetSpark'),h,x.change>=0); }catch(e){}
   /* 기간 차트 */
@@ -12172,7 +12225,7 @@ function drawIdxChart(cs){
   cv.width=W*dpr;cv.height=H*dpr;
   const x=cv.getContext('2d'); if(!x)return;
   x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
-  const arr=cs.slice(-120).filter(c=>c&&c.c>0);
+  const arr=cs.slice(-Math.max(20,idxDetN)).filter(c=>c&&c.c>0);
   if(arr.length<2){ x.fillStyle=getCss('--sub-2','#888'); x.font='12px Pretendard';
     x.fillText('차트 자료가 부족합니다',12,H/2); return; }
   const hi=Math.max(...arr.map(c=>c.h??c.c)), lo=Math.min(...arr.map(c=>c.l??c.c));
@@ -13694,8 +13747,23 @@ function renderHoldings(){
   $('holdBody').querySelectorAll('tr[data-usopen]').forEach(tr=>{tr.onclick=(e)=>{e.stopPropagation();openUS(tr.dataset.code);};});
   bindStockClicks($('holdBody'));
   if(currentView==='account')safeRun('acctx',renderAcctExtras);   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
-  /* [v9.72] 포트폴리오 화면과 네비 점도 같은 주기로 갱신한다 — 새 타이머를 만들지 않는다 */
-  if(currentView==='folio')safeRun('folioTick',renderFolio); else safeRun('foDot',foBadge);
+  /* ══ [v9.99] 시세가 올 때마다 7개 코너를 다 다시 그리고 있었다 ═══════════════
+     MY 포트폴리오는 할 일·요약·카드·위험·습관·세금·복기 일곱 덩어리다. 그런데
+     시세 한 번에 전부 새로 만들었다. 세금 리포트는 거래기록 전체를 선입선출로
+     다시 계산하고, 습관 분석도 매번 다시 돈다 — 시세와 아무 상관 없는 것들이다.
+     값이 바뀌는 것은 위쪽 세 코너뿐이므로 그것만 갱신하고, 나머지는 화면에
+     들어올 때와 20초에 한 번만 다시 그린다. */
+  if(currentView==='folio'){
+    safeRun('folioTick',()=>{
+      const list=foAll(true);                       // light 모드 — 무거운 매집분석 생략
+      foRenderTodo(list); foRenderSum(list); foRenderCards(list);
+      const now=Date.now();
+      if(!window._foSlowAt||now-window._foSlowAt>20000){
+        window._foSlowAt=now;
+        foRenderRisk(list); foRenderHabit(); renderTaxReport(); foRenderReview(list);
+      }
+    });
+  } else safeRun('foDot',foBadge);
 }
 /* ══ [v4.28] 보유 평가 헬퍼 — 국내(원·정수)와 해외(달러·소수·환율) 공용 ══ */
 function hEvalKRW(h){
@@ -14542,8 +14610,61 @@ let chartCfg=(()=>{try{const j=JSON.parse(localStorage.getItem('chartCfg2')||'nu
 function ccSave(){try{localStorage.setItem('chartCfg2',JSON.stringify(chartCfg));}catch(e){}}
 let _pxSnap=null,_pxDirty=0;
 let _ssPT=0;
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.99] 클릭이 느리고 화면이 버벅이던 진짜 이유
+   ─────────────────────────────────────────────────────────────────────────────
+   시세가 도착할 때마다(장중 3초, 종목당 수시로) 검색 화면을 renderSearch() 로
+   통째로 다시 그리고 있었다. 목록이 100종일 때도 부담이었는데 200종으로 늘리면서
+   한 번에 200개 DOM 을 버리고 새로 만든다. 그 사이 스크롤 위치가 튀고, 누른 순간
+   요소가 교체돼 클릭이 씹히며, 캔들 200개를 다시 그리느라 프레임이 밀린다.
+   [고침] 값만 바뀐 경우에는 다시 그리지 않고 '숫자만 갈아끼운다'.
+   목록의 구성(정렬·개수)이 바뀌는 것은 사용자가 탭을 누를 때뿐이므로,
+   시세 갱신에 구조를 새로 만들 이유가 없다.
+   전체 재렌더는 목록 자체가 없을 때만 예비로 남긴다. */
+function paintSearchLive(){
+  try{
+    const box=$('searchResults'); if(!box)return false;
+    const rows=box.querySelectorAll('.sr[data-code]');
+    if(!rows.length)return false;                 // 목록이 아직 없다 → 전체 렌더 필요
+    let n=0;
+    rows.forEach(el=>{
+      const code=el.dataset.code; if(!code)return;
+      const us=el.classList.contains('us-row');
+      const q=us?(usQ[code]||null):(typeof dispQuote==='function'?dispQuote(code):null);
+      const px=q&&q.price!=null?q.price:(byCode[code]||{}).price;
+      if(px==null)return;
+      const prev=(q&&q.prevClose!=null)?q.prevClose:(q&&q.prev!=null?q.prev:(byCode[code]||{}).prevClose);
+      const rate=(prev>0)?(px-prev)/prev*100:null;
+      const dir=rate==null?'flat':rate>0?'up':rate<0?'down':'flat';
+      const pe=el.querySelector('.px'), ce=el.querySelector('.ch');
+      if(pe){
+        const txt=us?('$'+USD2(px)):KRW(px);
+        const cur=pe.getAttribute('data-v');
+        if(cur!==String(px)){
+          pe.setAttribute('data-v',String(px));
+          pe.innerHTML=(us?usBadgeHtml():mktBadgeHtml(code))+txt
+            +(us?`<small class="us-krw">${USDKR(px)}</small>`:'');
+          pe.classList.remove('up','down','flat'); pe.classList.add('num',dir);
+        }
+      }
+      if(ce&&rate!=null){
+        ce.textContent=(us?'':arrow(dir)+' ')+((rate>=0?'+':'')+rate.toFixed(2)+'%');
+        ce.classList.remove('up','down','flat'); ce.classList.add('num',dir);
+      }
+      n++;
+    });
+    /* 캔들은 값이 바뀐 것만 다시 그린다 — 함수 안에서 자체 판단한다 */
+    try{ srCandlesPaint(box); }catch(e){}
+    try{ usCandlesPaint(box); }catch(e){}
+    return n>0;
+  }catch(e){ return false; }
+}
 function schedSearchPaint(){ if(_ssPT)return;
-  _ssPT=setTimeout(()=>{_ssPT=0; if(currentView==='search')safeRun('srchLive',renderSearch);},200); }
+  _ssPT=setTimeout(()=>{_ssPT=0;
+    if(currentView!=='search')return;
+    /* 값만 갈아끼워 본다. 목록이 없으면 그때만 전체를 그린다. */
+    if(!safeRun('srchLive2',paintSearchLive))safeRun('srchLive',renderSearch);
+  },400); }
 function pxSnapLoad(){if(_pxSnap)return _pxSnap;try{_pxSnap=JSON.parse(localStorage.getItem('pxSnap')||'{}')||{};}catch(e){_pxSnap={};}return _pxSnap;}
 function pxSnapPut(q){if(!q||!q.code||q.price==null)return;const m=pxSnapLoad();
   m[q.code]={p:q.price,pc:(q.prevClose!=null?q.prevClose:null),t:Date.now()};
