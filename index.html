@@ -133,25 +133,26 @@
   justify-content:center;width:min(560px,94vw);z-index:3;overflow:hidden}
 .bg-logo{display:flex;align-items:center;gap:clamp(14px,3.4vw,22px)}
 /* [v5.9] 입장 화면 로고·글자를 키운다 — 첫 화면이 작아 심심했다 */
-.bg-mark{position:relative;width:clamp(104px,20vw,148px);height:clamp(104px,20vw,148px);
-  border-radius:clamp(22px,4.4vw,30px);
+.bg-mark{position:relative;width:clamp(124px,24vw,190px);height:clamp(124px,24vw,190px);
+  border-radius:clamp(26px,5.2vw,38px);
   background:linear-gradient(140deg,#ffc93c,#f5a30d 55%,#e07c05);
-  display:grid;place-items:center;font-weight:900;font-size:clamp(46px,9vw,64px);color:#fff;line-height:1;
+  display:grid;place-items:center;font-weight:900;font-size:clamp(56px,11vw,84px);color:#fff;line-height:1;
   box-shadow:0 16px 38px rgba(210,120,10,.34),0 2px 0 rgba(255,255,255,.55) inset,
               0 0 0 5px rgba(255,255,255,.42);
   animation:bgPulse 2.6s ease-in-out infinite}
 .bg-mark::after{content:'';position:absolute;inset:-14%;border-radius:inherit;
   background:radial-gradient(circle,rgba(245,179,15,.42),transparent 68%);filter:blur(14px);z-index:-1}
 @keyframes bgPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
-.bg-wm{font-size:clamp(54px,11vw,78px);font-weight:900;letter-spacing:-2.2px;line-height:1;
+/* [v9.91] 화면이 넓어 로고가 작아 보였다 — 워드마크를 키운다 */
+.bg-wm{font-size:clamp(64px,13.5vw,104px);font-weight:900;letter-spacing:-2.8px;line-height:1;
   color:#ffffff;text-shadow:0 2px 18px rgba(0,0,0,.45)}
 /* 주황은 밝은 쪽으로 올린다 — 어두운 배경에서 9:1 대비가 나온다 */
 .bg-wm b{background:linear-gradient(180deg,#ffc247,#ffb020);-webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:#ffb020;filter:drop-shadow(0 2px 10px rgba(255,160,20,.35))}
-.bg-tag{font-size:clamp(15px,3.4vw,19px);font-weight:800;color:#cfe4f7;letter-spacing:-.3px;
-  margin-top:16px;text-align:center;
+.bg-tag{font-size:clamp(17px,3.9vw,23px);font-weight:800;color:#cfe4f7;letter-spacing:-.3px;
+  margin-top:20px;text-align:center;
   background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:99px;
-  padding:8px 18px;backdrop-filter:blur(8px)}
+  padding:10px 24px;backdrop-filter:blur(8px)}
 .bg-charwrap{position:relative;display:grid;place-items:center;margin-top:clamp(6px,2vw,14px)}
 .bg-charwrap::before{content:'';position:absolute;width:clamp(260px,56vw,400px);aspect-ratio:1.5;border-radius:50%;
   background:radial-gradient(ellipse,rgba(245,160,25,.20),rgba(245,160,25,.06) 52%,transparent 72%)}
@@ -162,7 +163,9 @@
 .bg-charwrap::before{content:'';position:absolute;width:66%;height:34%;bottom:4%;
   background:radial-gradient(ellipse at center,rgba(90,170,250,.42),rgba(60,130,210,.16) 58%,transparent 76%);
   filter:blur(26px);pointer-events:none}
-.bg-char{position:relative;width:clamp(250px,50vw,360px);max-height:34vh;object-fit:contain;
+/* [v9.91] 그래프 그림이 작고 아래로 처져 있었다 — 키우고 위로 당긴다 */
+.bg-char{position:relative;width:clamp(320px,62vw,520px);max-height:40vh;object-fit:contain;
+  margin-top:-2vh;
   filter:drop-shadow(0 14px 30px rgba(0,0,0,.5));
   animation:bgFloat 3.6s ease-in-out infinite}
 @keyframes bgFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
@@ -933,7 +936,11 @@
       <button data-mkt="kr" class="on">🇰🇷 국내</button>
       <button data-mkt="us">🇺🇸 해외</button>
     </div>
-    <div class="rank-tabs" id="searchTabs"><button data-rt="조회수" class="on">조회수</button><button data-rt="상승률">상승률</button><button data-rt="하락률">하락률</button></div>
+    <!-- ══ [v9.95] 관심도 탭 제거 ══════════════════════════════════════════════
+     관심도(검색·게시글 수)는 거래소와 무관하게 24시간 움직여, 장이 닫혀도
+     순위가 바뀌는 것처럼 보였다. 거래대금이라는 사실 기반 지표가 생긴 이상
+     오해를 부르는 지표를 나란히 둘 이유가 없다. 세 탭만 남긴다. -->
+<div class="rank-tabs" id="searchTabs"><button data-rt="거래대금" class="on">거래대금</button><button data-rt="상승률">상승률</button><button data-rt="하락률">하락률</button></div>
     <div class="cmp-bar" id="cmpBar" hidden></div>
     <div class="panel"><div id="searchResults"></div></div>
 

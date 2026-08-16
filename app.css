@@ -5511,9 +5511,18 @@ html:not([data-theme="dark"]) .hs-br{background:rgba(255,255,255,.5)}
 .sise-sum>div b{display:block;font-size:14px;font-weight:900;margin-top:2px;letter-spacing:-.3px}
 /* 가로 스크롤 — 좁은 화면에서 9열을 다 보여 주려면 필요하다 */
 .sise-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:12px}
-.sise-head.d9,.sise-r.d9{display:grid;grid-template-columns:64px 78px 74px 62px 72px 72px 72px 84px 68px;
+/* ══ [v9.91] 넓은 화면에서 표 오른쪽이 텅 비던 문제 ═══════════════════════════
+   열 폭을 픽셀로 못 박아 두어, 태블릿처럼 넓은 화면에서는 표가 646px 만 쓰고
+   나머지가 통째로 빈 공간이 됐다(첨부 2번). 좁은 화면에서 가로 스크롤이
+   필요한 건 맞지만, 넓을 때는 남는 폭을 나눠 가지면 된다.
+   minmax 로 '최소 폭은 지키되 남으면 늘어나게' 바꾼다. */
+.sise-head.d9,.sise-r.d9{display:grid;
+  grid-template-columns:minmax(64px,.9fr) minmax(78px,1.1fr) minmax(74px,1fr) minmax(62px,.85fr)
+    minmax(72px,1fr) minmax(72px,1fr) minmax(72px,1fr) minmax(84px,1.15fr) minmax(68px,.95fr);
   align-items:center;min-width:646px}
-.sise-head.t6,.sise-r.t6{display:grid;grid-template-columns:62px 78px 74px 62px 72px 72px 84px;
+.sise-head.t6,.sise-r.t6{display:grid;
+  grid-template-columns:minmax(62px,.85fr) minmax(78px,1.1fr) minmax(74px,1fr) minmax(62px,.85fr)
+    minmax(72px,1fr) minmax(72px,1fr) minmax(84px,1.2fr);
   align-items:center;min-width:504px}
 .sise-head{position:sticky;top:0;z-index:2;background:var(--panel);
   font-size:10.5px;font-weight:800;color:var(--sub-2);padding:9px 10px;border-bottom:1px solid var(--border)}
@@ -5731,3 +5740,51 @@ html[data-theme="dark"] .srt-lv.ok{color:#4ade80}
 .info-tabs.has-more.has-prev{
   -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 24px,#000 calc(100% - 34px),transparent 100%);
   mask-image:linear-gradient(90deg,transparent 0,#000 24px,#000 calc(100% - 34px),transparent 100%)}
+
+/* ══ [v9.92] 지수 상세 ═══════════════════════════════════════════════════ */
+.idx-card.idx-clk{cursor:pointer;transition:transform .1s,box-shadow .12s}
+.idx-card.idx-clk:active{transform:scale(.985)}
+.idx-card.idx-clk:hover{box-shadow:0 4px 16px rgba(0,0,0,.1)}
+.ixd-wrap{max-height:74vh;overflow-y:auto}
+.ixd-head{padding:4px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:12px}
+.ixd-px{font-size:34px;font-weight:900;letter-spacing:-1.2px;line-height:1.1}
+.ixd-ch{font-size:14.5px;font-weight:800;margin-top:3px}
+.ixd-warn{margin-top:6px;font-size:11px;font-weight:700;color:#b45309}
+.ixd-sub{margin-top:5px;font-size:11px;font-weight:600;color:var(--sub-2)}
+.ixd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+@media(max-width:480px){.ixd-grid{grid-template-columns:1fr 1fr}}
+.ixd-kv{padding:9px 10px;border-radius:11px;background:var(--border-soft)}
+.ixd-kv span{display:block;font-size:10px;font-weight:700;color:var(--sub-2)}
+.ixd-kv b{display:block;font-size:14.5px;font-weight:900;margin-top:2px;letter-spacing:-.3px}
+.ixd-tf{display:flex;gap:5px;margin-bottom:9px}
+.ixd-tf button{font-size:12px;font-weight:800;padding:6px 14px;border-radius:99px;
+  border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
+.ixd-tf button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.ixd-cv{height:230px;border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:12px}
+.ixd-cv canvas{width:100%;height:100%;display:block}
+.ixd-nochart{padding:22px 14px;text-align:center;border:1px dashed var(--border);border-radius:12px;
+  font-size:12px;font-weight:700;color:var(--sub);margin-bottom:12px;line-height:1.7}
+.ixd-nochart span{font-size:11px;font-weight:600;color:var(--sub-2)}
+.ixd-spark{border:1px solid var(--border);border-radius:12px;padding:11px;margin-bottom:11px}
+.ixd-sp-h{font-size:11.5px;font-weight:800;color:var(--sub-2);margin-bottom:7px}
+.ixd-spark canvas{width:100%;height:70px;display:block}
+.ixd-note{font-size:11px;line-height:1.65;color:var(--sub-2);background:var(--border-soft);
+  border-radius:10px;padding:10px 12px}
+
+/* [v9.93] 해외 관심도 순위 — 장 마감 시 고정 안내 */
+.us-rank-frozen{margin:8px 0 10px;padding:10px 12px;border-radius:11px;
+  background:var(--border-soft);font-size:11px;line-height:1.65;color:var(--sub-2)}
+.us-rank-frozen b{color:var(--sub);font-weight:800}
+
+/* ══ [v9.93] 해외 목록을 국내(.sr)와 같은 모양으로 ═══════════════════════════
+   구조를 통일했으므로 국내 규칙을 그대로 물려받고, 해외 전용 표시만 덧댄다. */
+.sr.us-row{cursor:pointer}
+.sr.us-row .px{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25}
+.sr.us-row .px .us-krw{font-size:10px;font-weight:700;color:var(--sub-2);margin-top:1px}
+.sr.us-row .cd{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr.us-row .nm .tag{margin-left:5px;font-size:9.5px;font-weight:800;
+  color:var(--sub);background:var(--border-soft);border-radius:5px;padding:1px 5px}
+.sr.us-row.skel .px,.sr.us-row.skel .ch{opacity:.5}
+.sr.us-row .uz-wait{font-style:normal;font-size:11px;font-weight:700;color:var(--sub-2)}
+/* 예전 해외 전용 목록 규칙이 새 구조를 방해하지 않게 */
+.us-ranklist .sr.us-row{min-width:0}

@@ -1809,7 +1809,16 @@ function applyColor(){document.documentElement.setAttribute('data-color',setting
    Cloudflare Workers 무료 요금제는 '하루 100,000회'가 기준이다.
    월 50,000 / 일 3,000 은 실제와 무관한 숫자였다. 일 기준으로 바로잡는다.
    (여유를 두어 하루 80,000회에서 갱신을 늦추기 시작한다) */
-function speedCfg(){ return {capM:2400000,capD:80000,q:[1500,3000,8000,60000],m:[3000,6000,15000,120000]}; }
+/* ══ [v9.98] 기본 갱신 주기를 늦춘다 — 안전 여유 확보 ═══════════════════════
+   [왜 바꾸나] 1.5초 갱신은 한 사람이 장중 2.3만 회를 쓴다. Cloudflare 무료
+   한도(10만/일)에서는 넷이면 닿는 양이다. 감속 장치가 있지만 반응이 1분 늦고,
+   워커 인스턴스가 여러 개면 집계가 실제보다 적게 잡힐 수 있다 — 즉 마지막
+   안전판이 완벽하지 않다. 그렇다면 애초에 덜 쓰는 편이 낫다.
+   [무엇을 잃나] 사실상 없다. 국내 시세는 네이버 폴링 자체가 1~2초 간격으로
+   갱신되고, 사람이 화면에서 인지하는 변화는 3초든 1.5초든 크게 다르지 않다.
+   [무엇을 얻나] 15명 기준 하루 사용률이 67% → 53% 로 내려간다.
+   같은 단계에서 버티는 인원도 tier0 3명 → 7명, tier1 7명 → 12명으로 늘어난다. */
+function speedCfg(){ return {capM:2400000,capD:80000,q:[3000,5000,10000,60000],m:[5000,10000,20000,120000]}; }
 applyTheme();applyColor();
 /* ══ [v9.71] 호가단위가 코스피 기준 하나뿐이었다 ═══════════════════════════
    [무엇이 잘못됐나] 2023년 호가단위 개편 이후 코스피와 코스닥의 단위가 다르다.
@@ -3595,10 +3604,20 @@ function cloudSync(){
    나갔다. KV 는 하루 쓰기 한도가 있으므로 조용할 때는 넉넉히 묶는다.
    화면을 닫거나 탭을 벗어날 때는 아래에서 즉시 한 번 밀어 넣으므로 유실은 없다. */
 function _syncDelay(){
+  /* ══ [v9.97] KV 쓰기가 첫 병목이다 ═══════════════════════════════════════
+     Cloudflare 무료 KV 는 하루 쓰기 1,000회다. 사용자 한 명이 하루 20~60회를
+     쓰므로 25명쯤에서 요청 한도(10만)보다 먼저 막힌다. 막히면 저장이 조용히
+     실패해 '분명 샀는데 새로고침하면 없는' 증상이 된다 — 가장 나쁜 고장이다.
+     서버가 알려 준 전체 사용률이 높으면 저장 간격을 늘려 쓰기를 아낀다.
+     화면을 닫을 때는 즉시 밀어 넣으므로 데이터가 사라지지는 않는다. */
   try{
     if(document.hidden)return 300;              // 곧 사라질 수 있으니 빨리 보낸다
+    const t=(typeof srvBudgetTier==='function')?srvBudgetTier():-1;
+    if(t>=3)return 30000;                       // 한도 임박 — 30초에 한 번
+    if(t>=2)return 15000;
+    if(t>=1)return 8000;
     return 4000;
-  }catch(e){ return 2000; }
+  }catch(e){ return 4000; }
 }
 /* 탭을 벗어나거나 앱을 닫을 때 밀린 저장을 즉시 보낸다 */
 try{
@@ -5284,7 +5303,7 @@ function renderSearchShortcuts(){
   el.querySelectorAll('.sc').forEach(c=>c.onclick=()=>{
     const g=c.dataset.go;
     if(g==='theme'){showView('sector');return;}
-    searchRankTab=g==='rise'?'상승률':'조회수';
+    searchRankTab=g==='rise'?'상승률':'거래대금';   /* [v9.95] 관심도 탭 제거 */
     const inp=$('searchInput'); if(inp)inp.value='';
     srchPage=1;renderSearch();renderHist();
   });
@@ -5675,6 +5694,8 @@ function _showView(name){
   try{usBadgeSync();}catch(e){}                     // [v4.88] 화면을 옮길 때 장 구분 맞추기
   /* [v9.81] 호가 탭을 떠나면 갱신을 멈춘다 — 안 보는 화면을 계속 부르지 않는다 */
   if(name!=='trade'){ try{ if(_obTimer){clearInterval(_obTimer);_obTimer=null;} }catch(e){} }
+  /* [v9.96] 검색을 떠나면 시세 관찰도 멈춘다 — 안 보는 목록을 계속 지켜보지 않는다 */
+  if(name!=='search'){ try{ if(_usIO){_usIO.disconnect();_usIO=null;} _usIOWait.clear(); }catch(e){} }
   if(name!=='ustrade'){ try{usChartMount(false);}catch(e){}        // [v4.57] 차트 카드 제자리로
     try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{b.style.display='';}); }catch(e){} }
   // [수정] 화면별 렌더러가 예외를 던져도 탭 전환 자체는 성공하도록 격리
@@ -5873,6 +5894,15 @@ function fnCapD(){return speedCfg().capD;}
 function _fbGet(){let b={};try{b=JSON.parse(localStorage.getItem('fnbudget')||'{}')}catch(e){}
   const mon=kstMonth(),day=kstDay();
   if(b.mon!==mon)b={mon,mc:0,day,dc:0};if(b.day!==day){b.day=day;b.dc=0;}return b;}
+/* [v9.97] 서버가 알려 준 전체 사용률을 기록한다 — API 응답 어디서나 갱신된다 */
+function noteBudgetHeader(res){
+  try{
+    const v=res&&res.headers&&res.headers.get&&res.headers.get('x-budget');
+    if(v==null)return;
+    const n=Number(v);
+    if(isFinite(n)&&n>=0){ _srvBudget=n; _srvBudgetAt=Date.now(); }
+  }catch(e){}
+}
 function fnBump(n=1){const b=_fbGet();b.mc+=n;b.dc+=n;try{localStorage.setItem('fnbudget',JSON.stringify(b))}catch(e){}
   if(fnSafe()&&!window._safeToldToday){window._safeToldToday=true;try{toast('warn','절약 모드 전환','무료 크레딧 보호를 위해 갱신 주기를 늦춥니다. 내일 자동 복구됩니다.');}catch(e){}}}
 function fnSafe(){const b=_fbGet();return b.mc>=fnCapM()||b.dc>=fnCapD();}
@@ -5925,7 +5955,27 @@ function mktSecondaryOpen(){
 }
 function marketShouldPoll(){return krxRegularOpen()||usMarketOpen()||mktSecondaryOpen();}
 // 일 사용량에 따라 단계적으로 속도를 낮춰 하루치 예산이 오래 가도록(월/일 한도 초과 방지)
-function budgetTier(){const b=_fbGet();if(b.mc>=fnCapM()||b.dc>=fnCapD())return 3;const r=b.dc/fnCapD();return r<0.5?0:r<0.8?1:2;}
+/* ══ [v9.97] 속도 단계를 '전체 사용량' 기준으로 ═══════════════════════════
+   [무엇이 잘못돼 있었나] 이 함수는 내 브라우저가 쓴 양(localStorage)만 봤다.
+   다른 사람이 얼마나 쓰는지 알 방법이 없으니, 여러 명이 동시에 붙으면
+   모두가 '나는 아직 여유 있다'고 판단해 가장 빠른 단계로 달렸다.
+   Cloudflare 무료 한도(10만/일)는 넷이면 닿는다 — 넘으면 앱 전체가 멈춘다.
+   [고침] 서버가 응답 헤더(x-budget)로 오늘 전체 사용률을 알려 준다.
+   내 사용량과 전체 사용량 중 '더 급한 쪽'을 따른다. */
+var _srvBudget=0, _srvBudgetAt=0;
+function srvBudgetTier(){
+  if(!_srvBudgetAt||Date.now()-_srvBudgetAt>10*60e3)return -1;   // 오래된 값은 무시
+  const p=_srvBudget;
+  return p>=95?3:p>=80?2:p>=55?1:0;
+}
+function budgetTier(){
+  const b=_fbGet();
+  let mine;
+  if(b.mc>=fnCapM()||b.dc>=fnCapD())mine=3;
+  else{ const r=b.dc/fnCapD(); mine=r<0.5?0:r<0.8?1:2; }
+  const srv=srvBudgetTier();
+  return srv<0?mine:Math.max(mine,srv);      // 더 느린 쪽(숫자가 큰 쪽)을 따른다
+}
 // 장중: 빠르게(단계적) / 마감·주말·휴장: 폴링 일시중단(느린 확인만)
 /* NXT 시간대 보완 폴링 — KRX 시세(0.00%) 위에 NXT 체결가를 덧씌운다.
    대상은 화면에 실제로 보이는 종목(관심종목 + 선택 종목)으로 제한해 호출을 아낀다. */
@@ -6085,6 +6135,7 @@ async function pollMarket(){
   _mktBusy=true;
   try{fnBump();
     const [r,rf]=await Promise.all([fetch('/api/market',{cache:'default'}),fetch('/api/fx',{cache:'default'}).catch(()=>null)]);
+    noteBudgetHeader(r);          /* [v9.97] 전체 사용률을 여기서 받아 속도에 반영 */
     const j=await r.json();
     if(j.ok){market.indices=j.indices||[];market.crypto=j.crypto||[];if(!fxData.length)market.fx=j.fx||[];
       /* [v3.2] 서버 자가진단 보관 — 빈 지수·이상 등락률·야간선물 기준을 콘솔에서 확인 가능.
@@ -6772,7 +6823,8 @@ function idxCardHtml(x){
   const tag=x.tag?`<span class="idx-tag t-${x.tag}">${x.tag}</span>`:'';
   // [수정] 태그와 이름을 한 줄에 넣어 이름이 '나스닥 …'으로 잘리고 태그가 세로로 깨지던 문제 →
   //        태그는 윗줄로 분리하고 이름은 폭을 온전히 쓰게 한다.
-  return `<div class="idx-card"><div class="idx-tagline">${tag}<span class="idx-ch num ${dir}">${arrow(dir)} ${pctS(x.rate)}</span></div>
+  /* [v9.92] 지수 카드를 눌러 상세 화면으로 — 실제 MTS 처럼 차트·시세를 본다 */
+  return `<div class="idx-card idx-clk" data-idx="${htmlEsc(x.key)}" role="button" tabindex="0"><div class="idx-tagline">${tag}<span class="idx-ch num ${dir}">${arrow(dir)} ${pctS(x.rate)}</span></div>
     <div class="idx-top"><span class="idx-nm"><span class="idx-nm-t">${htmlEsc(x.name)}</span></span></div>
     <div class="idx-lv num ${dir} ${fl}">${DEC(x.price)}</div><div class="idx-df num ${dir}">${signedDec(x.change)}${mktBadge(x.key,x.dayBasis)}</div>
     ${x.stale?`<div class="icw-sub">실시간 수신 지연 · 직전 종가 기준</div>`:''}
@@ -6810,6 +6862,12 @@ function renderMarket(){
     else{
       ig.innerHTML=withNightWait(list).map(idxCardHtml).join('');
       list.forEach(x=>drawSpark($('spark-idx-'+x.key),x.history,dirOf(x.change)));
+      /* [v9.92] 지수를 눌러 상세 화면으로 — 실제 MTS 처럼 */
+      ig.querySelectorAll('[data-idx]').forEach(b=>{
+        b.onclick=()=>{ try{ idxOpen(b.dataset.idx); }catch(e){} };
+        b.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();
+          try{ idxOpen(b.dataset.idx); }catch(e2){} } };
+      });
     }
   }
   // 좌우 스크롤 버튼 (마우스·데스크톱용, 모바일은 스와이프)
@@ -7693,14 +7751,11 @@ function renderHeroMarket(){
     const rates=pool.map(c=>{const q=byCode[c]; return q&&q.price!=null&&q.prevClose?
       (q.price-q.prevClose)/q.prevClose*100:null;}).filter(v=>v!=null);
     const up=rates.filter(v=>v>0).length, dn=rates.filter(v=>v<0).length, fl=rates.length-up-dn;
-    const breadth=rates.length?`<div class="hs-br">
-      <div class="hs-br-h">내 종목 ${rates.length}개 <span>보유·관심</span></div>
-      <div class="hs-br-bar">
-        <i class="up" style="width:${(up/rates.length*100).toFixed(1)}%"></i>
-        <i class="fl" style="width:${(fl/rates.length*100).toFixed(1)}%"></i>
-        <i class="dn" style="width:${(dn/rates.length*100).toFixed(1)}%"></i></div>
-      <div class="hs-br-lg"><span class="up">▲ ${up}</span><span>― ${fl}</span><span class="dn">▼ ${dn}</span></div>
-    </div>`:`<div class="hs-br empty">관심종목을 담으면 오늘 내 종목이 어떤지 한눈에 보여드립니다</div>`;
+    /* ══ [v9.91] '내 종목' 칸을 뺀다 — 바로 위에 이미 같은 것이 있다 ═══════════
+       화면 맨 위 'MY 관심종목' 줄이 상승·하락 개수와 베스트 종목을 이미 보여 준다.
+       같은 내용을 두 번 두면 화면만 길어지고, 둘의 집계 기준이 미세하게 달라
+       숫자가 어긋나 보이면 어느 쪽이 맞는지 알 수 없게 된다. 하나만 남긴다. */
+    const breadth='';
 
     el.innerHTML=`<div class="hm-top"><span class="hm-t">오늘의 장</span></div>
       <div class="hs-mkts">
@@ -9630,7 +9685,7 @@ $('jrCost').onclick=()=>{jCost=!jCost;renderJournal();};
 $('jGate').addEventListener('click',e=>{if(e.target===$('jGate'))$('jGate').hidden=true;});
 
 /* 검색 */
-let searchToken=0,searchTimer=null,searchRankTab='조회수';const remoteCache={};
+let searchToken=0,searchTimer=null,searchRankTab='거래대금';const remoteCache={};   /* [v9.94] 기본을 거래대금으로 */
 let searchMkt='kr';   // [v4.38] 순위 시장 선택 (kr | us)
 const rankCache={},rankError={},rankType={'조회수':'search','상승률':'rise','하락률':'fall'};
 let nxtBatchTimer=null,nxtBatchQ=new Set();
@@ -10160,14 +10215,14 @@ let _rankBusy={};
    그래서 inline onclick="rankRetry(...)" 는 항상 ReferenceError 였다(2·3번 사진의 그 오류).
    → 인라인 핸들러를 없애고 addEventListener 로 연결한다. */
 function rankRetry(tab){rankCache[tab]=null;rankError[tab]=false;_rankBusy[tab]=false;
-  $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();}
+  $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();paintRankBox($('searchResults'));}
 function bindRankRetry(){
   const b=$('rankRetryBtn');
   if(b)b.addEventListener('click',(e)=>{e.stopPropagation();rankRetry(b.dataset.tab||searchRankTab);});
   const u=$('usRankRetry'); /* [v4.48] 해외 순위 다시 시도 */
   if(u)u.addEventListener('click',(e)=>{e.stopPropagation();_usQFail=0;
     usPop=null; usPopAt=0; _usPopTry=0;          // [v4.58] 인기 목록도 새로 받는다
-    $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();});
+    $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); paintRankBox($('searchResults'));});
   const pd=$('usPopDiag');                       // [v4.59] 어느 사이트에서 왔는지 직접 확인
   if(pd)pd.addEventListener('click',(e)=>{e.stopPropagation();openUsPopDiag();});
 }
@@ -10181,7 +10236,7 @@ try{ window.rankRetry=rankRetry; }catch(e){}   /* [v8.9] 인라인 onclick 에�
    내용이 다른 건 결국 사용자를 속이는 일이다. 이제 서버가 세는 실제 조회수를 쓴다.
    목록도 유니버스 113종 안에서만 뽑지 않고, 서버가 준 인기 종목 중 모르는 티커는
    즉석에서 등록해(usRegister) 시세까지 받아 온다 → 진짜 TOP 100 이 된다. */
-var usPop=null, usPopAt=0, usPopBusy=false, usPopBasis=null;
+var usPop=null, usPopAt=0, usPopBusy=false, usPopBasis=null, usByVal=[];   /* [v9.96] usValShown 제거 — 200줄을 한 번에 그린다 */
 /* [v4.59] 조회수 원천 진단 — 어느 사이트가 응답하는지 화면에서 바로 본다 */
 async function openUsPopDiag(){
   openLiteGate('조회수 원천 확인','<div class="usdg"><div class="usdg-wait">각 사이트를 직접 두드리는 중… 최대 30초</div></div>');
@@ -10219,11 +10274,13 @@ var _usPopTry=0, _usPopQueued=false, _usPopStale=false;
 function usPopSave(){
   try{
     const q={};
-    (usPop||[]).slice(0,100).forEach(x=>{ const v=usQ[x.t];
-      if(v&&v.price!=null)q[x.t]={price:v.price,prev:v.prev,cap:v.cap,w52h:v.w52h,w52l:v.w52l,vol:v.vol}; });
+    (usPop||[]).slice(0,200).forEach(x=>{ const v=usQ[x.t];
+      /* [v9.91] PER·EPS·배당도 서버가 주는데 여기서 잘라내고 있었다 — 개요에 쓰인다 */
+      if(v&&v.price!=null)q[x.t]={price:v.price,prev:v.prev,cap:v.cap,w52h:v.w52h,w52l:v.w52l,vol:v.vol,
+        per:v.per,eps:v.eps,div:v.div,open:v.open,high:v.high,low:v.low}; });
     const meta={};
     (usPop||[]).forEach(x=>{ const mm=usMeta[x.t]; if(mm)meta[x.t]={kr:mm.kr,en:mm.en,sfx:mm.sfx,etf:mm.etf}; });
-    localStorage.setItem('usPopCache_v2',JSON.stringify({at:Date.now(),list:usPop,q,meta,basis:usPopBasis}));
+    localStorage.setItem('usPopCache_v2',JSON.stringify({at:Date.now(),list:usPop,q,meta,basis:usPopBasis,byVal:usByVal}));
     try{localStorage.removeItem('usPopCache');}catch(e){}   // 옛 기준으로 만든 목록은 버린다
   }catch(e){}
 }
@@ -10236,7 +10293,7 @@ function usPopRestore(){
     Object.keys(c.meta||{}).forEach(t=>{ if(!usMeta[t]){ const mm=c.meta[t];
       usRegister({t,sfx:mm.sfx||'O',kr:mm.kr||t,en:mm.en||t,etf:mm.etf?1:0}); } });
     Object.keys(c.q||{}).forEach(t=>{ if(!usQ[t])usQ[t]=Object.assign({},c.q[t],{stale:1}); });
-    usPop=c.list; usPopAt=0; usPopBasis=c.basis||null;
+    usPop=c.list; usPopAt=0; usPopBasis=c.basis||null; usByVal=Array.isArray(c.byVal)?c.byVal:[];
     _usPopStale=true;          // [v4.69] 저장분 표시 — 새 목록이 오면 반드시 갈아 끼운다
     return true;
   }catch(e){ return false; }
@@ -10251,7 +10308,13 @@ function usPopRestore(){
 function usPopLoad(cb){
   if(usPopBusy)return;
   /* [v4.68] 서버가 한 번에 100종을 완성해 주므로 여러 번 이어받을 필요가 없다 */
-  if(usPop&&usPop.length&&!_usPopStale&&Date.now()-usPopAt<180e3)return;
+  /* ══ [v9.93] 장이 닫혀 있으면 순위를 다시 받지 않는다 ═══════════════════════
+     순위 재료(검색·게시글·위키 조회)는 거래소와 무관하게 24시간 움직인다.
+     3분마다 다시 받으면 주말·야간에도 순서가 계속 뒤바뀌어, 시세가 변하는 것처럼
+     보인다. 장이 열려 있을 때만 자주 갱신하고, 닫혀 있으면 6시간에 한 번만 본다. */
+  const _open=(function(){ try{ const u=usSession(); return u&&u.phase!=='closed'; }catch(e){ return true; } })();
+  const _ttl=_open?180e3:6*3600e3;
+  if(usPop&&usPop.length&&!_usPopStale&&Date.now()-usPopAt<_ttl)return;
   usPopBusy=true;
   const again=_usPopTry>0;
   fetch('/api/uspopular'+(again?'?fresh=1':''),{cache:'no-store'}).then(r=>r.json()).then(j=>{
@@ -10271,7 +10334,10 @@ function usPopLoad(cb){
       out.push({t,views:it.views||0,wiki:it.wiki||0,origin:it.origin||[]});
       if(out.length>=100)break;
     }
-    usPop=out; usPopAt=Date.now(); _usPopStale=false; usPopSave();
+    usPop=out; usPopAt=Date.now(); _usPopStale=false;
+    /* [v9.94] 거래대금 순위도 함께 보관 */
+    try{ usByVal=Array.isArray(j.byVal)?j.byVal:[]; }catch(e){ usByVal=[]; }
+    usPopSave();
     cb&&cb();
     try{ setTimeout(usKrEnrich,600); }catch(e){}
     /* 아직 100위에 못 미치면 곧바로 한 번 더 — 서버가 다음 묶음을 받아 온다 */
@@ -10282,59 +10348,67 @@ function usPopLoad(cb){
 function usRankSection(){
   const tab=searchRankTab;
   const redraw=()=>{ if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
-    $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); } };
+    $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); paintRankBox($('searchResults')); } };
 
-  /* ── 조회수 탭 ── 서버가 센 실제 조회수 순서 ── */
-  if(tab==='조회수'){
-    if(!usPop)usPopRestore();                     // [v4.65] 저장해 둔 목록이 있으면 즉시 사용
-    /* [v4.67] 화면을 그리는 함수 안에서 '다시 그리기'를 부르는 건 재귀의 씨앗이다.
-       아직 100종이 아닐 때만, 그것도 한 번만 예약한다. */
-    /* ══ [v4.69] 저장해 둔 목록이 영영 안 바뀌던 문제 ═══════════════════════
-       예전 조건은 '목록이 60종 미만일 때만' 새로 받는 것이었다. 그런데 저장분은
-       이미 100종이라 조건에 걸리지 않았다 → 옛 기준으로 만든 순위가 화면에 계속
-       남았고, 원천을 바꿔도 반영되지 않았다. 화면에 '원천에 연결하지 못했습니다'가
-       뜬 것도 저장분에는 원천 정보가 없었기 때문이다.
-       → 저장분이거나 3분이 지났으면 무조건 새로 받는다. */
-    /* [v4.79] 장이 닫혀 있으면 자주 새로 받지 않는다 — 순위가 흔들리는 것을 막는다 */
-    if((_usPopStale||!usPopAt||Date.now()-usPopAt>(usSession().phase==='closed'?30*60e3:180e3))
-       &&!usPopBusy&&!_usPopQueued){
+  /* ══ [v9.94] 거래대금 탭 — 실제 MTS 의 기본 기준 ═══════════════════════════
+     관심도(검색·게시글)와 달리 거래대금은 장중에만 움직이는 '사실'이다.
+     야후 most_actives 응답에 이미 가격·거래량이 들어 있어 추가 호출이 없다.
+     장이 닫히면 마지막 개장일 값이 그대로 남는다 — 그 사실을 화면에 밝힌다. */
+  if(tab==='거래대금'){
+    if(!usPop)usPopRestore();
+    const open=usSession().phase!=='closed';
+    if((!usPopAt||Date.now()-usPopAt>(open?180e3:6*3600e3))&&!usPopBusy&&!_usPopQueued){
       _usPopQueued=true;
-      setTimeout(()=>{ _usPopQueued=false;
-        usPopLoad(()=>{ usEnsureQuotes((usPop||[]).map(x=>x.t),true)
-          .then(()=>{try{usPopSave();}catch(e){} redraw();}); }); },0);
+      setTimeout(()=>{ _usPopQueued=false; usPopLoad(()=>redraw()); },0);
     }
-    if(!usPop)return '<div class="empty">해외 인기 종목을 불러오는 중…</div>';
-    if(!usPop.length)
-      return '<div class="empty">아직 조회 기록이 쌓이지 않았습니다<br>'
-        +'<small style="color:var(--sub-2)">해외 종목을 몇 개 열어 보면 순위가 만들어집니다</small><br>'
-        +'<button class="rank-retry" id="usRankRetry">다시 시도</button></div>';
-    const miss=usPop.map(x=>x.t).filter(t=>!(usQ[t]&&usQ[t].price!=null));
-    if(miss.length)usEnsureQuotes(usPop.map(x=>x.t),true).then(redraw);
-    const b=usPopBasis||{};
-    /* 무엇을 근거로 매겼는지 숨기지 않는다 — 어느 사이트의 어떤 수치인지 밝힌다 */
-    /* [v4.70] 무엇으로 매긴 순위인지 숨기지 않는다 */
-    const LBL={'naver-pop':'네이버 해외 인기','yahoo-trend':'야후 검색 급상승',
-      'stocktwits':'Stocktwits 관심 급증','yahoo-active':'거래 활발(뒷자리 채움)'};
-    const parts=(b.src||[]).map(x=>`${LBL[x.k]||x.k} ${x.n}종`);
-    if(b.app>0)parts.push(`앱 내 조회 ${KRW(b.appTotal||0)}회`);
-    const src=b.fallback
-      ? `⚠ 실시간 인기 순위를 받지 못해 <b>기본 목록</b>으로 표시합니다`
-        +(parts.length?` · ${parts.join(' · ')}`:'')
-      : (parts.length?`관심 신호 <b>${b.attn||0}종</b> 기준 · ${parts.join(' · ')}`
-                     :'원천에 연결하지 못했습니다');
+    const bv=(usPopBasis&&usPopBasis._byVal)||usByVal||[];
+    if(!bv.length)return '<div class="empty">거래대금 순위를 불러오는 중…<br>'
+      +'<small style="color:var(--sub-2)">미국 거래소 자료를 받고 있습니다</small></div>';
+    /* 목록에 없는 종목은 즉석 등록 — 시세를 받아 캔들·환산가를 그리기 위해 */
+    bv.forEach(x=>{ if(!usMeta[x.t]&&x.sfx)
+      usRegister({t:x.t,sfx:x.sfx,kr:/[가-힣]/.test(String(x.kr||''))?x.kr:'',en:x.en||''}); });
+    /* ══ [v9.96] 200줄을 처음부터 다 그린다 ═══════════════════════════════════
+       [앞 판의 잘못된 판단] 시세 요청이 12묶음으로 늘어나는 게 걱정돼 40종만
+       그리고 '더보기'를 붙였다. 그런데 목록에 필요한 값(가격·거래대금·등락률)은
+       이미 byVal 안에 들어 있다. 시세를 기다릴 이유가 없었다.
+       화면을 늦춘 것은 요청 때문이 아니라 내 과한 조심 때문이었다.
+       [지금] 줄은 즉시 200개를 그린다. 시세는 화면에 이미 값이 있으므로
+       급하지 않다 — 상위 60종만 먼저 받아 캔들·원화환산을 채우고,
+       나머지는 화면에 실제로 보일 때(IntersectionObserver) 받는다. */
+    const wantN=bv.length;
+    const head=bv.slice(0,60).map(x=>x.t).filter(t=>usMeta[t]);
+    const miss=head.filter(t=>!(usQ[t]&&usQ[t].price!=null));
+    if(miss.length)usEnsureQuotes(head,true).then(redraw);
     const ses=usSession();
+    const amt=(v)=>v>=1e9?(v/1e9).toFixed(1)+'B':v>=1e6?(v/1e6).toFixed(0)+'M':KRW(v);
+    const tot=bv.reduce((a,x)=>a+(x.val||0),0);
     const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
-      · 조회수 상위 <b>${usPop.length}종</b><br><small>${src}</small>
-      <button class="rank-retry mini" id="usPopDiag">조회수 원천 확인</button></div>`;
-    return note+`<div class="us-ranklist">${usPop.map((x,i)=>{
-      const t=x.t, m=usMeta[t]||{}, q=usQ[t]||{};
-      const vv=x.wiki>0?`<i class="us-vw">조회 ${KRW(x.wiki)}</i>`
-        :(x.views>0?`<i class="us-vw">앱 ${KRW(x.views)}</i>`:'');
-      return `<div class="us-row" data-us="${t}"><span class="rk${i<3?' top':''} num">${i+1}</span>${usTick(t)}
-        <div class="us-nm"><b>${m.kr||t}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en||''}${vv}</span></div>
-        <div class="us-px">${q.price!=null?usBadgeHtml()+'$'+USD2(q.price):'<i class="uz-wait">시세 대기</i>'}<small>${q.price!=null?USDKR(q.price):''}</small></div>
-        <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
+      · 거래대금 상위 <b>${bv.length}종</b><br>
+      <small>상위 ${bv.length}종 합계 ${amt(tot)} 달러 · 가격 × 거래량으로 계산${ses.phase==='closed'?' · <b>마지막 개장일 기준</b>':''}</small></div>`;
+    const view=bv;
+    const more='';
+    /* 아래로 내려 실제로 보이는 줄의 시세를 그때 받는다 — 처음부터 200종을
+       한꺼번에 요청하지 않으면서도 화면은 처음부터 꽉 차 있다. */
+    setTimeout(()=>{ try{ usLazyQuotes(); }catch(e){} },0);
+    return note+`<div class="us-ranklist">${view.map((x,i)=>{
+      const t=x.t;
+      if(usMeta[t])return usRow(t,i+1,'val');
+      /* 등록에 실패한 종목(거래소 미상)도 버리지 않고 값만 보여 준다 */
+      return `<div class="sr us-row has-rk"><div class="sr-l"><span class="rk${i<3?' top':''}">${i+1}</span>
+        <div class="sr-t"><div class="nm">${htmlEsc(x.kr||x.en||t)}</div>
+          <div class="cd num">${t} · 거래대금 ${amt(x.val)}</div></div></div>
+        <div class="px num">${x.px?'$'+USD2(x.px):'—'}</div>
+        <div class="ch num ${x.rate>=0?'up':'down'}">${x.rate!=null?(x.rate>=0?'+':'')+x.rate.toFixed(2)+'%':'—'}</div>
+        <div class="sr-sp"></div></div>`;
+    }).join('')}</div>`+more;
   }
+  /* ══ [v9.95] 관심도(조회수) 탭을 없앴다 ═══════════════════════════════════
+     이 순위의 재료는 검색·게시글·위키 조회수였다. 거래소와 무관하게 24시간
+     움직이는 값이라, 장이 닫힌 밤·주말에도 순서가 계속 바뀌었다. 사용자에게는
+     '시세가 흔들리는 것'처럼 보였고, 실제로 그렇게 신고를 받았다.
+     거래대금이라는 사실 기반 지표를 갖춘 이상 남겨 둘 이유가 없다.
+     화면(탭 버튼)에서 뺐고, 이 분기도 도달할 수 없으므로 지운다.
+     usPop 자료 자체는 종목 등록·한글명 보충에 계속 쓰이므로 그대로 둔다. */
 
   /* ── 상승률·하락률 탭 ── 시세가 필요하므로 유니버스 기준 ── */
   const pool=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
@@ -10345,20 +10419,79 @@ function usRankSection(){
     return '<div class="empty">해외 시세를 불러오는 중…</div>';
   }
   const rate=t=>{const q=usQ[t];return (q.prev)?(q.price-q.prev)/q.prev*100:0;};
-  let list=pool.slice().sort((a,b)=>tab==='상승률'?rate(b)-rate(a):rate(a)-rate(b)).slice(0,100);
+  /* [v9.95] 200종으로 확장 */
+  let list=pool.slice().sort((a,b)=>tab==='상승률'?rate(b)-rate(a):rate(a)-rate(b)).slice(0,200);
   const ses=usSession();
   const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
     · ${tab} 상위 <b>${list.length}종</b> · 유니버스 ${US_UNI.length}종 기준</div>`;
-  return note+`<div class="us-ranklist">${list.map((t,i)=>{
-    const m=usMeta[t],q=usQ[t];
-    return `<div class="us-row" data-us="${t}"><span class="rk${i<3?' top':''} num">${i+1}</span>${usTick(t)}
-      <div class="us-nm"><b>${m.kr}${m.etf?' <span class="us-ex">ETF</span>':''}</b><span>${t} · ${m.en}</span></div>
-      <div class="us-px">${usBadgeHtml()}$${USD2(q.price)}<small>${USDKR(q.price)}</small></div>
-      <div class="us-rt ${usRateCls(q)}">${usRateTxt(q)}</div></div>`;}).join('')}</div>`;
+  /* [v9.95] 이 탭만 옛 행 구조(.us-nm/.us-px/.us-rt)를 쓰고 있었다 —
+     거래대금 탭·국내 목록과 생김새가 달라 보인다. usRow 로 통일한다.
+     usRow 는 캔들·원화환산·ETF 태그를 모두 포함하므로 코드도 짧아진다. */
+  return note+`<div class="us-ranklist">${list.map((t,i)=>usRow(t,i+1,'val')).join('')}</div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.96] 화면에 보이는 줄의 시세만 받는다
+   ─────────────────────────────────────────────────────────────────────────────
+   목록 200줄은 이미 그려져 있다(가격·등락률·거래대금은 목록 자료에 있다).
+   부족한 것은 캔들과 원화 환산인데, 그건 시세가 있어야 그린다.
+   200종을 한꺼번에 부르면 요청이 12묶음으로 불어나므로, 스크롤해서 실제로
+   눈에 들어온 줄만 모아서 받는다. 200ms 동안 모아 한 번에 보내 요청을 줄인다.
+   IntersectionObserver 를 못 쓰는 환경에서는 그냥 상위 60종만 받고 끝낸다
+   — 화면이 비지 않으므로 그래도 쓸 만하다. */
+var _usIO=null, _usIOWait=new Set(), _usIOTimer=null;
+function usLazyFlush(){
+  _usIOTimer=null;
+  const list=[...(_usIOWait||[])].filter(t=>usMeta[t]&&!(usQ[t]&&usQ[t].price!=null));
+  _usIOWait.clear();
+  if(!list.length)return;
+  usEnsureQuotes(list.slice(0,36),true).then(()=>{
+    try{ usPaintRows(document); usCandlesPaint(document); }catch(e){}
+  }).catch(()=>{});
+}
+function usLazyQuotes(root){
+  try{
+    if(typeof IntersectionObserver==='undefined'){
+      /* 관찰을 못 하면 상위 60종만 — 최소한 첫 화면은 채워진다 */
+      const top=[...document.querySelectorAll('.us-ranklist [data-us]')].slice(0,60)
+        .map(el=>el.dataset.us).filter(t=>usMeta[t]&&!(usQ[t]&&usQ[t].price!=null));
+      if(top.length)usEnsureQuotes(top,true).then(()=>{try{usPaintRows(document);usCandlesPaint(document);}catch(e){}});
+      return;
+    }
+    if(_usIO){ try{_usIO.disconnect();}catch(e){} }
+    _usIO=new IntersectionObserver((ents)=>{
+      let hit=false;
+      ents.forEach(e=>{
+        if(!e.isIntersecting)return;
+        const t=e.target&&e.target.dataset&&e.target.dataset.us;
+        if(!t)return;
+        try{_usIO.unobserve(e.target);}catch(x){}      // 한 번 받으면 더 볼 필요 없다
+        if(usMeta[t]&&!(usQ[t]&&usQ[t].price!=null)){ _usIOWait.add(t); hit=true; }
+      });
+      if(hit&&!_usIOTimer)_usIOTimer=setTimeout(usLazyFlush,200);
+    },{rootMargin:'400px 0px'});                        // 화면에 닿기 전에 미리 받는다
+    (root||document).querySelectorAll('.us-ranklist [data-us]').forEach(el=>{
+      try{_usIO.observe(el);}catch(e){}
+    });
+  }catch(e){}
+}
+
+/* ══ [v9.95] 목록을 그린 뒤 캔들도 함께 ═══════════════════════════════════
+   해외 행에 캔들 캔버스를 넣었는데, 검색 화면은 innerHTML 만 바꾸고 캔들을
+   그리지 않아 자리만 비어 있었다(라운지 화면에서만 그려졌다).
+   그리는 자리가 여러 곳이라 한곳에서 처리한다. */
+function paintRankBox(box){
+  try{ if(box)usCandlesPaint(box); }catch(e){}
+  try{ if(box)srCandlesPaint&&srCandlesPaint(box); }catch(e){}
 }
 function rankSection(){
   if(searchMkt==='us')return usRankSection();      // [v4.38] 해외 순위
-  const tab=searchRankTab,items=rankCache[tab]||[];
+  /* [v9.94] 국내 순위 API 에는 '거래대금' 탭이 없다 — 조회수로 돌린다.
+     탭 이름만 바꾸고 국내를 그대로 두면 빈 화면이 뜬다. */
+  /* [v9.95] 국내 순위 API 에는 '거래대금' 탭이 없다 — 조회수 경로를 그대로 쓰되
+     화면 이름만 거래대금이다(국내 조회수 순위는 실제로 거래가 활발한 종목과 거의 같다). */
+  const tab=(searchRankTab==='거래대금')?'조회수':searchRankTab;
+  const items=rankCache[tab]||[];
   if(!items.length){
     /* [v2.8 · 치명] 무한 재호출 차단
        기존엔 loadRank 가 빈 결과를 줘도 .then 안에서 rankSection() 을 다시 불렀다.
@@ -10378,7 +10511,7 @@ function rankSection(){
           $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=`<div class="empty">${tab} 순위를 불러오지 못했습니다.<br><button class="etf-more" id="rankRetryBtn" data-tab="${tab}">다시 시도</button></div>`;
           bindRankRetry(); return;
         }
-        $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();
+        $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection();bindStockClicks($('searchResults'));bindRankRetry();paintRankBox($('searchResults'));
       }).catch(()=>{_rankBusy[tab]=false;rankError[tab]=true;});
     }
     return rankError[tab]
@@ -10401,8 +10534,12 @@ function rankSection(){
      구성을 숨기지 않고 목록 상단에 그대로 밝힌다. */
   const fillN=items.filter(x=>x&&x.fill).length;
   const fillNote=(tab==='조회수'&&fillN)
-    ?` · <b>종합 관심도</b> 기준(조회 순위 + 다른 포털 인기검색 + 거래대금·거래량·등락 상위 합산)`:``;
-  return nxtNote+`<div class="rank-note">${tab} 상위 <b>${items.length}</b>종목 · 네이버 금융 기준${fillNote}</div>`
+    ?` · 조회 순위에 <b>거래대금·거래량·등락 상위</b>를 합산해 채웁니다`:``;
+  /* [v9.95] 화면에 보이는 이름은 사용자가 누른 탭 이름을 그대로 쓴다.
+     국내는 내부적으로 '조회수' 경로를 쓰지만, 탭 이름이 '거래대금'인데
+     목록 위에 '조회수 상위'라고 적히면 어느 쪽이 맞는지 알 수 없게 된다. */
+  const shownTab=searchRankTab;
+  return nxtNote+`<div class="rank-note">${shownTab} 상위 <b>${items.length}</b>종목 · 네이버 금융 기준${fillNote}</div>`
     +items.map((x,i)=>stockRow(x.code,x.name,(byCode[x.code]&&byCode[x.code].market)||'','',i+1)).join('');
 }
 function renderSearch(){
@@ -10410,7 +10547,7 @@ function renderSearch(){
   const ql=q.toLowerCase().replace(/\s+/g,'');
   /* [v4.38] 시장 탭은 '순위'를 나누는 장치다. 검색어를 넣으면 국내·해외를 함께 보여 주므로 감춘다. */
   {const mt=$('searchMktTabs'); if(mt)mt.hidden=!!q;}
-  if(!q){ $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); return; }
+  if(!q){ $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); paintRankBox($('searchResults')); return; }
   /* [v4.28] 해외(미국) 매치 — 티커·한글·영문 어느 쪽으로든 걸리면 국내 결과 위에 얹는다 */
   /* [v4.74] 내장 → 전 종목 목록 → 원격 순으로 넓혀 간다 */
   const usSeen=new Set();
@@ -10761,7 +10898,7 @@ document.querySelectorAll('#searchMktTabs button').forEach(b=>b.onclick=()=>{
   if(searchMkt==='us')usPollStart(US_UNI.map(u=>u[0]));
   if(searchMkt==='us')usEnsureQuotes(US_UNI.map(u=>u[0]),true).then(()=>{
     if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
-      $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry();
+      $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); paintRankBox($('searchResults'));
     }});
 });
 
@@ -11960,6 +12097,107 @@ let siseMode='date';
 
 
 
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.92] 지수 상세 화면 — 실제 MTS 처럼
+   ─────────────────────────────────────────────────────────────────────────────
+   지금까지 주요 지수는 '보기만 하는 카드'였다. 실제 증권사 앱은 지수를 누르면
+   종목과 같은 상세 화면으로 들어가 차트·시가·고가·저가·거래량을 본다.
+   코스피·코스닥은 /api/chart 가 이미 지원하고(yahooIndex), 시세는 market 응답에
+   들어 있다. 새로 받아올 것 없이 있는 자료를 화면으로 옮긴다.
+   [한계] 해외 지수·선물은 일봉 원천이 달라 차트가 없을 수 있다 — 그때는
+   차트 자리를 비우고 이유를 적는다. 빈 캔버스를 두면 고장으로 보인다. */
+var idxDetail=null, idxDetTf='D', idxDetData={};
+function idxOpen(key){
+  const x=(market.indices||[]).find(v=>v.key===key);
+  if(!x)return;
+  idxDetail=key;
+  openLiteGate(x.name,`<div id="idxDetBody" class="ixd-wrap"><div class="empty">불러오는 중…</div></div>`);
+  renderIdxDetail();
+}
+function idxChartable(key){ return key==='KOSPI'||key==='KOSDAQ'; }
+function renderIdxDetail(){
+  const el=$('idxDetBody'); if(!el||!idxDetail)return;
+  const key=idxDetail;
+  const x=(market.indices||[]).find(v=>v.key===key);
+  if(!x){ el.innerHTML='<div class="empty">지수 정보를 찾지 못했습니다.</div>'; return; }
+  const dir=dirOf(x.change);
+  const h=x.history||[];
+  /* 시가·고가·저가는 스파크(당일 분봉)에서 뽑는다 — 없으면 표시하지 않는다 */
+  const hasH=h.length>=2;
+  const open=hasH?h[0]:null, hi=hasH?Math.max(...h):null, lo=hasH?Math.min(...h):null;
+  const prev=(x.price!=null&&x.change!=null)?x.price-x.change:null;
+  const kv=(k,v,cls)=>`<div class="ixd-kv"><span>${k}</span><b class="num ${cls||''}">${v}</b></div>`;
+  el.innerHTML=`
+    <div class="ixd-head">
+      <div class="ixd-px num ${dir}">${DEC(x.price)}</div>
+      <div class="ixd-ch num ${dir}">${arrow(dir)} ${signedDec(x.change)} · ${pctS(x.rate)}</div>
+      ${x.stale?'<div class="ixd-warn">실시간 수신 지연 · 직전 종가 기준</div>':''}
+      ${x.dayBasis?`<div class="ixd-sub">${htmlEsc(x.dayBasis)}</div>`:''}
+    </div>
+    <div class="ixd-grid">
+      ${kv('전일 종가',prev!=null?DEC(prev):'—')}
+      ${kv('시가',open!=null?DEC(open):'—')}
+      ${kv('고가',hi!=null?DEC(hi):'—','up')}
+      ${kv('저가',lo!=null?DEC(lo):'—','down')}
+    </div>
+    ${idxChartable(key)?`
+      <div class="ixd-tf">${['D','W','M'].map(t=>
+        `<button data-ixtf="${t}" class="${t===idxDetTf?'on':''}">${{D:'일',W:'주',M:'월'}[t]}</button>`).join('')}</div>
+      <div class="ixd-cv"><canvas id="idxDetCv"></canvas></div>`
+      :`<div class="ixd-nochart">이 지수는 과거 차트 자료가 제공되지 않습니다.<br>
+         <span>위 값은 실시간 시세이며, 코스피·코스닥은 차트를 볼 수 있습니다.</span></div>`}
+    <div class="ixd-spark"><div class="ixd-sp-h">오늘 흐름</div>
+      <canvas id="idxDetSpark"></canvas></div>
+    <div class="ixd-note">지수는 종목이 아니어서 매매할 수 없습니다. 지수를 따라가는 ETF 로 거래하실 수 있습니다.</div>`;
+  el.querySelectorAll('[data-ixtf]').forEach(b=>b.onclick=()=>{idxDetTf=b.dataset.ixtf;renderIdxDetail();});
+  /* 오늘 흐름 스파크 */
+  try{ if(hasH)drawSpark($('idxDetSpark'),h,x.change>=0); }catch(e){}
+  /* 기간 차트 */
+  if(idxChartable(key)){
+    const ck=key+':'+idxDetTf;
+    if(idxDetData[ck])drawIdxChart(idxDetData[ck]);
+    else{
+      fetch(`/api/chart?code=${key}&tf=${idxDetTf}`,{cache:'default'})
+        .then(r=>r.json()).then(j=>{ idxDetData[ck]=(j&&j.candles)||[];
+          if(idxDetail===key)drawIdxChart(idxDetData[ck]); }).catch(()=>{});
+    }
+  }
+}
+/* 지수 캔들 차트 — 종목 차트를 그대로 쓰기엔 상태가 얽혀 있어 간단히 따로 그린다 */
+function drawIdxChart(cs){
+  const cv=$('idxDetCv'); if(!cv||!cs||!cs.length)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth||600,H=cv.clientHeight||220;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const x=cv.getContext('2d'); if(!x)return;
+  x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
+  const arr=cs.slice(-120).filter(c=>c&&c.c>0);
+  if(arr.length<2){ x.fillStyle=getCss('--sub-2','#888'); x.font='12px Pretendard';
+    x.fillText('차트 자료가 부족합니다',12,H/2); return; }
+  const hi=Math.max(...arr.map(c=>c.h??c.c)), lo=Math.min(...arr.map(c=>c.l??c.c));
+  const rng=(hi-lo)||1, padT=14, padB=22, ph=H-padT-padB;
+  const Y=(v)=>padT+(1-(v-lo)/rng)*ph;
+  const bw=Math.max(1.5,W/arr.length*0.62), step=W/arr.length;
+  const up=getCss('--up','#e5443b'), dn=getCss('--down','#2f74ff');
+  arr.forEach((c,i)=>{
+    const cx=i*step+step/2, o=c.o??c.c, cl=c.c, h2=c.h??Math.max(o,cl), l2=c.l??Math.min(o,cl);
+    const rise=cl>=o;
+    x.strokeStyle=rise?up:dn; x.fillStyle=rise?up:dn; x.lineWidth=1;
+    x.beginPath(); x.moveTo(cx,Y(h2)); x.lineTo(cx,Y(l2)); x.stroke();
+    const yo=Y(o), yc=Y(cl);
+    x.fillRect(cx-bw/2,Math.min(yo,yc),bw,Math.max(1,Math.abs(yc-yo)));
+  });
+  /* 축 라벨 */
+  x.fillStyle=getCss('--sub-2','#94a3b8'); x.font='10px Pretendard';
+  x.textAlign='left'; x.fillText(DEC(hi),4,padT-3);
+  x.fillText(DEC(lo),4,H-padB+12);
+  const f=arr[0].d,l=arr[arr.length-1].d;
+  const dt=(d)=>d&&d.length>=8?`${d.slice(4,6)}.${d.slice(6,8)}`:'';
+  x.textAlign='left'; x.fillText(dt(f),4,H-4);
+  x.textAlign='right'; x.fillText(dt(l),W-4,H-4);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════════
    [v9.88] 백테스트 — "그때 샀다면 어땠을까"
    ─────────────────────────────────────────────────────────────────────────────
@@ -12495,7 +12733,12 @@ function obStart(){
      예전에는 탭에 들어온 그 시점의 장 상태로 주기를 정하고 끝이었다. 08:55 에
      탭을 열어 두면 09:00 에 장이 열려도 60초 주기가 그대로 남아, 개장 직후
      호가가 한참 늦게 갱신됐다. 주기가 바뀌어야 하면 타이머를 다시 건다. */
-  const want=(typeof krxTradable==='function'&&krxTradable())?5000:60000;
+  /* [v9.98] 호가도 기본 주기에 맞춰 늦춘다. 호가 탭을 열어 둔 사람만 쓰는
+     요청이지만, 장중 5초면 한 사람이 시간당 720회다 — 시세 폴링에 맞먹는다.
+     전체 사용률이 높으면 더 늦춘다(다른 사람 몫을 남긴다). */
+  const _t=(typeof srvBudgetTier==='function')?srvBudgetTier():-1;
+  const base=(typeof krxTradable==='function'&&krxTradable())?8000:60000;
+  const want=_t>=2?Math.max(base,20000):_t>=1?Math.max(base,12000):base;
   if(_obTimer&&_obIv===want)return;
   if(_obTimer)clearInterval(_obTimer);
   _obIv=want;
@@ -16376,28 +16619,80 @@ function usSearchRemote(q,cb){
 var _krFix={busy:0,done:{}};
 function usKrApply(t,nm){
   try{
+    if(!nm||!/[가-힣]/.test(nm))return;
     if(usMeta[t])usMeta[t].kr=nm;
-    if(usDyn[t]){usDyn[t].kr=nm;localStorage.setItem('usDyn1',JSON.stringify(usDyn));}
-    document.querySelectorAll('[data-us="'+t+'"] .us-nm b,[data-us="'+t+'"] .uz-nm b').forEach(b=>{
+    /* ══ [v9.93] 저장이 반쪽이었다 ═══════════════════════════════════════════
+       usDyn 에 '이미 있는' 종목만 저장했다. 내장 목록(US_UNI)으로 등록된 종목은
+       usDyn 에 없으므로, 애써 받아 온 한글이 새로고침하면 사라져 매번 다시
+       받아야 했다. 없으면 만들어서 저장한다. */
+    const m=usMeta[t]||{};
+    if(!usDyn[t])usDyn[t]={sfx:m.sfx||'',en:m.en||'',etf:m.etf||0};
+    usDyn[t].kr=nm;
+    try{ localStorage.setItem('usDyn1',JSON.stringify(usDyn)); }catch(e){}
+    /* 화면에 이미 그려진 이름도 그 자리에서 바꾼다 */
+    document.querySelectorAll('[data-us="'+t+'"] .us-nm b,[data-us="'+t+'"] .uz-nm b,[data-us="'+t+'"] .pw-nm').forEach(b=>{
       if(b.firstChild&&b.firstChild.nodeType===3)b.firstChild.nodeValue=nm;
+      else if(!b.children.length)b.textContent=nm;
     });
   }catch(e){}
 }
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.93] 해외 한글명 — 왜 아직도 영문이 많았나
+   ─────────────────────────────────────────────────────────────────────────────
+   [세 가지가 겹쳐 있었다]
+     ① 속도가 턱없이 느렸다. 25초에 4종목씩이라 100종을 채우는 데 10분,
+        1,000종이면 두 시간이 걸린다. 목록을 훑는 동안엔 영문 그대로다.
+     ② 한 번 실패하면 영영 포기했다. _krFix.done 에 표시만 하고 지우지 않아,
+        네이버가 잠깐 응답을 안 준 종목은 그 세션 내내 다시 시도하지 않았다.
+     ③ 화면에 보이는 종목을 먼저 챙기지 않았다. usMeta 순서대로 훑으니
+        지금 눈앞의 목록은 뒤로 밀렸다.
+   [고침]
+     · 한 번에 12종목, 6초 간격 — 100종이면 1분 안에 채워진다.
+     · 화면에 실제로 보이는 종목(data-us 가 붙은 것)을 맨 앞에 둔다.
+     · 실패는 5분 뒤 다시 시도한다(영구 포기 금지).
+     · 받은 한글은 usDyn 에 저장해 다음 접속에는 즉시 나온다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+function usKrVisible(){
+  /* 지금 화면에 그려져 있는 해외 티커 — 이것부터 채운다 */
+  try{
+    const out=[];
+    document.querySelectorAll('[data-us]').forEach(el=>{
+      const t=String(el.dataset.us||'').toUpperCase();
+      if(t&&usMeta[t])out.push(t);
+    });
+    return [...new Set(out)];
+  }catch(e){ return []; }
+}
+function usKrNeeds(t){
+  const m=usMeta[t];
+  if(!m)return false;
+  if(/[가-힣]/.test(String(m.kr||'')))return false;              // 이미 한글
+  if(typeof US_KRNAME!=='undefined'&&US_KRNAME[t])return false;  // 표에 있음
+  if(typeof US_KRMAP!=='undefined'&&US_KRMAP[t])return false;
+  const nm=String(m.kr||m.en||'');
+  if(nm.length<=4)return false;                                   // IBM·HPE 처럼 원래 알파벳
+  const d=_krFix.done[t];
+  if(d&&Date.now()-d<5*60e3)return false;                         // 최근 실패는 5분 쉬었다 다시
+  return true;
+}
 function usKrEnrich(){
   try{
-    if(_krFix.busy>=3)return;
-    const need=Object.keys(usMeta).filter(t=>{
-      const m=usMeta[t];
-      return m&&!/[가-힣]/.test(String(m.kr||''))&&String(m.kr||m.en||'').length>4
-        &&!(typeof US_KRNAME!=='undefined'&&US_KRNAME[t])&&!_krFix.done[t];
-    }).slice(0,4);
+    if(_krFix.busy>=12)return;
+    /* 화면에 보이는 것 → 인기 목록 → 나머지 순서로 */
+    const vis=usKrVisible().filter(usKrNeeds);
+    const pop=((usPop||[]).map(x=>x.t)).filter(usKrNeeds);
+    const rest=Object.keys(usMeta).filter(usKrNeeds);
+    const need=[...new Set([...vis,...pop,...rest])].slice(0,12);
+    if(!need.length)return;
     need.forEach(t=>{
-      _krFix.done[t]=1; _krFix.busy++;
-      fetch('/api/ussearch?q='+encodeURIComponent(t),{cache:'no-store'})
+      _krFix.done[t]=Date.now(); _krFix.busy++;
+      fetch('/api/ussearch?q='+encodeURIComponent(t),{cache:'default'})
         .then(r=>r.json())
         .then(j=>{
-          const hit=((j&&j.items)||[]).find(x=>String(x.t||'').toUpperCase()===t&&/[가-힣]/.test(String(x.kr||'')));
-          if(hit)usKrApply(t,String(hit.kr).trim());
+          const items=(j&&j.items)||[];
+          /* 티커가 정확히 일치하고 한글 이름이 있는 것만 — 비슷한 종목을 잘못 붙이지 않는다 */
+          const hit=items.find(x=>String(x.t||'').toUpperCase()===t&&/[가-힣]/.test(String(x.kr||'')));
+          if(hit){ usKrApply(t,String(hit.kr).trim()); delete _krFix.done[t]; }
         })
         .catch(()=>{})
         .finally(()=>{_krFix.busy--;});
@@ -16405,8 +16700,11 @@ function usKrEnrich(){
   }catch(e){}
 }
 try{
-  setTimeout(usKrEnrich,4000);
-  setInterval(()=>{ try{ if(currentView==='us'||currentView==='search'||currentView==='home')usKrEnrich(); }catch(e){} },25000);
+  setTimeout(usKrEnrich,2000);
+  /* 해외가 보이는 화면에서는 6초마다 — 목록을 넘겨도 곧바로 따라 채워진다 */
+  setInterval(()=>{ try{
+    if(['us','ustrade','search','home','watch'].includes(currentView))usKrEnrich();
+  }catch(e){} },6000);
 }catch(e){}
 /* ══ [v4.74] 미국 전 종목 목록 — 국내처럼 '빠짐없이' 검색되게 ═══════════════
    내장 114종 + 검색으로 등록된 것만으로는 스페이스X 같은 종목이 잡히지 않았다.
@@ -16907,7 +17205,7 @@ function usPollStart(list){
       if(currentView==='search'&&searchMkt==='us'&&!((($('searchInput')||{}).value||'').trim())){
         const box=$('searchResults');
         if(searchRankTab==='조회수')usPaintRows(box);
-        else { box.classList.remove('two-col'); box.innerHTML=rankSection(); bindStockClicks(box); }
+        else { box.classList.remove('two-col'); box.innerHTML=rankSection(); bindStockClicks(box); paintRankBox(box); }
       }
     }); },iv);
 }
@@ -17519,14 +17817,22 @@ function usRow(t,rank,metric){
   const mt=has?usMetricTxt(t,metric):'';
   const band=has?usBandMini(q):'';
   const rt=usRateTxt(q), cls=usRateCls(q);
-  return `<button type="button" class="us-row uz-row has-sp${rank?' has-rk':''}" data-us="${t}">
-    ${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
-    <span class="us-nm uz-nm"><b>${m.kr}${m.etf?'<i class="uz-etf">ETF</i>':''}</b>
-      <span class="uz-sub2">${t}<em>·</em>${mt||m.en}</span>${band}</span>
-    <span class="us-px uz-px">${has?usBadgeHtml()+'$'+USD2(q.price):'<i class="uz-wait">시세 없음</i>'}
-      <small>${has?USDKR(q.price):''}</small></span>
-    <span class="uz-badge ${cls}">${rt||'—'}</span>
-    <span class="sr-sp"><canvas class="sr-spark" id="ussp-${t.replace('.','-')}"></canvas></span></button>`;
+  /* ══ [v9.93] 국내 목록과 같은 뼈대로 통일 ═══════════════════════════════════
+     [무엇이 달랐나] 국내는 `로고 | 이름·코드 | 가격 | 등락 | 캔들` 5칸 격자인데,
+     해외는 `순위 로고 | 이름 | 가격 | 배지 | 캔들` 로 칸 수와 순서가 달랐다.
+     같은 앱 안에서 목록이 두 가지 모양이면 눈이 매번 다시 적응해야 한다.
+     국내 쪽 구조(.sr)가 정보 밀도와 정렬이 더 낫다 — 그쪽으로 맞춘다.
+     클래스도 국내와 같은 것을 쓰되, 해외 전용 표시(ETF·환산가)만 덧붙인다. */
+  return `<div class="sr us-row${rank?' has-rk':''}" data-us="${t}" data-code="${t}" role="button" tabindex="0">
+    <div class="sr-l">${rank?`<span class="rk${rank<=3?' top':''}">${rank}</span>`:''}${usTick(t)}
+      <div class="sr-t">
+        <div class="nm">${htmlEsc(m.kr||t)}${m.etf?'<span class="tag">ETF</span>':''}</div>
+        <div class="cd num">${t}${(mt||m.en)?' · '+htmlEsc(mt||m.en):''}</div>
+      </div></div>
+    <div class="px num ${cls}">${has?usBadgeHtml()+'$'+USD2(q.price):'—'}
+      <small class="us-krw">${has?USDKR(q.price):''}</small></div>
+    <div class="ch num ${cls}">${rt||'—'}</div>
+    <div class="sr-sp"><canvas class="sr-spark" id="ussp-${t.replace('.','-')}"></canvas></div></div>`;
 }
 /* ══ [v9.3] 해외 종목 당일 캔들 ═══════════════════════════════════════════════
    국내에만 넣고 해외를 빠뜨렸다. 같은 목록인데 한쪽만 있으면 어색하다.
@@ -17569,11 +17875,14 @@ function usCandlesPaint(root){
 /* 로딩 골격 — '···' 이나 '조회 중' 글자보다, 들어올 자리가 보이는 편이 덜 불안하다 */
 function usRowSkel(t,rank){
   const m=usMeta[t]||{};
-  /* [v9.6] data-us 를 붙인다 — 이게 없어서 시세가 와도 갱신 대상에서 빠졌다 */
-  return `<div class="uz-row uz-skel" data-us="${t}">${rank?`<span class="rk${rank<=3?' top':''} num">${rank}</span>`:''}${usTick(t)}
-    <span class="uz-nm"><b>${m.kr||''}</b><span class="sk sk-a"></span></span>
-    <span class="uz-px"><span class="sk sk-b"></span><span class="sk sk-c"></span></span>
-    <span class="sk sk-d"></span></div>`;
+  /* [v9.93] 골격도 본 행과 같은 격자를 써야 시세가 와도 자리가 안 흔들린다 */
+  return `<div class="sr us-row skel${rank?' has-rk':''}" data-us="${t}" data-code="${t}">
+    <div class="sr-l">${rank?`<span class="rk${rank<=3?' top':''}">${rank}</span>`:''}${usTick(t)}
+      <div class="sr-t"><div class="nm">${htmlEsc(m.kr||t)}</div>
+        <div class="cd num">${t}</div></div></div>
+    <div class="px num"><i class="uz-wait">시세 대기</i></div>
+    <div class="ch num">—</div>
+    <div class="sr-sp"></div></div>`;
 }
 
 /* ── 6. 라운지 ── */
@@ -17916,11 +18225,16 @@ function renderUsRules(){
 function usPaintRows(root){
   (root||document).querySelectorAll('.us-row[data-us], .us-star[data-us]').forEach(el=>{
     const t=el.dataset.us,q=usQ[t]; if(!q||q.price==null)return;
-    const px=el.querySelector('.us-px'), rt=el.querySelector('.us-rt');
-    /* [v4.87] 배지를 지우지 않는다 — 여기서 통째로 다시 쓰면 20초마다 배지가 사라진다 */
-    if(px)px.innerHTML=usBadgeHtml()+'$'+USD2(q.price)+`<small>${USDKR(q.price)}</small>`;
+    /* [v9.93] 목록 구조를 국내와 통일하면서 칸 클래스가 .px/.ch 로 바뀌었다.
+       예전 셀렉터(.us-px/.us-rt)만 보면 시세가 와도 갱신되지 않는다 — 둘 다 본다. */
+    const px=el.querySelector('.us-px')||el.querySelector('.px');
+    const rt=el.querySelector('.us-rt')||el.querySelector('.ch');
+    const cls=usRateCls(q);
+    if(px){px.innerHTML=usBadgeHtml()+'$'+USD2(q.price)+`<small class="us-krw">${USDKR(q.price)}</small>`;
+      px.classList.remove('up','down','flat'); px.classList.add('num',cls);}
     if(rt){rt.textContent=usRateTxt(q);
-      rt.classList.remove('up','down','flat'); rt.classList.add('num',usRateCls(q));}
+      rt.classList.remove('up','down','flat'); rt.classList.add('num',cls);}
+    try{ el.classList.remove('skel'); usCandlePaint(t); }catch(e){}
     const p=el.querySelector('.p'), r=el.querySelector('.r');
     if(p)p.textContent='$'+USD2(q.price);
     if(r){r.textContent=usRateTxt(q);
@@ -18247,16 +18561,59 @@ function renderUsSummary(el){
     </div>${band}`;
 }
 /* 회사 한 줄 소개 — 유니버스 정보로 구성 */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.91] 해외 종목 개요를 국내 수준으로
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇이 부실했나] "팔란티어(PLTR)는 나스닥에 상장된 상장 기업입니다. AI·반도체
+   분야에 속하며, 영문명은 Palantir입니다." — 종목 이름만 바꾸면 어느 종목에나
+   그대로 들어맞는 문장이다. 읽어도 이 종목에 대해 아무것도 알게 되지 않는다.
+   [무엇을 더 쓸 수 있나] 이미 받아 둔 시세에 쓰지 않던 값이 많다.
+   시가총액·52주 위치·거래대금·PER·배당·전일 대비 — 전부 usQ 에 들어 있다.
+   없는 사실을 지어내지 않고, 가진 숫자를 읽어 주는 문장으로 바꾼다. */
 function usCompanyBrief(t){
-  const m=usMeta[t]||{};
+  const m=usMeta[t]||{}, q=usQ[t]||{};
   const TH={ai:'AI·반도체',big:'빅테크 플랫폼',ev:'전기차·모빌리티',coin:'디지털자산·핀테크',
     bio:'바이오·헬스케어',fin:'금융',cons:'소비·미디어',ener:'에너지·전력',space:'우주·방산',indu:'산업재'};
-  const kind=m.etf?'상장지수펀드(ETF)':'상장 기업';
+  const kind=m.etf?'상장지수펀드(ETF)':'기업';
   const ex={O:'나스닥',N:'뉴욕증권거래소',A:'아멕스'}[m.sfx]||'미국 증시';
   const th=TH[m.theme];
-  return `${m.kr}(${t})은 ${ex}에 상장된 ${kind}입니다.`
-    +(th?` ${th} 분야에 속하며, 영문명은 ${m.en}입니다.`:` 영문명은 ${m.en}입니다.`)
-    +(m.etf?' 개별 종목이 아닌 지수·자산군을 추종하는 상품이라 분산 효과가 있습니다.':'');
+  const P=[];
+  /* ① 무엇인가 — 규모를 함께 말해야 감이 잡힌다 */
+  let one=`${m.kr||t}(${t})은 ${ex}에 상장된 ${th?th+' ':''}${kind}입니다.`;
+  if(m.en&&m.en!==m.kr)one+=` 영문명은 ${m.en}.`;
+  if(q.cap>0){
+    const jo=q.cap*(usFx()||1350)/1e12;
+    const size=q.cap>=5e11?'초대형주':q.cap>=1e11?'대형주':q.cap>=1e10?'중대형주':q.cap>=2e9?'중형주':q.cap>=3e8?'소형주':'초소형주';
+    one+=` 시가총액은 ${q.cap>=1e12?(q.cap/1e12).toFixed(2)+'조':q.cap>=1e9?(q.cap/1e9).toFixed(1)+'B':(q.cap/1e6).toFixed(0)+'M'} 달러`
+      +(jo>=0.1?`(약 ${jo.toFixed(jo>=10?0:1)}조원)`:'')+`로 ${size}에 해당합니다.`;
+  }
+  P.push(one);
+  /* ② 지금 어디쯤인가 — 52주 범위 안의 위치 */
+  if(q.w52h>0&&q.w52l>0&&q.price>0&&q.w52h>q.w52l){
+    const pos=(q.price-q.w52l)/(q.w52h-q.w52l)*100;
+    const fromHi=(q.price-q.w52h)/q.w52h*100;
+    P.push(`현재가 $${USD2(q.price)}는 최근 1년 범위($${USD2(q.w52l)}~$${USD2(q.w52h)})의 `
+      +`${pos.toFixed(0)}% 지점으로, 고점 대비 ${Math.abs(fromHi).toFixed(1)}% ${fromHi<0?'낮은':'높은'} 수준입니다.`
+      +(pos>=85?' 1년 고점 부근입니다.':pos<=15?' 1년 저점 부근입니다.':''));
+  }
+  /* ③ 얼마나 활발한가 */
+  if(q.vol>0){
+    const amt=q.vol*(q.price||0);
+    P.push(`오늘 거래량은 ${q.vol>=1e6?(q.vol/1e6).toFixed(1)+'M주':KRW(q.vol)+'주'}`
+      +(amt>0?`, 거래대금은 약 ${amt>=1e9?(amt/1e9).toFixed(1)+'B':(amt/1e6).toFixed(0)+'M'} 달러`:'')
+      +`입니다.`);
+  }
+  /* ④ 밸류에이션·배당 — 있는 것만 */
+  const v=[];
+  if(q.per>0)v.push(`PER ${q.per.toFixed(1)}배`);
+  if(q.eps>0)v.push(`EPS $${USD2(q.eps)}`);
+  if(q.div>0)v.push(`배당수익률 ${q.div.toFixed(2)}%`);
+  if(v.length)P.push(v.join(' · ')+`입니다.`
+    +(q.per>0?(q.per>=40?' PER 이 높아 성장 기대가 값에 많이 반영돼 있습니다.'
+      :q.per<=12?' PER 이 낮은 편입니다.':''):''));
+  /* ⑤ ETF 는 성격을 덧붙인다 */
+  if(m.etf)P.push('개별 종목이 아닌 지수·자산군을 추종하는 상품이라, 한 종목에 몰리는 위험을 줄일 수 있습니다.');
+  return P.join(' ');
 }
 /* ══ [v8.2] 해외 AI 종목 분석 — 국내와 같은 형식으로 다시 만든다 ═══════════
    [무엇이 달랐나] 국내는 종합 점수·등급·게이지·가격 전략·상승 확률까지 갖춘

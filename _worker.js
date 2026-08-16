@@ -5832,10 +5832,26 @@ async function usrLoad(st, id, legacyDb) {
   _usrCache[id] = { v, at: Date.now() };
   return v;
 }
+var _usrSig = {};
 async function usrSave(st, id, val) {
   if (!id) return false;
+  /* ══ [v9.97] 내용이 그대로면 쓰지 않는다 ═══════════════════════════════════
+     동기화는 화면에서 값이 조금만 움직여도 불린다. 그런데 실제로 바뀐 것이
+     없는 경우가 많다(주문 화면에서 수량만 만지작거리다 원래대로 돌린다든지).
+     KV 쓰기는 무료 한도가 하루 1,000회뿐이라, 같은 내용을 다시 쓰는 것만
+     막아도 실사용 인원이 몇 배로 늘어난다. 지문을 비교해 같으면 건너뛴다. */
+  let sig = "";
+  try { sig = JSON.stringify(val); } catch (e) { sig = ""; }
   _usrCache[id] = { v: val, at: Date.now() };
-  try { await st.setJSON("usr:" + id, val); return true; } catch (e) { return false; }
+  if (sig && _usrSig[id] === sig) return true;          // 이미 같은 내용이 저장돼 있다
+  try {
+    await st.setJSON("usr:" + id, val);
+    if (sig) _usrSig[id] = sig;
+    /* 지문이 무한히 쌓이지 않게 — 오래된 것부터 덜어낸다 */
+    const ks = Object.keys(_usrSig);
+    if (ks.length > 200) ks.slice(0, 100).forEach(k => delete _usrSig[k]);
+    return true;
+  } catch (e) { return false; }
 }
 async function usrDelete(st, id) {
   if (!id) return;
@@ -8468,6 +8484,41 @@ var stripTags = (s) => s.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace
 
    [고침] 조회 화면을 한 번 GET 해 Set-Cookie 를 받아 두고, 이후 요청에 붙인다.
    쿠키는 워커 인스턴스 메모리에 20분 담아 두어 매번 받아오지 않는다. */
+/* ══ [v9.97] 전역 호출 예산 ═══════════════════════════════════════════════
+   워커 인스턴스는 여러 개가 동시에 돌 수 있어 메모리 카운터만으로는 전체를
+   알 수 없다. 그래서 '메모리에서 세고, 1분마다 KV 에 더한다'로 절충한다.
+   완벽히 정확하진 않지만 한도의 몇 %인지 판단하기에는 충분하고,
+   KV 쓰기는 하루 1,440회 이하로 묶인다(요청마다 쓰면 수만 회가 된다). */
+var _bgN = 0, _bgAt = 0, _bgDay = "", _bgTotal = 0;
+const BUDGET_DAY = 90000;          // 무료 한도 10만 중 9만까지만 쓴다(여유 1만)
+function budgetDayKey() {
+  const d = new Date(Date.now() + 9 * 3600e3);
+  return d.toISOString().slice(0, 10);
+}
+function budgetTick(env) {
+  const day = budgetDayKey();
+  if (_bgDay !== day) { _bgDay = day; _bgN = 0; _bgTotal = 0; _bgAt = 0; }
+  _bgN++;
+  const now = Date.now();
+  if (now - _bgAt < 60000) return;
+  _bgAt = now;
+  const add = _bgN; _bgN = 0;
+  const KVx = env && env.APP_KV;
+  if (!KVx) { _bgTotal += add; return; }
+  /* 읽고 더해 쓰기 — 인스턴스가 여럿이면 약간 어긋나지만 방향은 맞다 */
+  (async () => {
+    try {
+      const k = "budget:" + day;
+      const cur = Number(await KVx.get(k)) || 0;
+      const next = cur + add;
+      _bgTotal = next;
+      await KVx.put(k, String(next), { expirationTtl: 172800 });
+    } catch (e) { _bgTotal += add; }
+  })();
+}
+function budgetPct() {
+  return Math.max(0, Math.min(200, Math.round((_bgTotal + _bgN) / BUDGET_DAY * 100)));
+}
 var _krxCk = "", _krxCkAt = 0;
 async function krxSession(force) {
   if (!force && _krxCk && Date.now() - _krxCkAt < 20 * 60e3) return _krxCk;
@@ -11368,7 +11419,9 @@ var popular_default = async (req2) => {
       let merged = null;
       try {
         const cached = KV ? await KV.get(CK, "json") : null;
-        if (cached && cached.at && Date.now() - cached.at < 5 * 60 * 1000 && Array.isArray(cached.items) && cached.items.length >= 60) {
+        /* [v9.95] 200종으로 늘렸으므로 캐시 유효 기준도 함께 올린다 —
+           100종짜리 옛 캐시를 그대로 쓰면 확장이 반영되지 않는다 */
+        if (cached && cached.at && Date.now() - cached.at < 5 * 60 * 1000 && Array.isArray(cached.items) && cached.items.length >= 150) {
           merged = cached.items; diag.push("comp:cache" + merged.length);
         }
       } catch (e) { diag.push("comp:kvget"); }
@@ -11395,7 +11448,8 @@ var popular_default = async (req2) => {
           diag.push("quant:" + more[0].length + "+" + more[1].length);
           feed(more[0], 0.55, "value"); feed(more[1], 0.55, "value");
           const viewSet = new Set(items.map((x) => x.code));
-          const list = [...score.values()].sort((a2, b2) => b2.sc - a2.sc).slice(0, 100)
+          /* [v9.95] 목록을 200종으로 확장 — 100위에서 잘려 "더 볼 것이 없어" 보였다 */
+      const list = [...score.values()].sort((a2, b2) => b2.sc - a2.sc).slice(0, 200)
             .map((x) => ({ code: x.code, name: x.name, origin: x.origin.join("+"), fill: viewSet.has(x.code) ? "" : x.origin[0] }));
           if (list.length > items.length) {
             merged = list;
@@ -11415,14 +11469,14 @@ var popular_default = async (req2) => {
             const have = new Set(items.map((x) => x.code));
             for (const it of j) { if (items.length >= 100) break; if (have.has(it.code)) continue; have.add(it.code); it.fill = it.fill || "value"; items.push(it); }
             src = src + "+json";
-          } else { items = j.slice(0, 100); src = "json"; }
+          } else { items = j.slice(0, 200); src = "json"; }
         }
       } catch (e) {
         diag.push("json:err " + String(e).slice(0, 40));
       }
     }
     return new Response(
-      JSON.stringify({ ok: items.length > 0, type, n: items.length, src, items: items.slice(0, 100), diag }),
+      JSON.stringify({ ok: items.length > 0, type, n: items.length, src, items: items.slice(0, 200), diag }),
       { headers: { "content-type": "application/json", "cache-control": items.length ? "s-maxage=60" : "public, max-age=5" } }
     );
   } catch (e) {
@@ -14028,8 +14082,18 @@ async function yahooScreen(scrId,count,diag,budget){
          — 화면 쪽 한글 표에서 채우도록 넘긴다. */
       const nm0=String(x.longName||x.shortName||"").trim();
       const en0=(nm0&&nm0.toUpperCase()!==t2)?nm0:"";
+      /* ══ [v9.94] 응답에 있는 거래량·가격을 버리지 않는다 ═══════════════════
+         실제 응답으로 확인한 필드다.
+           regularMarketVolume: 156272681 · regularMarketPrice: 15.23
+           regularMarketChangePercent: 9.33
+         이 둘만 있으면 거래대금(가격×거래량)이 나온다. 지금까지 marketCap 만
+         뽑고 나머지를 버려서, 거래대금 순위를 만들 수 없다고 잘못 판단했다.
+         추가 호출은 0회 — 이미 받아 온 응답을 더 읽는 것뿐이다. */
+      const _px=+x.regularMarketPrice||0, _vol=+x.regularMarketVolume||0;
       out.push({t:t2.replace(/\./g,"-"),sfx:usExchSfx(x.fullExchangeName||x.exchange),
-        kr:"",en:en0,cap:+x.marketCap||0});
+        kr:"",en:en0,cap:+x.marketCap||0,
+        px:_px, vol:_vol, val:Math.round(_px*_vol),
+        rate:(x.regularMarketChangePercent!=null)?+(+x.regularMarketChangePercent).toFixed(2):null});
     }
     diag.push(scrId+":"+out.length);
     return out.length?out:null;
@@ -14058,7 +14122,8 @@ async function usPopExternal(diag, budget){
     }catch(e){ diag.push("stocktwits:"+String(e).slice(0,10)); }
   }
   /* 남는 자리는 '거래가 가장 활발한 종목' 100종으로 채운다 — 한 번의 호출로 충분하다 */
-  push("yahoo-active", await yahooScreen("most_actives",100,diag,budget));
+  /* [v9.95] 200종을 채우려면 원천도 200종을 받아야 한다 — 호출 수는 그대로 1회 */
+  push("yahoo-active", await yahooScreen("most_actives",250,diag,budget));
   return lists;
 }
 /* 미국 정규장이 열려 있는 시간대인가 — 순위를 얼마나 오래 붙잡을지 정하는 데 쓴다.
@@ -14081,9 +14146,20 @@ async function uspopular_default(req2){
          주말·휴장에도 볼 때마다 순서가 달라졌다. 원인은 ① 10분마다 새로 만들고
          ② 그 재료(야후 검색 급상승 등)가 시시각각 바뀌기 때문이다.
          장중에는 10분, 장이 닫혀 있으면 6시간 동안 같은 순위를 유지한다. */
-      const TTL = usMarketOpenish() ? 10 * 60e3 : 6 * 3600e3;
+      /* ══ [v9.93] 장이 닫혔는데 순위가 계속 바뀌던 이유 ═══════════════════════
+         이 순위는 '거래량 순위'가 아니라 관심도 순위다. 재료가
+           naver-pop(네이버 인기검색) · yahoo-trend(야후 트렌딩)
+           stocktwits(게시글 수) · wiki(위키 조회수) · app(앱 내 조회)
+         인데, 이것들은 거래소와 무관하게 24시간 움직인다. 주말에도 사람들은
+         검색하고 글을 쓰기 때문이다. 그래서 장이 닫힌 밤·주말·공휴일에도
+         6시간마다 순서가 뒤바뀌었고, 사용자에게는 '시세가 움직이는 것처럼' 보였다.
+         [고침] 장이 닫혀 있으면 마지막 개장 시간대에 만든 순위를 그대로 고정한다.
+         캐시를 하루로 늘리고, 응답에 '언제 기준인지'를 실어 화면에 밝힌다. */
+      const TTL = usMarketOpenish() ? 10 * 60e3 : 26 * 3600e3;
       if (c && c.at && Date.now() - c.at < TTL && Array.isArray(c.items) && c.items.length >= 60) {
-        return new Response(JSON.stringify({ ok: true, items: c.items, basis: c.basis, cached: 1 }),
+        /* [v9.94] 캐시에서 내보낼 때도 거래대금 순위를 함께 — 빠뜨리면 캐시가
+           살아 있는 동안 거래대금 탭이 비어 보인다 */
+        return new Response(JSON.stringify({ ok: true, items: c.items, byVal: c.byVal || [], basis: c.basis, cached: 1 }),
           { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
       }
     } catch (e) { }
@@ -14163,15 +14239,35 @@ async function uspopular_default(req2){
     .sort((a, b) => ((b.cap || 0) - (a.cap || 0)) || (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
   let ranked = t1.concat(t2, t3, t4);
   const fallback = t1.length < 8 ? 1 : 0;
-  const items = ranked.slice(0, 100)
+  const items = ranked.slice(0, 200)
     .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: fixX(x.kr), en: fixX(x.en || artName(x.t)),
       cap: x.cap || 0, origin: x.origin, views: Math.round(vt.map[x.t] || 0) }));
+  const _mktOpen = usMarketOpenish();
+  /* ══ [v9.94] 거래대금 순위 — 관심도와 별개로 함께 보낸다 ═══════════════════
+     관심도 순위(검색·게시글)는 거래소와 무관하게 24시간 움직여, 장이 닫히면
+     순서가 흔들리는 것처럼 보였다. 실제 MTS 는 거래대금이 기본이다.
+     yahoo-active 목록에 이미 가격·거래량이 들어 있으므로 추가 호출 없이 만든다.
+     ETF·우선주도 그대로 둔다 — 실제 거래대금 상위에는 ETF 가 늘 섞여 있다. */
+  let byVal = [];
+  try {
+    const act = (lists.find(l => l.name === "yahoo-active") || {}).arr || [];
+    byVal = act.filter(x => x && x.val > 0)
+      .sort((a, b) => b.val - a.val)
+      .slice(0, 200)
+      .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: fixX(x.kr), en: fixX(x.en || artName(x.t)),
+        val: x.val, vol: x.vol, px: x.px, rate: x.rate, cap: x.cap || 0 }));
+  } catch (e) { byVal = []; }
   const basis = { n: items.length, src: lists.map(l => ({ k: l.name, n: l.arr.length })),
     attn: t1.length, attnEtc: t2.length, fill: t3.length + t4.length, fallback,
-    app: vEntries.length, appTotal: Math.round(vt.total), wiki: wEnt.length, diag };
-  try { if (KV && items.length) await KV.put(CK, JSON.stringify({ at: Date.now(), items, basis }), { expirationTtl: 900 }); } catch (e) { }
+    app: vEntries.length, appTotal: Math.round(vt.total), wiki: wEnt.length, diag,
+    /* [v9.93] 언제·어떤 상태에서 만든 순위인지 화면이 알 수 있게 실어 보낸다 */
+    mktOpen: _mktOpen, madeAt: Date.now() };
+  /* [v9.93] KV 보관도 함께 늘린다 — 900초로 두면 위에서 TTL 을 늘려도
+     캐시가 먼저 사라져 결국 매번 다시 만들었다(순위가 계속 흔들린 또 하나의 이유). */
+  try { if (KV && items.length) await KV.put(CK, JSON.stringify({ at: Date.now(), items, byVal, basis }),
+    { expirationTtl: _mktOpen ? 900 : 30 * 3600 }); } catch (e) { }
   await usvFlush(true);
-  return new Response(JSON.stringify({ ok: items.length > 0, items, basis }),
+  return new Response(JSON.stringify({ ok: items.length > 0, items, byVal, basis }),
     { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
 }
 /* 어느 조회수 원천이 살아 있는지 화면에서 바로 확인한다 */
@@ -15214,11 +15310,22 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "9.90.0";
+var APP_VER = "9.98.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
+      /* ══ [v9.97] 전체 사용량을 서버가 센다 ═══════════════════════════════════
+         [무엇이 문제였나] 지금까지 호출 예산(fnbudget)은 브라우저의 localStorage 에
+         저장돼, 사람마다 '자기가 쓴 양'만 알았다. A 가 8만 회를 써도 B 는 0 회로
+         알고 가장 빠른 단계로 붙는다. Cloudflare 무료 한도는 하루 10만 요청인데
+         한 사람이 장중 2.3만 회를 쓰므로, 넷만 모여도 한도에 닿는다.
+         한도를 넘으면 앱 전체가 죽는다 — 시세도 로그인도 안 된다.
+         [고침] 서버가 전체 요청 수를 세어 응답 헤더로 알려 준다. 화면은 그 값을
+         보고 스스로 속도를 낮춘다. 각자 아끼는 게 아니라 다 같이 아끼는 구조다.
+         [비용] 카운터는 워커 메모리에 두고 KV 에는 1분에 한 번만 적는다 —
+         요청마다 KV 를 쓰면 그것 때문에 쓰기 한도(1,000/일)가 먼저 터진다. */
+      try { budgetTick(env); } catch (e) {}
       /* ══ [v9.73] 외부호출(subrequest) 실측 계측 ═══════════════════════════════
          Cloudflare Workers 는 한 요청이 만들 수 있는 외부호출이 50회다. 넘으면
          그 뒤 호출이 전부 실패하는데, 우리 코드는 try/catch 로 감싸 둔 곳이 많아
@@ -15233,6 +15340,8 @@ var worker_default = {
         try {
           const h = new Headers(r.headers);
           h.set("x-subreq", String(_n));
+          /* [v9.97] 오늘 전체 사용량(%) — 화면이 이 값을 보고 속도를 낮춘다 */
+          try { h.set("x-budget", String(budgetPct())); } catch (e) {}
           if (_n >= 42) { h.set("x-subreq-warn", "near-limit"); console.log("[subreq] " + url.pathname + " = " + _n + "/50"); }
           return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h });
         } catch (e) { return r; }
