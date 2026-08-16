@@ -87,18 +87,20 @@
   overflow:hidden;text-overflow:ellipsis;text-align:center}
 
 /* ── 아래: 진행 상태 + 고지 ──────────────────────────────────────────── */
-.bg-foot{min-width:0;display:flex;flex-direction:column;align-items:center;gap:14px}
-.bg-prog{width:100%;max-width:420px;min-width:0}
-.bg-prow{display:flex;align-items:baseline;gap:8px;margin-bottom:9px;min-width:0}
-.bg-msg{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:700;color:#c3d3e6;
+.bg-foot{min-width:0;width:100%;display:flex;flex-direction:column;align-items:center;gap:18px;
+  padding-bottom:6px}
+/* [v10.5] 진행 영역이 작아 보였다 — 폭·글자·막대를 함께 키운다 */
+.bg-prog{width:100%;max-width:560px;min-width:0}
+.bg-prow{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;min-width:0}
+.bg-msg{flex:1 1 auto;min-width:0;font-size:clamp(14px,3.6vw,17px);font-weight:800;color:#dbe7f4;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bg-pct{flex:0 0 auto;font-size:12.5px;font-weight:900;color:#ffb020;
+.bg-pct{flex:0 0 auto;font-size:clamp(14px,3.6vw,17px);font-weight:900;color:#ffb020;
   font-variant-numeric:tabular-nums}
-.bg-bar{height:3px;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden}
+.bg-bar{height:6px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
 .bg-fill{height:100%;width:0;border-radius:99px;background:#ffb020;
   transition:width .35s cubic-bezier(.4,0,.2,1)}
-.bg-legal{font-size:10px;line-height:1.6;color:#5f7590;text-align:center;
-  max-width:520px;min-width:0}
+.bg-legal{font-size:clamp(10.5px,2.6vw,12px);line-height:1.7;color:#6b8299;text-align:center;
+  max-width:560px;min-width:0}
 
 /* 세로가 아주 짧으면(가로 모드 등) 간격만 줄인다 */
 @media (max-height:560px){
@@ -155,7 +157,9 @@
       fill= document.getElementById('bgFill');
   var STEPS = ['앱을 준비하는 중','실행 환경 확인','종목 정보 준비','계정·설정 확인',
                '시세 서버 연결','화면 구성'];
-  var t0 = Date.now(), MIN = 1200, HARD = 12000;
+  /* [v10.5] 최소 노출 1.2초는 너무 짧아 로고가 스쳐 지나갔다 — 4.5초로 늘린다.
+     준비가 그보다 오래 걸리면 끝나는 대로 연다(더 기다리지 않는다). */
+  var t0 = Date.now(), MIN = 4500, HARD = 14000;
   var cur = 0, doneReq = false, closed = false, hardT;
 
   function paint(){
@@ -1306,6 +1310,12 @@
       <div class="ix-spark-wrap">
         <div class="ix-sec-t">오늘 흐름</div>
         <canvas id="ixSpark"></canvas>
+      </div>
+      <!-- [v10.5] 종목 화면처럼 일자별·시간별 시세 목록을 함께 둔다 -->
+      <div class="ix-sise">
+        <div class="ix-sec-t">시세</div>
+        <div class="ix-sise-seg" id="ixSiseSeg"></div>
+        <div class="ix-sise-body" id="ixSiseBody"></div>
       </div>
       <div class="ix-note" id="ixNote"></div>
     </div>

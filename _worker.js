@@ -13267,7 +13267,13 @@ async function usquote_default(req2){
   const body={ ok:Object.keys(out).length>0, n:Object.keys(out).length, asked:codes.length,
                codes:out, diag:diag.slice(0,12) };
   if(u.searchParams.get("fx")==="1")body.fx=await usFx(diag);
-  return new Response(JSON.stringify(body),{headers:{ "content-type":"application/json", "cache-control":"no-store", "access-control-allow-origin":"*" }});
+  /* ══ [v10.5] '시세 대기'가 길게 남던 진짜 이유 ═══════════════════════════════
+     서버와 화면 양쪽 모두 no-store 였다. 그래서 목록을 위아래로 훑을 때마다
+     이미 받아 온 종목까지 매번 새로 요청했고, 그때마다 워커 왕복(200~600ms)이
+     그대로 기다림이 됐다. 200종을 오가면 같은 요청이 수십 번 반복된다.
+     시세는 20초쯤 묵어도 목록에서는 문제가 없다(상세 화면은 따로 갱신한다).
+     짧은 캐시를 허용해 두 번째부터는 브라우저가 즉시 돌려주게 한다. */
+  return new Response(JSON.stringify(body),{headers:{ "content-type":"application/json", "cache-control":"public, max-age=15, stale-while-revalidate=45", "access-control-allow-origin":"*" }});
 }
 function usPickCandles(txt){
   let j=null; try{ j=JSON.parse(txt); }catch(e){ return null; }
@@ -15310,7 +15316,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "10.4.0";
+var APP_VER = "10.5.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -12169,6 +12169,10 @@ let siseMode='date';
    뒤로 가기도 다른 화면과 똑같이 동작한다(showView 가 스택을 관리한다).
    ══════════════════════════════════════════════════════════════════════════════ */
 var idxDetail=null, idxDetTf='D', idxDetData={}, idxDetN=120;
+var idxSiseMode='date';
+/* 지수도 종목과 같은 기간을 쓴다 */
+const IX_TFS=[['1m','1분'],['3m','3분'],['5m','5분'],['10m','10분'],['30m','30분'],
+              ['60m','60분'],['D','일'],['W','주'],['M','월'],['Y','년']];
 function idxChartable(key){ return key==='KOSPI'||key==='KOSDAQ'; }
 function idxOpen(key){
   const x=(market.indices||[]).find(v=>v.key===key);
@@ -12203,8 +12207,10 @@ function renderIdxDetail(){
     +kv('저가',lo!=null?DEC(lo):'—','down');
   if(idxChartable(key)){
     TF.hidden=false;
-    TF.innerHTML=['D','W','M'].map(t=>
-      `<button data-ixtf="${t}" class="${t===idxDetTf?'on':''}">${{D:'일',W:'주',M:'월'}[t]}</button>`).join('');
+    /* [v10.5] 종목 차트와 같은 기간을 모두 제공한다. 분봉은 원천이 지수를
+       분 단위로 주지 않으므로, 없으면 '자료 없음'을 정직하게 알린다. */
+    TF.innerHTML=IX_TFS.map(([k,l])=>
+      `<button data-ixtf="${k}" class="${k===idxDetTf?'on':''}">${l}</button>`).join('');
     TF.querySelectorAll('[data-ixtf]').forEach(b=>b.onclick=()=>{idxDetTf=b.dataset.ixtf;renderIdxDetail();});
     const wrap=document.querySelector('.ix-chart'); if(wrap)wrap.hidden=false;
     document.querySelectorAll('[data-ixz]').forEach(b=>b.onclick=()=>{
@@ -12227,9 +12233,60 @@ function renderIdxDetail(){
   }
   /* 오늘 흐름 */
   try{ if(hasH)requestAnimationFrame(()=>drawSpark($('ixSpark'),h,x.change>=0)); }catch(e){}
+  /* [v10.5] 시세 목록 */
+  try{ renderIxSise(key); }catch(e){}
   if(N)N.innerHTML=idxChartable(key)
     ? '지수는 종목이 아니어서 매매할 수 없습니다. 지수를 따라가는 ETF 로 거래하실 수 있습니다.'
     : '이 지수는 과거 차트 자료가 제공되지 않습니다. 위 값은 실시간 시세이며, 코스피·코스닥은 차트를 볼 수 있습니다.';
+}
+/* ══ [v10.5] 지수 시세 목록 — 종목 화면의 '시세' 탭과 같은 얼개 ═══════════════
+   일자별은 일봉에서, 시간별은 오늘 흐름(history)에서 만든다. 없는 값을 지어내지
+   않고, 자료가 닿지 않으면 그 사실을 적는다. */
+function renderIxSise(key){
+  const seg=$('ixSiseSeg'), body=$('ixSiseBody');
+  if(!seg||!body)return;
+  seg.innerHTML=`<button data-ixs="date" class="${idxSiseMode==='date'?'on':''}">일자별</button>
+    <button data-ixs="time" class="${idxSiseMode==='time'?'on':''}">시간별</button>`;
+  seg.querySelectorAll('[data-ixs]').forEach(b=>b.onclick=()=>{idxSiseMode=b.dataset.ixs;renderIxSise(key);});
+  const x=(market.indices||[]).find(v=>v.key===key)||{};
+  if(idxSiseMode==='time'){
+    const h=x.history||[];
+    if(h.length<2){ body.innerHTML='<div class="empty">오늘 분 단위 자료가 아직 없습니다.</div>'; return; }
+    const base=(x.price!=null&&x.change!=null)?x.price-x.change:h[0];
+    /* history 는 오늘 장중 흐름이다. 정확한 시각이 없으므로 순번으로 표시한다. */
+    const rows=h.map((v,i)=>{
+      const d=v-base, dir=dirOf(d);
+      return `<div class="ix-sr t4"><span class="sl">${i+1}</span>
+        <span class="num sc">${DEC(v)}</span>
+        <span class="num ${dir}">${d?arrow(dir)+DEC(Math.abs(d)):'0'}</span>
+        <span class="num ${dir}">${base?pctS(d/base*100):'—'}</span></div>`;}).reverse().join('');
+    body.innerHTML=`<div class="ix-sise-head t4"><span>구간</span><span>지수</span><span>전일대비</span><span>등락률</span></div>
+      <div class="ix-sise-rows">${rows}</div>
+      <div class="ix-sise-note">원천이 지수의 체결 시각을 제공하지 않아 <b>구간 순번</b>으로 보여드립니다.</div>`;
+    return;
+  }
+  const ck=key+':D';
+  const cs=idxDetData[ck];
+  if(!cs){
+    body.innerHTML='<div class="empty">일자별 시세를 불러오는 중…</div>';
+    fetch(`/api/chart?code=${key}&tf=D`,{cache:'default'}).then(r=>r.json())
+      .then(j=>{ idxDetData[ck]=(j&&j.candles)||[]; if(idxDetail===key)renderIxSise(key); }).catch(()=>{});
+    return;
+  }
+  if(!cs.length){ body.innerHTML='<div class="empty">일자별 시세 자료가 없습니다.</div>'; return; }
+  const arr=cs.slice(-60);
+  const rows=arr.map((c,i)=>{
+    const prev=arr[i-1];
+    const d=prev?c.c-prev.c:0, dir=dirOf(d);
+    const ds=String(c.d||'');
+    return `<div class="ix-sr d6"><span class="sl">${ds.slice(4,6)}/${ds.slice(6,8)}</span>
+      <span class="num sc">${DEC(c.c)}</span>
+      <span class="num ${dir}">${d?arrow(dir)+DEC(Math.abs(d)):'0'}</span>
+      <span class="num ${dir}">${prev&&prev.c?pctS(d/prev.c*100):'—'}</span>
+      <span class="num sub">${DEC(c.h??c.c)}</span>
+      <span class="num sub">${DEC(c.l??c.c)}</span></div>`;}).reverse().join('');
+  body.innerHTML=`<div class="ix-sise-head d6"><span>일자</span><span>종가</span><span>대비</span><span>등락률</span><span>고가</span><span>저가</span></div>
+    <div class="ix-sise-rows">${rows}</div>`;
 }
 /* 지수 캔들 차트 — 종목 차트를 그대로 쓰기엔 상태가 얽혀 있어 간단히 따로 그린다 */
 function drawIdxChart(cs){
@@ -17299,9 +17356,11 @@ async function usEnsureQuotes(tickers,withFx,wantCap){
   for(let i=0;i<need.length;i+=18)batches.push(need.slice(i,i+18));
   await Promise.all(batches.map(async(batch,bi)=>{
     try{
+      /* [v10.5] no-store 를 걷어 브라우저 캐시를 살린다 — 같은 종목을 다시
+         훑을 때 왕복 없이 즉시 그려진다(서버가 15초 캐시를 허용한다). */
       const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(','))
           +((withFx&&bi===0)?'&fx=1':'')+(wantCap?'&cap=1':''),
-        {cache:'no-store'});
+        {cache:'default'});
       const j=await r.json();
       if(j&&j.fx)usFxSet(j.fx);
       const got=new Set(Object.keys((j&&j.codes)||{}));
@@ -17316,7 +17375,7 @@ async function usEnsureQuotes(tickers,withFx,wantCap){
     for(let i=0;i<missed.length;i+=18)rb.push(missed.slice(i,i+18));
     await Promise.all(rb.map(async(batch)=>{
       try{
-        const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(',')),{cache:'no-store'});
+        const r=await fetch('/api/usquote?codes='+encodeURIComponent(batch.map(t=>usMeta[t].reu).join(',')),{cache:'default'});
         const j=await r.json();
         if(j&&j.codes)Object.keys(j.codes).forEach(reu=>{ if(usApplyQuote(reu,j.codes[reu]))gained++; });
       }catch(e){}
@@ -18601,9 +18660,27 @@ function openUS(t){ if(!usMeta[t])return;
   showView('ustrade');
 }
 var usInfoTab='summary';
+/* [v10.5] 해외 관심종목 버튼 — 국내($('starBtn'))와 같은 흐름을 그대로 쓴다 */
+function wireUsStar(){
+  const go=async()=>{
+    const code=usSel; if(!code)return;
+    try{
+      if(!watchFolders.length){
+        const f=await newFolderFlow([code]);
+        if(f){ syncWatchUnion(); feed&&feed.addCode(code); saveState();
+          toast('buy','관심종목 추가',`${(usMeta[code]&&usMeta[code].kr)||code} → ${f.icon?f.icon+' ':''}${f.name}`);
+          renderUsHead(); wireUsStar(); renderWatch(); }
+        return;
+      }
+      openFolderPop(code,$('usStarBtn'));
+    }catch(e){}
+  };
+  const b=$('usStarBtn'); if(b){ b.onclick=go; b.onkeydown=(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}} }
+  const l=$('usStarLab'); if(l)l.onclick=go;
+}
 function renderUsTrade(){
   if(!usSel){showView('us');return;}
-  renderUsHead(); renderUsOrder();
+  renderUsHead(); wireUsStar(); renderUsOrder();
   /* [v4.57] 봉 종류·이동평균·확대축소는 국내 차트 카드가 그대로 들고 온다 —
      해외 전용 세그먼트를 따로 그리지 않는다(그게 두 화면이 달라진 원인이었다). */
   document.querySelectorAll('#usInfoTabs button').forEach(b2=>b2.onclick=()=>{
@@ -18714,41 +18791,78 @@ function usCompanyBrief(t){
   const ex={O:'나스닥',N:'뉴욕증권거래소',A:'아멕스'}[m.sfx]||'미국 증시';
   const th=TH[m.theme];
   const P=[];
-  /* ① 무엇인가 — 규모를 함께 말해야 감이 잡힌다 */
+  /* ① 무엇인가 — 규모까지 */
   let one=`${m.kr||t}(${t})은 ${ex}에 상장된 ${th?th+' ':''}${kind}입니다.`;
   if(m.en&&m.en!==m.kr)one+=` 영문명은 ${m.en}.`;
   if(q.cap>0){
-    const jo=q.cap*(usFx()||1350)/1e12;
+    const jo=q.cap*(usFx()||1400)/1e12;
     const size=q.cap>=5e11?'초대형주':q.cap>=1e11?'대형주':q.cap>=1e10?'중대형주':q.cap>=2e9?'중형주':q.cap>=3e8?'소형주':'초소형주';
     one+=` 시가총액은 ${q.cap>=1e12?(q.cap/1e12).toFixed(2)+'조':q.cap>=1e9?(q.cap/1e9).toFixed(1)+'B':(q.cap/1e6).toFixed(0)+'M'} 달러`
       +(jo>=0.1?`(약 ${jo.toFixed(jo>=10?0:1)}조원)`:'')+`로 ${size}에 해당합니다.`;
   }
   P.push(one);
-  /* ② 지금 어디쯤인가 — 52주 범위 안의 위치 */
+  /* ② 오늘 어떻게 움직였나 — 시·고·저와 폭 */
+  if(q.price>0){
+    const bits=[];
+    if(q.open>0)bits.push(`시가 $${USD2(q.open)}`);
+    if(q.high>0)bits.push(`고가 $${USD2(q.high)}`);
+    if(q.low>0)bits.push(`저가 $${USD2(q.low)}`);
+    if(bits.length){
+      let ln=`오늘은 ${bits.join(' · ')}로 움직였습니다.`;
+      if(q.high>0&&q.low>0&&q.low<q.high){
+        const rng=(q.high-q.low)/q.low*100;
+        ln+=` 하루 변동 폭은 ${rng.toFixed(1)}%`
+          +(rng>=5?'로 큰 편입니다.':rng>=2?'입니다.':'로 좁은 편입니다.');
+        const pos=(q.price-q.low)/(q.high-q.low)*100;
+        ln+=` 현재가는 오늘 범위의 ${pos.toFixed(0)}% 지점입니다.`;
+      }
+      P.push(ln);
+    }
+  }
+  /* ③ 1년 위치 */
   if(q.w52h>0&&q.w52l>0&&q.price>0&&q.w52h>q.w52l){
     const pos=(q.price-q.w52l)/(q.w52h-q.w52l)*100;
     const fromHi=(q.price-q.w52h)/q.w52h*100;
-    P.push(`현재가 $${USD2(q.price)}는 최근 1년 범위($${USD2(q.w52l)}~$${USD2(q.w52h)})의 `
-      +`${pos.toFixed(0)}% 지점으로, 고점 대비 ${Math.abs(fromHi).toFixed(1)}% ${fromHi<0?'낮은':'높은'} 수준입니다.`
-      +(pos>=85?' 1년 고점 부근입니다.':pos<=15?' 1년 저점 부근입니다.':''));
+    const fromLo=(q.price-q.w52l)/q.w52l*100;
+    P.push(`최근 1년 범위는 $${USD2(q.w52l)}~$${USD2(q.w52h)}이며, 현재가는 그중 ${pos.toFixed(0)}% 지점입니다. `
+      +`고점 대비 ${Math.abs(fromHi).toFixed(1)}% 낮고, 저점 대비 ${fromLo.toFixed(1)}% 높습니다.`
+      +(pos>=85?' 1년 고점 부근이라 추격 매수는 신중할 자리입니다.'
+        :pos<=15?' 1년 저점 부근입니다 — 싸 보이는 이유가 무엇인지 함께 살펴야 합니다.':''));
   }
-  /* ③ 얼마나 활발한가 */
+  /* ④ 거래 활발도 */
   if(q.vol>0){
     const amt=q.vol*(q.price||0);
-    P.push(`오늘 거래량은 ${q.vol>=1e6?(q.vol/1e6).toFixed(1)+'M주':KRW(q.vol)+'주'}`
-      +(amt>0?`, 거래대금은 약 ${amt>=1e9?(amt/1e9).toFixed(1)+'B':(amt/1e6).toFixed(0)+'M'} 달러`:'')
-      +`입니다.`);
+    let ln=`오늘 거래량은 ${q.vol>=1e6?(q.vol/1e6).toFixed(1)+'M주':KRW(q.vol)+'주'}`;
+    if(amt>0)ln+=`, 거래대금은 약 ${amt>=1e9?(amt/1e9).toFixed(1)+'B':(amt/1e6).toFixed(0)+'M'} 달러`;
+    ln+='입니다.';
+    if(q.cap>0&&amt>0){
+      const turn=amt/q.cap*100;
+      ln+=` 시가총액 대비 ${turn.toFixed(2)}%가 하루에 손바뀜했습니다`
+        +(turn>=3?' — 상당히 활발합니다.':turn>=1?'.':' — 조용한 편입니다.');
+    }
+    P.push(ln);
   }
-  /* ④ 밸류에이션·배당 — 있는 것만 */
+  /* ⑤ 밸류에이션·배당 */
   const v=[];
   if(q.per>0)v.push(`PER ${q.per.toFixed(1)}배`);
   if(q.eps>0)v.push(`EPS $${USD2(q.eps)}`);
   if(q.div>0)v.push(`배당수익률 ${q.div.toFixed(2)}%`);
-  if(v.length)P.push(v.join(' · ')+`입니다.`
-    +(q.per>0?(q.per>=40?' PER 이 높아 성장 기대가 값에 많이 반영돼 있습니다.'
-      :q.per<=12?' PER 이 낮은 편입니다.':''):''));
-  /* ⑤ ETF 는 성격을 덧붙인다 */
-  if(m.etf)P.push('개별 종목이 아닌 지수·자산군을 추종하는 상품이라, 한 종목에 몰리는 위험을 줄일 수 있습니다.');
+  if(v.length){
+    let ln=v.join(' · ')+'입니다.';
+    if(q.per>0)ln+=(q.per>=40?' PER 이 높아 앞으로의 성장 기대가 값에 많이 반영돼 있습니다 — 기대에 못 미치면 조정 폭도 큽니다.'
+      :q.per<=12?' PER 이 낮은 편입니다. 저평가일 수도, 성장이 멈춘 신호일 수도 있어 실적 추이를 함께 봐야 합니다.':'');
+    if(q.div>=3)ln+=' 배당수익률이 높아 배당 목적 투자에도 쓰입니다.';
+    P.push(ln);
+  }
+  /* ⑥ 원화로 얼마인가 — 해외 주식은 이 감각이 중요하다 */
+  if(q.price>0){
+    const fx=usFx();
+    if(fx>0)P.push(`한 주 가격은 원화로 약 ${KRW(Math.round(q.price*fx))}원입니다(환율 ${DEC(fx,0)}원 기준). `
+      +`이 앱에서는 0.01주 단위로 살 수 있어 ${KRW(Math.round(q.price*fx/100))}원부터 시작할 수 있습니다.`);
+  }
+  /* ⑦ 성격 안내 */
+  if(m.etf)P.push('개별 종목이 아닌 지수·자산군을 추종하는 상품이라, 한 종목에 몰리는 위험을 줄일 수 있습니다. 다만 추종 대상이 내리면 함께 내립니다.');
+  else P.push('미국 주식은 상·하한가 제도가 없어 하루에도 큰 폭으로 움직일 수 있고, 양도차익에는 연 250만원 공제 후 22%가 부과됩니다.');
   return P.join(' ');
 }
 /* ══ [v8.2] 해외 AI 종목 분석 — 국내와 같은 형식으로 다시 만든다 ═══════════
@@ -19364,8 +19478,11 @@ function renderUsHead(){
   const d=(q.price!=null&&q.prev)?q.price-q.prev:null;
   $('usHead').innerHTML=`<div class="us-head-top">
     <div class="us-head-l">${usTick(usSel)}
-      <div class="us-head-nm"><b>${m.kr}<span class="us-ex">${{O:'NASDAQ',N:'NYSE',A:'AMEX'}[m.sfx]}</span>${m.etf?'<span class="us-ex">ETF</span>':''}</b>
-        <span>${usSel} · ${m.en}</span></div></div>
+      <div class="us-head-nm"><b>${htmlEsc(m.kr)}<span class="us-ex">${{O:'NASDAQ',N:'NYSE',A:'AMEX'}[m.sfx]||''}</span>${m.etf?'<span class="us-ex">ETF</span>':''}
+        <!-- [v10.5] 해외에도 관심종목 버튼 — 국내와 같은 자리·같은 모양 -->
+        <span class="star us-star-btn" id="usStarBtn" title="관심종목" role="button" tabindex="0">${watchlist.includes(usSel)?'★':'☆'}</span>
+        <span class="d-lab" id="usStarLab">관심</span></b>
+        <span>${usSel} · ${htmlEsc(m.en||'')}</span></div></div>
     <div class="us-head-px"><div class="p num ${dirOf(d||0)}">$${USD2(q.price)}</div>
       <div class="k num">${USDKR(q.price)}</div>
       <div class="d num ${dirOf(d||0)}">${d==null?'—':(d>=0?'+':'')+USD2(d)+' ('+usRateTxt(q)+')'}</div></div></div>

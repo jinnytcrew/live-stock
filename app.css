@@ -5919,3 +5919,34 @@ html:not([data-theme="dark"]) .hm-x{border-top-color:rgba(120,105,70,.16)}
 }
 /* 넓은 화면에서는 껍데기가 없는 것처럼 — 라벨이 예전처럼 차트 위에 겹쳐 뜬다 */
 .chart-labels{display:contents}
+
+/* ══ [v10.5] 지수 시세 목록 ═══════════════════════════════════════════════ */
+.ix-sise{border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:12px}
+.ix-sise-seg{display:flex;gap:6px;margin-bottom:10px}
+.ix-sise-seg button{font-size:12px;font-weight:800;padding:6px 14px;border-radius:99px;
+  border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
+.ix-sise-seg button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.ix-sise-body{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.ix-sise-head,.ix-sr{display:grid;align-items:center;gap:6px}
+.ix-sise-head.d6,.ix-sr.d6{grid-template-columns:minmax(52px,.8fr) minmax(78px,1.1fr) minmax(72px,1fr)
+  minmax(62px,.85fr) minmax(72px,1fr) minmax(72px,1fr);min-width:430px}
+.ix-sise-head.t4,.ix-sr.t4{grid-template-columns:minmax(48px,.7fr) minmax(82px,1.2fr)
+  minmax(74px,1fr) minmax(64px,.9fr);min-width:290px}
+.ix-sise-head{font-size:10.5px;font-weight:800;color:var(--sub-2);padding:8px 6px;
+  border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel);z-index:1}
+.ix-sise-head span{text-align:right}
+.ix-sise-head span:first-child{text-align:left}
+.ix-sr{padding:8px 6px;border-bottom:1px solid var(--border-soft);font-size:12px}
+.ix-sr:last-child{border-bottom:0}
+.ix-sr span{text-align:right;font-variant-numeric:tabular-nums}
+.ix-sr .sl{text-align:left;font-weight:800;color:var(--sub)}
+.ix-sr .sc{font-weight:900}
+.ix-sr .sub{color:var(--sub-2)}
+.ix-sise-rows{max-height:360px;overflow-y:auto}
+.ix-sise-note{margin-top:8px;font-size:10.5px;line-height:1.6;color:var(--sub-2)}
+.ix-sise-note b{color:var(--sub)}
+/* [v10.5] 해외 관심종목 버튼 — 국내 .star 와 같은 모양 */
+.us-head-nm .us-star-btn{margin-left:8px;cursor:pointer;font-size:19px;line-height:1;
+  color:var(--sub-2);vertical-align:middle}
+.us-head-nm .us-star-btn.on,.us-head-nm .us-star-btn:not(.on):hover{color:#f5a30d}
+.us-head-nm #usStarLab{margin-left:3px;font-size:11px;font-weight:700;color:var(--sub-2);cursor:pointer}
