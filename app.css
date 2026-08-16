@@ -5750,46 +5750,57 @@ html[data-theme="dark"] .srt-lv.ok{color:#4ade80}
   -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 24px,#000 calc(100% - 34px),transparent 100%);
   mask-image:linear-gradient(90deg,transparent 0,#000 24px,#000 calc(100% - 34px),transparent 100%)}
 
-/* ══ [v9.92] 지수 상세 ═══════════════════════════════════════════════════ */
+/* ══ [v10.4] 지수 상세 — 정식 화면(view-index) ═══════════════════════════════ */
 .idx-card.idx-clk{cursor:pointer;transition:transform .1s,box-shadow .12s}
 .idx-card.idx-clk:active{transform:scale(.985)}
 .idx-card.idx-clk:hover{box-shadow:0 4px 16px rgba(0,0,0,.1)}
-.ixd-wrap{max-height:74vh;overflow-y:auto}
-.ixd-head{padding:4px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:12px}
-.ixd-px{font-size:34px;font-weight:900;letter-spacing:-1.2px;line-height:1.1}
-.ixd-ch{font-size:14.5px;font-weight:800;margin-top:3px}
-.ixd-warn{margin-top:6px;font-size:11px;font-weight:700;color:#b45309}
-.ixd-sub{margin-top:5px;font-size:11px;font-weight:600;color:var(--sub-2)}
-.ixd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
-@media(max-width:480px){.ixd-grid{grid-template-columns:1fr 1fr}}
-.ixd-kv{padding:9px 10px;border-radius:11px;background:var(--border-soft)}
-.ixd-kv span{display:block;font-size:10px;font-weight:700;color:var(--sub-2)}
-.ixd-kv b{display:block;font-size:14.5px;font-weight:900;margin-top:2px;letter-spacing:-.3px}
-.ixd-tf{display:flex;gap:5px;margin-bottom:9px}
-.ixd-tf button{font-size:12px;font-weight:800;padding:6px 14px;border-radius:99px;
+.ix-panel{padding:16px}
+.ix-head{padding-bottom:14px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
+.ix-px{font-size:clamp(28px,7vw,40px);font-weight:900;letter-spacing:-1.2px;line-height:1.1}
+.ix-ch{font-size:clamp(13px,3.6vw,16px);font-weight:800;margin-top:4px}
+.ix-warn{margin-top:7px;font-size:11.5px;font-weight:700;color:#b45309}
+.ix-sub{margin-top:5px;font-size:11.5px;font-weight:600;color:var(--sub-2)}
+.ix-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media(max-width:560px){.ix-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ix-kv{padding:10px 11px;border-radius:12px;background:var(--border-soft);min-width:0}
+.ix-kv span{display:block;font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.ix-kv b{display:block;font-size:15px;font-weight:900;margin-top:2px;letter-spacing:-.3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ix-tf{display:flex;gap:6px;margin-bottom:10px}
+.ix-tf button{font-size:12.5px;font-weight:800;padding:7px 16px;border-radius:99px;
   border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
-.ixd-tf button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
-.ixd-cv{height:230px;border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:12px}
-.ixd-cv canvas{width:100%;height:100%;display:block}
-.ixd-nochart{padding:22px 14px;text-align:center;border:1px dashed var(--border);border-radius:12px;
-  font-size:12px;font-weight:700;color:var(--sub);margin-bottom:12px;line-height:1.7}
-.ixd-nochart span{font-size:11px;font-weight:600;color:var(--sub-2)}
-.ixd-spark{border:1px solid var(--border);border-radius:12px;padding:11px;margin-bottom:11px}
-.ixd-sp-h{font-size:11.5px;font-weight:800;color:var(--sub-2);margin-bottom:7px}
-.ixd-spark canvas{width:100%;height:70px;display:block}
-.ixd-note{font-size:11px;line-height:1.65;color:var(--sub-2);background:var(--border-soft);
-  border-radius:10px;padding:10px 12px}
-
-/* [v9.93] 해외 관심도 순위 — 장 마감 시 고정 안내 */
-.us-rank-frozen{margin:8px 0 10px;padding:10px 12px;border-radius:11px;
-  background:var(--border-soft);font-size:11px;line-height:1.65;color:var(--sub-2)}
-.us-rank-frozen b{color:var(--sub);font-weight:800}
+.ix-tf button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.ix-chart{position:relative;height:min(52vh,420px);border:1px solid var(--border);
+  border-radius:14px;overflow:hidden;margin-bottom:14px;background:var(--panel)}
+.ix-chart canvas{width:100%;height:100%;display:block}
+@media(max-width:640px){.ix-chart{height:44vh;min-height:280px}}
+.ix-zoom{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:7px;
+  background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:4px 7px;
+  box-shadow:0 2px 10px rgba(0,0,0,.14)}
+.ix-zoom button{width:30px;height:30px;border-radius:50%;border:0;background:var(--border-soft);
+  color:var(--text);font-size:16px;font-weight:900;line-height:1;cursor:pointer}
+.ix-zoom button:active{background:var(--sub-2);color:var(--bg)}
+.ix-zoom span{font-size:11px;font-weight:800;color:var(--sub-2);min-width:38px;text-align:center}
+.ix-spark-wrap{border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:12px}
+.ix-sec-t{font-size:12px;font-weight:800;color:var(--sub-2);margin-bottom:8px}
+.ix-spark-wrap canvas{width:100%;height:76px;display:block}
+.ix-note{font-size:11.5px;line-height:1.7;color:var(--sub-2);background:var(--border-soft);
+  border-radius:11px;padding:11px 13px}
 
 /* ══ [v9.93] 해외 목록을 국내(.sr)와 같은 모양으로 ═══════════════════════════
    구조를 통일했으므로 국내 규칙을 그대로 물려받고, 해외 전용 표시만 덧댄다. */
 .sr.us-row{cursor:pointer}
-.sr.us-row .px{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25}
-.sr.us-row .px .us-krw{font-size:10px;font-weight:700;color:var(--sub-2);margin-top:1px}
+/* ══ [v10.3] 해외 목록에서 장 상태 배지가 주가 '위'로 올라가던 이유 ═══════════
+   국내 행은 `.px` 안이 [배지][가격] 한 줄이다. 해외는 원화 환산(<small>)이
+   하나 더 있어 세로 배치(flex-column)로 바꿨는데, 그러면 첫 자식인 배지가
+   맨 윗줄을 차지해 '주가 위'에 놓인다(첨부 2번).
+   [고침] 배지와 가격을 한 줄로 묶고, 원화 환산만 그 아래로 내린다.
+   격자 두 줄을 써서 배지는 국내와 같이 가격 왼쪽에 고정한다. */
+.sr.us-row .px{display:grid;grid-template-columns:auto auto;justify-content:end;
+  align-items:baseline;column-gap:5px;row-gap:0;line-height:1.25}
+.sr.us-row .px>.px-src{grid-column:1;grid-row:1;align-self:center}
+.sr.us-row .px .us-krw{grid-column:1 / -1;grid-row:2;justify-self:end;
+  font-size:10px;font-weight:700;color:var(--sub-2);margin-top:1px}
 .sr.us-row .cd{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sr.us-row .nm .tag{margin-left:5px;font-size:9.5px;font-weight:800;
   color:var(--sub);background:var(--border-soft);border-radius:5px;padding:1px 5px}
@@ -5798,19 +5809,6 @@ html[data-theme="dark"] .srt-lv.ok{color:#4ade80}
 /* 예전 해외 전용 목록 규칙이 새 구조를 방해하지 않게 */
 .us-ranklist .sr.us-row{min-width:0}
 
-/* ══ [v9.99] 지수 상세 — 종목 화면처럼 넓게 ═══════════════════════════════ */
-.lite-modal.ixd-modal{max-width:min(860px,94vw);width:min(860px,94vw)}
-.ixd-modal .lite-body{padding:14px 16px 18px}
-.ixd-wrap{max-height:78vh;overflow-y:auto}
-.ixd-cv{position:relative;height:min(46vh,340px)}
-.ixd-zoom{position:absolute;right:8px;bottom:8px;display:flex;align-items:center;gap:6px;
-  background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:3px 6px;
-  box-shadow:0 2px 8px rgba(0,0,0,.12)}
-.ixd-zoom button{width:26px;height:26px;border-radius:50%;border:0;background:var(--border-soft);
-  color:var(--text);font-size:15px;font-weight:900;line-height:1;cursor:pointer}
-.ixd-zoom button:active{background:var(--sub-2);color:var(--bg)}
-.ixd-zoom span{font-size:10.5px;font-weight:800;color:var(--sub-2);min-width:34px;text-align:center}
-@media(max-width:560px){.ixd-cv{height:38vh}}
 
 /* [v9.99] 오늘의 장 — 아래 여백에 넣는 보조 정보 */
 .hm-x{margin-top:10px;border-top:1px solid rgba(255,255,255,.12);padding-top:10px}
@@ -5848,7 +5846,7 @@ html:not([data-theme="dark"]) .hm-x{border-top-color:rgba(120,105,70,.16)}
   .overlay .modal-head{flex:0 0 auto}
   /* 본문 후보 — 어느 이름을 쓰든 하나만 스크롤 담당 */
   .overlay .modal-body,.overlay .lite-body,.overlay .set-body,
-  .overlay .pm-body,.overlay .ae-sheet,.overlay .ixd-wrap{
+  .overlay .pm-body,.overlay .ae-sheet{
     flex:1 1 auto;min-height:0;max-height:none;
     overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
     padding-bottom:calc(18px + env(safe-area-inset-bottom))}

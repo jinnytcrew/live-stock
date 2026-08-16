@@ -35,380 +35,188 @@
      하므로 필수 스타일과 제어 스크립트를 인라인으로 둔다.
      실제 진행 단계는 app.js 가 window.__boot.step(n) 으로 밀어 준다. ══════ -->
 <style id="bootCss">
-/* ══ [v9.71 긴급수정] 앱 화면까지 하늘색이 되던 문제 ═══════════════════════
-   이 <style> 은 app.css 링크보다 '뒤'에 있다. 그래서 여기에 html,body 배경을
-   적었더니 app.css 의 body 배경을 이겨 버려, 로딩이 끝난 뒤 앱 본화면까지
-   하늘색이 됐다(첨부 1번 사진).
-   → 배경은 #bootGate 자신에게만 준다. #bootGate 는 position:fixed;inset:0 으로
-     화면을 덮으므로 첫 프레임 깜빡임도 이것으로 충분히 막힌다. */
-/* ══ [v4.23] 입장 화면 — 깊이감 있는 브랜드 스플래시로 재단장 ═══════════════
-   · 은은한 오로라 배경 + 격자로 '시세 화면'의 분위기를 미리 보여 준다
-   · 로고와 문구 대비를 끌어올려 밝은 곳에서도 또렷하게 읽힌다
-   · 진행바는 굵게 + 흐르는 광택으로 살아 있는 느낌을 준다
-   app.css 보다 먼저 칠해져야 하므로 인라인으로 둔다. */
-/* [v4.37] 태블릿 가로 화면에서 배지·푸터가 화면 밖으로 잘리던 문제 —
-   좌우 안전영역을 반영하고 내부 요소가 넘치지 않도록 폭을 제한한다. */
-/* [v4.51] 아래쪽 문구가 잘리던 문제 — inset:0 은 '보이는 화면'이 아니라 100vh 를
-   기준으로 잡히는데, 안드로이드·아이패드는 하단 시스템 표시줄만큼 그보다 낮다.
-   그 차이만큼 푸터 둘째 줄이 화면 밖으로 밀려 잘렸다(overflow:hidden 이라 조용히).
-   → 실제 보이는 높이(dvh)를 쓰고, 그래도 모자라면 잘리는 대신 줄어들게 한다. */
-/* ══ [v4.65] 하단 문구가 잘리던 문제 — 이번엔 구조로 못 박는다 ═══════════════
-   [지난 수정이 왜 부족했나] flex 로 '가운데가 줄어들기를 기대'했다. 그런데 flex 의
-   축소는 내용 최소 크기에 막히면 무시된다 — 마스코트·로고가 vw 기준이라 좁고 낮은
-   화면에서는 줄지 않았고, 남은 공간이 모자라 TIP 아래가 통째로 잘렸다.
-   [이번 방식] 그리드로 세 줄을 만들고 가운데만 minmax(0,1fr) 로 둔다.
-   가운데는 0 까지 줄어들 수 있고, 진행바·TIP·푸터 줄은 언제나 제 높이를 먼저 가져간다.
-   '기대'가 아니라 '규칙'으로 보장된다. */
-/* ══ [v4.69] 새로고침 직후 아래가 잘리던 진짜 이유 ═══════════════════════════
-   height:100vh 를 폴백으로 두고 있었다. 안드로이드에서 100vh 는 '주소창이 숨겨졌을
-   때의 큰 화면'을 가리킨다. 그런데 새로고침·업데이트 직후에는 주소창이 다시 나와
-   실제로 보이는 높이가 그보다 작다 → 화면(#bootGate)이 보이는 영역보다 커지고,
-   맨 아래 TIP·저작권 줄이 화면 밖으로 밀려 잘렸다(첨부 영상).
-   dvh 를 지원하면 그 값이 이겨서 괜찮았지만, 지원하지 않는 브라우저에서는
-   폴백인 100vh 가 그대로 적용돼 매번 잘렸다.
-   → height 지정을 아예 없앤다. position:fixed + inset:0 만으로 '실제 보이는 영역'에
-     정확히 맞춰지며, 이게 모든 브라우저에서 안전하다.
-     dvh 를 쓸 수 있으면 그때만 더 정밀하게 맞춘다. */
-#bootGate{position:fixed;inset:0;
-  /* [v10.2] 격자에 열을 명시하지 않으면 열 폭이 '가장 넓은 자식'에 맞춰 늘어난다.
-     그래서 320px 화면에서 안쪽 폭 272px 를 넘어 303px 가 되고, 내용 전체가
-     오른쪽으로 16px 밀렸다. minmax(0,1fr) 로 열이 컨테이너를 넘지 못하게 못 박는다. */
-  z-index:2000000;display:grid;grid-template-columns:minmax(0,1fr);
-  grid-template-rows:minmax(0,1fr) auto auto;
-  justify-items:center;align-content:stretch;
-  /* [v4.97] 축소해도 뚫리지 않도록 넉넉히 덮는다. 화면보다 조금 크게 잡고
-     넘치는 부분은 잘라내면, 확대·축소 어느 쪽에서도 틈이 생기지 않는다. */
-  overflow:hidden;box-sizing:border-box;width:100%;
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v10.3] 입장 화면 — 처음부터 다시
+   ─────────────────────────────────────────────────────────────────────────────
+   [왜 갈아엎나] 여백을 더하고 빼며 네 번을 고쳤는데 매번 다른 곳이 어긋났다.
+   규칙이 서로 얽혀 하나를 만지면 다른 하나가 틀어지는 상태였다.
+   [무엇을 본받나] 실제 증권사 앱(미래에셋 등)의 입장 화면은 아주 단순하다.
+     · 화면 한가운데 로고 하나
+     · 아래쪽에 진행 상태 한 줄
+     · 맨 밑에 저작권 고지
+   장식을 걷어내고 이 세 덩어리만 남긴다.
+   [배치 규칙] 세로 3칸 격자. 위·아래 칸은 내용만큼, 가운데 칸이 남는 공간을
+   전부 가져가고 그 안에서 로고가 정중앙에 온다. 여백을 손댈 일이 없다.
+   모든 칸은 minmax(0,1fr)/min-width:0 으로 묶어 자식이 폭을 밀어내지 못하게 한다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+#bootGate{
+  position:fixed;inset:0;z-index:2000000;
+  display:grid;grid-template-columns:minmax(0,1fr);
+  grid-template-rows:auto minmax(0,1fr) auto;
+  box-sizing:border-box;overflow:hidden;
   min-width:100vw;min-height:100vh;min-height:100dvh;
-  /* ══ [v9.71] 입장 화면을 '맑은 하늘'로 ═══════════════════════════════════
-     위쪽은 깊은 하늘색, 아래로 갈수록 옅어지며 지평선의 빛으로 이어진다.
-     글자는 어두운 남색으로 바꿔 밝은 배경에서도 또렷하게 읽힌다. */
-  /* ══ [v9.87] 배경과 글자가 서로 잡아먹던 문제 ═══════════════════════════════
-     [무엇이 잘못됐나] 밝은 하늘색 위에 어두운 남색 글자를 얹었는데, 배경이 위에서
-     아래로 크게 변해 어느 높이에 있느냐에 따라 대비가 널뛰었다. 실제로 재 보니
-       · 워드마크(#0d2c4a) 대 상단 배경 : 3.03 : 1  (권장 4.5 미달)
-       · '증권'(주황 #ef7c05) 대 상단   : 1.69 : 1  ← 거의 안 보이는 수준
-     주황 글자를 밝은 하늘 위에 놓은 것이 결정적이었다. 둘 다 밝아서 구분이 안 된다.
-     [어떻게 바꿨나] 배경을 어둡게 뒤집는다. 깊은 남색 → 푸른 남색으로 내려가며,
-     글자는 흰색·연한 하늘색·주황을 쓴다. 같은 방식으로 다시 재니 모든 조합이
-     4.5 : 1 을 넘는다(가장 낮은 것이 5.14). 주황 로고도 9.00 : 1 로 또렷해진다.
-     밤하늘로 돌아간 것이 아니라, '해 지기 직전의 깊은 하늘' 쪽이다. */
-  background:linear-gradient(180deg,
-    #08192f 0%, #0a1f3d 12%, #0e2a4e 24%, #123a63 40%,
-    #17456f 55%, #1b4c7b 70%, #1d5285 84%, #205a8f 100%);
-  color:#eaf3fb;
+  padding:max(18px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right))
+          max(16px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));
+  background:#0d1b2e;
+  color:#e8eef6;
   font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
-  transition:opacity .55s ease;
-  padding:max(26px,env(safe-area-inset-top))
-          max(24px,env(safe-area-inset-right))
-          max(22px,env(safe-area-inset-bottom))
-          max(24px,env(safe-area-inset-left))}
-@supports (height:100dvh){ #bootGate{height:100dvh} }
-#bootGate.out{opacity:0;pointer-events:none}
-/* 그래도 모자라는 극단적인 경우에는 잘리는 대신 스크롤할 수 있게 둔다 */
-@media (max-height:380px){ #bootGate{overflow-y:auto;align-content:start} }
-/* 오로라 — 두 겹의 큰 원이 천천히 흐른다 */
-/* 햇살 — 오른쪽 위에서 부드럽게 번진다 */
-#bootGate::before,#bootGate::after{content:'';position:absolute;border-radius:50%;pointer-events:none}
-/* [v9.77] 해는 은은하게만 — 그라데이션을 해치지 않을 정도로 */
-/* [v9.87] 어두운 배경에 맞춰 '해'가 아니라 은은한 빛무리로 */
-#bootGate::before{width:86vw;height:86vw;max-width:620px;max-height:620px;top:-30vw;right:-22vw;
-  background:radial-gradient(circle,rgba(70,150,240,.30),rgba(40,110,200,.13) 34%,transparent 68%);
-  filter:blur(40px);animation:bgSun 9s ease-in-out infinite}
-/* 지평선의 옅은 빛 */
-#bootGate::after{width:150vw;height:60vw;max-height:420px;border-radius:50% 50% 0 0;bottom:-16vw;left:-25vw;
-  background:radial-gradient(ellipse at 50% 100%,rgba(90,175,255,.24),rgba(60,130,215,.10) 48%,transparent 76%);
-  filter:blur(34px)}
-@keyframes bgSun{0%,100%{transform:scale(1);opacity:.92}50%{transform:scale(1.07);opacity:1}}
+  transition:opacity .45s ease}
+#bootGate.gone{opacity:0;pointer-events:none}
 
-/* [v9.77] 구름 레이어 제거 — 그라데이션만으로 간다.
-   마크업은 남겨 두되 그리지 않는다(되돌리기 쉽게). */
-.bg-sky{display:none}
-.bg-cl{display:none}
-/* 격자 — 아주 옅게 */
-/* [v9.71c] 격자무늬 제거 — 밤하늘 배경일 때 쓰던 장식인데, 하늘 사진 위에
-   흰 모눈이 겹쳐 창틀처럼 보였다(첨부 4번). 하늘에는 격자가 없다. */
-.bg-grid{display:none;
-  -webkit-mask-image:radial-gradient(ellipse at 50% 42%,#000 30%,transparent 78%);
-          mask-image:radial-gradient(ellipse at 50% 42%,#000 30%,transparent 78%)}
+/* ── 위: 버전 ─────────────────────────────────────────────────────────── */
+.bg-top{justify-self:end;min-width:0}
+.bg-ver{font-size:11px;font-weight:800;color:#7d93ad;letter-spacing:.2px}
 
-/* 가운데 */
-/* ══ [v10.0] 배치를 여백이 아니라 '칸'으로 정한다 ═══════════════════════════
-   지금까지 margin 을 더하고 빼며 맞추려다 세 번 연속 어긋났다. 그래서 규칙을
-   바꾼다. bg-mid 를 두 칸짜리 격자로 만들어
-     1행 = 로고+태그 (내용만큼)
-     2행 = 그래프    (남는 세로 전부)
-   그래프는 그 칸 안에서 가운데 정렬된다. 화면이 커지든 작아지든 '남는 공간의
-   한가운데'라는 뜻이 그대로 유지되므로, 더 이상 여백을 손볼 일이 없다.
-   justify-content:center 와 flex:1 을 함께 쓰면 서로 상충한다 — 그게 지난
-   판에서 그래프가 위로 붙은 이유다. */
-/* [v10.2] 320px 에서 5px 넘치던 이유 — 격자 자식의 min-width 는 auto 라
-   안쪽 nowrap 글자가 지정 폭(94vw)을 밀어냈다. min-width:0 으로 막는다. */
-/* ══ [v10.2] 입장 화면이 오른쪽으로 12~14px 치우쳐 있던 이유 ═══════════════════
-   #bootGate 에 좌우 24px 여백이 있는데 자식들은 vw(화면 전체 폭) 기준으로
-   폭을 잡았다. 94vw 는 여백을 뺀 안쪽 폭보다 크므로 오른쪽으로 밀려 나가고,
-   overflow:hidden 에 잘려 '가운데가 아닌 것처럼' 보였다.
-   자식은 부모 안쪽 폭(100%)을 기준으로 잡아야 정확히 가운데에 온다. */
-.bg-mid{position:relative;min-height:0;min-width:0;height:100%;width:100%;max-width:560px;
-  box-sizing:border-box;z-index:3;overflow:hidden;
-  display:grid;grid-template-rows:auto minmax(0,1fr);justify-items:center;align-items:start}
-/* [v10.0] 세로가 짧은 화면에서는 위 여백을 줄여 그래프 칸을 확보한다.
-   1600x1000 기준 로고묶음 311px / 그래프칸 469px, 360x640 에서도 그래프칸 207px 확보. */
-.bg-head{display:flex;flex-direction:column;align-items:center;padding-top:clamp(14px,4.5vh,56px);
-  width:100%;max-width:100%;min-width:0;box-sizing:border-box}
-/* [v10.2] 320px 에서 부모를 밀어내던 마지막 원인 — flex 자식의 기본 min-width 는
-   auto 라, 안쪽 nowrap 워드마크가 부모 폭을 넘겨 버렸다. 연쇄로 min-width:0 을
-   걸고, 그래도 좁으면 워드마크가 스스로 줄어들도록 flex-shrink 를 연다. */
-.bg-logo{display:flex;align-items:center;justify-content:center;gap:clamp(8px,2.4vw,22px);
-  max-width:100%;min-width:0;overflow:hidden}
-.bg-logo .bg-wm{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:clip}
-@media (max-height:700px){
-  .bg-head{padding-top:10px}
-  .bg-tag{margin-top:12px;padding:7px 16px}
-}
-.bg-logo{display:flex;align-items:center;gap:clamp(14px,3.4vw,22px)}
-/* [v5.9] 입장 화면 로고·글자를 키운다 — 첫 화면이 작아 심심했다 */
-.bg-mark{position:relative;flex:0 0 auto;
-  width:clamp(66px,17vw,190px);height:clamp(66px,17vw,190px);
-  border-radius:clamp(16px,4vw,38px);
-  background:linear-gradient(140deg,#ffc93c,#f5a30d 55%,#e07c05);
-  display:grid;place-items:center;font-weight:900;font-size:clamp(32px,8vw,84px);color:#fff;line-height:1;
-  box-shadow:0 16px 38px rgba(210,120,10,.34),0 2px 0 rgba(255,255,255,.55) inset,
-              0 0 0 5px rgba(255,255,255,.42);
-  animation:bgPulse 2.6s ease-in-out infinite}
-.bg-mark::after{content:'';position:absolute;inset:-14%;border-radius:inherit;
-  background:radial-gradient(circle,rgba(245,179,15,.42),transparent 68%);filter:blur(14px);z-index:-1}
-@keyframes bgPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
-/* ══ [v10.1] 'LIVE 증권'이 두 줄로 깨지던 이유 ═══════════════════════════════
-   폰 화면은 보통 411 CSS px 다. 그런데 최소값을 64px 로 못 박아 두어
-     로고 124px + 간격 22px + 글자 306px = 452px  >  화면 411px
-   이 되어 '증'과 '권'이 갈라졌다(첨부 6번). 최소값을 줄이고, 무엇보다
-   글자가 절대 갈라지지 않게 nowrap 을 건다 — 화면이 아무리 좁아도 한 줄이다. */
-.bg-wm{font-size:clamp(34px,9.2vw,104px);font-weight:900;letter-spacing:-2.2px;line-height:1.05;
-  white-space:nowrap;
-  color:#ffffff;text-shadow:0 2px 18px rgba(0,0,0,.45)}
-/* 주황은 밝은 쪽으로 올린다 — 어두운 배경에서 9:1 대비가 나온다 */
-.bg-wm b{background:linear-gradient(180deg,#ffc247,#ffb020);-webkit-background-clip:text;background-clip:text;
-  -webkit-text-fill-color:transparent;color:#ffb020;filter:drop-shadow(0 2px 10px rgba(255,160,20,.35))}
-/* ══ [v10.2] 슬로건이 모든 폰에서 두 줄로 접혔다(실측 41~44px, 한 줄은 19~22px)
-   ─ 글자 수가 17자라 3.4vw 로는 320~430px 화면에 절대 안 들어간다.
-     한 줄에 들어갈 크기로 낮추고 nowrap 을 걸어 다시 접히지 않게 한다. */
-/* [v10.2] 320px 화면 안쪽 폭은 272px 인데 이 칩이 212px + 좌우 패딩 48px = 260px
-   까지 커져 부모를 밀어냈다(실측 중심 +16px 어긋남). 패딩을 화면에 맞춰 줄인다. */
-.bg-tag{font-size:clamp(10.5px,2.9vw,23px);font-weight:800;color:#cfe4f7;letter-spacing:-.4px;
-  white-space:nowrap;max-width:100%;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;
-  margin-top:clamp(10px,2.2vh,20px);text-align:center;
-  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:99px;
-  padding:clamp(6px,1.6vw,10px) clamp(10px,4vw,24px);backdrop-filter:blur(8px)}
-/* [v9.99] 그래프가 위로 붙어 보이던 문제 — 로고와 진행 카드 사이의 남는 공간을
-   그림이 차지하고 그 안에서 가운데 정렬되게 한다(고정 여백 대신 flex 로 배분). */
-.bg-charwrap{position:relative;width:100%;height:100%;min-height:0;
-  display:grid;place-items:center}
-.bg-charwrap::before{content:'';position:absolute;width:clamp(260px,56vw,400px);aspect-ratio:1.5;border-radius:50%;
-  background:radial-gradient(ellipse,rgba(245,160,25,.20),rgba(245,160,25,.06) 52%,transparent 72%)}
-/* ══ [v5.9] 차트 그림을 더 또렷하고 부드럽게 ═══════════════════════════════
-   그림자를 한 겹으로만 두면 배경에 묻혀 흐릿해 보인다.
-   따뜻한 색 번짐을 아래에 깔고, 위로 살짝 떠 있게 해 깔끔하게 보이게 한다. */
-.bg-charwrap{position:relative;display:grid;place-items:center;margin-top:6px}
-.bg-charwrap::before{content:'';position:absolute;width:66%;height:34%;bottom:4%;
-  background:radial-gradient(ellipse at center,rgba(90,170,250,.42),rgba(60,130,210,.16) 58%,transparent 76%);
-  filter:blur(26px);pointer-events:none}
-/* [v9.91] 그래프 그림이 작고 아래로 처져 있었다 — 키우고 위로 당긴다 */
-/* [v10.0] margin 으로 위치를 밀지 않는다 — 칸 안에서 가운데면 충분하다 */
-.bg-char{position:relative;width:clamp(320px,62vw,520px);max-height:100%;object-fit:contain;
-  filter:drop-shadow(0 14px 30px rgba(0,0,0,.5));
-  animation:bgFloat 3.6s ease-in-out infinite}
-@keyframes bgFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+/* ── 가운데: 로고 (남는 공간 전부, 정중앙) ────────────────────────────── */
+.bg-core{min-width:0;min-height:0;display:grid;place-items:center;gap:0}
+.bg-logo{display:flex;flex-direction:column;align-items:center;gap:18px;
+  min-width:0;max-width:100%}
+.bg-mark{width:clamp(72px,19vw,120px);height:clamp(72px,19vw,120px);flex:0 0 auto;
+  border-radius:clamp(18px,4.6vw,30px);
+  background:linear-gradient(145deg,#ffc247,#f5a30d 60%,#e07c05);
+  display:grid;place-items:center;line-height:1;
+  font-size:clamp(40px,10.5vw,66px);font-weight:900;color:#fff;
+  box-shadow:0 14px 34px rgba(0,0,0,.42)}
+.bg-name{display:flex;align-items:baseline;justify-content:center;gap:.28em;
+  font-size:clamp(26px,7.2vw,46px);font-weight:900;letter-spacing:-1.2px;
+  white-space:nowrap;min-width:0;max-width:100%;line-height:1.1}
+.bg-name b{color:#fff}
+.bg-name i{font-style:normal;color:#ffb020}
+.bg-slogan{font-size:clamp(11px,3.1vw,15px);font-weight:700;color:#8fa8c4;
+  letter-spacing:-.2px;white-space:nowrap;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;text-align:center}
 
-/* 아래 — 상태 문구 + 진행바 */
-/* [v9.71] 진행 영역을 반투명 유리판 카드로 — 구름 위에 떠 있는 느낌 */
-.bg-low{position:relative;z-index:2;width:100%;max-width:540px;
-  box-sizing:border-box;margin-bottom:20px;flex:none;
-  background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);
-  border-radius:20px;padding:15px 17px 14px;backdrop-filter:blur(16px);
-  box-shadow:0 16px 44px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.14)}
-/* ══ [v4.25] 진행 표시를 전부 CSS 애니메이션으로 ═══════════════════════════
-   [무엇이 잘못됐나] 진행바와 문구를 setInterval 로 그렸다. 그런데 부팅 중
-   app.js 가 메인 스레드를 길게 점유하면 타이머가 아예 돌지 못해, 막대가 11%에
-   멈춰 있다가 안전장치가 켜지는 순간 100%로 튀었다. 문구도 첫 줄에서 안 바뀌었다.
-   [해결] 진행은 JS 가 아니라 CSS 타임라인이 그린다. transform 기반이라
-   메인 스레드가 막혀도 컴포지터에서 계속 움직이고, 문구도 opacity 키프레임으로
-   스스로 넘어간다. JS 는 '끝났다'는 신호만 준다. */
-.bg-status{position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-  font-size:clamp(14.5px,3.1vw,16.5px);font-weight:800;letter-spacing:-.3px;padding-bottom:11px;color:#ffffff;
-  min-height:24px}
-.bg-msgs{position:relative;flex:1 1 auto;min-width:0;display:block;height:1.35em}
-.bg-msgs b{position:absolute;left:0;top:0;width:100%;font-weight:800;opacity:0;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  animation:bgMsgCycle 7.2s steps(1,end) forwards}
-.bg-msgs b:nth-child(1){animation-delay:0s}
-.bg-msgs b:nth-child(2){animation-delay:1.05s}
-.bg-msgs b:nth-child(3){animation-delay:2.1s}
-.bg-msgs b:nth-child(4){animation-delay:3.15s}
-.bg-msgs b:nth-child(5){animation-delay:4.2s}
-.bg-msgs b:nth-child(6){animation-delay:5.25s}
-.bg-msgs b.fin{animation:none;opacity:0}
-#bootGate.fin .bg-msgs b{animation:none;opacity:0}
-#bootGate.fin .bg-msgs b.fin{opacity:1}
-@keyframes bgMsgCycle{0%{opacity:0}1%{opacity:1}14.6%{opacity:1}15.6%{opacity:0}100%{opacity:0}}
-.bg-meta{display:flex;align-items:baseline;gap:10px;flex:none}
-.bg-pct{font-style:normal;font-size:16.5px;font-weight:900;color:#ffffff;font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
-.bg-pct::after{content:'2%';animation:bgPctNum 7.2s steps(1,end) forwards}
-#bootGate.fin .bg-pct::after{content:'100%';animation:none}
-@keyframes bgPctNum{0.0%{content:"2%"}4.9%{content:"2%"}9.6%{content:"4%"}14.1%{content:"6%"}18.4%{content:"8%"}22.5%{content:"12%"}26.5%{content:"15%"}30.3%{content:"20%"}34.0%{content:"24%"}37.7%{content:"29%"}41.2%{content:"34%"}44.8%{content:"40%"}48.3%{content:"45%"}51.7%{content:"51%"}55.2%{content:"56%"}58.8%{content:"62%"}62.3%{content:"67%"}66.0%{content:"72%"}69.7%{content:"76%"}73.5%{content:"81%"}77.5%{content:"84%"}81.6%{content:"88%"}85.9%{content:"90%"}90.4%{content:"92%"}95.1%{content:"94%"}100.0%{content:"94%"}}
-.bg-step{font-style:normal;font-size:11.5px;font-weight:800;color:#ffc247;flex:none;
-  background:rgba(255,176,32,.16);border:1px solid rgba(255,176,32,.34);border-radius:99px;padding:2.5px 9px}
-.bg-step::after{content:'1 / 6';animation:bgStepNum 7.2s steps(1,end) forwards}
-@keyframes bgStepNum{
-  0%{content:'1 / 6'}14.6%{content:'2 / 6'}29.2%{content:'3 / 6'}
-  43.8%{content:'4 / 6'}58.3%{content:'5 / 6'}72.9%{content:'6 / 6'}100%{content:'6 / 6'}}
-#bootGate.fin .bg-step::after{content:'완료';animation:none}
-.bg-bar{position:relative;width:100%;height:9px;border-radius:99px;overflow:hidden;
-  background:rgba(255,255,255,.14);box-shadow:inset 0 1px 3px rgba(0,0,0,.3)}
-.bg-fill{position:absolute;inset:0;border-radius:99px;transform-origin:left center;
-  transform:scaleX(.02);will-change:transform;
-  background:linear-gradient(90deg,#ffd166,#ffb020 58%,#ff8a3d);
-  box-shadow:0 0 16px rgba(255,176,32,.55);
-  animation:bgGrow 7.2s cubic-bezier(.42,0,.58,1) forwards}
-@keyframes bgGrow{from{transform:scaleX(.02)}to{transform:scaleX(.94)}}
-#bootGate.fin .bg-fill{animation:none;transform:scaleX(1);transition:transform .45s cubic-bezier(.25,.8,.3,1)}
-.bg-fill::after{content:'';position:absolute;inset:0;border-radius:99px;
-  background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.55) 50%,transparent 80%);
-  background-size:220% 100%;animation:bgShine 1.7s linear infinite}
-@keyframes bgShine{0%{background-position:200% 0}100%{background-position:-60% 0}}
-.bg-tip{margin-top:15px;display:flex;align-items:center;justify-content:center;gap:9px;min-height:22px}
-.bg-tipb{flex:none;font-size:10.5px;font-weight:900;letter-spacing:.6px;color:#0a1f3d;
-  background:linear-gradient(135deg,#ffd166,#ffb020);border-radius:6px;padding:2.5px 7px;
-  box-shadow:0 3px 10px rgba(255,176,32,.28)}
-.bg-tip span{font-size:13px;font-weight:700;color:#cfe4f7;transition:opacity .3s;
+/* ── 아래: 진행 상태 + 고지 ──────────────────────────────────────────── */
+.bg-foot{min-width:0;display:flex;flex-direction:column;align-items:center;gap:14px}
+.bg-prog{width:100%;max-width:420px;min-width:0}
+.bg-prow{display:flex;align-items:baseline;gap:8px;margin-bottom:9px;min-width:0}
+.bg-msg{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:700;color:#c3d3e6;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bg-ver{position:absolute;z-index:3;top:max(14px,env(safe-area-inset-top));
-  right:max(16px,calc(env(safe-area-inset-right) + 8px));
-  font-size:12px;font-weight:900;color:#ffc247;letter-spacing:.2px;
-  background:rgba(255,176,32,.13);border:1px solid rgba(255,176,32,.3);
-  border-radius:99px;padding:5px 13px;backdrop-filter:blur(8px)}
+.bg-pct{flex:0 0 auto;font-size:12.5px;font-weight:900;color:#ffb020;
+  font-variant-numeric:tabular-nums}
+.bg-bar{height:3px;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden}
+.bg-fill{height:100%;width:0;border-radius:99px;background:#ffb020;
+  transition:width .35s cubic-bezier(.4,0,.2,1)}
+.bg-legal{font-size:10px;line-height:1.6;color:#5f7590;text-align:center;
+  max-width:520px;min-width:0}
 
-.bg-foot{position:relative;z-index:2;flex:0 0 auto;width:100%;max-width:600px;text-align:center;
-  font-size:11.5px;line-height:1.7;color:#b3d2ec;font-weight:700;
-  border-top:1px solid rgba(255,255,255,.14);padding-top:13px;
-  /* 자리는 마지막까지 지킨다 — 공간이 모자라면 위쪽(로고·마스코트)이 먼저 줄어든다 */
-  padding-bottom:2px}
-/* 세로가 아주 짧으면 둘째 줄 안내는 접는다 — 반쯤 잘린 글자를 남기는 것보다 낫다 */
-@media (max-height:640px){.bg-charwrap{display:none}}
-@media (max-height:520px){.bg-foot br,.bg-foot br~*{display:none}
-  .bg-foot{font-size:10px;padding-top:8px;line-height:1.5}
-  .bg-tag{display:none}
-  .bg-mark{width:86px;height:86px;font-size:48px;border-radius:22px}
-  .bg-wm{font-size:34px}}
-@media (max-height:420px){.bg-mid{display:none}}
-.bg-foot b{font-weight:900;color:#eaf3fb}
+/* 세로가 아주 짧으면(가로 모드 등) 간격만 줄인다 */
+@media (max-height:560px){
+  .bg-logo{gap:12px}
+  .bg-foot{gap:10px}
+  .bg-legal{display:none}
+}
+/* 움직임 최소화 설정을 존중한다 */
 @media (prefers-reduced-motion:reduce){
-  .bg-mark,.bg-char,.bg-fill::after,#bootGate::before,#bootGate::after,.bg-cl{animation:none}
-  .bg-fill{animation-duration:7.2s}}
-@media (max-height:760px){.bg-char{width:clamp(190px,38vw,240px)}.bg-tag{margin-top:11px}}
-@media (max-height:600px){.bg-charwrap{display:none}.bg-wm{font-size:clamp(42px,8vw,56px)}}
-/* 가로가 넓고 세로가 짧은 태블릿 가로 모드 */
-@media (orientation:landscape) and (max-height:900px){
-  .bg-mark{width:clamp(58px,9vh,84px);height:clamp(58px,9vh,84px);font-size:clamp(32px,5vh,48px);border-radius:22px}
-  .bg-wm{font-size:clamp(38px,6.6vh,58px)}
-  .bg-tag{margin-top:10px;font-size:15px}
-  .bg-char{max-height:26vh}
-  .bg-foot{font-size:10.5px;padding-top:10px}
-  .bg-low{margin-bottom:14px}
+  #bootGate,.bg-fill{transition:none}
 }
 </style>
 <div id="bootGate" role="status" aria-label="앱을 시작하는 중">
-  <div class="bg-sky" aria-hidden="true"><i class="bg-cl c1"></i><i class="bg-cl c2"></i><i class="bg-cl c3"></i></div>
-  <div class="bg-grid" aria-hidden="true"></div>
-  <div class="bg-ver" id="bgVerBadge">v—</div>
-  <div class="bg-mid">
-    <!-- [v10.0] 로고+태그를 한 덩어리(bg-head)로 묶어 격자 1행에 넣는다 -->
-    <div class="bg-head">
-      <div class="bg-logo"><div class="bg-mark">L</div><div class="bg-wm">LIVE <b>증권</b></div></div>
-      <div class="bg-tag">투자 라이프를 리드하다, LIVE 증권</div>
+  <!-- [v10.3] 실제 증권사 입장 화면 구성 — 위(버전) / 가운데(로고) / 아래(진행·고지) -->
+  <div class="bg-top"><span class="bg-ver" id="bgVerBadge">v—</span></div>
+
+  <div class="bg-core">
+    <div class="bg-logo">
+      <div class="bg-mark">L</div>
+      <div class="bg-name"><b>LIVE</b><i>증권</i></div>
+      <div class="bg-slogan">투자 라이프를 리드하다</div>
     </div>
-    <div class="bg-charwrap"><img class="bg-char" src="/mascot.png?v=392" alt="" aria-hidden="true" decoding="async"></div>
   </div>
-  <div class="bg-low">
-    <div class="bg-status">
-      <span class="bg-msgs" id="bgMsgs">
-        <b>앱 모듈 불러오는 중</b>
-        <b>버전·실행 환경 확인 중</b>
-        <b>국내·해외 종목 데이터 준비 중</b>
-        <b>계정·설정 동기화 중</b>
-        <b>국내·미국 시세 서버 연결 중</b>
-        <b>화면 구성 중</b>
-        <b class="fin">준비 완료</b>
-      </span>
-      <span class="bg-meta"><i class="bg-pct" id="bgPct"></i><i class="bg-step" id="bgStep"></i></span>
+
+  <div class="bg-foot">
+    <div class="bg-prog">
+      <div class="bg-prow">
+        <span class="bg-msg" id="bgMsg">시작하는 중</span>
+        <span class="bg-pct" id="bgPct">0%</span>
+      </div>
+      <div class="bg-bar"><div class="bg-fill" id="bgFill"></div></div>
     </div>
-    <div class="bg-bar"><div class="bg-fill" id="bgFill"></div></div>
-    <div class="bg-tip"><b class="bg-tipb">TIP</b><span id="bgTip">잠시만요, 시작할 준비를 하고 있어요…</span></div>
+    <div class="bg-legal">© 2026 LIVE증권 · 실제 매매가 아니며 모든 손익은 가상입니다<br>
+      종목정보 변경 직후 접속하신 경우 신규 상장 종목 반영에 잠시 시간이 걸릴 수 있습니다</div>
   </div>
-  <div class="bg-foot">© 2026 LIVE증권 — 실시간 투자 라이프 서비스 · 실제 매매가 아니며 모든 손익은 가상입니다<br>
-  종목정보 변경 직후 접속하신 경우 신규 상장 종목 반영에 잠시 시간이 걸릴 수 있습니다</div>
 </div>
 <script>
-/* [v4.25] 부팅 제어 — 진행 표시는 CSS 가 그린다. JS 는 '언제 닫을지'만 정한다.
-   이전에는 setInterval 로 막대와 문구를 갱신했는데, 부팅 중 app.js 가 메인
-   스레드를 길게 잡으면 타이머가 돌지 못해 11%에서 굳었다가 100%로 튀었다.
-   이제 막대(transform)와 문구(opacity)는 컴포지터에서 스스로 흐르므로
-   메인 스레드가 막혀도 매끄럽게 진행된다.
-   · 최소 7.2초 노출 → 6단계가 눈에 읽힌다
-   · 실제 준비가 끝나면(done) 그 이후에 닫는다
-   · 무슨 일이 있어도 15초에는 반드시 연다 */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v10.3] 부팅 제어 — 다시 씀
+   ─────────────────────────────────────────────────────────────────────────────
+   [예전 방식의 문제]
+     · 진행 막대와 문구를 CSS 애니메이션에 맡겨, 실제 준비 상태와 무관하게 흘렀다.
+       그래서 준비가 다 끝났는데도 "5/6"에서 기다리는 일이 생겼다.
+     · 최소 노출을 7.2초로 잡아, 캐시가 살아 있어 0.5초면 될 재방문도 7초를 봤다.
+   [지금]
+     · 막대는 앱이 알려 주는 실제 단계(step)만큼만 찬다.
+     · 최소 노출 1.2초 — 로고를 알아볼 만큼만. 준비가 끝나면 곧바로 연다.
+     · 12초가 지나면 무슨 일이 있어도 연다(멈춘 화면을 남기지 않는다).
+   ══════════════════════════════════════════════════════════════════════════════ */
 (function(){
-  var g=document.getElementById('bootGate'), tip=document.getElementById('bgTip');   // tip=문구 span
-  var t0=Date.now(), MIN_TOTAL=7200, HARD=15000, doneReq=false, closed=false;
-  var tips=['오늘도 좋은 연습 되세요 📈','⭐를 누르면 관심종목 폴더에 담을 수 있어요',
-    '고급 서비스의 매집 포착기로 세력 흔적을 분석해 보세요','실제 장 시간 제한은 설정에서 끄고 켤 수 있어요',
-    'NXT 프리마켓은 오전 8시에 열립니다','투자경고 지정 종목은 NXT 주문이 자동으로 잠겨요'];
-  var ti=0,tt=setInterval(function(){ti=(ti+1)%tips.length;tip.style.opacity=0;
-    setTimeout(function(){tip.textContent=tips[ti];tip.style.opacity=.62;},280);},2400);
+  var g   = document.getElementById('bootGate'),
+      msg = document.getElementById('bgMsg'),
+      pct = document.getElementById('bgPct'),
+      fill= document.getElementById('bgFill');
+  var STEPS = ['앱을 준비하는 중','실행 환경 확인','종목 정보 준비','계정·설정 확인',
+               '시세 서버 연결','화면 구성'];
+  var t0 = Date.now(), MIN = 1200, HARD = 12000;
+  var cur = 0, doneReq = false, closed = false, hardT;
+
+  function paint(){
+    var p = Math.min(100, Math.round(cur / STEPS.length * 100));
+    try{
+      fill.style.width = p + '%';
+      pct.textContent  = p + '%';
+      msg.textContent  = (cur >= STEPS.length) ? '준비 완료' : STEPS[cur];
+    }catch(e){}
+  }
+  paint();
+
   function close(){
-    if(closed)return; closed=true; clearInterval(tt); clearTimeout(hardT);
-    g.classList.add('fin');
-    setTimeout(function(){g.classList.add('out');
+    if(closed) return; closed = true;
+    clearTimeout(hardT);
+    cur = STEPS.length; paint();
+    setTimeout(function(){
+      g.classList.add('gone');
       setTimeout(function(){
-        /* ══ [v8.4] 지우지 않고 감춰 둔다 ═══════════════════════════════════
-           예전에는 remove() 로 DOM 에서 아예 없앴다. 그래서 로그인을 마친 뒤
-           '한 번 더 입장 화면을 보여 주는' 것이 불가능했다.
-           감춰 두면 언제든 다시 띄울 수 있다. */
-        try{ g.style.display='none'; }catch(e){}
-        try{ window.__bootGone=true;
-          window.dispatchEvent(new Event('bootgone')); }catch(e){}
-      },600);},520);
+        try{ g.style.display = 'none'; }catch(e){}
+        try{ window.__bootGone = true;
+             window.dispatchEvent(new Event('bootgone')); }catch(e){}
+      }, 450);
+    }, 180);
   }
   function maybeClose(){
-    if(closed||!doneReq)return;
-    var left=MIN_TOTAL-(Date.now()-t0);
-    if(left>0)setTimeout(maybeClose,left+30); else close();
+    if(closed || !doneReq) return;
+    var left = MIN - (Date.now() - t0);
+    if(left > 0) setTimeout(maybeClose, left + 20); else close();
   }
-  var hardT=setTimeout(function(){
-    if(!closed){ tip.textContent='네트워크가 느려요 — 나머지 데이터는 화면에서 이어서 불러옵니다'; close(); }
-  },HARD);
-  window.__boot={
-    step:function(){},                                     // 진행 표시는 CSS 가 담당
-    ver:function(v){try{document.getElementById('bgVerBadge').textContent='v'+v;}catch(e){}},
-    done:function(){ doneReq=true; maybeClose(); },
-    /* ══ [v8.4] 로그인을 마친 뒤 한 번 더 보여 준다 ═══════════════════════════
-       '입장 → 로그인 → 다시 입장 → 홈' 이 자연스러운 흐름이다.
-       로그인 창에서 곧바로 홈이 나오면 준비가 덜 된 화면이 스쳐 보인다. */
-    replay:function(ms,cb){
+  hardT = setTimeout(function(){
+    if(!closed){
+      try{ msg.textContent = '연결이 느려요 — 나머지는 화면에서 이어서 받습니다'; }catch(e){}
+      close();
+    }
+  }, HARD);
+
+  window.__boot = {
+    /* 앱이 한 단계 끝낼 때마다 부른다. 인자를 주면 그 번호로 맞춘다. */
+    step: function(n){
+      cur = (typeof n === 'number') ? n : (cur + 1);
+      if(cur > STEPS.length) cur = STEPS.length;
+      paint();
+    },
+    ver: function(v){ try{ document.getElementById('bgVerBadge').textContent = 'v' + v; }catch(e){} },
+    done: function(){ doneReq = true; cur = STEPS.length; paint(); maybeClose(); },
+    /* 로그인을 마친 뒤 한 번 더 짧게 보여 준다 */
+    replay: function(ms, cb){
       try{
-        /* 진행 표시는 CSS 애니메이션이 맡는다 — 클래스를 걷어 처음부터 다시 돌린다.
-           (fill·pct 같은 변수는 이 파일에 없다. 예전 코드를 그대로 옮기면 오류가 난다) */
-        g.style.display='';
-        g.classList.remove('out','fin');
+        g.style.display = ''; g.classList.remove('gone');
         void g.offsetWidth;
-        try{ tip.textContent='계정을 불러오는 중이에요'; }catch(e){}
+        cur = STEPS.length; paint();
+        try{ msg.textContent = '계정을 불러오는 중'; }catch(e){}
         setTimeout(function(){
-          g.classList.add('fin');
-          setTimeout(function(){ g.classList.add('out');
-            setTimeout(function(){ try{g.style.display='none';}catch(e){}
-              try{cb&&cb();}catch(e2){} },600); },320);
-        },ms||1500);
-      }catch(e){ try{cb&&cb();}catch(e2){} }
+          g.classList.add('gone');
+          setTimeout(function(){
+            try{ g.style.display = 'none'; }catch(e){}
+            try{ cb && cb(); }catch(e2){}
+          }, 450);
+        }, ms || 700);
+      }catch(e){ try{ cb && cb(); }catch(e2){} }
     }
   };
 })();
@@ -1477,7 +1285,33 @@
   <!-- ══ [v9.72] MY 포트폴리오 — 보유 종목 케어 ═══════════════════════════════
        '내 계좌'가 얼마인지를 보여 준다면, 여기는 지금 무엇을 해야 하는지를 본다.
        코너 순서는 급한 것부터: 오늘 할 일 → 종목별 상태 → 위험 → 규율 → 복기 -->
-  <section class="view" id="view-folio" hidden>
+  <!-- ══ [v10.4] 지수 상세를 정식 화면으로 ═══════════════════════════════════════
+     예전에는 작은 모달에 밀어 넣었다. 차트가 눌려 확대·축소가 불편했고, 종목
+     화면과 생김새도 달라 같은 앱처럼 보이지 않았다. 종목 화면(view-trade)과
+     같은 뼈대로 옮긴다 — 제목·설명 / 시세 머리말 / 지표 격자 / 차트 / 오늘 흐름. -->
+<section class="view" id="view-index" hidden>
+    <div class="page-title" id="ixTitle">지수</div>
+    <div class="page-sub">캔들 차트는 손가락(마우스)으로 좌우 이동·확대/축소할 수 있습니다.</div>
+    <div class="panel ix-panel">
+      <div class="ix-head" id="ixHead"></div>
+      <div class="ix-grid" id="ixGrid"></div>
+      <div class="ix-tf" id="ixTf"></div>
+      <div class="ix-chart"><canvas id="ixChart"></canvas>
+        <div class="ix-zoom">
+          <button type="button" data-ixz="out" aria-label="축소">−</button>
+          <span id="ixRange">120봉</span>
+          <button type="button" data-ixz="in" aria-label="확대">＋</button>
+        </div>
+      </div>
+      <div class="ix-spark-wrap">
+        <div class="ix-sec-t">오늘 흐름</div>
+        <canvas id="ixSpark"></canvas>
+      </div>
+      <div class="ix-note" id="ixNote"></div>
+    </div>
+</section>
+
+<section class="view" id="view-folio" hidden>
     <div class="page-title">MY 포트폴리오</div>
     <div class="page-sub">보유 종목을 계획과 견줘 지켜봅니다. 실제 매매가 아니며 모든 손익은 가상입니다.</div>
 

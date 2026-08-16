@@ -5707,6 +5707,7 @@ function _showView(name){
   if(name==='ustrade')safeRun('usTrade',renderUsTrade);
   if(name==='pro')safeRun('pro',()=>setProTab(proTab));
   if(name==='folio')safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); });   /* [v9.99] 들어올 때는 전체 */
+  if(name==='index')safeRun('ixDetail',renderIdxDetail);      /* [v10.4] 지수 상세 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
     /* [v4.81] 국내가 전 종목을 미리 받아 두듯 해외도 미리 받는다.
@@ -10412,7 +10413,9 @@ function usRankSection(){
        급하지 않다 — 상위 60종만 먼저 받아 캔들·원화환산을 채우고,
        나머지는 화면에 실제로 보일 때(IntersectionObserver) 받는다. */
     const wantN=bv.length;
-    const head=bv.slice(0,60).map(x=>x.t).filter(t=>usMeta[t]);
+    /* [v10.3] 첫 화면분만 받으면 조금만 내려도 '시세 대기'가 보인다.
+       배치는 병렬로 나가므로 120종을 한 번에 시작해도 시간은 거의 같다. */
+    const head=bv.slice(0,120).map(x=>x.t).filter(t=>usMeta[t]);
     const miss=head.filter(t=>!(usQ[t]&&usQ[t].price!=null));
     if(miss.length)usEnsureQuotes(head,true).then(redraw);
     const ses=usSession();
@@ -10475,15 +10478,30 @@ function usRankSection(){
    눈에 들어온 줄만 모아서 받는다. 200ms 동안 모아 한 번에 보내 요청을 줄인다.
    IntersectionObserver 를 못 쓰는 환경에서는 그냥 상위 60종만 받고 끝낸다
    — 화면이 비지 않으므로 그래도 쓸 만하다. */
-var _usIO=null, _usIOWait=new Set(), _usIOTimer=null;
+/* ══ [v10.3] '시세 대기'가 스크롤 내내 따라다니던 이유 ═══════════════════════
+   [무엇이 느렸나]
+     ① 화면에 들어온 뒤에야 요청을 시작했다. 400px 미리 보기로는 빠르게 훑으면
+        늘 한 발 늦는다.
+     ② 200ms 를 모았다가 보내니 그만큼 더 늦었다.
+     ③ 한 번에 36종만 받고 나머지는 다음 차례로 미뤘다.
+   [어떻게 고치나]
+     · 미리 보는 거리를 400px → 1200px 로 늘린다(대략 스무 줄 앞).
+     · 모으는 시간을 200ms → 60ms 로 줄인다.
+     · 한 번에 100종까지 받는다(서버는 어차피 묶어서 조회한다).
+     · 요청 중에도 다음 묶음을 받을 수 있게 잠금을 걸지 않되, 같은 종목을
+       두 번 요청하지 않도록 '요청 중' 표시를 남긴다. */
+var _usIO=null, _usIOWait=new Set(), _usIOTimer=null, _usInFlight=new Set();
 function usLazyFlush(){
   _usIOTimer=null;
-  const list=[...(_usIOWait||[])].filter(t=>usMeta[t]&&!(usQ[t]&&usQ[t].price!=null));
+  const list=[...(_usIOWait||[])].filter(t=>
+    usMeta[t] && !(usQ[t]&&usQ[t].price!=null) && !_usInFlight.has(t));
   _usIOWait.clear();
   if(!list.length)return;
-  usEnsureQuotes(list.slice(0,36),true).then(()=>{
+  const batch=list.slice(0,100);
+  batch.forEach(t=>_usInFlight.add(t));
+  usEnsureQuotes(batch,true).then(()=>{
     try{ usPaintRows(document); usCandlesPaint(document); }catch(e){}
-  }).catch(()=>{});
+  }).catch(()=>{}).finally(()=>{ batch.forEach(t=>_usInFlight.delete(t)); });
 }
 function usLazyQuotes(root){
   try{
@@ -10504,8 +10522,8 @@ function usLazyQuotes(root){
         try{_usIO.unobserve(e.target);}catch(x){}      // 한 번 받으면 더 볼 필요 없다
         if(usMeta[t]&&!(usQ[t]&&usQ[t].price!=null)){ _usIOWait.add(t); hit=true; }
       });
-      if(hit&&!_usIOTimer)_usIOTimer=setTimeout(usLazyFlush,200);
-    },{rootMargin:'400px 0px'});                        // 화면에 닿기 전에 미리 받는다
+      if(hit&&!_usIOTimer)_usIOTimer=setTimeout(usLazyFlush,60);
+    },{rootMargin:'1200px 0px'});                       // 스무 줄쯤 앞서서 미리 받는다
     (root||document).querySelectorAll('.us-ranklist [data-us]').forEach(el=>{
       try{_usIO.observe(el);}catch(e){}
     });
@@ -12143,83 +12161,79 @@ let siseMode='date';
    들어 있다. 새로 받아올 것 없이 있는 자료를 화면으로 옮긴다.
    [한계] 해외 지수·선물은 일봉 원천이 달라 차트가 없을 수 있다 — 그때는
    차트 자리를 비우고 이유를 적는다. 빈 캔버스를 두면 고장으로 보인다. */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v10.4] 지수 상세 — 모달이 아니라 정식 화면으로
+   ─────────────────────────────────────────────────────────────────────────────
+   작은 창에 밀어 넣으니 차트가 눌리고, 종목 화면과 생김새가 달라 같은 앱처럼
+   보이지 않았다. view-index 라는 정식 화면으로 옮겨 종목 화면과 같은 뼈대를 쓴다.
+   뒤로 가기도 다른 화면과 똑같이 동작한다(showView 가 스택을 관리한다).
+   ══════════════════════════════════════════════════════════════════════════════ */
 var idxDetail=null, idxDetTf='D', idxDetData={}, idxDetN=120;
+function idxChartable(key){ return key==='KOSPI'||key==='KOSDAQ'; }
 function idxOpen(key){
   const x=(market.indices||[]).find(v=>v.key===key);
   if(!x)return;
-  idxDetail=key;
-  /* ══ [v9.99] 좁은 모달 대신 넓은 화면으로 ═══════════════════════════════════
-     지수 상세를 작은 모달에 넣었더니 차트가 눌려 확대·축소도 안 되고, 종목
-     화면과 생김새도 달랐다. 모달을 넓게 쓰도록 클래스를 얹는다. */
-  openLiteGate(x.name,`<div id="idxDetBody" class="ixd-wrap"><div class="empty">불러오는 중…</div></div>`);
-  try{ const g=$('liteGate'); if(g){ const m=g.querySelector('.lite-modal'); if(m)m.classList.add('ixd-modal'); } }catch(e){}
+  idxDetail=key; idxDetN=120;
+  try{ showView('index'); }catch(e){}
   renderIdxDetail();
 }
-function idxChartable(key){ return key==='KOSPI'||key==='KOSDAQ'; }
 function renderIdxDetail(){
-  const el=$('idxDetBody'); if(!el||!idxDetail)return;
+  if(!idxDetail)return;
   const key=idxDetail;
   const x=(market.indices||[]).find(v=>v.key===key);
-  if(!x){ el.innerHTML='<div class="empty">지수 정보를 찾지 못했습니다.</div>'; return; }
+  const T=$('ixTitle'), H=$('ixHead'), G=$('ixGrid'), TF=$('ixTf'), N=$('ixNote');
+  if(!H)return;
+  if(!x){ H.innerHTML='<div class="empty">지수 정보를 찾지 못했습니다.</div>';
+    if(G)G.innerHTML=''; if(TF)TF.innerHTML=''; return; }
+  if(T)T.textContent=x.name||key;
   const dir=dirOf(x.change);
   const h=x.history||[];
-  /* 시가·고가·저가는 스파크(당일 분봉)에서 뽑는다 — 없으면 표시하지 않는다 */
   const hasH=h.length>=2;
   const open=hasH?h[0]:null, hi=hasH?Math.max(...h):null, lo=hasH?Math.min(...h):null;
   const prev=(x.price!=null&&x.change!=null)?x.price-x.change:null;
-  const kv=(k,v,cls)=>`<div class="ixd-kv"><span>${k}</span><b class="num ${cls||''}">${v}</b></div>`;
-  el.innerHTML=`
-    <div class="ixd-head">
-      <div class="ixd-px num ${dir}">${DEC(x.price)}</div>
-      <div class="ixd-ch num ${dir}">${arrow(dir)} ${signedDec(x.change)} · ${pctS(x.rate)}</div>
-      ${x.stale?'<div class="ixd-warn">실시간 수신 지연 · 직전 종가 기준</div>':''}
-      ${x.dayBasis?`<div class="ixd-sub">${htmlEsc(x.dayBasis)}</div>`:''}
-    </div>
-    <div class="ixd-grid">
-      ${kv('전일 종가',prev!=null?DEC(prev):'—')}
-      ${kv('시가',open!=null?DEC(open):'—')}
-      ${kv('고가',hi!=null?DEC(hi):'—','up')}
-      ${kv('저가',lo!=null?DEC(lo):'—','down')}
-    </div>
-    ${idxChartable(key)?`
-      <div class="ixd-tf">${['D','W','M'].map(t=>
-        `<button data-ixtf="${t}" class="${t===idxDetTf?'on':''}">${{D:'일',W:'주',M:'월'}[t]}</button>`).join('')}</div>
-      <div class="ixd-cv"><canvas id="idxDetCv"></canvas>
-        <div class="ixd-zoom">
-          <button type="button" data-ixz="out" aria-label="축소">−</button>
-          <span id="ixdRange">${idxDetN}봉</span>
-          <button type="button" data-ixz="in" aria-label="확대">＋</button>
-        </div></div>`
-      :`<div class="ixd-nochart">이 지수는 과거 차트 자료가 제공되지 않습니다.<br>
-         <span>위 값은 실시간 시세이며, 코스피·코스닥은 차트를 볼 수 있습니다.</span></div>`}
-    <div class="ixd-spark"><div class="ixd-sp-h">오늘 흐름</div>
-      <canvas id="idxDetSpark"></canvas></div>
-    <div class="ixd-note">지수는 종목이 아니어서 매매할 수 없습니다. 지수를 따라가는 ETF 로 거래하실 수 있습니다.</div>`;
-  el.querySelectorAll('[data-ixtf]').forEach(b=>b.onclick=()=>{idxDetTf=b.dataset.ixtf;renderIdxDetail();});
-  /* [v9.99] 확대·축소 — 보이는 봉 개수를 조절한다 */
-  el.querySelectorAll('[data-ixz]').forEach(b=>b.onclick=()=>{
-    const dir=b.dataset.ixz;
-    idxDetN=dir==='in'?Math.max(30,Math.round(idxDetN*0.7)):Math.min(400,Math.round(idxDetN*1.4));
-    const r=$('ixdRange'); if(r)r.textContent=idxDetN+'봉';
-    const ck=idxDetail+':'+idxDetTf;
-    if(idxDetData[ck])drawIdxChart(idxDetData[ck]);
-  });
-  /* 오늘 흐름 스파크 */
-  try{ if(hasH)drawSpark($('idxDetSpark'),h,x.change>=0); }catch(e){}
-  /* 기간 차트 */
+  H.innerHTML=`
+    <div class="ix-px num ${dir}">${DEC(x.price)}</div>
+    <div class="ix-ch num ${dir}">${arrow(dir)} ${signedDec(x.change)} · ${pctS(x.rate)}</div>
+    ${x.stale?'<div class="ix-warn">실시간 수신 지연 · 직전 종가 기준</div>':''}
+    ${x.dayBasis?`<div class="ix-sub">${htmlEsc(x.dayBasis)}</div>`:''}`;
+  const kv=(k,v,cls)=>`<div class="ix-kv"><span>${k}</span><b class="num ${cls||''}">${v}</b></div>`;
+  G.innerHTML=kv('전일 종가',prev!=null?DEC(prev):'—')
+    +kv('시가',open!=null?DEC(open):'—')
+    +kv('고가',hi!=null?DEC(hi):'—','up')
+    +kv('저가',lo!=null?DEC(lo):'—','down');
   if(idxChartable(key)){
+    TF.hidden=false;
+    TF.innerHTML=['D','W','M'].map(t=>
+      `<button data-ixtf="${t}" class="${t===idxDetTf?'on':''}">${{D:'일',W:'주',M:'월'}[t]}</button>`).join('');
+    TF.querySelectorAll('[data-ixtf]').forEach(b=>b.onclick=()=>{idxDetTf=b.dataset.ixtf;renderIdxDetail();});
+    const wrap=document.querySelector('.ix-chart'); if(wrap)wrap.hidden=false;
+    document.querySelectorAll('[data-ixz]').forEach(b=>b.onclick=()=>{
+      idxDetN=b.dataset.ixz==='in'?Math.max(30,Math.round(idxDetN*0.7)):Math.min(400,Math.round(idxDetN*1.4));
+      const r=$('ixRange'); if(r)r.textContent=idxDetN+'봉';
+      const ck=idxDetail+':'+idxDetTf;
+      if(idxDetData[ck])drawIdxChart(idxDetData[ck]);
+    });
+    const r=$('ixRange'); if(r)r.textContent=idxDetN+'봉';
     const ck=key+':'+idxDetTf;
-    if(idxDetData[ck])drawIdxChart(idxDetData[ck]);
+    if(idxDetData[ck])requestAnimationFrame(()=>drawIdxChart(idxDetData[ck]));
     else{
       fetch(`/api/chart?code=${key}&tf=${idxDetTf}`,{cache:'default'})
-        .then(r=>r.json()).then(j=>{ idxDetData[ck]=(j&&j.candles)||[];
+        .then(r2=>r2.json()).then(j=>{ idxDetData[ck]=(j&&j.candles)||[];
           if(idxDetail===key)drawIdxChart(idxDetData[ck]); }).catch(()=>{});
     }
+  }else{
+    TF.hidden=true; TF.innerHTML='';
+    const wrap=document.querySelector('.ix-chart'); if(wrap)wrap.hidden=true;
   }
+  /* 오늘 흐름 */
+  try{ if(hasH)requestAnimationFrame(()=>drawSpark($('ixSpark'),h,x.change>=0)); }catch(e){}
+  if(N)N.innerHTML=idxChartable(key)
+    ? '지수는 종목이 아니어서 매매할 수 없습니다. 지수를 따라가는 ETF 로 거래하실 수 있습니다.'
+    : '이 지수는 과거 차트 자료가 제공되지 않습니다. 위 값은 실시간 시세이며, 코스피·코스닥은 차트를 볼 수 있습니다.';
 }
 /* 지수 캔들 차트 — 종목 차트를 그대로 쓰기엔 상태가 얽혀 있어 간단히 따로 그린다 */
 function drawIdxChart(cs){
-  const cv=$('idxDetCv'); if(!cv||!cs||!cs.length)return;
+  const cv=$('ixChart'); if(!cv||!cs||!cs.length)return;   /* [v10.4] 정식 화면의 캔버스 */
   const dpr=window.devicePixelRatio||1;
   const W=cv.clientWidth||600,H=cv.clientHeight||220;
   cv.width=W*dpr;cv.height=H*dpr;
