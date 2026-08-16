@@ -3028,11 +3028,46 @@ function renderAcctBar(){
   $('acctAddBtn').onclick=()=>openAcctOpenSheet();
   {const cb=$('acctCloseBtn'); if(cb)cb.onclick=()=>openAcctClose();}
 }
+/* ══ [v9.79] 계좌 종류 고르기를 드롭다운으로 ═══════════════════════════════
+   28종을 칩으로 전부 펼쳐 놓으니 화면을 한참 내려야 했고, 무엇이 무엇인지
+   구분도 안 됐다. 실제 증권사도 '목적별 분류 → 상품 선택' 두 단계로 받는다.
+   같은 방식으로 묶고, 고른 계좌의 상세는 아래에 그대로 보여 준다. */
+const AE_GROUPS=[
+  ['기본',        ['general','frac','credit','corp']],
+  ['절세',        ['isa','isaSeomin','isaGrowth','isaTrust','taxfree','gold','ktb','longfund']],
+  ['연금',        ['pension','irp','dc']],
+  ['해외·환전',   ['overseas','night','usDeriv']],
+  ['이자형(CMA)', ['cmaIssue','cmaRp','cmaJonggeum','cmaMmf','bond']],
+  ['파생·일임',   ['deriv','cfd','wrap']],
+  ['우대',        ['youth','junior']],
+];
+function aeGroupOf(k){
+  for(const [g,arr] of AE_GROUPS)if(arr.includes(k))return g;
+  return '기타';
+}
 function renderAeTypes(){
   const box=$('aeTypes'); if(!box)return;
-  box.innerHTML=Object.keys(ACCT_TYPES).map(k=>{const a=ACCT_TYPES[k];
-    return `<button type="button" class="acct-chip ${aeSel===k?'on':''}" data-ae="${k}"><i>${a.ic}</i><b>${a.n}</b></button>`;}).join('');
-  box.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>{aeSel=b.dataset.ae;renderAeTypes();});
+  /* 정의에는 있는데 분류에 안 넣은 계좌가 생겨도 사라지지 않게 '기타'로 담는다 */
+  const listed=new Set(AE_GROUPS.flatMap(g=>g[1]));
+  const rest=Object.keys(ACCT_TYPES).filter(k=>!listed.has(k));
+  const groups=rest.length?AE_GROUPS.concat([['기타',rest]]):AE_GROUPS;
+  const curG=aeGroupOf(aeSel);
+  box.innerHTML=`
+    <div class="ae-pick">
+      <div class="ae-fld"><label>목적</label>
+        <select id="aeGrp">${groups.map(([g])=>
+          `<option value="${g}"${g===curG?' selected':''}>${g}</option>`).join('')}</select></div>
+      <div class="ae-fld"><label>계좌 종류</label>
+        <select id="aeType">${(groups.find(x=>x[0]===curG)||groups[0])[1]
+          .filter(k=>ACCT_TYPES[k])
+          .map(k=>`<option value="${k}"${k===aeSel?' selected':''}>${ACCT_TYPES[k].ic} ${ACCT_TYPES[k].n}</option>`).join('')}</select></div>
+    </div>`;
+  const gs=$('aeGrp'), ts=$('aeType');
+  if(gs)gs.onchange=()=>{
+    const g=groups.find(x=>x[0]===gs.value);
+    if(g&&g[1].length){ aeSel=g[1].find(k=>ACCT_TYPES[k])||aeSel; renderAeTypes(); }
+  };
+  if(ts)ts.onchange=()=>{ aeSel=ts.value; renderAeTypes(); };
   const a=ACCT_TYPES[aeSel], dt=$('aeDetail');
   if(dt)dt.innerHTML=`<div class="acct-d"><p>${a.d}</p>
     <div class="acct-kv"><span>국내 수수료</span><b>${(FEE_RATE_BASE*a.feeKr*100).toFixed(4)}%</b></div>
@@ -5512,9 +5547,39 @@ var _navStack=[], _navGuard=false, _exitAt=0, _navBusy=false;
 
 /* 지금 화면에 열려 있는 창을 찾는다(가장 나중에 열린 것부터) */
 function topOverlay(){
-  const list=[...document.querySelectorAll('.overlay')]
-    .filter(o=>!o.hidden&&o.offsetParent!==null);
-  return list.length?list[list.length-1]:null;
+  /* ══ [v9.79] 뒤로 가기가 엉뚱한 창(로그인)을 띄우던 이유 ═══════════════════
+     [무엇이 잘못됐나] 판정 기준이 hidden 속성과 offsetParent 뿐이었다.
+     그런데 이 앱의 창들은 닫을 때 hidden 을 주는 것 말고도
+       · display:none 없이 opacity/visibility 로만 감추거나
+       · position:fixed 로 떠 있어 offsetParent 가 원래 null 이거나
+       · 화면 밖(translate)으로 밀어 두는
+     경우가 섞여 있다. offsetParent 는 position:fixed 요소에서 null 이 되므로
+     '떠 있는 창'을 오히려 걸러 내고, 반대로 hidden 만 지워진 채 화면에 안 보이는
+     창은 '열려 있다'고 잘못 읽었다.
+     그래서 종목 화면에서 뒤로 가기를 누르면, 실제로는 닫혀 있는 로그인 창을
+     '열린 창'으로 판정해 닫으려 했고 → 그 과정에서 다시 보이게 됐다.
+     [고침] 실제로 화면에 그려져 있는지를 계산된 스타일과 크기로 확인한다. */
+  const seen=(o)=>{
+    if(!o||o.hidden)return false;
+    try{
+      const cs=getComputedStyle(o);
+      if(cs.display==='none'||cs.visibility==='hidden')return false;
+      if(parseFloat(cs.opacity||'1')<0.05)return false;
+      const r=o.getBoundingClientRect();
+      if(r.width<2||r.height<2)return false;                 // 크기가 없으면 안 보이는 것
+      if(r.bottom<0||r.top>window.innerHeight)return false;  // 화면 밖으로 밀어 둔 창
+    }catch(e){ return false; }
+    return true;
+  };
+  const list=[...document.querySelectorAll('.overlay')].filter(seen);
+  if(!list.length)return null;
+  /* 여러 개면 z-index 가 가장 높은 것이 '지금 보고 있는 창'이다 */
+  let top=list[0], tz=-1;
+  for(const o of list){
+    let z=0; try{ z=parseInt(getComputedStyle(o).zIndex,10)||0; }catch(e){}
+    if(z>=tz){ tz=z; top=o; }
+  }
+  return top;
 }
 /* 창을 닫는다 — 닫기 버튼이 있으면 그것을 눌러 원래 정리 절차를 그대로 태운다 */
 function closeOverlay(ov){
@@ -5597,6 +5662,8 @@ function _showView(name){
   $('mainNav').classList.remove('open');window.scrollTo(0,0);
   {const cta=$('usCta'); if(cta)cta.hidden=(name!=='ustrade');}   // [v4.50] 주문바는 상세에서만
   try{usBadgeSync();}catch(e){}                     // [v4.88] 화면을 옮길 때 장 구분 맞추기
+  /* [v9.81] 호가 탭을 떠나면 갱신을 멈춘다 — 안 보는 화면을 계속 부르지 않는다 */
+  if(name!=='trade'){ try{ if(_obTimer){clearInterval(_obTimer);_obTimer=null;} }catch(e){} }
   if(name!=='ustrade'){ try{usChartMount(false);}catch(e){}        // [v4.57] 차트 카드 제자리로
     try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{b.style.display='';}); }catch(e){} }
   // [수정] 화면별 렌더러가 예외를 던져도 탭 전환 자체는 성공하도록 격리
@@ -7485,7 +7552,7 @@ function renderMySum(){const el=$('myWatchSum'); if(!el)return;
           const best=sn.slice().sort((a,b)=>b.p-a.p)[0];
           el.hidden=false;
           el.innerHTML=`<b>MY 관심종목</b> ${selHtml} <span>상승 <i class="up">${up}</i> · 하락 <i class="down">${dn}</i> <i class="ms-basis">마지막 장 기준</i></span>`
-            +(best?` · 베스트 <span class="ms-best" data-code="${best.s.code}">${best.s.name} <i class="${best.p>=0?'up':'down'}">${pctS(best.p)}</i></span>`:'');
+            +(best?` · 베스트 <span class="ms-best" data-code="${htmlEsc(best.s.code)}">${htmlEsc(best.s.name)} <i class="${best.p>=0?'up':'down'}">${pctS(best.p)}</i></span>`:'');
           const bb=el.querySelector('.ms-best'); if(bb)bb.onclick=()=>openTrade(bb.dataset.code);
           const sp2=$('msSel'); if(sp2)sp2.onchange=()=>{userPrefs.homeSumTab=sp2.value;savePrefs();renderMySum();};
           const tries2=+(el.dataset.rt||0);
@@ -7522,7 +7589,7 @@ function renderMySum(){const el=$('myWatchSum'); if(!el)return;
       const best=chgs.slice().sort((a,b)=>b.p-a.p)[0];
       el.hidden=false;
       el.innerHTML=`<b>MY 관심종목</b> ${selHtml} <span>상승 <i class="up">${up}</i> · 하락 <i class="down">${dn}</i></span>`
-        +(best?` · 베스트 <span class="ms-best" data-code="${best.s.code}">${best.s.name} <i class="${best.p>=0?'up':'down'}">${pctS(best.p)}</i></span>`:'');
+        +(best?` · 베스트 <span class="ms-best" data-code="${htmlEsc(best.s.code)}">${htmlEsc(best.s.name)} <i class="${best.p>=0?'up':'down'}">${pctS(best.p)}</i></span>`:'');
       const b=el.querySelector('.ms-best'); if(b)b.onclick=()=>openTrade(b.dataset.code);
     }
     const sel=$('msSel'); if(sel)sel.onchange=()=>{userPrefs.homeSumTab=sel.value;savePrefs();renderMySum();};
@@ -7551,48 +7618,88 @@ function usMoodHtml(){
       <span class="hm-usi">${rows}</span></div>`;
   }catch(e){ return ''; }
 }
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.78] '시장 온도계'를 '오늘의 장'으로 교체
+   ─────────────────────────────────────────────────────────────────────────────
+   [왜 바꾸나] 온도 87/100 같은 합성 점수는 근거를 되짚을 수 없고, 높다고 사야
+   하는 것도 아니라 판단에 쓸 수가 없었다. 자리만 차지하던 셈이다.
+   [무엇으로] 실제 증권사 앱이 첫 화면에 두는 것 — '지금 장이 열려 있나',
+   '다음 일정까지 얼마 남았나', '오늘 시장 폭은 어떤가'. 전부 사실이고
+   바로 행동으로 이어지는 정보다. 값을 지어내지 않고 있는 것만 보여 준다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+function hmSessionInfo(){
+  /* 지금 어느 장이 열려 있고, 다음 전환까지 몇 분 남았는지 */
+  const t=nowTz('Asia/Seoul'), hm=t.hm, wd=t.wd;
+  const biz=(wd>=1&&wd<=5)&&isKrTradingDay();
+  const mk=(state,tone,label,untilMin,next)=>({state,tone,label,untilMin,next});
+  if(!biz){
+    const d=(wd===6)?2:(wd===0)?1:1;
+    return mk('closed','off','휴장',null,'다음 영업일 09:00 개장');
+  }
+  if(hm<8*60+30)  return mk('pre','wait','장 시작 전',8*60+30-hm,'08:30 시간외 단일가');
+  if(hm<9*60)     return mk('pre','wait','장 시작 전',9*60-hm,'09:00 정규장 개장');
+  if(hm<15*60+20) return mk('open','live','정규장 진행 중',15*60+20-hm,'15:20 동시호가');
+  if(hm<15*60+30) return mk('close','wait','장 마감 동시호가',15*60+30-hm,'15:30 정규장 마감');
+  if(hm<18*60)    return mk('after','wait','시간외 거래',18*60-hm,'18:00 시간외 종료');
+  if(hm<20*60)    return mk('after','off','NXT 애프터마켓',20*60-hm,'20:00 종료');
+  return mk('closed','off','장 마감',null,'내일 09:00 개장');
+}
 function renderHeroMarket(){
-  const el=$('heroMarket');if(!el)return;
+  const el=$('heroMarket'); if(!el)return;
   try{
-    const m=marketMood();
-    const ks=(market.indices||[]).find(x=>x.key==='KOSPI'),kq=(market.indices||[]).find(x=>x.key==='KOSDAQ');
-    const idx=(o,nm)=>o&&o.rate!=null?`<span class="hm-i"><i>${nm}</i><b class="num ${o.rate>=0?'up':'down'}">${pctS(o.rate)}</b></span>`:'';
-    const drv=(m.drivers||[]).slice(0,2).map(d=>`<span class="hm-d ${d[1]}">${d[0]}</span>`).join('');
-    /* ══ [v9.72b] '오늘의 시장' 카드 재구성 — 투자자별 매매동향을 주인공으로 ══
-       [왜 바꿨나] 카드의 절반을 차지하던 '시장 온도 88/100'은 지수·업종·뉴스
-       심리를 섞어 만든 합성 점수다. 뜻이 부드럽고 근거를 되짚기 어렵다.
-       반면 개인·외국인·기관 순매수는 거래소가 집계한 사실이고, 증권사 앱들이
-       가장 크게 다루는 값인데 여기서는 맨 아래 한 줄로 눌려 있었다.
-       [어떻게 바꿨나] 자리를 맞바꾼다. 매매동향을 큰 칸으로 올리고, 시장 온도는
-       제목 옆 작은 배지로 남긴다. 지우지는 않는다 — 하루를 한 단어로 요약하는
-       쓸모는 있고, AI 브리핑으로 가는 길잡이이기도 하다. */
-    const invMain=invCache?(()=>{
-      const one=(nm,v,tip)=>{
-        const cls=v>=0?'up':'down';
-        return `<div class="hi-c ${cls}"><span>${nm}</span><b class="num">${fmtJo(v)}</b>
-          <i>${v>=0?'순매수':'순매도'}</i></div>`;
-      };
-      /* 오늘 시장을 누가 밀었나 — 가장 크게 산 주체 한 줄 */
-      const arr=[['외국인',invCache.foreign],['기관',invCache.inst],['개인',invCache.personal]]
-        .filter(x=>x[1]!=null);
-      const top=arr.slice().sort((a,b)=>b[1]-a[1])[0];
-      const bot=arr.slice().sort((a,b)=>a[1]-b[1])[0];
-      return `<div class="hm-inv2">
-        <div class="hi-h">투자자별 매매동향<span>코스피 · 오늘 누적</span></div>
-        <div class="hi-row">${one('외국인',invCache.foreign)}${one('기관',invCache.inst)}${one('개인',invCache.personal)}</div>
-        ${(top&&bot&&top[1]>0)?`<div class="hi-sum"><b>${top[0]}</b>이 사고 <b>${bot[0]}</b>이 파는 흐름입니다</div>`:''}
+    const ks=market.indices.find(x=>x.key==='KOSPI'), kq=market.indices.find(x=>x.key==='KOSDAQ');
+    const nas=market.indices.find(x=>x.key==='NASDAQ'), snp=market.indices.find(x=>x.key==='SP500');
+    const S=hmSessionInfo();
+    /* ══ [v9.79] 해외 장 상태도 함께 ═══════════════════════════════════════════
+       국내만 보여 주니 밤에 열어 보면 '장 마감'만 떠 있었다. 그런데 그 시간이
+       바로 미국장이 열리는 때다. 두 시장을 나란히 둔다. */
+    let U=null;
+    try{ U=usSession(); }catch(e){}
+    const uTone=U?({regular:'live',pre:'wait',after:'wait',closed:'off'}[U.phase]||'off'):'off';
+    const mins=(m)=>m==null?'':(m>=60?`${Math.floor(m/60)}시간 ${m%60}분`:`${m}분`);
+    const ix=(x,nm)=>{
+      if(!x||x.price==null)return `<div class="hs-ix"><span>${nm}</span><b>—</b></div>`;
+      const d=dirOf(x.rate);
+      return `<div class="hs-ix"><span>${nm}</span>
+        <b class="num ${d}">${DEC(x.price)}</b><i class="num ${d}">${pctS(x.rate)}</i></div>`;
+    };
+    /* 시장 한 칸 — 국내·해외가 같은 모양을 쓴다 */
+    const panel=(flag,title,tone,label,sub,ixs)=>`
+      <div class="hs-mkt">
+        <div class="hs-mkt-h"><span class="hs-flag">${flag}</span><b>${title}</b>
+          <span class="hs-badge ${tone}">${tone==='live'?'<i class="dot"></i>':''}${label}</span></div>
+        <div class="hs-next">${sub}</div>
+        <div class="hs-ixs">${ixs}</div>
       </div>`;
-    })():`<div class="hm-inv2 wait"><div class="hi-h">투자자별 매매동향</div>
-        <div class="hi-wait">거래소 집계를 받는 중…</div></div>`;
-    el.innerHTML=`<div class="hm-top"><span class="hm-t">오늘의 시장</span>
-      <span class="hm-lb ${m.score>=58?'up':m.score<=41?'down':''}">${m.label} ${m.score}</span></div>
-      <div class="hm-idx">${idx(ks,'코스피')}${idx(kq,'코스닥')}</div>
-      ${invMain}
-      ${usMoodHtml()}
-      ${drv?`<div class="hm-drv">${drv}</div>`:''}
+    /* 내 종목 오늘 분포 — 국내·해외를 합쳐서 본다 */
+    const pool=[...new Set([...(watchlist||[]),...(holdings||[]).map(h=>h&&h.code)])].filter(Boolean);
+    const rates=pool.map(c=>{const q=byCode[c]; return q&&q.price!=null&&q.prevClose?
+      (q.price-q.prevClose)/q.prevClose*100:null;}).filter(v=>v!=null);
+    const up=rates.filter(v=>v>0).length, dn=rates.filter(v=>v<0).length, fl=rates.length-up-dn;
+    const breadth=rates.length?`<div class="hs-br">
+      <div class="hs-br-h">내 종목 ${rates.length}개 <span>보유·관심</span></div>
+      <div class="hs-br-bar">
+        <i class="up" style="width:${(up/rates.length*100).toFixed(1)}%"></i>
+        <i class="fl" style="width:${(fl/rates.length*100).toFixed(1)}%"></i>
+        <i class="dn" style="width:${(dn/rates.length*100).toFixed(1)}%"></i></div>
+      <div class="hs-br-lg"><span class="up">▲ ${up}</span><span>― ${fl}</span><span class="dn">▼ ${dn}</span></div>
+    </div>`:`<div class="hs-br empty">관심종목을 담으면 오늘 내 종목이 어떤지 한눈에 보여드립니다</div>`;
+
+    el.innerHTML=`<div class="hm-top"><span class="hm-t">오늘의 장</span></div>
+      <div class="hs-mkts">
+        ${panel('🇰🇷','국내',S.tone,S.label,
+          S.untilMin!=null?`<b>${mins(S.untilMin)}</b> 뒤 · ${S.next}`:S.next,
+          ix(ks,'코스피')+ix(kq,'코스닥'))}
+        ${panel('🇺🇸','미국',uTone,U?U.label:'—',
+          U?(U.phase==='regular'?`한국시간 ${U.kst.close} 마감`
+            :U.phase==='pre'?`한국시간 ${U.kst.open} 정규장`
+            :U.phase==='after'?`한국시간 ${U.kst.aft} 종료`
+            :`${U.next} 개장`):'시장 정보를 받는 중',
+          ix(nas,'나스닥')+ix(snp,'S&P 500'))}
+      </div>
+      ${breadth}
       <div class="hm-go">AI 브리핑 자세히 →</div>`;
-  if(!invCache)ensureInvestors().then(v=>{if(v&&currentView==='home')renderHeroMarket();});
-  }catch(e){el.innerHTML='<div class="hm-load">시장 온도를 재는 중…</div>';}
+  }catch(e){ el.innerHTML='<div class="hm-load">시장 상태를 확인하는 중…</div>'; }
 }
 {const hm=$('heroMarket');
  if(hm){const go=()=>{const t=$('aiBrief');if(t)(t.closest('.sec')||t).scrollIntoView({behavior:'smooth',block:'start'});};
@@ -8745,7 +8852,8 @@ function openStratStats(){
 function autoWatchCodes(){
   const set=new Set();
   bookOrders.forEach(o=>set.add(o.code));
-  holdings.forEach(h=>{if(h.stopPx||h.takePx)set.add(h.code);});
+  holdings.forEach(h=>{const p=h.plan||{};
+    if(h.stopPx||h.takePx||h.trailPct||p.autoStop||p.autoTake)set.add(h.code);});   /* [v9.82] */
   Object.keys(priceAlerts).forEach(c=>set.add(c));
   return [...set];
 }
@@ -8772,13 +8880,45 @@ function autoOrderTick(){
       toast('warn','예약 주문 취소 · 예수금 부족',`${o.name} ${KRW(o.qty)}주 · ${KRW(o.price)}원 조건에 도달했지만 예수금이 모자라 체결하지 못했습니다.`);
     }
   }
-  /* 손절·익절(보유 전량) */
+  /* ══ [v9.82] 손절·익절·트레일링 스탑 ═══════════════════════════════════════
+     [바뀐 것 셋]
+       ① MY 포트폴리오에 세워 둔 계획(plan.stop/target)을 자동 실행에 연결한다.
+          예전에는 '보유 관리'에서 stopPx 를 따로 넣어야만 작동했다. 계획을
+          세워 두고도 실행이 안 되니, 손절선을 적어 둔 의미가 없었다.
+       ② 트레일링 스탑 — 오른 만큼 손절선을 따라 올린다. 내려갈 때는 그대로 둔다.
+          이익을 지키면서 상승 여지는 남기는 방식이다.
+       ③ 장이 열려 있을 때만 실행한다. 장외 호가나 시간외 단일가에 손절이
+          걸려 엉뚱한 값에 팔리는 것을 막는다. */
+  const _canTrade=(typeof krxTradable==='function')?krxTradable():true;
   for(const h of holdings.slice()){
+    if(!h||!(h.qty>0))continue;
     const q=dispQuote(h.code);if(!q||q.price==null)continue;
     const st=byCode[h.code];if(!st)continue;
-    if(h.stopPx&&q.price<=h.stopPx){const px=q.price;delete h.stopPx;delete h.takePx;
-      executeOrderCore(st,{side:'sell',price:px,qty:h.qty},'손절 자동');changed=true;continue;}
-    if(h.takePx&&q.price>=h.takePx){const px=q.price;delete h.stopPx;delete h.takePx;
+    const p=(h.plan||{});
+    /* 계획에 적은 값을 자동 주문 기준으로 끌어온다(사용자가 따로 넣은 값이 우선) */
+    const stopAt=(h.stopPx!=null)?h.stopPx:(p.autoStop?p.stop:null);
+    const takeAt=(h.takePx!=null)?h.takePx:(p.autoTake?p.target:null);
+    /* ── 트레일링 스탑 갱신 ── 최고가를 기억하고 그 아래 N% 로 손절선을 올린다 */
+    if(h.trailPct>0){
+      h.trailHi=Math.max(+h.trailHi||0,q.price);
+      const want=Math.round(h.trailHi*(1-h.trailPct/100));
+      if(h.stopPx==null||want>h.stopPx){
+        if(h.stopPx!=null&&want>h.stopPx)changed=true;
+        h.stopPx=want;
+      }
+    }
+    const useStop=(h.stopPx!=null)?h.stopPx:stopAt;
+    if(!_canTrade)continue;                     // 장이 닫혀 있으면 판정만 하고 팔지 않는다
+    if(useStop!=null&&q.price<=useStop){
+      /* [v9.82] 태그를 먼저 정한다 — 지운 뒤에 h.trailPct 를 보면 항상 거짓이 된다 */
+      const px=q.price, tag=h.trailPct?'트레일링 손절':'손절 자동';
+      delete h.stopPx;delete h.takePx;delete h.trailPct;delete h.trailHi;
+      if(h.plan){h.plan.autoStop=0;h.plan.autoTake=0;}
+      executeOrderCore(st,{side:'sell',price:px,qty:h.qty},tag);
+      changed=true;continue;}
+    if(takeAt!=null&&q.price>=takeAt){
+      const px=q.price;delete h.stopPx;delete h.takePx;delete h.trailPct;delete h.trailHi;
+      if(h.plan){h.plan.autoStop=0;h.plan.autoTake=0;}
       executeOrderCore(st,{side:'sell',price:px,qty:h.qty},'익절 자동');changed=true;}
   }
   /* 가격 알림(도달 시 1회) */
@@ -11312,6 +11452,7 @@ function renderInfo(){
   }
   if(cc)cc.hidden=true; el.style.display='';
   if(infoTab==='sise'){renderSise(el);return;}
+  if(infoTab==='asking'){renderAsking(el);obStart();return;}   /* [v9.81] 호가 */
   if(infoTab==='news'){renderNews(el);return;}
   if(infoTab==='ai'){renderAiStock(el);return;}
   const etfMode=isFundLike(selected);
@@ -11332,7 +11473,15 @@ function renderInfo(){
   }
   if(!curFund){el.innerHTML='<div class="empty">불러오는 중…</div>';return;}
   if(infoTab==='summary')renderSummary(el);
-  else if(infoTab==='investor')renderInvestor(el);
+  else if(infoTab==='investor'){
+    renderInvestor(el);
+    /* [v9.84] 투자자별 아래에 공매도 잔고를 함께 둔다 — 수급을 함께 봐야 뜻이 산다 */
+    try{
+      const box=document.createElement('div');
+      box.className='srt-wrap'; el.appendChild(box);
+      renderShort(box,selected);
+    }catch(e){}
+  }
   else if(infoTab==='consensus')renderConsensus(el);
   else renderFinance(el);
   const d=curFund._diag,inv=curFund.investors;
@@ -11712,29 +11861,411 @@ function smoothBizText(raw,name){
 /* ===== 종목 스냅샷(좌측 채움) ===== *//* ===== 종목 스냅샷(좌측 채움) ===== */
 /* ===== 시세 (일자별 / 시간별) ===== */
 let siseMode='date';
+
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.84] 공매도 잔고 화면
+   ─────────────────────────────────────────────────────────────────────────────
+   숫자를 크게 보여 주는 것보다 '무엇을 뜻하는지'와 '언제 기준인지'가 중요하다.
+     · 공매도 잔고는 제도상 T+2 지연이다 — 오늘 값이 아니다.
+     · 0.01% 미만은 보고의무가 없어 집계에 안 잡힌다 — 0 이 곧 '없음'이 아니다.
+   두 가지를 반드시 함께 적는다. 안 적으면 사용자가 오늘 숫자로 오해한다. */
+var _srtCache={};
+function srtLoad(code){
+  const k=code||'all';
+  if(_srtCache[k]!==undefined)return Promise.resolve(_srtCache[k]);
+  return fetch('/api/srt'+(code?('?code='+encodeURIComponent(code)):''),{cache:'default'})
+    .then(r=>r.json()).then(j=>{_srtCache[k]=j||null;return _srtCache[k];})
+    .catch(()=>{_srtCache[k]=null;return null;});
+}
+function srtDateLabel(y){
+  if(!y||y.length<8)return '—';
+  return `${y.slice(0,4)}.${y.slice(4,6)}.${y.slice(6,8)}`;
+}
+function renderShort(el,code){
+  const d=_srtCache[code];
+  if(d===undefined){
+    el.innerHTML='<div class="srt-load">공매도 잔고를 불러오는 중…</div>';
+    srtLoad(code).then(()=>{ if(selected===code)renderShort(el,code); });
+    return;
+  }
+  if(!d||!d.ok){
+    el.innerHTML=`<div class="srt-box"><div class="srt-h">공매도 잔고</div>
+      <div class="srt-none">자료를 받지 못했습니다. 거래소가 자료를 올리기 전이거나 일시적인 오류입니다.</div></div>`;
+    return;
+  }
+  const foot=`<div class="srt-foot">
+    <b>${srtDateLabel(d.basisYmd)} 기준</b> — 공매도 잔고는 투자자가 보고할 때까지 <b>2영업일이 걸려</b>,
+    오늘 조회해도 이틀 전 자료까지만 나옵니다.<br>
+    상장주식수의 <b>0.01% 미만</b>은 보고의무가 없어 집계되지 않습니다 — 잔고가 없다고 표시돼도
+    공매도가 전혀 없다는 뜻은 아닙니다.</div>`;
+  if(!d.found){
+    el.innerHTML=`<div class="srt-box"><div class="srt-h">공매도 잔고</div>
+      <div class="srt-none">이 종목은 <b>보고 기준에 못 미쳐</b> 집계되지 않았습니다.<br>
+      <span>상장주식수의 0.01% 이상(1억원 이상) 또는 평가액 10억원 이상일 때만 보고 대상입니다.</span></div>
+      ${foot}</div>`;
+    return;
+  }
+  const it=d.item;
+  /* 비중을 해석해 준다 — 숫자만 보면 크고 작음을 판단할 수 없다 */
+  const lv=it.pct>=3?['높음','bad']:it.pct>=1?['보통','mid']:['낮음','ok'];
+  const days=(byCode[code]&&byCode[code].volume)?it.qty/Math.max(1,byCode[code].volume):null;
+  el.innerHTML=`<div class="srt-box">
+    <div class="srt-h">공매도 잔고 <span class="srt-lv ${lv[1]}">${lv[0]}</span></div>
+    <div class="srt-main">
+      <div><span>잔고 비중</span><b class="num">${it.pct.toFixed(2)}%</b><i>상장주식수 대비</i></div>
+      <div><span>잔고 수량</span><b class="num">${KRW(it.qty)}</b><i>주</i></div>
+      <div><span>잔고 금액</span><b class="num">${it.amt>=1e8?(it.amt/1e8).toFixed(0)+'억':KRW(Math.round(it.amt/1e4))+'만'}</b><i>원</i></div>
+    </div>
+    <div class="srt-bar"><i style="width:${Math.min(100,it.pct*10).toFixed(1)}%"></i></div>
+    <div class="srt-d">${it.pct>=3
+      ? '잔고 비중이 높은 편입니다. 주가가 오르면 되사려는 수요(숏커버링)가 생길 수 있고, 반대로 하락 압력으로도 읽힙니다.'
+      : it.pct>=1 ? '보통 수준입니다. 추세를 함께 보는 편이 낫습니다.'
+      : '잔고 비중이 낮습니다. 공매도 부담은 크지 않은 편입니다.'}
+      ${days!=null&&days>0?`<br>최근 거래량 기준으로 <b>약 ${days.toFixed(1)}일치</b> 물량입니다.`:''}</div>
+    ${foot}</div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.83] 손익 계산기 · 세금 리포트
+   ─────────────────────────────────────────────────────────────────────────────
+   거래기록(tradeLog)에서 실현손익을 계산하고, 실제 세제를 그대로 적용한다.
+     · 국내 주식 : 매매차익 비과세(대주주 제외) · 증권거래세 0.18% 매도 시
+     · 해외 주식 : 양도소득세 22%, 연 250만원 기본공제, 손익 통산
+   세율·공제액은 상수로 모아 두어 제도가 바뀌면 한 곳만 고치면 된다.
+   ※ 모의투자 기록으로 계산한 참고용이며 실제 신고와는 다를 수 있다. */
+const TAX_RULES={
+  krTradeTax:0.0018,        // 국내 증권거래세(농특세 포함, 코스피 기준)
+  usRate:0.22,              // 해외 양도소득세 20% + 지방소득세 2%
+  usDeduct:2500000,         // 해외 양도소득 기본공제(연 250만원)
+  krNote:'국내 상장주식은 대주주가 아니면 매매차익에 양도소득세가 없습니다(증권거래세만 부담).',
+  usNote:'해외주식 양도차익은 연 250만원을 공제한 뒤 22%가 부과되며, 다음 해 5월에 신고합니다.'
+};
+/* 매수→매도 짝을 지어 실현손익을 낸다(선입선출) */
+function taxRealized(year){
+  const log=(Array.isArray(tradeLog)?tradeLog:[]).filter(t=>t&&t.code&&t.ts);
+  const byC={};
+  log.slice().sort((a,b)=>(a.ts||0)-(b.ts||0)).forEach(t=>{(byC[t.code]=byC[t.code]||[]).push(t);});
+  const out=[];
+  Object.keys(byC).forEach(code=>{
+    const lots=[];                       // 남아 있는 매수분 {qty,px}
+    byC[code].forEach(t=>{
+      const isBuy=/^buy$|매수/i.test(String(t.side||t.type||''));
+      const qty=+t.qty||0, px=+t.price||0;
+      if(!(qty>0)||!(px>0))return;
+      if(isBuy){ lots.push({qty,px}); return; }
+      /* 매도 — 오래된 매수분부터 덜어 낸다 */
+      let left=qty, cost=0, used=0;
+      while(left>0&&lots.length){
+        const l=lots[0];
+        const take=Math.min(left,l.qty);
+        cost+=take*l.px; used+=take; left-=take; l.qty-=take;
+        if(l.qty<=0)lots.shift();
+      }
+      if(used<=0)return;
+      const proceeds=used*px;
+      const y=new Date(t.ts).getFullYear();
+      const us=!!(usMeta&&usMeta[code]);
+      out.push({code,ts:t.ts,y,us,qty:used,
+        cost:Math.round(cost),proceeds:Math.round(proceeds),
+        pnl:Math.round(proceeds-cost),
+        fee:Math.round(+t.fee||0),tax:Math.round(+t.tax||0)});
+    });
+  });
+  return year?out.filter(x=>x.y===year):out;
+}
+function renderTaxReport(){
+  const el=$('taxBody'); if(!el)return;
+  const yNow=new Date().getFullYear();
+  const all=taxRealized();
+  if(!all.length){
+    el.innerHTML=`<div class="empty"><b>아직 실현손익이 없습니다</b>
+      <span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.6">
+      매수한 종목을 <b>팔아서 손익이 확정</b>되면 여기에 쌓입니다. 보유 중인 평가손익은 세금 대상이 아닙니다.</span></div>`;
+    return;
+  }
+  const years=[...new Set(all.map(x=>x.y))].sort((a,b)=>b-a);
+  if(!taxYear||!years.includes(taxYear))taxYear=years[0]||yNow;
+  const rows=all.filter(x=>x.y===taxYear);
+  const kr=rows.filter(x=>!x.us), us=rows.filter(x=>x.us);
+  const sum=(a,f)=>a.reduce((s,x)=>s+(f?f(x):x.pnl),0);
+  const krPnl=sum(kr), usPnl=sum(us);
+  const krTax=sum(kr,x=>x.tax)||Math.round(sum(kr,x=>x.proceeds)*TAX_RULES.krTradeTax);
+  const krFee=sum(kr,x=>x.fee), usFee=sum(us,x=>x.fee);
+  /* 해외 양도세 — 손익을 통산한 뒤 공제하고 세율을 적용한다 */
+  const usBase=Math.max(0,usPnl-TAX_RULES.usDeduct);
+  const usTax=Math.round(usBase*TAX_RULES.usRate);
+  const net=krPnl+usPnl-krTax-usTax-krFee-usFee;
+  const yTabs=years.map(y=>`<button data-ty="${y}" class="${y===taxYear?'on':''}">${y}년</button>`).join('');
+  const card=(t,pnl,tax,fee,n,note)=>`
+    <div class="tx-card">
+      <div class="tx-h">${t}<span>${n}건</span></div>
+      <div class="tx-kv"><span>실현손익</span><b class="num ${pnl>=0?'up':'down'}">${signed(pnl)}원</b></div>
+      <div class="tx-kv"><span>수수료</span><b class="num">-${KRW(fee)}원</b></div>
+      <div class="tx-kv"><span>세금</span><b class="num">-${KRW(tax)}원</b></div>
+      <div class="tx-kv tot"><span>세후</span><b class="num ${(pnl-tax-fee)>=0?'up':'down'}">${signed(pnl-tax-fee)}원</b></div>
+      <div class="tx-note">${note}</div>
+    </div>`;
+  el.innerHTML=`
+    <div class="tx-years">${yTabs}</div>
+    <div class="tx-top">
+      <span>${taxYear}년 세후 실현손익</span>
+      <b class="num ${net>=0?'up':'down'}">${signed(net)}원</b>
+      <i>매도로 확정된 손익만 집계합니다 · 보유 중 평가손익은 제외</i>
+    </div>
+    <div class="tx-grid">
+      ${card('🇰🇷 국내',krPnl,krTax,krFee,kr.length,TAX_RULES.krNote)}
+      ${card('🇺🇸 해외',usPnl,usTax,usFee,us.length,TAX_RULES.usNote)}
+    </div>
+    ${us.length?`<div class="tx-sim">
+      <div class="tx-sim-h">해외 양도세 계산 과정</div>
+      <div class="tx-kv"><span>양도차익 합계</span><b class="num ${usPnl>=0?'up':'down'}">${signed(usPnl)}원</b></div>
+      <div class="tx-kv"><span>기본공제</span><b class="num">-${KRW(Math.min(Math.max(0,usPnl),TAX_RULES.usDeduct))}원</b></div>
+      <div class="tx-kv"><span>과세표준</span><b class="num">${KRW(usBase)}원</b></div>
+      <div class="tx-kv tot"><span>세액 (22%)</span><b class="num down">${KRW(usTax)}원</b></div>
+      <div class="tx-note">${usPnl<=TAX_RULES.usDeduct
+        ? `양도차익이 공제액(250만원) 이하라 <b>낼 세금이 없습니다</b>. 다만 이익이 있으면 <b>신고 의무는 있습니다</b>.`
+        : `공제 후 ${KRW(usBase)}원에 22%가 붙습니다. 다음 해 5월 종합소득세 기간에 신고합니다.`}</div>
+      <div class="tx-tip">💡 <b>절세 힌트</b> — 손실 난 해외 종목을 연내에 팔면 이익과 통산돼 과세표준이 줄어듭니다.
+        올해 남은 공제 여유는 <b>${KRW(Math.max(0,TAX_RULES.usDeduct-Math.max(0,usPnl)))}원</b>입니다.</div>
+    </div>`:''}
+    <div class="tx-list-h">거래별 내역 <span>${rows.length}건</span></div>
+    <div class="tx-list">${rows.slice().sort((a,b)=>b.ts-a.ts).slice(0,80).map(x=>{
+      const nm=x.us?((usMeta[x.code]||{}).kr||x.code):((byCode[x.code]||{}).name||x.code);
+      const d=new Date(x.ts);
+      return `<div class="tx-r">
+        <span class="tx-d">${d.getMonth()+1}/${d.getDate()}</span>
+        <span class="tx-n">${htmlEsc(nm)}${x.us?' <i>🇺🇸</i>':''}</span>
+        <span class="num tx-q">${KRW(x.qty)}주</span>
+        <span class="num tx-p ${x.pnl>=0?'up':'down'}">${signed(x.pnl)}</span>
+        <span class="num tx-rt ${x.pnl>=0?'up':'down'}">${x.cost?((x.pnl/x.cost*100).toFixed(1)+'%'):'—'}</span>
+      </div>`;}).join('')}</div>
+    <div class="tx-foot">모의투자 기록으로 계산한 <b>참고용</b>입니다. 선입선출(FIFO)로 짝지었으며,
+      실제 신고 시에는 증권사가 발급하는 자료를 기준으로 하셔야 합니다.
+      환율 변동에 따른 차이는 반영하지 않았습니다.</div>`;
+  el.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{taxYear=+b.dataset.ty;renderTaxReport();});
+}
+var taxYear=0;
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.81] 호가창 — 실제 호가만 보여 준다
+   ─────────────────────────────────────────────────────────────────────────────
+   네이버 공개 시세가 주는 것은 매도·매수 각 5단계다. 실제 MTS 는 10단을 쓰지만
+   없는 5칸을 만들어 채우지 않는다. 받은 만큼만, 대신 정확하게 보여 준다.
+   막대 길이는 원천이 계산해 준 rate(잔량÷최대잔량×100)를 그대로 쓴다 —
+   우리가 다시 계산하면 원천 화면과 미세하게 달라진다. */
+var _obData={}, _obAt={}, _obBusy={}, _obTimer=null;
+function obLoad(code,force){
+  if(!code)return Promise.resolve(null);
+  if(_obBusy[code])return Promise.resolve(_obData[code]||null);
+  if(!force&&_obAt[code]&&Date.now()-_obAt[code]<3000)return Promise.resolve(_obData[code]||null);
+  _obBusy[code]=1;
+  return fetch('/api/askprice?code='+encodeURIComponent(code),{cache:'default'})
+    .then(r=>r.json())
+    .then(j=>{ if(j&&j.ok){_obData[code]=j;_obAt[code]=Date.now();} else {_obData[code]=j||null;_obAt[code]=Date.now();}
+      return _obData[code]; })
+    .catch(()=>null)
+    .finally(()=>{ _obBusy[code]=0; });
+}
+function obFmtQ(v){ return v>=10000?(Math.round(v/1000)/10).toFixed(1).replace(/\.0$/,'')+'만':KRW(v); }
+function renderAsking(el){
+  const code=selected;
+  /* [v9.81b] 이 경로는 국내 종목 전용이다. 해외 티커가 들어오면 네이버가
+     엉뚱한 종목을 돌려줄 수 있으므로 아예 요청하지 않는다. */
+  if(typeof usMeta!=='undefined'&&usMeta[code]){
+    el.innerHTML='<div class="empty">해외 종목은 호가를 제공하지 않습니다.</div>';return;
+  }
+  if(!/^[0-9A-Z]{5,7}$/.test(String(code||'').toUpperCase())){
+    el.innerHTML='<div class="empty">호가를 조회할 수 없는 종목입니다.</div>';return;
+  }
+  const d=_obData[code];
+  if(d===undefined){
+    el.innerHTML='<div class="empty">호가를 불러오는 중…</div>';
+    obLoad(code).then(()=>{ if(selected===code&&infoTab==='asking')renderAsking(el); });
+    return;
+  }
+  if(!d||!d.ok){
+    el.innerHTML=`<div class="empty"><b>호가를 받지 못했습니다</b>
+      <span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.6">
+      ${d&&d.err==='empty'?'이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).'
+        :'잠시 후 다시 시도해 주세요.'}<br>
+      없는 값을 만들어 보여 드리지 않습니다.</span></div>`;
+    return;
+  }
+  const px=livePx(code,null), pc=d.prevClose;
+  /* 가격 색 — 전일 종가 대비 */
+  const pcls=(p)=>!pc?'':p>pc?'up':p<pc?'down':'';
+  const isNow=(p)=>px!=null&&Math.abs(p-px)<0.5;
+  const row=(x,side)=>`
+    <div class="ob-r ${side}${isNow(x.p)?' now':''}">
+      <div class="ob-q sell">${side==='s'?`<i class="ob-bar" style="width:${x.r}%"></i><b>${obFmtQ(x.q)}</b>`:''}</div>
+      <div class="ob-p ${pcls(x.p)}">${KRW(x.p)}${pc?`<i>${((x.p-pc)/pc*100>=0?'+':'')+((x.p-pc)/pc*100).toFixed(2)}%</i>`:''}</div>
+      <div class="ob-q buy">${side==='b'?`<i class="ob-bar" style="width:${x.r}%"></i><b>${obFmtQ(x.q)}</b>`:''}</div>
+    </div>`;
+  const sells=(d.sell||[]).map(x=>row(x,'s')).join('');
+  const buys=(d.buy||[]).map(x=>row(x,'b')).join('');
+  const tot=(d.totalSell||0)+(d.totalBuy||0);
+  const sPct=tot?(d.totalSell/tot*100):50;
+  const ago=Math.max(0,Math.round((Date.now()-(d.at||Date.now()))/1000));
+  el.innerHTML=`
+    <div class="ob-head">
+      <div class="ob-hh"><span>매도잔량</span><span>호가</span><span>매수잔량</span></div>
+    </div>
+    <div class="ob-body">${sells}<div class="ob-mid">
+        <span>스프레드</span><b class="num">${d.spread!=null?KRW(d.spread)+'원':'—'}</b>
+        <span>최우선 ${d.bestBid!=null?KRW(d.bestBid):'—'} / ${d.bestAsk!=null?KRW(d.bestAsk):'—'}</span>
+      </div>${buys}</div>
+    <div class="ob-tot">
+      <div class="ob-tot-bar"><i class="s" style="width:${sPct.toFixed(1)}%"></i><i class="b" style="width:${(100-sPct).toFixed(1)}%"></i></div>
+      <div class="ob-tot-lg">
+        <span class="s">매도 <b class="num">${KRW(d.totalSell)}</b></span>
+        <span class="b">매수 <b class="num">${KRW(d.totalBuy)}</b></span>
+      </div>
+      <div class="ob-tot-d">${d.totalBuy>d.totalSell
+        ?'사겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'
+        :'팔겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'}</div>
+    </div>
+    <div class="ob-note">네이버 공개 시세 기준 <b>${d.levels}단계</b> · ${ago<5?'방금':ago+'초 전'} 받음<br>
+      실제 MTS 의 10단계 중 공개되는 5단계까지만 표시합니다. 나머지는 <b>공개되지 않아 비워 둡니다</b>.
+      거래소 원장과 시차가 있을 수 있습니다.</div>`;
+  /* 호가를 누르면 그 가격으로 주문 입력 */
+  el.querySelectorAll('.ob-r').forEach((r,i)=>{
+    const all=[...(d.sell||[]),...(d.buy||[])];
+    const x=all[i]; if(!x)return;
+    r.onclick=()=>{ try{
+      /* [v9.81b] ordType 만 바꾸면 화면의 '시장가' 표시와 어긋난다.
+         지정가로 되돌리고 applyOrderType 으로 입력칸 잠금까지 함께 푼다. */
+      userPrice=x.p;
+      if(typeof ordTypeName!=='undefined'&&isMarketType(ordTypeName)){
+        ordTypeName='보통지정가';   /* 실제 목록에 있는 이름 */
+        try{ applyOrderType(); }catch(e){ ordType='limit'; }
+      }else ordType='limit';
+      const inp=$('pxInput'); if(inp){inp.disabled=false;inp.style.opacity=1;inp.value=KRW(x.p);}
+      try{ updateOrderTotal(); }catch(e){}
+      toast('ok',KRW(x.p)+'원으로 주문가 설정',(x.q?KRW(x.q)+'주 대기':''));
+    }catch(e){} };
+  });
+}
+/* 호가 탭을 보고 있는 동안만 갱신한다 — 안 보는 화면을 계속 부르지 않는다 */
+function obTick(){
+  try{
+    if(currentView!=='trade'||infoTab!=='asking'){ if(_obTimer){clearInterval(_obTimer);_obTimer=null;} return; }
+    obLoad(selected,true).then(()=>{ if(currentView==='trade'&&infoTab==='asking')renderAsking($('infoBody')); });
+  }catch(e){}
+}
+var _obIv=0;
+function obStart(){
+  /* ══ [v9.81b] 장이 열리는 순간을 놓치지 않게 ═══════════════════════════════
+     예전에는 탭에 들어온 그 시점의 장 상태로 주기를 정하고 끝이었다. 08:55 에
+     탭을 열어 두면 09:00 에 장이 열려도 60초 주기가 그대로 남아, 개장 직후
+     호가가 한참 늦게 갱신됐다. 주기가 바뀌어야 하면 타이머를 다시 건다. */
+  const want=(typeof krxTradable==='function'&&krxTradable())?5000:60000;
+  if(_obTimer&&_obIv===want)return;
+  if(_obTimer)clearInterval(_obTimer);
+  _obIv=want;
+  _obTimer=setInterval(()=>{ obTick(); obStart(); },want);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.80] 일자별 시세표를 실제 MTS 수준으로
+   ─────────────────────────────────────────────────────────────────────────────
+   [예전] 일자 · 종가 · 대비 · 거래량 네 칸뿐이었다. 실제 증권사 일별 시세는
+   시가·고가·저가·등락률·거래대금까지 함께 보여 준다. 그게 있어야 '그날 어떻게
+   움직였는지'를 표만 보고 읽을 수 있다.
+   [지금] 일봉에 이미 들어 있는 값이라 새로 받아올 것이 없다. 다만 거래대금은
+   원천이 주지 않으므로 종가×거래량 추정치임을 밝힌다(없는 값을 지어내지 않는다).
+   기간 선택(20·60·120일)과 CSV 내려받기도 넣는다. */
+var siseDays=60;
 function renderSise(el){
   const code=selected;
   const seg=`<div class="sise-seg"><button data-sm="time" class="${siseMode==='time'?'on':''}">시간별</button><button data-sm="date" class="${siseMode==='date'?'on':''}">일자별</button></div>`;
-  const bind=()=>el.querySelectorAll('.sise-seg button').forEach(b=>b.onclick=()=>{siseMode=b.dataset.sm;renderSise(el);});
-  const head=`<div class="sise-head"><span>${siseMode==='date'?'일자':'시간'}</span><span>종가</span><span>대비</span><span>거래량</span></div>`;
-  const rowHtml=(label,close,diff,vol)=>{const dir=dirOf(diff);
-    return `<div class="sise-r"><span class="sl">${label}</span><span class="num sc">${KRW(close)}</span><span class="num sdiff ${dir}">${diff?arrow(dir)+' '+KRW(Math.abs(diff)):'0'}</span><span class="num sv">${KRW(vol)}</span></div>`;};
+  const bind=()=>{
+    el.querySelectorAll('.sise-seg button').forEach(b=>b.onclick=()=>{siseMode=b.dataset.sm;renderSise(el);});
+    el.querySelectorAll('[data-sd]').forEach(b=>b.onclick=()=>{siseDays=+b.dataset.sd;renderSise(el);});
+    const dl=el.querySelector('#siseCsv'); if(dl)dl.onclick=()=>siseCsv(code);
+  };
   if(siseMode==='date'){
     const d=_sumDaily[code];
-    if(!d){el.innerHTML=seg+'<div class="empty">시세를 불러오는 중…</div>';bind();ensureDailySummary(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});return;}
+    if(!d){el.innerHTML=seg+'<div class="empty">시세를 불러오는 중…</div>';bind();
+      ensureDailySummary(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});return;}
     if(!d.length){el.innerHTML=seg+'<div class="empty">일자별 시세 데이터가 없습니다.</div>';bind();return;}
-    const arr=d.slice(-60);
-    const rows=arr.map((c,i)=>{const prev=arr[i-1];const diff=prev?c.c-prev.c:0;
-      const ds=`${c.d.slice(0,4)}/${c.d.slice(4,6)}/${c.d.slice(6,8)}`;return rowHtml(ds,c.c,diff,c.v);}).reverse().join('');
-    el.innerHTML=seg+head+`<div class="sise-rows">${rows}</div>`;bind();
+    const arr=d.slice(-siseDays);
+    /* 기간 요약 — 표 위에 먼저 둔다 */
+    const first=arr[0], last=arr[arr.length-1];
+    const chg=first&&last&&first.c?((last.c-first.c)/first.c*100):0;
+    const hi=Math.max(...arr.map(c=>c.h??c.c)), lo=Math.min(...arr.map(c=>c.l??c.c));
+    const avgV=Math.round(arr.reduce((a,c)=>a+(+c.v||0),0)/arr.length);
+    const tabs=`<div class="sise-days">${[20,60,120].map(n=>
+      `<button data-sd="${n}" class="${siseDays===n?'on':''}">${n}일</button>`).join('')}
+      <button id="siseCsv" class="sise-csv">CSV</button></div>`;
+    const sum=`<div class="sise-sum">
+      <div><span>${arr.length}일 등락</span><b class="num ${dirOf(chg)}">${pctS(chg)}</b></div>
+      <div><span>기간 최고</span><b class="num up">${KRW(hi)}</b></div>
+      <div><span>기간 최저</span><b class="num down">${KRW(lo)}</b></div>
+      <div><span>평균 거래량</span><b class="num">${KRW(avgV)}</b></div>
+    </div>`;
+    const head=`<div class="sise-head d9"><span>일자</span><span>종가</span><span>대비</span><span>등락률</span>
+      <span>시가</span><span>고가</span><span>저가</span><span>거래량</span><span>거래대금</span></div>`;
+    const rows=arr.map((c,i2)=>{
+      const prev=arr[i2-1];
+      const diff=prev?c.c-prev.c:0;
+      const rt=prev&&prev.c?diff/prev.c*100:0;
+      const dir=dirOf(diff);
+      const ds=`${c.d.slice(4,6)}/${c.d.slice(6,8)}`;
+      const yr=c.d.slice(2,4);
+      const amt=(+c.c||0)*(+c.v||0);
+      return `<div class="sise-r d9">
+        <span class="sl">${ds}<i>${yr}</i></span>
+        <span class="num sc">${KRW(c.c)}</span>
+        <span class="num sdiff ${dir}">${diff?arrow(dir)+KRW(Math.abs(diff)):'0'}</span>
+        <span class="num ${dir}">${prev?pctS(rt):'—'}</span>
+        <span class="num sub">${KRW(c.o??c.c)}</span>
+        <span class="num up">${KRW(c.h??c.c)}</span>
+        <span class="num down">${KRW(c.l??c.c)}</span>
+        <span class="num sv">${KRW(c.v)}</span>
+        <span class="num sub">${amt>=1e8?(amt/1e8).toFixed(0)+'억':amt>=1e4?Math.round(amt/1e4)+'만':KRW(amt)}</span>
+      </div>`;}).reverse().join('');
+    el.innerHTML=seg+tabs+sum+`<div class="sise-scroll">${head}<div class="sise-rows">${rows}</div></div>`
+      +`<div class="sise-note">거래대금은 <b>종가×거래량</b>으로 계산한 추정치입니다 — 원천이 일별 거래대금을 제공하지 않습니다. 장중 실제 체결대금과는 차이가 납니다.</div>`;
+    bind();
   }else{
     const mins=minuteSeries(code,1);
-    if(!mins.length){el.innerHTML=seg+'<div class="empty">시간별(분봉) 데이터가 없습니다.<br>차트 탭을 한 번 열면 분봉을 불러오고, 장중에는 실시간으로 채워집니다.</div>';bind();ensureIntraday(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});return;}
+    if(!mins.length){el.innerHTML=seg+'<div class="empty">시간별(분봉) 데이터가 없습니다.<br>차트 탭을 한 번 열면 분봉을 불러오고, 장중에는 실시간으로 채워집니다.</div>';bind();
+      ensureIntraday(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});return;}
     const pc=byCode[code].prevClose||mins[0].o;
     const arr=mins.slice(-150);
-    const rows=arr.map(c=>rowHtml(c.d,c.c,c.c-pc,c.v)).reverse().join('');
-    el.innerHTML=seg+head+`<div class="sise-rows">${rows}</div>`;bind();
+    const head=`<div class="sise-head t6"><span>시간</span><span>체결가</span><span>전일대비</span><span>등락률</span><span>고가</span><span>저가</span><span>거래량</span></div>`;
+    const rows=arr.map(c=>{
+      const diff=c.c-pc, dir=dirOf(diff);
+      return `<div class="sise-r t6"><span class="sl">${c.d}</span>
+        <span class="num sc">${KRW(c.c)}</span>
+        <span class="num sdiff ${dir}">${diff?arrow(dir)+KRW(Math.abs(diff)):'0'}</span>
+        <span class="num ${dir}">${pc?pctS(diff/pc*100):'—'}</span>
+        <span class="num up">${KRW(c.h??c.c)}</span>
+        <span class="num down">${KRW(c.l??c.c)}</span>
+        <span class="num sv">${KRW(c.v)}</span></div>`;}).reverse().join('');
+    el.innerHTML=seg+`<div class="sise-scroll">${head}<div class="sise-rows">${rows}</div></div>`;bind();
   }
+}
+/* 일별 시세를 CSV 로 — 엑셀에서 한글이 깨지지 않게 BOM 을 붙인다 */
+function siseCsv(code){
+  try{
+    const d=_sumDaily[code]||[]; if(!d.length)return toast('warn','내려받을 데이터가 없습니다','');
+    const nm=(byCode[code]||{}).name||code;
+    const arr=d.slice(-siseDays);
+    const head='일자,시가,고가,저가,종가,전일대비,등락률(%),거래량\n';
+    const body=arr.map((c,i)=>{const p=arr[i-1];const df=p?c.c-p.c:0;
+      const rt=p&&p.c?(df/p.c*100).toFixed(2):'';
+      return [c.d,c.o??c.c,c.h??c.c,c.l??c.c,c.c,df,rt,c.v].join(',');}).join('\n');
+    const blob=new Blob(['\ufeff'+head+body],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`${nm}_일별시세_${arr.length}일.csv`;
+    document.body.appendChild(a);a.click();
+    setTimeout(()=>{try{URL.revokeObjectURL(a.href);a.remove();}catch(e){}},1000);
+    toast('ok','CSV 를 내려받았습니다',`${nm} · ${arr.length}일치`);
+  }catch(e){ toast('warn','내려받기 실패',''); }
 }
 /* ===== 뉴스 / 공시 ===== */
 let newsType='all';const newsCache={};
@@ -12889,6 +13420,8 @@ function foRenderCards(list){
         ${p.why?`<span class="fc-tag">근거 · ${htmlEsc(p.why)}</span>`:''}
         ${st.hz?`<span class="fc-tag">${st.hz.t}</span>`:''}
         ${st.acScore!=null?`<span class="fc-tag">매집 ${Math.round(st.acScore)}점</span>`:''}
+        ${(p.autoStop||p.autoTake)?`<span class="fc-tag auto">⚡ 자동 ${[p.autoStop?'손절':'',p.autoTake?'익절':''].filter(Boolean).join('·')}</span>`:''}
+        ${st.h.trailPct?`<span class="fc-tag auto">↗ 트레일링 ${st.h.trailPct}%</span>`:''}
         ${st.sig?`<span class="fc-tag ${st.sig.side==='buy'?'buy':st.sig.side==='sell'?'sell':''}">${st.sig.side==='buy'?'매수':st.sig.side==='sell'?'매도':'대기'} 신호 · ${htmlEsc(st.sig.kind)}</span>`:''}
       </div>
       ${st.alerts.length?`<div class="fc-al">${st.alerts.map(a=>`<div class="fa ${FO_LV[a.lv]}"><b>${htmlEsc(a.k)}</b><span>${htmlEsc(a.d)}</span></div>`).join('')}</div>`:''}
@@ -13071,6 +13604,20 @@ function foPlanModal(code){
       <input id="fpStop" class="num" inputmode="decimal" value="${p.stop!=null?M(p.stop):''}" placeholder="${M(st.px*0.93)}"></div>
     <div class="fld2"><label>보유 기간</label>
       <select id="fpHz">${Object.entries(FO_HORIZON).map(([k,v])=>`<option value="${k}"${(p.horizon||'swing')===k?' selected':''}>${v.t}</option>`).join('')}</select></div>
+    <!-- ══ [v9.82] 계획을 실제로 실행하게 한다 ══════════════════════════════
+         계획을 세워 두고도 지키지 못하는 것이 가장 흔한 실패다. 켜 두면
+         값에 닿는 순간 앱이 대신 판다(모의). 접속 중에만 작동한다. -->
+    <div class="fp-auto">
+      <label class="fp-ck"><input type="checkbox" id="fpAutoStop" ${p.autoStop?'checked':''}>
+        <span><b>손절가 도달 시 자동 매도</b><i>망설임 없이 계획대로 실행합니다</i></span></label>
+      <label class="fp-ck"><input type="checkbox" id="fpAutoTake" ${p.autoTake?'checked':''}>
+        <span><b>목표가 도달 시 자동 매도</b><i>전량 매도됩니다</i></span></label>
+      <div class="fld2"><label>트레일링 스탑 <small style="font-weight:600;color:var(--sub-2)">— 고점 대비 몇 % 밀리면 판다 (0=사용 안 함)</small></label>
+        <input id="fpTrail" class="num" inputmode="decimal" value="${h.trailPct||''}" placeholder="예: 8"></div>
+      <div class="fp-auto-n">오를 때는 손절선이 따라 올라가고, 내릴 때는 그대로 있습니다.
+        ${h.trailHi?`현재 기준 고점 <b>${foMoney(st,h.trailHi)}</b>`:''}
+        <br><b>앱이 켜져 있을 때만</b> 작동하며, 12초마다 확인합니다. 실제 증권사의 자동주문과 달리 앱을 닫으면 실행되지 않습니다.</div>
+    </div>
     <div class="lg-row"><button class="btn-primary" id="fpSave">저장</button><button class="btn-ghost" id="fpDel">계획 지우기</button></div>
     <div class="fo-help">계획은 <b>살 때 정해 두는 것</b>입니다. 값이 밀린 뒤에 손절가를 내리면 계획이 아니라 변명이 됩니다.</div>`);
   const nv=(id)=>{const v=($(id).value||'').replace(/[^0-9.]/g,''); return v?Number(v):null;};
@@ -13085,6 +13632,14 @@ function foPlanModal(code){
       p.movedStop=(p.movedStop||0)+1;
     }
     p.why=$('fpWhy').value; p.target=t; p.stop=s2; p.horizon=$('fpHz').value;
+    /* [v9.82] 자동 실행 설정 */
+    p.autoStop=$('fpAutoStop').checked?1:0;
+    p.autoTake=$('fpAutoTake').checked?1:0;
+    const tr=Number(($('fpTrail').value||'').replace(/[^0-9.]/g,''))||0;
+    if(tr>0&&tr<50){ h.trailPct=tr; if(!h.trailHi)h.trailHi=livePx(h.code,h.avg)||h.avg; }
+    else { delete h.trailPct; delete h.trailHi; }
+    if(p.autoStop&&p.stop==null){ toast('warn','손절가를 먼저 넣어 주세요',''); return; }
+    if(p.autoTake&&p.target==null){ toast('warn','목표가를 먼저 넣어 주세요',''); return; }
     if(!h.buyAt)h.buyAt=Date.now();
     saveState(); closeLiteGate(); renderFolio(); toast('ok','계획을 저장했습니다','');
   };
@@ -13099,6 +13654,7 @@ function renderFolio(){
   safeRun('foCards',()=>foRenderCards(list));
   safeRun('foRisk',()=>foRenderRisk(list));
   safeRun('foHabit',foRenderHabit);
+  safeRun('foTax',renderTaxReport);          /* [v9.83] 손익·세금 */
   safeRun('foReview',()=>foRenderReview(list));
   safeRun('foDot',foBadge);
 }
@@ -15998,6 +16554,12 @@ var US_PAL=['#2563eb','#7c3aed','#0891b2','#059669','#d97706','#dc2626','#db2777
    (로고가 없다고 화면이 비지 않는다).
    ══════════════════════════════════════════════════════════════════════════ */
 var US_DOMAIN={
+/* ══ [v9.77] 도메인이 없던 종목 보강 ══════════════════════════════════════════
+   도메인이 없으면 서버가 티커 기반 원천만 두드리게 되는데, 그쪽은 없는 종목이
+   많아 실패 확률이 크게 올라간다. 우버·디즈니처럼 유명한데도 회색 배지로
+   나오던 종목들의 상당수가 이 경우였다. */
+AI:'c3.ai',ARX:'accelerant.ai',BBAI:'bigbear.ai',BLSH:'bullish.com',CAKE:'thecheesecakefactory.com',CLBT:'cellebrite.com',CLSK:'cleanspark.com',CURI:'curiositystream.com',DASH:'doordash.com',DOCU:'docusign.com',FGI:'fgi-industries.com',FIGR:'figure.com',FRGT:'freighttechnologies.com',HLIT:'harmonicinc.com',HPE:'hpe.com',HUT:'hut8.com',INFQ:'infleqtion.com',IVDA:'iveda.com',KULR:'kulrtechnology.com',LAC:'lithiumamericas.com',LYFT:'lyft.com',MARA:'mara.com',MSGS:'msg.com',NNE:'nanonuclearenergy.com',OMER:'omeros.com',OPEN:'opendoor.com',OTLK:'outlooktherapeutics.com',PANW:'paloaltonetworks.com',PATH:'uipath.com',PINS:'pinterest.com',RIOT:'riotplatforms.com',RXRX:'recursion.com',SERV:'serverobotics.com',SHOP:'shopify.com',SNAP:'snap.com',SOUN:'soundhound.com',SPOT:'spotify.com',SQ:'block.xyz',SSYS:'stratasys.com',TEM:'tempus.com',TPR:'tapestry.com',TTD:'thetradedesk.com',TWLO:'twilio.com',WEN:'wendys.com',XYZ:'block.xyz',ZM:'zoom.us',
+
 /* 빅테크 · M7 */
 AAPL:'apple.com',MSFT:'microsoft.com',GOOGL:'abc.xyz',AMZN:'amazon.com',
 NVDA:'nvidia.com',META:'meta.com',TSLA:'tesla.com',
@@ -16011,7 +16573,7 @@ AMAT:'appliedmaterials.com',KLAC:'kla.com',
 /* 전기차 · 모빌리티 */
 RIVN:'rivian.com',LCID:'lucidmotors.com',UBER:'uber.com',GM:'gm.com',F:'ford.com',ALB:'albemarle.com',
 /* 소비 · 리테일 · 미디어 */
-NFLX:'netflix.com',DIS:'disney.com',COST:'costco.com',WMT:'walmart.com',MCD:'mcdonalds.com',
+NFLX:'netflix.com',DIS:'disney.com',WMT:'walmart.com',MCD:'mcdonalds.com',
 SBUX:'starbucks.com',NKE:'nike.com',KO:'coca-colacompany.com',PEP:'pepsico.com',PG:'pg.com',
 ABNB:'airbnb.com',BKNG:'bookingholdings.com',
 /* 금융 · 핀테크 · 코인 */
@@ -16023,7 +16585,7 @@ LLY:'lilly.com',NVO:'novonordisk.com',UNH:'unitedhealthgroup.com',JNJ:'jnj.com',
 PFE:'pfizer.com',MRK:'merck.com',ABBV:'abbvie.com',MRNA:'modernatx.com',
 /* 에너지 · 산업 · 우주방산 */
 XOM:'exxonmobil.com',CVX:'chevron.com',GE:'geaerospace.com',CAT:'caterpillar.com',
-BA:'boeing.com',LMT:'lockheedmartin.com',RTX:'rtx.com',NOC:'northropgrumman.com',
+BA:'boeing.com',LMT:'lockheedmartin.com',RTX:'rtx.com',
 RKLB:'rocketlabusa.com',LUNR:'intuitivemachines.com',VST:'vistracorp.com',
 CEG:'constellationenergy.com',OKLO:'oklo.com',SMR:'nuscalepower.com',
 /* ETF — 운용사 도메인 */
@@ -16040,14 +16602,14 @@ GLD:'ssga.com',
   ASTS:'ast-science.com', QLD:'proshares.com', APP:'applovin.com', VRT:'vertiv.com',
   GEV:'gevernova.com', CRML:'criticalmetalscorp.com', SPAL:'graniteshares.com', SNK:'graniteshares.com',
   LEU:'centrusenergy.com', UUUU:'energyfuels.com', MP:'mpmaterials.com', NXE:'nexgenenergy.ca',
-  DNN:'denisonmines.com', UEC:'uraniumenergy.com', INOD:'innodata.com', CIFR:'ciphermining.com', AFRM:'affirm.com', UPST:'upstart.com', DKNG:'draftkings.com',
+  DNN:'denisonmines.com', UEC:'uraniumenergy.com', CIFR:'ciphermining.com', AFRM:'affirm.com', UPST:'upstart.com', DKNG:'draftkings.com',
   ROKU:'roku.com', WBD:'wbd.com', PARA:'paramount.com', LYV:'livenation.com', CONL:'graniteshares.com', BITX:'volatilityshares.com',
   SPXL:'direxion.com',
   ETN:'eaton.com', PWR:'quantaservices.com', ANET:'arista.com', MDB:'mongodb.com',
   NET:'cloudflare.com', DDOG:'datadoghq.com', ZS:'zscaler.com', OKTA:'okta.com',
   TEAM:'atlassian.com', WDAY:'workday.com', SNPS:'synopsys.com', CDNS:'cadence.com', ON:'onsemi.com', MCHP:'microchip.com', NXPI:'nxp.com', ADI:'analog.com',
   LULU:'lululemon.com', CMG:'chipotle.com', CHWY:'chewy.com', DECK:'deckers.com',
-  OXY:'oxy.com', REGN:'regeneron.com', VRTX:'vrtx.com', BIIB:'biogen.com',
+  OXY:'oxy.com', REGN:'regeneron.com', VRTX:'vrtx.com',
   HXSCL:'skhynix.com',
   /* [v4.77] 화면에서 로고가 비던 종목 보강 */
   BLK:'blackrock.com', MS:'morganstanley.com', SCHW:'schwab.com', AXP:'americanexpress.com',
@@ -16074,7 +16636,9 @@ var usLgOk={}, usLgNo={}, _usLgBusy=new Set(), _usLgQ=[], _usLgLive=0;
 /* [v5.4] 로고를 이제 우리 서버 한 곳에서만 받는다. 같은 출처라 브라우저가
    동시에 여는 연결 수가 제한되므로, 한 번에 던지는 개수를 조금 늘려
    목록이 길어도 뒤쪽까지 빨리 채워지게 한다. */
-var US_LG_MAX=10, US_LG_TTL=3*3600e3, US_LG_TTL_ALL=20*60e3;
+/* [v9.77] 로고 실패를 3시간이나 기억해, 일시적 장애 뒤에도 회색 배지가 오래 남았다.
+   서버의 실패 캐시(25분)와 같은 길이로 맞춘다. */
+var US_LG_MAX=10, US_LG_TTL=25*60e3, US_LG_TTL_ALL=20*60e3;
 function usLgTtl(){ return (Object.keys(usLgOk).length===0&&Object.keys(usLgNo).length>=8)?US_LG_TTL_ALL:US_LG_TTL; }
 try{
   const s=JSON.parse(localStorage.getItem('usLg3')||'null');

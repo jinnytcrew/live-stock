@@ -1848,12 +1848,18 @@ html.reduce-motion .info-tabs .lv{animation:none}
 @keyframes updSpin{to{transform:rotate(360deg)}}
 
 /* 주도 섹터: 행 카드화 + 넓은 화면 2단 */
-#thmRows .thm-row{border:1px solid transparent;border-radius:13px;padding-top:12px;padding-bottom:12px;transition:background .1s,border-color .1s}
-#thmRows .thm-row:hover{background:var(--border-soft);border-color:var(--border)}
+/* [v9.77] 아래 규칙들은 표(.thm-row) 시절의 것이다. 카드 격자로 바뀌어 대상이 없으므로 제거한다. */
+
 .thm-head{opacity:.85}
 @media (min-width:1000px){
-  #thmRows{display:grid;grid-template-columns:1fr 1fr;gap:2px 24px;align-items:start}
-  #thmRows .thm-detail{grid-column:1/-1}
+  /* ══ [v9.77] 국내 주도 섹터가 1열로만 나오던 이유 ═══════════════════════
+     #thmRows 에 옛 2열 격자가 그대로 남아 있었다. 그 안에 새 카드 격자
+     (.us-sect-list)를 넣으니, 바깥 2열의 한 칸 안에서 다시 격자가 잡혀
+     폭이 절반으로 줄고 결국 카드가 한 줄에 하나씩만 들어갔다.
+     (오른쪽 절반이 통째로 비어 보이던 것이 이것이다)
+     바깥 격자를 없애 해외와 똑같이 카드가 폭을 다 쓰게 한다. */
+  #thmRows{display:block}
+
   .thm-head{display:none}
 }
 /* 고급 서비스: 탭·헤더 폴리시 */
@@ -5435,3 +5441,218 @@ html[data-theme="dark"] .hi-c{background:rgba(255,255,255,.05)}
 .thm-card .sec-chips .uss-t{margin:0;cursor:pointer}
 /* 카드 안 종목 칩은 눌리는 대상임을 분명히 */
 .us-sect-list .uss-t{cursor:pointer}
+
+/* ══ [v9.78] 홈 '오늘의 장' 카드 — 시장 온도계 대체 ═════════════════════════
+   합성 점수(온도) 대신 사실만 보여 준다: 지금 장 상태, 다음 전환까지 남은 시간,
+   내 종목의 오늘 분포. */
+.hs-badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:900;
+  border-radius:99px;padding:3px 11px}
+/* [v9.79] 목록의 세션 배지(.us-sess)와 같은 색 체계로 맞춘다 —
+   초록=거래 중, 주황=장 전후, 회색=휴장 */
+.hs-badge.live{color:#0b7a3e;background:rgba(18,183,106,.14)}
+.hs-badge.wait{color:#b47207;background:rgba(245,163,13,.14)}
+.hs-badge.off{color:var(--sub);background:rgba(120,120,120,.14)}
+html[data-theme="dark"] .hs-badge.live{color:#4ade80}
+.hs-badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor;
+  animation:hsPulse 1.6s ease-in-out infinite}
+@keyframes hsPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+/* [v9.79] 국내·해외 2열 */
+.hs-mkts{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:10px 0 11px}
+@media(max-width:520px){.hs-mkts{grid-template-columns:1fr}}
+.hs-mkt{padding:11px;border-radius:13px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1)}
+html:not([data-theme="dark"]) .hs-mkt{background:rgba(255,255,255,.5);border-color:rgba(120,105,70,.14)}
+.hs-mkt-h{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.hs-mkt-h b{font-size:13px;font-weight:900;flex:1}
+.hs-flag{font-size:14px}
+.hs-next{font-size:11px;font-weight:700;opacity:.78;margin:0 0 9px}
+.hs-next b{font-weight:900;opacity:1}
+.hs-ixs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:0}
+.hs-ix{padding:7px 9px;border-radius:9px;background:rgba(0,0,0,.05)}
+html[data-theme="dark"] .hs-ix{background:rgba(255,255,255,.06)}
+html:not([data-theme="dark"]) .hs-ix{background:rgba(255,255,255,.5)}
+.hs-ix span{display:block;font-size:10.5px;font-weight:700;opacity:.7}
+.hs-ix b{display:block;font-size:14.5px;font-weight:900;letter-spacing:-.5px;margin-top:1px}
+.hs-ix i{font-style:normal;font-size:11.5px;font-weight:800}
+.hs-br{padding:10px 11px;border-radius:12px;background:rgba(255,255,255,.07);margin-bottom:11px}
+html:not([data-theme="dark"]) .hs-br{background:rgba(255,255,255,.5)}
+.hs-br.empty{font-size:11px;font-weight:700;opacity:.7;line-height:1.5}
+.hs-br-h{font-size:11.5px;font-weight:900;margin-bottom:7px}
+.hs-br-h span{font-weight:600;opacity:.66;margin-left:4px;font-size:10px}
+.hs-br-bar{display:flex;height:9px;border-radius:99px;overflow:hidden;background:rgba(120,120,120,.2)}
+.hs-br-bar i{display:block;height:100%}
+.hs-br-bar .up{background:var(--up)}
+.hs-br-bar .fl{background:rgba(140,150,165,.55)}
+.hs-br-bar .dn{background:var(--down)}
+.hs-br-lg{display:flex;gap:12px;margin-top:6px;font-size:10.5px;font-weight:800;opacity:.85}
+.hs-br-lg .up{color:var(--up)}.hs-br-lg .dn{color:var(--down)}
+
+/* [v9.79] 계좌 개설 — 목적/종류 드롭다운 */
+.ae-pick{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-bottom:12px}
+@media(max-width:430px){.ae-pick{grid-template-columns:1fr}}
+.ae-fld label{display:block;font-size:11px;font-weight:800;color:var(--sub-2);margin-bottom:5px}
+.ae-fld select{width:100%;padding:11px 12px;border-radius:11px;border:1px solid var(--border);
+  background:var(--panel);color:var(--text);font-size:13.5px;font-weight:700;
+  -webkit-appearance:none;appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--sub-2) 50%),linear-gradient(135deg,var(--sub-2) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:34px}
+.ae-fld select:focus{outline:none;border-color:var(--sub-2)}
+
+/* ══ [v9.80] 일자별 시세표 — 실제 MTS 수준으로 ═══════════════════════════════ */
+.sise-days{display:flex;gap:6px;margin:10px 0}
+.sise-days button{font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:99px;
+  border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
+.sise-days button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.sise-days .sise-csv{margin-left:auto;color:var(--sub-2)}
+.sise-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;
+  padding:10px 11px;border-radius:12px;background:var(--border-soft)}
+@media(max-width:480px){.sise-sum{grid-template-columns:repeat(2,1fr)}}
+.sise-sum>div span{display:block;font-size:10px;font-weight:700;color:var(--sub-2)}
+.sise-sum>div b{display:block;font-size:14px;font-weight:900;margin-top:2px;letter-spacing:-.3px}
+/* 가로 스크롤 — 좁은 화면에서 9열을 다 보여 주려면 필요하다 */
+.sise-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:12px}
+.sise-head.d9,.sise-r.d9{display:grid;grid-template-columns:64px 78px 74px 62px 72px 72px 72px 84px 68px;
+  align-items:center;min-width:646px}
+.sise-head.t6,.sise-r.t6{display:grid;grid-template-columns:62px 78px 74px 62px 72px 72px 84px;
+  align-items:center;min-width:504px}
+.sise-head{position:sticky;top:0;z-index:2;background:var(--panel);
+  font-size:10.5px;font-weight:800;color:var(--sub-2);padding:9px 10px;border-bottom:1px solid var(--border)}
+.sise-head span{text-align:right}
+.sise-head span:first-child{text-align:left}
+.sise-r{padding:8px 10px;border-bottom:1px solid var(--border-soft);font-size:12px}
+.sise-r:last-child{border-bottom:0}
+.sise-r span{text-align:right;font-variant-numeric:tabular-nums}
+.sise-r .sl{text-align:left;font-weight:800;color:var(--sub)}
+.sise-r .sl i{font-style:normal;font-size:9.5px;opacity:.55;margin-left:3px}
+.sise-r .sc{font-weight:900}
+.sise-r .sub{color:var(--sub-2)}
+.sise-r .sv{color:var(--sub)}
+.sise-rows{max-height:520px;overflow-y:auto}
+.sise-note{margin-top:9px;font-size:10.5px;line-height:1.6;color:var(--sub-2);
+  background:var(--border-soft);border-radius:10px;padding:9px 11px}
+.sise-note b{color:var(--sub)}
+
+/* ══ [v9.81] 호가창 ═══════════════════════════════════════════════════════════
+   가운데 호가, 왼쪽 매도잔량, 오른쪽 매수잔량 — 실제 MTS 배치를 따른다.
+   막대는 바깥에서 안쪽으로 자라 잔량 크기를 한눈에 견주게 한다. */
+.ob-head{border:1px solid var(--border);border-bottom:0;border-radius:12px 12px 0 0;background:var(--panel)}
+.ob-hh{display:grid;grid-template-columns:1fr 116px 1fr;padding:9px 10px;
+  font-size:10.5px;font-weight:800;color:var(--sub-2)}
+.ob-hh span:first-child{text-align:left}
+.ob-hh span:nth-child(2){text-align:center}
+.ob-hh span:last-child{text-align:right}
+.ob-body{border:1px solid var(--border);border-top:0;border-bottom:0;background:var(--panel)}
+.ob-r{display:grid;grid-template-columns:1fr 116px 1fr;align-items:stretch;
+  border-top:1px solid var(--border-soft);cursor:pointer;transition:background .1s}
+.ob-r:active{background:var(--border-soft)}
+.ob-r.now .ob-p{box-shadow:inset 0 0 0 2px var(--text);border-radius:7px}
+.ob-q{position:relative;display:flex;align-items:center;padding:9px 10px;min-height:38px}
+.ob-q.sell{justify-content:flex-start}
+.ob-q.buy{justify-content:flex-end}
+.ob-q b{position:relative;z-index:1;font-size:12px;font-weight:800;
+  font-variant-numeric:tabular-nums;color:var(--sub)}
+.ob-bar{position:absolute;top:5px;bottom:5px;border-radius:5px;display:block}
+.ob-q.sell .ob-bar{left:6px;background:rgba(47,116,255,.16)}
+.ob-q.buy .ob-bar{right:6px;background:rgba(229,68,59,.15)}
+html[data-theme="dark"] .ob-q.sell .ob-bar{background:rgba(96,165,250,.2)}
+html[data-theme="dark"] .ob-q.buy .ob-bar{background:rgba(248,113,113,.2)}
+.ob-p{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:6px 4px;font-size:13.5px;font-weight:900;font-variant-numeric:tabular-nums;
+  background:var(--border-soft)}
+.ob-p i{font-style:normal;font-size:9.5px;font-weight:700;opacity:.7;margin-top:1px}
+.ob-p.up{color:var(--up)}.ob-p.down{color:var(--down)}
+.ob-mid{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;
+  padding:8px 10px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  background:var(--border-soft);font-size:10.5px;font-weight:700;color:var(--sub-2)}
+.ob-mid b{font-size:12.5px;font-weight:900;color:var(--text)}
+.ob-tot{border:1px solid var(--border);border-radius:0 0 12px 12px;padding:11px;background:var(--panel)}
+.ob-tot-bar{display:flex;height:9px;border-radius:99px;overflow:hidden;background:var(--border-soft)}
+.ob-tot-bar .s{background:var(--down)}
+.ob-tot-bar .b{background:var(--up)}
+.ob-tot-lg{display:flex;justify-content:space-between;margin-top:7px;font-size:11px;font-weight:700}
+.ob-tot-lg .s{color:var(--down)}.ob-tot-lg .b{color:var(--up)}
+.ob-tot-lg b{font-weight:900;margin-left:3px}
+.ob-tot-d{margin-top:7px;font-size:10.5px;line-height:1.55;color:var(--sub-2)}
+.ob-note{margin-top:10px;font-size:10.5px;line-height:1.65;color:var(--sub-2);
+  background:var(--border-soft);border-radius:10px;padding:9px 11px}
+.ob-note b{color:var(--sub)}
+
+/* [v9.82] 계획 자동 실행 */
+.fp-auto{margin-top:12px;padding:12px;border-radius:12px;background:var(--border-soft)}
+.fp-ck{display:flex;align-items:flex-start;gap:9px;margin-bottom:10px;cursor:pointer}
+.fp-ck input{margin-top:2px;width:17px;height:17px;flex:none;accent-color:var(--up)}
+.fp-ck span b{display:block;font-size:12.5px;font-weight:800}
+.fp-ck span i{display:block;font-style:normal;font-size:10.5px;font-weight:600;color:var(--sub-2);margin-top:1px}
+.fp-auto-n{margin-top:8px;font-size:10.5px;line-height:1.6;color:var(--sub-2)}
+.fp-auto-n b{color:var(--sub)}
+.fc-tag.auto{color:#b45309;background:rgba(245,158,11,.16)}
+html[data-theme="dark"] .fc-tag.auto{color:#fbbf24}
+
+/* ══ [v9.83] 손익·세금 리포트 ══════════════════════════════════════════════ */
+.tx-years{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tx-years button{font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:99px;
+  border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
+.tx-years button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.tx-top{border:1px solid var(--border);border-radius:16px;padding:14px;background:var(--panel);margin-bottom:10px}
+.tx-top span{font-size:11px;font-weight:700;color:var(--sub-2)}
+.tx-top b{display:block;font-size:26px;font-weight:900;letter-spacing:-1px;margin:2px 0}
+.tx-top i{display:block;font-style:normal;font-size:10.5px;font-weight:600;color:var(--sub-2)}
+.tx-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px}
+@media(max-width:520px){.tx-grid{grid-template-columns:1fr}}
+.tx-card{border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--panel)}
+.tx-h{font-size:13px;font-weight:900;margin-bottom:9px}
+.tx-h span{font-weight:600;font-size:10.5px;color:var(--sub-2);margin-left:5px}
+.tx-kv{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:11.5px}
+.tx-kv span{color:var(--sub-2);font-weight:700}
+.tx-kv b{font-weight:900;font-size:13px}
+.tx-kv.tot{border-top:1px solid var(--border-soft);margin-top:4px;padding-top:8px}
+.tx-kv.tot b{font-size:15px}
+.tx-note{margin-top:8px;font-size:10.5px;line-height:1.6;color:var(--sub-2)}
+.tx-note b{color:var(--sub)}
+.tx-sim{border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--panel);margin-bottom:10px}
+.tx-sim-h{font-size:12.5px;font-weight:900;margin-bottom:8px}
+.tx-tip{margin-top:9px;padding:9px 11px;border-radius:10px;background:rgba(34,197,94,.09);
+  font-size:11px;line-height:1.6;color:var(--sub)}
+.tx-tip b{color:var(--text);font-weight:800}
+.tx-list-h{font-size:12.5px;font-weight:900;margin:12px 2px 8px}
+.tx-list-h span{font-weight:600;color:var(--sub-2);font-size:10.5px;margin-left:5px}
+.tx-list{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--panel);max-height:400px;overflow-y:auto}
+.tx-r{display:grid;grid-template-columns:44px 1fr 62px 92px 60px;gap:8px;align-items:center;
+  padding:9px 11px;border-bottom:1px solid var(--border-soft);font-size:11.5px}
+.tx-r:last-child{border-bottom:0}
+.tx-r .tx-d{color:var(--sub-2);font-weight:700}
+.tx-r .tx-n{font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tx-r .tx-n i{font-style:normal;font-size:9px}
+.tx-r .tx-q,.tx-r .tx-p,.tx-r .tx-rt{text-align:right;font-variant-numeric:tabular-nums}
+.tx-r .tx-q{color:var(--sub-2)}
+.tx-r .tx-p{font-weight:900}
+.tx-foot{margin-top:10px;font-size:10.5px;line-height:1.6;color:var(--sub-2)}
+.tx-foot b{color:var(--sub)}
+
+/* ══ [v9.84] 공매도 잔고 ══════════════════════════════════════════════════ */
+.srt-wrap{margin-top:16px}
+.srt-load{padding:14px;text-align:center;font-size:12px;color:var(--sub-2)}
+.srt-box{border:1px solid var(--border);border-radius:16px;padding:14px;background:var(--panel)}
+.srt-h{font-size:14px;font-weight:900;margin-bottom:11px;display:flex;align-items:center;gap:8px}
+.srt-lv{font-size:10.5px;font-weight:800;border-radius:99px;padding:2.5px 9px}
+.srt-lv.bad{color:var(--up);background:var(--up-bg)}
+.srt-lv.mid{color:#b45309;background:rgba(245,158,11,.15)}
+.srt-lv.ok{color:#16a34a;background:rgba(34,197,94,.13)}
+html[data-theme="dark"] .srt-lv.ok{color:#4ade80}
+.srt-main{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+@media(max-width:430px){.srt-main{grid-template-columns:1fr 1fr}}
+.srt-main>div{padding:9px 10px;border-radius:11px;background:var(--border-soft)}
+.srt-main span{display:block;font-size:10px;font-weight:700;color:var(--sub-2)}
+.srt-main b{display:block;font-size:17px;font-weight:900;letter-spacing:-.5px;margin:2px 0 0}
+.srt-main i{font-style:normal;font-size:10px;font-weight:600;color:var(--sub-2)}
+.srt-bar{height:8px;border-radius:99px;background:var(--border-soft);overflow:hidden;margin:11px 0 9px}
+.srt-bar i{display:block;height:100%;border-radius:99px;
+  background:linear-gradient(90deg,#60a5fa,#e5443b)}
+.srt-d{font-size:11.5px;line-height:1.65;color:var(--sub)}
+.srt-d b{color:var(--text);font-weight:800}
+.srt-none{font-size:12px;line-height:1.7;color:var(--sub)}
+.srt-none b{color:var(--text);font-weight:800}
+.srt-none span{font-size:10.5px;color:var(--sub-2)}
+.srt-foot{margin-top:11px;padding:10px 11px;border-radius:11px;background:var(--border-soft);
+  font-size:10.5px;line-height:1.7;color:var(--sub-2)}
+.srt-foot b{color:var(--sub);font-weight:800}

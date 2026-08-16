@@ -8457,20 +8457,65 @@ var numish3 = (v) => {
 };
 var ymd4 = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
 var stripTags = (s) => s.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
-async function krxPost(url, form, ms, cookie) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), ms);
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.85] KRX 세션 — 'LOGOUT' 응답의 정체
+   ─────────────────────────────────────────────────────────────────────────────
+   getJsonData.cmd 를 곧바로 부르면 KRX 는 HTTP 400 에 본문 "LOGOUT" 만 돌려준다.
+   bld 코드가 틀려서가 아니라, 세션 쿠키(JSESSIONID)가 없어서다. 실제 브라우저는
+   조회 화면을 먼저 열어 쿠키를 받은 뒤 그 쿠키로 데이터를 요청한다.
+   지금까지 이 프로젝트는 krxPost 에 쿠키 자리를 만들어 두고도 늘 빈 값을 넘겼다.
+   그래서 KRX 를 쓰는 기능(투자자별 예비 경로 등)이 조용히 실패해 왔다.
+
+   [고침] 조회 화면을 한 번 GET 해 Set-Cookie 를 받아 두고, 이후 요청에 붙인다.
+   쿠키는 워커 인스턴스 메모리에 20분 담아 두어 매번 받아오지 않는다. */
+var _krxCk = "", _krxCkAt = 0;
+async function krxSession(force) {
+  if (!force && _krxCk && Date.now() - _krxCkAt < 20 * 60e3) return _krxCk;
   try {
-    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "User-Agent": UA16, "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd", "X-Requested-With": "XMLHttpRequest", ...cookie ? { "Cookie": cookie } : {} }, body: new URLSearchParams(form).toString(), signal: c.signal });
-    const txt = await r.text();
-    try {
-      return { j: JSON.parse(txt) };
-    } catch {
-      return { bad: txt.slice(0, 30) };
-    }
-  } finally {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 6000);
+    const r = await fetch("https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020506", {
+      headers: { "User-Agent": UA20, Accept: "text/html,application/xhtml+xml,*/*",
+        "Accept-Language": "ko-KR,ko;q=0.9" }, signal: c.signal });
     clearTimeout(t);
+    /* Set-Cookie 가 여러 줄일 수 있다 — 이름=값 부분만 모아 붙인다 */
+    let raw = "";
+    try { if (r.headers.getSetCookie) raw = r.headers.getSetCookie().join("; ");
+      else raw = r.headers.get("set-cookie") || ""; } catch (e) { raw = r.headers.get("set-cookie") || ""; }
+    const parts = String(raw).split(/,(?=[^;]+=)|;\s*/).map(x => x.trim())
+      .filter(x => /^(JSESSIONID|__smVisitorID|SCOUTER)=/.test(x));
+    if (parts.length) { _krxCk = parts.join("; "); _krxCkAt = Date.now(); }
+    return _krxCk;
+  } catch (e) { return _krxCk; }
+}
+async function krxPost(url, form, ms, cookie) {
+  /* [v9.85] 쿠키를 안 넘겼으면 세션을 받아 붙인다 */
+  let ck = cookie;
+  if (!ck) { try { ck = await krxSession(false); } catch (e) { ck = ""; } }
+  const once = async (useCk) => {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), ms);
+    try {
+      const r = await fetch(url, { method: "POST", headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "User-Agent": UA20,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Referer": "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd",
+        "Origin": "https://data.krx.co.kr",
+        "X-Requested-With": "XMLHttpRequest",
+        ...useCk ? { "Cookie": useCk } : {} },
+        body: new URLSearchParams(form).toString(), signal: c.signal });
+      const txt = await r.text();
+      try { return { j: JSON.parse(txt) }; }
+      catch { return { bad: txt.slice(0, 30), status: r.status }; }
+    } finally { clearTimeout(t); }
+  };
+  let out = await once(ck);
+  /* 'LOGOUT' = 세션 만료. 쿠키를 새로 받아 딱 한 번 다시 시도한다. */
+  if (out.bad && /LOGOUT/i.test(out.bad)) {
+    try { const fresh = await krxSession(true); if (fresh) out = await once(fresh); } catch (e) {}
   }
+  return out;
 }
 async function krxInvestors(code) {
   const U = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
@@ -9926,13 +9971,17 @@ async function krFutures() {
           rghtTpCd: "T", isuCd: "", isuCd2: "", strtDd: ymd, endDd: ymd,
           share: "1", money: "1", csvxls_isNo: "false"
         });
+        /* [v9.85] 세션 쿠키 없이 부르면 KRX 가 'LOGOUT' 만 돌려준다 */
+        const _ck1 = await krxSession(false).catch(() => "");
         const r = await fetch("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd", {
           method: "POST",
           headers: {
             "User-Agent": UA20, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "Referer": "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd",
+            "Origin": "https://data.krx.co.kr",
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "X-Requested-With": "XMLHttpRequest", "Accept-Language": "ko"
+            "X-Requested-With": "XMLHttpRequest", "Accept-Language": "ko",
+            ..._ck1 ? { "Cookie": _ck1 } : {}
           }, body: body.toString(), signal: ck.signal
         });
         clearTimeout(tk2);
@@ -10197,6 +10246,148 @@ var push_default = async (req2, context) => {
     return J({ ...r, alerts: out.length });
   }
   return J({ ok: false, err: "act" }, 400);
+};
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.81] 호가창 — 지어낸 값이 아니라 실제 호가
+   ─────────────────────────────────────────────────────────────────────────────
+   네이버 공개 화면이 쓰는 경로를 그대로 읽는다. 응답을 직접 받아 구조를 확인했다.
+     GET m.stock.naver.com/api/stock/{code}/askingPrice
+     { lastClosePrice: 268000,              // 전일 종가(숫자)
+       totalSell: "1,566,297",              // 매도 총잔량(콤마 문자열)
+       totalBuy:  "360,069",
+       sellInfo:  [{price:"276,500", count:"72,118", rate:16}, … 5개],  // 높은 값 → 낮은 값
+       buyInfos:  [{price:"274,000", count:"163,712", rate:37}, … 5개] }
+   [확인한 것]
+     · 매도·매수 각 5단계다. 실제 MTS 는 10단을 보여 주지만 이 경로는 5단까지만 준다.
+       모자란 5칸을 지어내지 않는다 — 있는 5단만 정확히 보여 준다.
+     · rate = floor(잔량 ÷ 전체최대잔량 × 100). 열 개 값 모두 계산과 일치했다.
+       막대 길이를 우리가 다시 계산할 필요 없이 그대로 쓰면 된다.
+     · 필드 이름이 sellInfo(단수)·buyInfos(복수)로 어긋나 있다. 원천이 그렇다.
+   [한계] 공개 화면 시세이므로 거래소 실시간과 시차가 있을 수 있다.
+          화면에 '실시간'이라 적지 않고 받은 시각을 함께 보여 준다. */
+var askprice_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "").replace(/[^0-9A-Za-z]/g, "").slice(0, 12);
+  const J = (o, ma) => new Response(JSON.stringify(o), {
+    headers: { "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${ma == null ? 3 : ma}`,
+      "access-control-allow-origin": "*" }
+  });
+  if (!code) return J({ ok: false, err: "code" }, 60);
+  const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^0-9.-]/g, "")); return isFinite(n) ? n : 0; };
+  try {
+    const c = new AbortController(); const t = setTimeout(() => c.abort(), 4500);
+    const r = await fetch(`https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/askingPrice`,
+      { headers: { "User-Agent": UA20, Accept: "application/json", Referer: "https://m.stock.naver.com/" }, signal: c.signal });
+    clearTimeout(t);
+    if (!r.ok) return J({ ok: false, err: "http", status: r.status }, 15);
+    const d = await r.json();
+    const rows = (arr) => (Array.isArray(arr) ? arr : []).map((x) => ({
+      p: num(x.price), q: num(x.count), r: Math.max(0, Math.min(100, num(x.rate)))
+    })).filter((x) => x.p > 0);
+    const sell = rows(d.sellInfo);      // 높은 값 → 낮은 값 (화면 순서 그대로)
+    const buy = rows(d.buyInfos);
+    if (!sell.length && !buy.length) return J({ ok: false, err: "empty" }, 15);
+    /* 최우선 호가와 스프레드 — 화면에서 다시 계산하지 않게 여기서 확정한다 */
+    const bestAsk = sell.length ? sell[sell.length - 1].p : null;   // 매도 중 가장 낮은 값
+    const bestBid = buy.length ? buy[0].p : null;                   // 매수 중 가장 높은 값
+    return J({
+      ok: true, code,
+      prevClose: num(d.lastClosePrice) || null,
+      totalSell: num(d.totalSell), totalBuy: num(d.totalBuy),
+      sell, buy, bestAsk, bestBid,
+      spread: (bestAsk != null && bestBid != null) ? bestAsk - bestBid : null,
+      levels: Math.max(sell.length, buy.length),
+      at: Date.now()
+    }, 3);
+  } catch (e) {
+    return J({ ok: false, err: String((e && e.message) || e).slice(0, 60) }, 10);
+  }
+};
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v9.84] 공매도 잔고 · 프로그램 매매
+   ─────────────────────────────────────────────────────────────────────────────
+   KRX 정보데이터시스템의 공개 조회 화면이 쓰는 경로를 그대로 읽는다.
+     공매도 잔고 : bld = dbms/MDC/STAT/srt/MDCSTAT30501
+                   searchType=1(전종목) · mktTpCd=1(코스피)/2(코스닥) · trdDd=YYYYMMDD
+                   → 종목코드·종목명·공매도잔고수량·상장주식수·잔고금액·시가총액·비중
+   [반드시 알아야 할 시차]
+     공매도 잔고는 보고의무 발생일(T)로부터 T+2 까지 보고한다. 그래서 오늘 조회해도
+     '이틀 전' 자료까지만 나온다. 이걸 '오늘 잔고'라고 적으면 거짓말이 된다.
+     응답에 기준일(basisYmd)을 함께 실어 화면에 그대로 밝힌다.
+   [또 하나] 0.01% 미만 잔고는 보고의무가 없어 집계에 잡히지 않는다.
+     '잔고 0' 이 '공매도가 없다'는 뜻이 아니다. 이것도 화면에 적는다. */
+async function srtFetchDay(mkt, ymd) {
+  const U = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+  const r = await krxPost(U, {
+    bld: "dbms/MDC/STAT/srt/MDCSTAT30501",
+    searchType: "1", mktTpCd: String(mkt), trdDd: ymd,
+    share: "1", money: "1", csvxls_isNo: "false"
+  }, 7000, "");
+  if (r.bad || !r.j) return null;
+  const rows = r.j.OutBlock_1 || r.j.output || r.j.block1 || [];
+  return Array.isArray(rows) && rows.length ? rows : null;
+}
+var srt_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "").replace(/[^0-9A-Za-z]/g, "").slice(0, 12);
+  const J = (o, ma) => new Response(JSON.stringify(o), {
+    headers: { "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${ma == null ? 1800 : ma}`, "access-control-allow-origin": "*" } });
+  const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^0-9.-]/g, "")); return isFinite(n) ? n : 0; };
+  /* 최근 영업일부터 거슬러 올라가며 자료가 있는 날을 찾는다(T+2 시차 때문에 필수) */
+  const days = [];
+  { let off = 0; while (days.length < 8 && off < 14) {
+      const d = new Date(Date.now() + 9 * 3600e3 - off * 864e5);
+      const w = d.getUTCDay();
+      if (w !== 0 && w !== 6) days.push(d.toISOString().slice(0, 10).replace(/-/g, ""));
+      off++; } }
+  const CK = "srt:" + (code || "all");
+  try { if (KV) { const c = await KV.get(CK, "json");
+    if (c && Date.now() - (c.at || 0) < 6 * 3600e3) return J(c, 1800); } } catch (e) {}
+  try {
+    let rows = null, used = "", mkt = 1;
+    /* 코스피 → 코스닥 순으로, 자료가 나오는 첫 날짜를 쓴다 */
+    outer: for (const d of days.slice(0, 5)) {
+      for (const m of [1, 2]) {
+        const r = await srtFetchDay(m, d);
+        if (r) { rows = r; used = d; mkt = m; if (!code) break outer;
+          /* 종목 지정이면 그 종목이 이 시장에 있는지 확인하고, 없으면 다른 시장도 본다 */
+          const hit = r.find((x) => String(x.ISU_SRT_CD || x.ISU_CD || "").replace(/^A/, "") === code);
+          if (hit) break outer; else rows = null; }
+      }
+    }
+    if (!rows) return J({ ok: false, err: "nodata", tried: days.slice(0, 5) }, 600);
+    const map = (x) => ({
+      code: String(x.ISU_SRT_CD || x.ISU_CD || "").replace(/^A/, ""),
+      name: String(x.ISU_ABBRV || x.ISU_NM || ""),
+      qty: num(x.BAL_QTY),                 // 공매도 잔고 수량
+      shares: num(x.LIST_SHRS),            // 상장주식수
+      amt: num(x.BAL_AMT),                 // 잔고 금액
+      cap: num(x.MKTCAP),                  // 시가총액
+      pct: num(x.BAL_RTO)                  // 비중(%)
+    });
+    if (code) {
+      const hit = rows.find((x) => String(x.ISU_SRT_CD || x.ISU_CD || "").replace(/^A/, "") === code);
+      if (!hit) return J({ ok: true, code, basisYmd: used, found: false,
+        note: "보고 기준(상장주식수 0.01% 이상)에 못 미쳐 집계되지 않았습니다." }, 1800);
+      const out = { ok: true, code, basisYmd: used, found: true, item: map(hit), at: Date.now() };
+      try { if (KV) await KV.put(CK, JSON.stringify(out), { expirationTtl: 21600 }); } catch (e) {}
+      return J(out, 1800);
+    }
+    /* 전종목 — 비중이 높은 순 상위 40 */
+    const list = rows.map(map).filter((x) => x.code && x.pct > 0)
+      .sort((a, b) => b.pct - a.pct).slice(0, 40);
+    const out = { ok: true, basisYmd: used, mkt, list, n: rows.length, at: Date.now() };
+    try { if (KV) await KV.put(CK, JSON.stringify(out), { expirationTtl: 21600 }); } catch (e) {}
+    return J(out, 1800);
+  } catch (e) {
+    return J({ ok: false, err: String((e && e.message) || e).slice(0, 60) }, 300);
+  }
 };
 
 var market_default = async (req2) => {
@@ -12132,6 +12323,8 @@ var ROUTES = {
   "logo": logo_default,
   "logoscan": logoscan_default,
   "market": market_default,
+  "askprice": askprice_default,   /* [v9.81] 호가 */
+  "srt": srt_default,             /* [v9.84] 공매도 잔고 */
   "push": push_default,          /* [v9.76] 웹 푸시 */
   "meta": meta_default,
   "news": news_default,
@@ -13306,21 +13499,35 @@ async function uslogo_default(req2){
        티커 기반 소스가 엉뚱한 그림을 주거나 아예 없는 경우가 많은데,
        그 결과가 먼저 캐시되면 도메인 쪽을 시도할 기회조차 사라진다.
        도메인이 있으면 그 계열을 우선하고, 실패해도 티커 계열로 이어 간다. */
+    /* ══ [v9.77] 우버·디즈니 같은 대형주가 로고 없이 나오던 이유 ═══════════════
+       후보를 15곳까지 '한 줄로 세워' 하나씩 두드렸다. 앞쪽이 느리거나 죽어 있으면
+       뒤쪽에 닿기 전에 워커의 외부호출 한도(50)나 시간에 걸린다. 그런데 실패하면
+       "이 종목은 로고 없음(no:1)"을 12시간이나 캐시해 버려서, 한 번 실패한 종목은
+       반나절 동안 회색 배지로 굳었다. 유명 회사인데 로고가 없던 건 대개 이것이다.
+       [고침] ① 4개씩 묶어 동시에 두드린다 — 느린 후보 하나가 전체를 막지 못한다.
+              ② 첫 묶음에 가장 잘 되는 곳들을 배치한다.
+              ③ 실패 캐시를 12시간 → 25분으로 줄인다. 잠깐의 장애로 반나절을
+                 잃지 않게. 성공 캐시는 그대로 2주다. */
     let best=null;
-    for(const url of cands){
+    const tryOne=async(url)=>{
       try{
-        const c=new AbortController(); const t2=setTimeout(()=>c.abort(),4500);
+        const c=new AbortController(); const t2=setTimeout(()=>c.abort(),3500);
         const r=await fetch(url,{headers:{ "User-Agent": UA20, Accept:"image/*" },signal:c.signal});
         clearTimeout(t2);
-        if(!r.ok)continue;
+        if(!r.ok)return null;
         const ct=r.headers.get("content-type")||"image/png";
-        if(ct.indexOf("image")<0&&ct.indexOf("svg")<0)continue;
+        if(ct.indexOf("image")<0&&ct.indexOf("svg")<0)return null;
         const buf=new Uint8Array(await r.arrayBuffer());
-        /* 파비콘 계열은 마지막에만 오므로 그때만 문턱을 낮춘다 */
-        const isIcon=/duckduckgo|s2\/favicons/.test(url);
-        if(!imgLooksReal(buf,ct,isIcon?16:48))continue;
-        best={buf,ct}; break;
-      }catch(e){}
+        const isIcon=/duckduckgo|s2\/favicons|icon\.horse/.test(url);
+        if(!imgLooksReal(buf,ct,isIcon?16:48))return null;
+        return {buf,ct};
+      }catch(e){ return null; }
+    };
+    for(let i=0;i<cands.length&&!best;i+=4){
+      const group=cands.slice(i,i+4);
+      const res=await Promise.all(group.map(tryOne));
+      /* 묶음 안에서는 앞선 후보(더 좋은 원천)를 우선한다 */
+      for(const r of res){ if(r){ best=r; break; } }
     }
     if(best){
       try{ if(KV&&best.buf.length<80000){
@@ -13328,8 +13535,9 @@ async function uslogo_default(req2){
         await KV.put(CKT,JSON.stringify({ct:best.ct,b64:btoa(bin)}),{expirationTtl:1209600}); } }catch(e){}
       return new Response(best.buf,{headers:{"content-type":best.ct,"cache-control":"public, max-age=604800","access-control-allow-origin":"*"}});
     }
-    try{ if(KV)await KV.put(CKT,JSON.stringify({no:1}),{expirationTtl:43200}); }catch(e){}
-    return new Response("none",{status:404,headers:{"cache-control":"public, max-age=21600"}});
+    /* [v9.77] 실패는 짧게만 기억한다 — 일시적 장애로 반나절을 잃지 않게 */
+    try{ if(KV)await KV.put(CKT,JSON.stringify({no:1}),{expirationTtl:1500}); }catch(e){}
+    return new Response("none",{status:404,headers:{"cache-control":"public, max-age=1500"}});
   }
   if(!d||d.indexOf(".")<0)return new Response("bad",{status:400});
   const CK="uslg:"+d;
@@ -14671,15 +14879,11 @@ async function invtrend_default(){
         const body=new URLSearchParams({
           bld:"dbms/MDC/STAT/standard/MDCSTAT02201",
           locale:"ko_KR", mktId:mkId, trdDd:ymd2, share:"1", money:"1", csvxls_isNo:"false"});
-        const c=new AbortController();const t=setTimeout(()=>c.abort(),7000);
-        const r=await fetch("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",{
-          method:"POST",
-          headers:{"User-Agent":UA20,"content-type":"application/x-www-form-urlencoded; charset=UTF-8",
-            Referer:"https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd"},
-          body,signal:c.signal});
-        clearTimeout(t);
-        if(!r.ok){out.diag.push("krx/"+key+":"+r.status);continue;}
-        const j=await r.json();
+        /* [v9.85] krxPost 로 통일 — 세션 획득과 LOGOUT 재시도가 함께 적용된다 */
+        const rr=await krxPost("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+          Object.fromEntries(body), 7000);
+        if(rr.bad){out.diag.push("krx/"+key+":"+String(rr.bad).slice(0,12));continue;}
+        const j=rr.j;
         const rows=(j&&(j.output||j.OutBlock_1))||[];
         if(!rows.length){out.diag.push("krx/"+key+":empty@"+ymd2);continue;}
         const pick=(nm)=>{const f=rows.find(x=>String(x.INVST_TP_NM||x.INVST_NM||"").includes(nm));
@@ -15010,7 +15214,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "9.76.0";
+var APP_VER = "9.85.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

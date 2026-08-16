@@ -79,8 +79,14 @@
   /* ══ [v9.71] 입장 화면을 '맑은 하늘'로 ═══════════════════════════════════
      위쪽은 깊은 하늘색, 아래로 갈수록 옅어지며 지평선의 빛으로 이어진다.
      글자는 어두운 남색으로 바꿔 밝은 배경에서도 또렷하게 읽힌다. */
-  /* [v9.71c] 천정은 사진처럼 짙은 코발트블루, 지평선은 뽀얗게 — 실제 맑은 날의 색 */
-  background:linear-gradient(180deg,#0d6fd4 0%,#1580e0 14%,#3b9ae9 32%,#6bb8f1 52%,#9ad4f7 70%,#c6e6fb 85%,#e6f4fd 95%,#f4fbff 100%);
+  /* ══ [v9.77] 구름을 걷고 '하늘색 그라데이션'만 남긴다 ═══════════════════════
+     구름 무늬(feTurbulence)는 가까이서 보면 결이 반복돼 얼룩처럼 보였다.
+     위는 진한 하늘, 아래로 갈수록 연해지는 색만으로 깔끔하게 간다.
+     단계를 촘촘히 둬야 넓은 화면에서 띠(밴딩)가 생기지 않는다. */
+  background:linear-gradient(180deg,
+    #1173d8 0%, #1a80e2 10%, #2b8fe8 20%, #3f9eee 30%, #57adf2 40%,
+    #71bcf5 50%, #8ccbf8 60%, #a8d9fa 70%, #c3e5fc 80%, #daeffd 88%,
+    #ecf7fe 95%, #f7fcff 100%);
   color:#0d2c4a;
   font-family:Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
   transition:opacity .55s ease;
@@ -95,41 +101,20 @@
 /* 오로라 — 두 겹의 큰 원이 천천히 흐른다 */
 /* 햇살 — 오른쪽 위에서 부드럽게 번진다 */
 #bootGate::before,#bootGate::after{content:'';position:absolute;border-radius:50%;pointer-events:none}
-#bootGate::before{width:78vw;height:78vw;max-width:560px;max-height:560px;top:-24vw;right:-18vw;
-  background:radial-gradient(circle,rgba(255,247,214,.95),rgba(255,236,168,.55) 26%,rgba(255,225,140,.16) 52%,transparent 72%);
-  filter:blur(6px);animation:bgSun 9s ease-in-out infinite}
+/* [v9.77] 해는 은은하게만 — 그라데이션을 해치지 않을 정도로 */
+#bootGate::before{width:70vw;height:70vw;max-width:480px;max-height:480px;top:-22vw;right:-16vw;
+  background:radial-gradient(circle,rgba(255,250,228,.55),rgba(255,242,190,.24) 30%,transparent 66%);
+  filter:blur(24px);animation:bgSun 9s ease-in-out infinite}
 /* 지평선의 옅은 빛 */
 #bootGate::after{width:150vw;height:60vw;max-height:420px;border-radius:50% 50% 0 0;bottom:-14vw;left:-25vw;
   background:radial-gradient(ellipse at 50% 100%,rgba(255,255,255,.82),rgba(255,255,255,.25) 46%,transparent 74%);
   filter:blur(28px)}
 @keyframes bgSun{0%,100%{transform:scale(1);opacity:.92}50%{transform:scale(1.07);opacity:1}}
 
-/* ══ [v9.71c] 구름 다시 만들기 — 안개가 아니라 '뭉게구름'으로 ════════════════
-   [지난 판의 문제] feTurbulence 를 그대로 흰색으로 깔았더니 노이즈가 화면 전체에
-   옅게 퍼져 안개·연무처럼 보였다. 실제 맑은 하늘(첨부 5번)은 그 반대다 —
-   파란 하늘이 대부분이고, 흰 구름은 '덩어리'로 뚝뚝 떨어져 있다.
-   [이번 판] 알파를 가파르게 잘라 노이즈 상위 값만 남긴다.
-     alpha = 6.2·N − 3.55  →  N이 0.573 넘는 곳만 구름이 되고 그 아래는 완전 투명.
-   그래서 구름이 덩어리로 끊기고 사이로 파란 하늘이 그대로 보인다.
-   octave 를 줄여 잔결을 없애고, 가장자리는 살짝 흐려 솜처럼 만든다. */
-.bg-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
-.bg-cl{position:absolute;left:0;width:220%;background-repeat:repeat-x;will-change:transform}
-/* 높이 뜬 작은 조각구름 — 멀리 있어 작고 성글다 */
-.bg-cl.c1{top:6%;height:26%;opacity:.9;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1100' height='240'%3E%3Cfilter id='a' x='-10%25' y='-10%25' width='120%25' height='120%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.014 0.028' numOctaves='3' seed='19'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 7 0 0 0 -4.15'/%3E%3CfeGaussianBlur stdDeviation='1.4'/%3E%3C/filter%3E%3Crect width='1100' height='240' filter='url(%23a)'/%3E%3C/svg%3E");
-  background-size:1100px 100%;animation:bgDrift 165s linear infinite}
-/* 주인공 뭉게구름 — 크고 또렷하다 */
-.bg-cl.c2{top:16%;height:40%;opacity:1;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1250' height='360'%3E%3Cfilter id='b' x='-10%25' y='-10%25' width='120%25' height='120%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0055 0.011' numOctaves='4' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 6.2 0 0 0 -3.55'/%3E%3CfeGaussianBlur stdDeviation='2.2'/%3E%3C/filter%3E%3Crect width='1250' height='360' filter='url(%23b)'/%3E%3C/svg%3E");
-  background-size:1250px 100%;animation:bgDrift 108s linear infinite}
-/* 지평선 쪽 낮은 구름띠 — 원근 때문에 납작하고 옅다 */
-.bg-cl.c3{top:46%;height:30%;opacity:.72;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1500' height='260'%3E%3Cfilter id='c' x='-10%25' y='-10%25' width='120%25' height='120%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.010 0.030' numOctaves='3' seed='31'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 6.6 0 0 0 -3.95'/%3E%3CfeGaussianBlur stdDeviation='1.8'/%3E%3C/filter%3E%3Crect width='1500' height='260' filter='url(%23c)'/%3E%3C/svg%3E");
-  background-size:1500px 100%;animation:bgDrift 205s linear infinite reverse}
-/* 아래로 갈수록 대기가 뿌옇게 — 실제 하늘의 원근감 */
-.bg-sky::after{content:'';position:absolute;inset:0;pointer-events:none;
-  background:linear-gradient(180deg,transparent 0%,transparent 56%,rgba(214,238,252,.5) 80%,rgba(233,246,254,.88) 100%)}
-@keyframes bgDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-45.45%,0,0)}}
+/* [v9.77] 구름 레이어 제거 — 그라데이션만으로 간다.
+   마크업은 남겨 두되 그리지 않는다(되돌리기 쉽게). */
+.bg-sky{display:none}
+.bg-cl{display:none}
 /* 격자 — 아주 옅게 */
 /* [v9.71c] 격자무늬 제거 — 밤하늘 배경일 때 쓰던 장식인데, 하늘 사진 위에
    흰 모눈이 겹쳐 창틀처럼 보였다(첨부 4번). 하늘에는 격자가 없다. */
@@ -1394,6 +1379,7 @@
         <button data-info="ai">AI 종목 분석<i class="lv">LIVE</i></button>
         <button data-info="chart">차트</button>
         <button data-info="sise">시세</button>
+        <button data-info="asking">호가</button>
         <button data-info="news">뉴스</button>
         <button data-info="etf" id="tabEtf" hidden>ETF정보</button>
         <button data-info="investor">투자자별</button>
@@ -1439,7 +1425,11 @@
     <div class="fo-sec-h">매매 습관<span>거래 기록에서 읽어낸 내 버릇</span></div>
     <div class="fo-sec" id="foHabit"></div>
 
-    <!-- ⑥ 복기 -->
+    <!-- ⑥ 손익·세금 리포트 -->
+    <div class="fo-sec-h">손익 · 세금<span>매도로 확정된 손익과 실제 세제 적용</span></div>
+    <div class="fo-sec" id="taxBody"></div>
+
+    <!-- ⑦ 복기 -->
     <div class="fo-sec-h">복기<span>근거별로 얼마나 맞았나</span></div>
     <div class="fo-sec" id="foReview"></div>
   </section>
