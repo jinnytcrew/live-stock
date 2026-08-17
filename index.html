@@ -635,6 +635,8 @@
       <button data-view="folio">MY 포트폴리오<i class="nav-dot" id="folioDot" hidden></i></button>
       <button data-view="clan">클랜<i class="nav-dot" id="clanDot" hidden></i></button>
       <button data-view="friend">친구<i class="nav-dot" id="frDot" hidden></i></button>
+      <!-- [v12.1] 이용 등급 — 내 계좌 안에 있으니 눈에 띄지 않았다. 독립 메뉴로 뺀다 -->
+      <button data-view="tier">멤버십</button>
     </nav>
     <div class="header-right">
       <span class="pill" id="mktPill"><span class="dot idle"></span>장 상태</span>
@@ -1398,6 +1400,30 @@
      예전에는 작은 모달에 밀어 넣었다. 차트가 눌려 확대·축소가 불편했고, 종목
      화면과 생김새도 달라 같은 앱처럼 보이지 않았다. 종목 화면(view-trade)과
      같은 뼈대로 옮긴다 — 제목·설명 / 시세 머리말 / 지표 격자 / 차트 / 오늘 흐름. -->
+<!-- ══ [v12.1] 이용 등급 화면 ═══════════════════════════════════════════════ -->
+<section class="view" id="view-tier" hidden>
+    <div class="page-title">멤버십</div>
+    <div class="page-sub">등급에 따라 담을 수 있는 개수와 쓸 수 있는 기능이 달라집니다. 이용권은 무료로 발급해 드려요.</div>
+
+    <!-- 만료가 가까우면 맨 위에 알린다 -->
+    <div id="tierExpire"></div>
+    <!-- 지금 등급 · 혜택 · 문의 · 쿠폰 -->
+    <div id="tierCard"></div>
+    <!-- 지금 얼마나 쓰고 있나 -->
+    <div id="tierUsage"></div>
+    <!-- 이용권 정보 -->
+    <div id="tierInfo"></div>
+
+    <div class="panel tier-table-panel">
+      <div class="tt-h">등급별 안내</div>
+      <div class="tt-sub">지금 등급에는 <b>색이 칠해져</b> 있습니다. 가로로 밀어서 모두 보실 수 있어요.</div>
+      <div class="tt-wrap" id="tierTable"></div>
+    </div>
+
+    <!-- 자주 묻는 것 -->
+    <div id="tierFaq"></div>
+</section>
+
 <section class="view" id="view-index" hidden>
     <div class="page-title" id="ixTitle">지수</div>
     <div class="page-sub">캔들 차트는 손가락(마우스)으로 좌우 이동·확대/축소할 수 있습니다.</div>
@@ -1463,8 +1489,6 @@
   <section class="view" id="view-account" hidden>
     <div class="page-title">내 계좌</div>
     <div class="page-sub">보유 종목을 실시간 시세로 평가합니다. 예수금은 직접 설정할 수 있습니다.</div>
-    <!-- [v11.1] 이용 등급 카드 — 배지·혜택·문의·쿠폰 -->
-    <div id="tierCard"></div>
     <!-- [v4.40] 계좌 선택 · 개설 안내 -->
     <div id="acctBar"></div>
     <div id="acctGuide"></div>

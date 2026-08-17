@@ -5890,8 +5890,9 @@ function tierGrant(acc, key, days, from) {
 /* 응답에 실어 보낼 모양 — 화면은 이것만 믿는다 */
 function tierPayload(acc) {
   const t = tierOf(acc);
+  /* [v12.2] 받은 날짜도 함께 — 멤버십 화면에서 '언제부터'를 보여 준다 */
   return { tier: t.key, lv: t.lv, until: t.until, expired: t.expired,
-           from: (acc && acc.tierFrom) || null };
+           from: (acc && acc.tierFrom) || null, at: (acc && acc.tierAt) || null };
 }
 
 async function accSave(st, id, acc) {
@@ -15621,7 +15622,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "12.0.0";
+var APP_VER = "12.2.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

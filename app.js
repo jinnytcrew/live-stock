@@ -5785,7 +5785,8 @@ function _showView(name){
   if(name==='ustrade')_paint(()=>safeRun('usTrade',renderUsTrade));
   if(name==='pro')_paint(()=>safeRun('pro',()=>setProTab(proTab)));
   if(name==='folio')_paint(()=>safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); }));
-  if(name==='index')_paint(()=>safeRun('ixDetail',renderIdxDetail));      /* [v10.4] 지수 상세 */
+  if(name==='index')_paint(()=>safeRun('ixDetail',renderIdxDetail));
+  if(name==='tier')_paint(()=>renderTierView());      /* [v10.4] 지수 상세 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
     /* [v4.81] 국내가 전 종목을 미리 받아 두듯 해외도 미리 받는다.
@@ -5802,7 +5803,7 @@ function _showView(name){
     safeRun('nxtStatus',loadNxtStatus);}
   if(name==='clan'){safeRun('clan',renderClan);}
   if(name==='friend'){safeRun('friend',renderFriend);}
-  if(name==='account'){safeRun('tierCard',renderTierCard);safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('acctsend',renderAcctSend);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
+  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('acctsend',renderAcctSend);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
     safeRun('equity',()=>{seedEquityFromTrades();recordEquity();requestAnimationFrame(drawEquity);});
     safeRun('bgList',refreshStockListSoon);
     if(currentView==='home')safeRun('heroeq',drawHeroEq);
@@ -12407,14 +12408,11 @@ function ixWireGestures(){
     const barW=plotW/Math.max(8,idxView.n);
     const dBars=Math.round((e.clientX-drag.x)/barW);
     if(!dBars)return;                       // 움직임이 한 봉도 안 되면 그대로 둔다
-    /* ══ [v12.0] 끄는 방향 ═══════════════════════════════════════════════════
-       종이를 손으로 미는 감각이다. 왼쪽으로 밀면(dBars<0) 종이가 왼쪽으로
-       가면서 오른쪽에 있던 '더 과거'가 아니라 '더 최근'이 보여야 할 것 같지만,
-       차트는 오른쪽이 최신이다. 즉 왼쪽으로 밀면 과거로 간다 — end 가 줄어야 한다.
-       dBars 는 왼쪽으로 밀 때 음수이므로 그대로 더한다(end += dBars).
-       예전 코드는 빼고 있어(end -= dBars) 방향이 뒤집혀 있었다. */
+    /* ══ [v12.1] 끄는 방향 — 손이 가는 쪽으로 시간이 흐른다 ═══════════════════
+       왼쪽으로 끌면 최근(오른쪽 끝)으로, 오른쪽으로 끌면 과거로 간다.
+       dBars 는 왼쪽으로 끌 때 음수이므로 빼 준다(end -= dBars). */
     idxView.follow=false;
-    idxView.end=drag.end+dBars;
+    idxView.end=drag.end-dBars;
     if(idxView.end>=cs.length-1){ idxView.end=cs.length-1; idxView.follow=true; }
     ixApply();
   });
@@ -19239,10 +19237,11 @@ function tierSet(p){
     if(p.tier==null&&p.lv==null)return;
     const prevLv=_tier.known?_tier.lv:-1;
     const lv=Math.max(0,Math.min(TIERS.length-1, p.lv!=null?+p.lv:TIERS.findIndex(t=>t.k===p.tier)));
-    _tier={tier:TIERS[lv].k, lv, until:p.until||null, expired:!!p.expired, known:true};
+    _tier={tier:TIERS[lv].k, lv, until:p.until||null, expired:!!p.expired, known:true,
+      at:p.at||_tier.at||null, from:p.from||_tier.from||null};
     /* 다음에 앱을 켤 때 곧바로 쓰도록 기억해 둔다 — 서버 값이 오면 덮어쓴다 */
     try{ localStorage.setItem('tierCache',JSON.stringify({tier:_tier.tier,lv,until:_tier.until})); }catch(e){}
-    try{ renderTierCard(); }catch(e){}
+    try{ if(currentView==='tier')renderTierView(); else renderTierCard(); }catch(e){}
     try{ paintTierBadge(); }catch(e){}
     /* ══ [v11.8] 등급이 바뀌면 보고 있던 화면도 다시 그린다 ═══════════════════
        예전에는 등급 카드와 배지만 갱신했다. 그래서 쿠폰을 등록해 Pro 가 되어도
@@ -19426,6 +19425,202 @@ function tierRemainText(){
   const dt=new Date(u);
   return `${dt.getFullYear()}.${String(dt.getMonth()+1).padStart(2,'0')}.${String(dt.getDate()).padStart(2,'0')}까지 · ${d}일 남음`;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v12.1] 등급별 안내표
+   ─────────────────────────────────────────────────────────────────────────────
+   표에 적는 값은 지어내지 않는다. 실제로 앱이 쓰는 TIER_LIMITS / TIER_NEED 에서
+   그대로 읽어 온다. 그래야 표를 고치는 것을 잊어 "적힌 것과 다르게 동작하는" 일이
+   생기지 않는다. 항목 이름만 여기서 정한다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v12.2] 멤버십 화면 코너들
+   ─────────────────────────────────────────────────────────────────────────────
+   등급표만 있으면 "그래서 나는 지금 어떤데?"에 답하지 못한다. 네 가지를 더 둔다.
+     ① 만료 임박 알림 — 모르고 지나쳐 갑자기 잠기는 일이 없게
+     ② 내 이용 현황  — 한도에 얼마나 다가갔는지. 막히기 전에 보인다
+     ③ 이용권 정보   — 언제 어떤 코드로 받았는지
+     ④ 자주 묻는 것  — 같은 질문이 문의로 오는 것을 줄인다
+   숫자는 모두 앱이 실제로 쓰는 값에서 읽는다. 지어내지 않는다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+function tierCounts(){
+  const n=(o)=>{ try{ return Object.keys(o||{}).length; }catch(e){ return 0; } };
+  const alertN=()=>{ try{ return Object.keys(priceAlerts||{})
+      .filter(c=>priceAlerts[c]&&(priceAlerts[c].above||priceAlerts[c].below)).length; }catch(e){ return 0; } };
+  const fxN=()=>{ try{ return Object.keys(fxAlerts||{})
+      .filter(k=>fxAlerts[k]&&(fxAlerts[k].above||fxAlerts[k].below)).length; }catch(e){ return 0; } };
+  return {
+    watch:  (watchlist||[]).length,
+    folder: (watchFolders||[]).length,
+    alert:  alertN(),
+    fxAlert:fxN(),
+    book:   (bookOrders||[]).length,
+    compare:(()=>{ try{ return cmpList().length; }catch(e){ return 0; } })(),
+    account:(acctList||[]).length,
+    memo:   n(stockMemos),
+  };
+}
+const TU_ROWS=[
+  ['watch','관심종목'],['folder','관심 폴더'],['alert','가격 알림'],['fxAlert','환율 알림'],
+  ['book','예약 주문'],['compare','비교함'],['account','계좌'],['memo','종목 메모'],
+];
+/* ── ① 만료 임박 ─────────────────────────────────────────────────────── */
+function renderTierExpire(){
+  const el=$('tierExpire'); if(!el)return;
+  const u=_tier.until;
+  if(_tier.expired){
+    el.innerHTML=`<div class="panel tx-warn expired">
+      <b>이용 기간이 끝났어요</b>
+      <span>지금은 Free 로 이용 중입니다. 새 이용권을 받으시면 곧바로 돌아옵니다.</span>
+      <button type="button" class="btn-primary" data-tier-go>이용 문의하기</button></div>`;
+    bindTierGo(el); return;
+  }
+  if(!u||tierLv()<=0){ el.innerHTML=''; return; }
+  const left=Math.ceil((u-Date.now())/864e5);
+  if(left>14){ el.innerHTML=''; return; }
+  el.innerHTML=`<div class="panel tx-warn${left<=3?' soon':''}">
+    <b>${left<=0?'오늘 만료됩니다':`이용 기간이 ${left}일 남았어요`}</b>
+    <span>끝나면 Free 로 돌아가고, 한도를 넘은 관심종목·알림은 <b>지워지지 않고 그대로 남습니다</b>. 다만 새로 담는 것만 막혀요.</span>
+    <button type="button" class="btn-primary" data-tier-go>연장 문의하기</button></div>`;
+  bindTierGo(el);
+}
+/* ── ② 내 이용 현황 ──────────────────────────────────────────────────── */
+function renderTierUsage(){
+  const el=$('tierUsage'); if(!el)return;
+  const c=tierCounts();
+  const rows=TU_ROWS.map(([k,nm])=>{
+    const used=c[k]||0, cap=tierLimit(k);
+    const inf=(cap===INF);
+    const pct=inf?0:Math.min(100,Math.round(used/Math.max(1,cap)*100));
+    const near=!inf&&pct>=80, full=!inf&&used>=cap;
+    const nx=(!inf&&near)?tierNextFor(k,used+1):null;
+    return `<div class="tu-row${full?' full':near?' near':''}">
+      <div class="tu-t"><b>${nm}</b>
+        <span class="num">${KRW(used)} <i>/ ${inf?'무제한':KRW(cap)}</i></span></div>
+      <div class="tu-bar"><i style="width:${inf?100:pct}%"></i></div>
+      ${full?`<div class="tu-n">가득 찼어요${nx?` · ${nx.n} 로 올리면 ${tierFmt((TIER_LIMITS[k]||[])[TIERS.indexOf(nx)])}까지`:''}</div>`
+        :near?`<div class="tu-n">거의 찼어요${nx?` · ${nx.n} 로 올리면 ${tierFmt((TIER_LIMITS[k]||[])[TIERS.indexOf(nx)])}까지`:''}</div>`:''}
+    </div>`;}).join('');
+  const fullN=TU_ROWS.filter(([k])=>{const cap=tierLimit(k);return cap!==INF&&(c[k]||0)>=cap;}).length;
+  el.innerHTML=`<div class="panel tu-panel">
+    <div class="tt-h">내 이용 현황</div>
+    <div class="tt-sub">${fullN?`<b>${fullN}가지</b>가 한도에 닿았어요.`:'아직 여유가 있어요.'}
+      한도를 넘어도 <b>이미 담은 것은 사라지지 않습니다</b>.</div>
+    <div class="tu-list">${rows}</div>
+  </div>`;
+}
+/* ── ③ 이용권 정보 ───────────────────────────────────────────────────── */
+function renderTierInfo(){
+  const el=$('tierInfo'); if(!el)return;
+  /* [v12.2] Free 이면서 받은 기록도 없으면 보여 줄 것이 없다 — 빈 칸을 만들지 않는다.
+     (등급이 내려간 뒤에도 옛 출처가 남아 있을 수 있어, 등급까지 함께 본다) */
+  if(tierLv()<=0&&!_tier.until&&!_tier.expired){ el.innerHTML=''; return; }
+  const d=(ms)=>{ if(!ms)return null; const x=new Date(ms);
+    return `${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`; };
+  const rows=[
+    ['등급', TIERS[tierLv()].n],
+    ['받은 날', d(_tier.at)||'—'],
+    ['만료', _tier.until?d(_tier.until):'기간 제한 없음'],
+    ['받은 경로', _tier.from||'—'],
+  ];
+  el.innerHTML=`<div class="panel ti-panel">
+    <div class="tt-h">이용권 정보</div>
+    <div class="ti-list">${rows.map(([k,v])=>
+      `<div class="ti-row"><span>${k}</span><b>${htmlEsc(String(v))}</b></div>`).join('')}</div>
+  </div>`;
+}
+/* ── ④ 자주 묻는 것 ──────────────────────────────────────────────────── */
+const TIER_FAQ=[
+  ['이용권은 어떻게 받나요?',
+   '위의 <b>이용 문의하기</b>를 눌러 메일이나 오픈채팅으로 남겨 주세요. 확인 후 코드를 보내 드립니다. <b>요금은 받지 않습니다.</b>'],
+  ['기간이 끝나면 담아 둔 것이 사라지나요?',
+   '아니요. 관심종목·알림·메모는 <b>그대로 남습니다.</b> 한도를 넘은 상태에서는 새로 담는 것만 막히고, 기존 것은 계속 보실 수 있어요.'],
+  ['다른 기기에서도 같은 등급인가요?',
+   '네. 등급은 <b>계정에 붙어</b> 있어서 같은 아이디로 로그인하면 어느 기기에서나 같습니다.'],
+  ['인터넷이 끊기면 어떻게 되나요?',
+   '마지막으로 확인한 등급을 그대로 씁니다. 연결이 안 될 때 기능이 잠기지 않도록 해 두었어요.'],
+  ['쿠폰을 두 번 쓸 수 있나요?',
+   '한 사람이 같은 코드를 두 번 쓸 수는 없습니다. 다만 <b>상위 등급 코드</b>를 받으면 곧바로 올라가고, 같은 등급 코드는 <b>기간이 이어집니다.</b>'],
+  ['등급을 올리면 바로 적용되나요?',
+   '네. 코드를 넣는 즉시 반영되고, 보고 있던 화면도 바로 열립니다.'],
+];
+function renderTierFaq(){
+  const el=$('tierFaq'); if(!el)return;
+  el.innerHTML=`<div class="panel tf-panel">
+    <div class="tt-h">자주 묻는 것</div>
+    <div class="tf-list">${TIER_FAQ.map(([q,a],i)=>
+      `<details class="tf-item"${i===0?' open':''}><summary>${htmlEsc(q)}</summary><p>${a}</p></details>`).join('')}</div>
+  </div>`;
+}
+function renderTierView(){
+  safeRun('tierExpire',renderTierExpire);
+  safeRun('tierCard',renderTierCard);
+  safeRun('tierUsage',renderTierUsage);
+  safeRun('tierInfo',renderTierInfo);
+  safeRun('tierTable',renderTierTable);
+  safeRun('tierFaq',renderTierFaq);
+}
+
+const TT_LIMIT_ROWS=[
+  ['watch',  '관심종목',   '담아 둘 수 있는 종목 수'],
+  ['folder', '관심 폴더',  '종목을 나눠 담는 폴더'],
+  ['alert',  '가격 알림',  '목표가에 닿으면 알려 줍니다'],
+  ['fxAlert','환율 알림',  '원·달러가 정한 값에 닿으면'],
+  ['book',   '예약 주문',  '지정가에 닿으면 자동 체결'],
+  ['compare','비교함',     '나란히 견줄 종목 수'],
+  ['account','계좌 개설',  '용도별로 나눠 쓰는 계좌'],
+  ['memo',   '종목 메모',  '매수 이유·목표를 적어 둡니다'],
+];
+const TT_FEAT_ROWS=[
+  ['csv',       'CSV 내려받기',    '시세표를 파일로 저장'],
+  ['push',      '앱 닫아도 알림',  '기기 알림으로 받기'],
+  ['tax',       '손익·세금 리포트','선입선출 계산·양도세 안내'],
+  ['consensus', '증권가 전망',     '목표주가·투자의견'],
+  ['autoStop',  '손절·익절 자동',  '값에 닿으면 대신 매도'],
+  ['trailing',  '트레일링 스탑',   '오르면 손절선도 따라 올라감'],
+  ['aiFull',    'AI 분석 전체',    '근거·시나리오까지'],
+  ['surge',     '급등주 예측',     '조건에 맞는 종목 찾기'],
+  ['accum',     '매집 포착기',     '조용히 모으는 흔적 분석'],
+  ['backtest',  '백테스트',        '과거로 전략 검증'],
+];
+function renderTierTable(){
+  const box=$('tierTable'); if(!box)return;
+  const me=tierLv();
+  const head=`<div class="tt-row tt-head">
+    <div class="tt-c0">항목</div>
+    ${TIERS.map((t,i)=>`<div class="tt-c${i===me?' now':''}" style="--tc:${t.c}">${t.n}${i===me?'<span>지금</span>':''}</div>`).join('')}
+  </div>`;
+  const limRows=TT_LIMIT_ROWS.map(([k,nm,desc])=>{
+    const arr=TIER_LIMITS[k]||[];
+    return `<div class="tt-row">
+      <div class="tt-c0"><b>${nm}</b><small>${desc}</small></div>
+      ${TIERS.map((t,i)=>{
+        const v=arr[i];
+        const txt=(v===INF)?'무제한':(v==null?'—':KRW(v));
+        return `<div class="tt-c${i===me?' now':''}">${txt}</div>`;
+      }).join('')}
+    </div>`;}).join('');
+  const featRows=TT_FEAT_ROWS.map(([k,nm,desc])=>{
+    const need=TIER_NEED[k];
+    return `<div class="tt-row">
+      <div class="tt-c0"><b>${nm}</b><small>${desc}</small></div>
+      ${TIERS.map((t,i)=>{
+        const on=(need==null)||(i>=need);
+        return `<div class="tt-c${i===me?' now':''}">${on?'<i class="tt-y">●</i>':'<i class="tt-n">–</i>'}</div>`;
+      }).join('')}
+    </div>`;}).join('');
+  box.innerHTML=`<div class="tt-scroll"><div class="tt-grid" style="--cols:${TIERS.length}">
+    ${head}
+    <div class="tt-sec">담을 수 있는 개수</div>
+    ${limRows}
+    <div class="tt-sec">쓸 수 있는 기능</div>
+    ${featRows}
+  </div></div>
+  <div class="tt-foot">● 쓸 수 있어요 · – 아직 잠겨 있어요<br>
+    이용권은 <b>무료로 발급</b>해 드립니다. 위의 <b>이용 문의하기</b>로 남겨 주세요.</div>`;
+}
+
 function renderTierCard(){
   const el=$('tierCard'); if(!el)return;
   const lv=tierLv(), me=TIERS[lv], next=TIERS[lv+1]||null;
