@@ -4835,7 +4835,16 @@ function renderVerCard(){
        옆에 'v4.6.0 업데이트 내용'이 나란히 표시됐다. 서버가 더 새 버전을 알릴 때만
        서버 노트를 쓰고, 그 외에는 번들에 동봉된 현재 버전의 노트를 보여 준다. */
     const bundled={version:APP_VERSION,notes:(__BUNDLED_VER&&__BUNDLED_VER.notes)||[],releasedAt:(__BUNDLED_VER&&__BUNDLED_VER.releasedAt)||''};
-    const show=(verLatest&&cmpVerC(verLatest.version,APP_VERSION)>0)?verLatest:bundled;
+    /* ══ [v12.3] 서버 공지가 옛것이면 쓰지 않는다 ═══════════════════════════
+       서버(/api/version)의 공지는 관리자가 손으로 올린다. 한동안 안 올리면
+       옛 버전 내용이 남는데, 그것이 '이번 업데이트'로 나오면 지금 화면과
+       전혀 다른 이야기가 보인다(실제로 그렇게 어긋났다).
+       서버가 '지금보다 새 버전'을 알릴 때만 서버 것을 쓰고, 그 외에는
+       앱에 동봉된 지금 버전의 내용을 쓴다. 또 항목이 지나치게 많으면
+       (여러 버전이 뭉친 옛 형식) 신뢰하지 않는다. */
+    const srvOk=verLatest&&cmpVerC(verLatest.version,APP_VERSION)>0
+      &&Array.isArray(verLatest.notes)&&verLatest.notes.length<=30;
+    const show=srvOk?verLatest:bundled;
     nb.textContent='';
     if(show&&show.notes&&show.notes.length){
       const h=document.createElement('div'); h.className='ver-nt-h';
@@ -4847,6 +4856,31 @@ function renderVerCard(){
       const d=document.createElement('div'); d.className='ver-nt';
       d.textContent='최신 버전을 사용 중입니다.'; nb.appendChild(d);
     }
+    /* ══ [v12.3] 이전 버전 이력 ═══════════════════════════════════════════════
+       예전에는 모든 버전의 내용이 한 덩어리로 '이번 업데이트'에 섞여 나왔다.
+       이제 버전별로 나눠 담으므로, 지난 것은 접어서 따로 보여 준다.
+       궁금한 사람만 펼쳐 보면 되고, 이번 내용이 묻히지 않는다. */
+    try{
+      const hist=(__BUNDLED_VER&&__BUNDLED_VER.history)||[];
+      const past=hist.filter(h=>h&&h.v&&cmpVerC(h.v,APP_VERSION)<0);
+      if(past.length){
+        const det=document.createElement('details'); det.className='ver-hist';
+        const sm=document.createElement('summary');
+        sm.textContent=`이전 업데이트 내용 (${past.length}개 버전)`;
+        det.appendChild(sm);
+        past.forEach(h=>{
+          const t=document.createElement('div'); t.className='ver-hist-v';
+          t.textContent=`v${h.v}`;
+          const i3=document.createElement('i'); i3.textContent=fmtRelease(h.at||'');
+          t.appendChild(i3); det.appendChild(t);
+          (h.notes||[]).forEach(x=>{
+            const d=document.createElement('div'); d.className='ver-nt sub';
+            d.textContent='· '+String(x); det.appendChild(d);
+          });
+        });
+        nb.appendChild(det);
+      }
+    }catch(e){}
   }
   const ub=$('verApplyBtn'); if(ub)ub.hidden=!hasNew;
   const dot=document.querySelector('#setGear .gear-dot');
