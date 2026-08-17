@@ -5508,10 +5508,17 @@ html:not([data-theme="dark"]) .hs-br{background:rgba(255,255,255,.5)}
 .hs-br-lg .up{color:var(--up)}.hs-br-lg .dn{color:var(--down)}
 
 /* [v9.79] 계좌 개설 — 목적/종류 드롭다운 */
-.ae-pick{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-bottom:12px}
+/* [v12.9] 계좌 종류 이름이 길어 목적 칸과 1:1.6 으로는 모자랐다 — 넉넉히 준다 */
+.ae-pick{display:grid;grid-template-columns:minmax(88px,.8fr) minmax(0,2fr);gap:10px;margin-bottom:12px}
+.ae-fld{min-width:0}
 @media(max-width:430px){.ae-pick{grid-template-columns:1fr}}
 .ae-fld label{display:block;font-size:11px;font-weight:800;color:var(--sub-2);margin-bottom:5px}
-.ae-fld select{width:100%;padding:11px 12px;border-radius:11px;border:1px solid var(--border);
+/* ══ [v12.9] 계좌 종류 이름이 잘리던 이유 ═══════════════════════════════════
+   오른쪽 화살표를 배경 그림으로 그려 놓고 padding 은 좌우 같게 줬다. 그래서
+   글자가 화살표 밑까지 들어가 '종합위탁계좌'가 '종합위탁'으로 잘려 보였다.
+   오른쪽에 화살표 자리를 비우고, 좁으면 글자가 줄어들도록 한다. */
+.ae-fld select{width:100%;padding:11px 30px 11px 12px;border-radius:11px;border:1px solid var(--border);
+  text-overflow:ellipsis;
   background:var(--panel);color:var(--text);font-size:13.5px;font-weight:700;
   -webkit-appearance:none;appearance:none;
   background-image:linear-gradient(45deg,transparent 50%,var(--sub-2) 50%),linear-gradient(135deg,var(--sub-2) 50%,transparent 50%);
@@ -6319,3 +6326,86 @@ html[data-theme="dark"] .tt-y{color:#22c55e}
   background:var(--brand);color:#fff;font-family:inherit;font-size:13px;font-weight:800;
   cursor:pointer;transition:transform .12s}
 .tx-warn button:active{transform:translateY(1px)}
+
+/* ══ [v13.0] 관리자 화면 ═══════════════════════════════════════════════════ */
+.adm-lock{padding:34px 22px;text-align:center;border-radius:18px}
+.al-ico{font-size:30px;margin-bottom:12px}
+.adm-lock b{display:block;font-size:15px;font-weight:900;margin-bottom:6px}
+.adm-lock span{display:block;font-size:12px;line-height:1.7;color:var(--sub-2);margin-bottom:16px}
+.adm-lock code{background:var(--border-soft);border-radius:5px;padding:1px 6px;
+  font-family:ui-monospace,monospace;font-size:11.5px}
+.adm-lock input{width:100%;max-width:300px;box-sizing:border-box;padding:12px 14px;
+  border-radius:12px;border:1px solid var(--border);background:var(--panel);color:var(--text);
+  font-family:inherit;font-size:14px;font-weight:700;text-align:center;margin-bottom:10px}
+.adm-lock .mc-btn{max-width:300px;margin:0 auto}
+.al-msg{margin-top:11px;font-size:12px;font-weight:700;color:var(--up);min-height:16px}
+
+.adm-sec{padding:18px;border-radius:18px;margin-bottom:12px}
+.as-h{font-size:14px;font-weight:900;letter-spacing:-.3px;margin-bottom:5px}
+.as-d{font-size:11.5px;line-height:1.7;color:var(--sub-2);margin-bottom:13px}
+.as-d b{color:var(--sub);font-weight:800}
+.as-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:9px}
+.as-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:9px}
+@media(max-width:460px){.as-grid,.as-grid2{grid-template-columns:1fr}}
+.adm-sec label{display:flex;flex-direction:column;gap:5px;min-width:0;
+  font-size:11px;font-weight:800;color:var(--sub-2)}
+.adm-sec select,.adm-sec input,.as-in{width:100%;box-sizing:border-box;padding:11px 12px;
+  border-radius:11px;border:1px solid var(--border);background:var(--panel);color:var(--text);
+  font-family:inherit;font-size:13.5px;font-weight:700}
+.adm-sec select{padding-right:30px;-webkit-appearance:none;appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--sub-2) 50%),
+    linear-gradient(135deg,var(--sub-2) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+.as-in{margin-bottom:9px}
+.as-area{resize:vertical;line-height:1.6}
+.as-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.as-btns .mc-btn{flex:1 1 140px}
+.as-out{margin-top:11px;font-size:12px;line-height:1.7}
+.as-out .bad{color:var(--up)}
+.adm-out{text-align:center;padding:6px 0 18px}
+.adm-out button{font-size:11.5px;font-weight:700;color:var(--sub-2);background:none;border:0;
+  cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+
+/* ── 이용권 도착 안내 ─────────────────────────────────────────────────── */
+.gift{text-align:center}
+.gift-badge{display:inline-block;font-size:22px;font-weight:900;letter-spacing:-1px;
+  color:#fff;background:var(--tc);border-radius:14px;padding:10px 22px;margin-bottom:14px;
+  box-shadow:0 8px 20px color-mix(in srgb,var(--tc) 36%,transparent)}
+.gift-lead{margin:0 0 14px;font-size:14px;line-height:1.7;font-weight:700}
+.gift-lead b{color:var(--tc);font-weight:900}
+.gift-memo{font-size:12.5px;line-height:1.7;color:var(--sub);background:var(--border-soft);
+  border-radius:12px;padding:12px 14px;margin-bottom:13px;text-align:left}
+.gift-row{display:flex;justify-content:space-between;align-items:baseline;
+  padding:10px 2px;border-top:1px solid var(--border-soft);font-size:12.5px}
+.gift-row span{color:var(--sub-2);font-weight:700}
+.gift-row b{font-weight:800}
+.gift-code{font-family:ui-monospace,monospace;font-size:14px;font-weight:800;letter-spacing:.8px;
+  background:var(--border-soft);border-radius:12px;padding:13px;margin:6px 0 14px;user-select:all;
+  word-break:break-all}
+.gift .mc-btn{width:100%;margin-bottom:8px}
+.gift-note{margin:8px 0 0;font-size:11px;line-height:1.7;color:var(--sub-2)}
+.gift-note b{color:var(--sub);font-weight:800}
+
+/* ══ [v13.0] 사이트 꼬리말 ═══════════════════════════════════════════════════
+   앱 배경은 밝은 크림색이라, 검정 띠 하나로 문서가 여기서 끝난다는 것을 알린다.
+   상단 로고와 같은 검정(--brand)을 써서 위아래가 한 벌로 묶인다. */
+.site-foot{background:var(--brand);color:#e8edf5;padding:34px 20px 30px;margin-top:28px}
+.sf-in{max-width:940px;margin:0 auto}
+.sf-brand{display:flex;align-items:center;gap:11px;margin-bottom:14px}
+.sf-mark{flex:0 0 auto;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(145deg,#ffc247,#f5a30d);color:#2a1c00;
+  font-size:18px;font-weight:900;line-height:1}
+.sf-name b{display:block;font-size:14.5px;font-weight:900;letter-spacing:-.3px;color:#fff}
+.sf-name span{display:block;font-size:10.5px;font-weight:700;color:#8b98ac;letter-spacing:.5px;
+  margin-top:2px}
+.sf-desc{margin:0 0 16px;font-size:11.5px;line-height:1.85;color:#93a1b5}
+.sf-desc b{color:#c9d4e2;font-weight:800}
+.sf-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.09);
+  font-size:10.5px;font-weight:700;color:#76839a}
+.sf-dot{opacity:.5}
+@media(max-width:480px){
+  .site-foot{padding:28px 16px 24px}
+  .sf-desc{font-size:11px}
+}

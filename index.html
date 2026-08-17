@@ -436,65 +436,7 @@
         <div class="ver-notes" id="verNotes"></div>
         <div class="set-btns"><button class="set-btn" id="verCheckBtn">업데이트 확인</button><button class="set-btn primary" id="verApplyBtn" hidden>사이트 업데이트</button></div>
       </div>
-      <div class="adm-panel" id="admPanel" hidden>
-        <div class="set-sec">🔐 관리자 · 업데이트 공지 편집</div>
-        <input class="ask-in" id="admTok" aria-label="관리 토큰" type="password" placeholder="관리자 토큰 (환경변수 NXT_ADMIN_TOKEN 값)">
-        <input class="ask-in" id="admVer" aria-label="버전" placeholder="버전 (예: 1.92.0)">
-        <textarea class="ask-in ask-area" id="admNotes" rows="4" placeholder="업데이트 내용 — 한 줄에 하나씩"></textarea>
-        <div class="set-btns"><button class="set-btn" id="admLoad">현재 공지 불러오기</button><button class="set-btn primary" id="admSave">공지 게시</button></div>
-        <div class="set-d" id="admMsg"></div>
-
-        <!-- ══ [v11.3] 이용권 쿠폰 관리 ═══════════════════════════════════════
-             위 토큰(admTok)을 그대로 쓴다. 별도 로그인을 두지 않는다. -->
-        <div class="set-sec" style="margin-top:18px">🎟 이용권 쿠폰</div>
-        <div class="cpn-adm">
-          <div class="cpn-row">
-            <label>등급
-              <select id="cpTier" aria-label="발급 등급">
-                <option value="lite">Lite</option>
-                <option value="basic">Basic</option>
-                <option value="plus">Plus</option>
-                <option value="pro" selected>Pro</option>
-                <option value="max">Max</option>
-              </select></label>
-            <label>기간
-              <select id="cpDays" aria-label="이용 기간">
-                <option value="0" selected>무기한</option>
-                <option value="7">7일</option>
-                <option value="30">30일</option>
-                <option value="90">90일</option>
-                <option value="365">1년</option>
-              </select></label>
-          </div>
-          <div class="cpn-row">
-            <label>사용 인원 <input id="cpMax" class="ask-in" type="number" min="1" max="500" value="1" aria-label="사용 인원"></label>
-            <label>발급 장수 <input id="cpCount" class="ask-in" type="number" min="1" max="50" value="1" aria-label="발급 장수"></label>
-          </div>
-          <input class="ask-in" id="cpMemo" placeholder="메모 (예: 친구 배포용)" aria-label="쿠폰 메모">
-          <div class="cpn-hint">코드 끝 한 자리가 등급입니다 — 1 Lite · 2 Basic · 3 Plus · 4 Pro · 5 Max</div>
-          <div class="set-btns">
-            <button class="set-btn primary" id="cpIssue">코드 발급</button>
-            <button class="set-btn" id="cpList">발급 현황</button>
-          </div>
-          <div class="cpn-out" id="cpOut"></div>
-
-          <div class="set-sec" style="margin-top:14px">등급 직접 지정</div>
-          <div class="cpn-row">
-            <label>계정 <input id="cpUid" class="ask-in" placeholder="아이디" aria-label="대상 아이디"></label>
-            <label>등급
-              <select id="cpSetTier" aria-label="지정 등급">
-                <option value="free">Free (되돌리기)</option>
-                <option value="lite">Lite</option>
-                <option value="basic">Basic</option>
-                <option value="plus">Plus</option>
-                <option value="pro" selected>Pro</option>
-                <option value="max">Max</option>
-              </select></label>
-          </div>
-          <div class="set-btns"><button class="set-btn" id="cpSet">이 계정에 바로 적용</button></div>
-          <div class="set-d" id="cpSetMsg"></div>
-        </div>
-      </div>
+      <!-- [v13.0] 관리 기능은 상단 「관리자」 메뉴로 옮겼다 -->
 
       <div class="set-sec">정보 · 데이터 출처</div>
       <div class="set-about">시세·지수·환율·실적·공모주 정보는 네이버·야후 파이낸스·한국경제·38커뮤니케이션 등 <b>공개 데이터</b> 기반의 개인용 열람 서비스입니다. 모든 주문은 실제 체결이 아닌 <b>로컬 모의 체결</b>입니다.</div>
@@ -637,6 +579,8 @@
       <button data-view="friend">친구<i class="nav-dot" id="frDot" hidden></i></button>
       <!-- [v12.1] 이용 등급 — 내 계좌 안에 있으니 눈에 띄지 않았다. 독립 메뉴로 뺀다 -->
       <button data-view="tier">멤버십</button>
+      <!-- [v13.0] 관리자 전용 — 들어갈 때 암호를 먼저 묻는다 -->
+      <button data-view="admin" id="navAdmin">관리자</button>
     </nav>
     <div class="header-right">
       <span class="pill" id="mktPill"><span class="dot idle"></span>장 상태</span>
@@ -1400,6 +1344,15 @@
      예전에는 작은 모달에 밀어 넣었다. 차트가 눌려 확대·축소가 불편했고, 종목
      화면과 생김새도 달라 같은 앱처럼 보이지 않았다. 종목 화면(view-trade)과
      같은 뼈대로 옮긴다 — 제목·설명 / 시세 머리말 / 지표 격자 / 차트 / 오늘 흐름. -->
+<!-- ══ [v13.0] 관리자 전용 화면 ═══════════════════════════════════════════════
+     암호(NXT_ADMIN_TOKEN)를 넣기 전에는 잠금 화면만 보인다. -->
+<section class="view" id="view-admin" hidden>
+    <div class="page-title">관리자</div>
+    <div class="page-sub">이용권 발급과 등급 관리, 업데이트 공지를 여기서 합니다.</div>
+    <div id="admLock"></div>
+    <div id="admWork" hidden></div>
+</section>
+
 <!-- ══ [v12.1] 이용 등급 화면 ═══════════════════════════════════════════════ -->
 <section class="view" id="view-tier" hidden>
     <div class="page-title">멤버십</div>
@@ -1573,6 +1526,24 @@
     계정·투자내역은 이 브라우저에만 저장되는 로컬 데이터이며 실제 인증·실제 주문이 아닙니다. 투자 판단·권유 목적이 아닙니다.
   </div>
 </main>
+
+<!-- ══ [v13.0] 사이트 꼬리말 — 모든 화면 맨 아래에 한 번만 ═══════════════════
+     본문(main) 밖에 두어 화면을 바꿔도 늘 맨 아래에 남는다. -->
+<footer class="site-foot">
+  <div class="sf-in">
+    <div class="sf-brand">
+      <span class="sf-mark">T</span>
+      <div class="sf-name"><b>Tcrew 크리에이터즈</b><span>Tcrew Creators</span></div>
+    </div>
+    <p class="sf-desc">LIVE증권은 Tcrew 크리에이터즈가 만든 <b>모의투자 학습 서비스</b>입니다.<br>
+      실제 매매가 아니며 모든 손익은 가상입니다.</p>
+    <div class="sf-meta">
+      <span>© 2026 Tcrew Creators</span>
+      <span class="sf-dot">·</span>
+      <span id="sfVer">v—</span>
+    </div>
+  </div>
+</footer>
 
 <div class="toast-wrap" id="toastWrap"></div>
 

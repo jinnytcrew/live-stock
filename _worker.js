@@ -10579,6 +10579,14 @@ var coupon_default = async (req2) => {
   try { body = await req2.json(); } catch (e) { body = {}; }
   const act = String(body.act || "").toLowerCase();
   const store = kvAdapter(KV, "app");
+  /* ══ [v12.9] "계정을 찾을 수 없습니다" 가 잘못 뜨던 이유 ═══════════════════
+     accLoad 는 세 번째 인자로 옛 저장소(db)를 받아, acc:<id> 에 아직 옮겨지지
+     않은 예전 계정도 찾아 준다. 그런데 쿠폰 라우트만 그 인자를 넘기지 않았다.
+     그래서 로그인은 되는 계정인데 쿠폰 등록에서만 "계정을 찾을 수 없습니다"
+     라는, 사용자로서는 앞뒤가 맞지 않는 안내가 나왔다.
+     계정 라우트와 같은 방식으로 옛 저장소도 함께 넘긴다. */
+  let legacyDb = null;
+  try { legacyDb = await readAccDb(store); } catch (e) { legacyDb = null; }
 
   /* ── 등록: 사용자가 코드를 넣는다 ─────────────────────────────────────── */
   if (act === "redeem") {
@@ -10588,8 +10596,8 @@ var coupon_default = async (req2) => {
     if (!id || !pass) return J({ ok: false, err: "auth", msg: "로그인이 필요합니다" });
     if (code.length !== 20) return J({ ok: false, err: "form", msg: "코드는 LIVE 로 시작하는 20자입니다. 다시 확인해 주세요" });
 
-    const acc = await accLoad(store, id);
-    if (!acc) return J({ ok: false, err: "auth", msg: "계정을 찾을 수 없습니다" });
+    const acc = await accLoad(store, id, legacyDb);
+    if (!acc) return J({ ok: false, err: "auth", msg: "로그인 정보를 확인하지 못했어요. 다시 로그인한 뒤 시도해 주세요" });
     const v = await verifyPass(acc, pass);
     if (!v) return J({ ok: false, err: "auth", msg: "비밀번호가 맞지 않습니다" });
 
@@ -10692,12 +10700,54 @@ var coupon_default = async (req2) => {
     return J({ ok: true, items: out });
   }
 
+  /* ══ [v13.0] 발급 안내 보내기 — 관리자만 ═══════════════════════════════════
+     관리자가 코드를 만든 뒤 여기로 보내면, 받는 사람이 앱을 열 때 안내창이 뜬다.
+     메일·오픈채팅 답장은 놓치기 쉽지만 앱 안내창은 반드시 보게 된다.
+     [저장 자리] msg:<id> — 사용자가 읽으면 지운다(한 번만 보여 준다).
+     [주의] 코드 자체를 담아 두므로 남의 아이디로 보내지 못하게 관리자만 쓴다. */
+  if (act === "notify") {
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const id = String(body.id || "").trim().toLowerCase();
+    if (!id) return J({ ok: false, err: "id", msg: "받는 아이디를 넣어 주세요" });
+    const acc = await accLoad(store, id, legacyDb);
+    if (!acc) return J({ ok: false, err: "nouser", msg: "그런 아이디가 없습니다" });
+    const code = cpnNorm(body.code);
+    if (code.length !== 20) return J({ ok: false, err: "form", msg: "코드가 20자가 아닙니다" });
+    let cpn = null;
+    try { cpn = await KV.get("cpn:" + code, "json"); } catch (e) { cpn = null; }
+    if (!cpn) return J({ ok: false, err: "notfound", msg: "발급되지 않은 코드입니다" });
+    const rec = {
+      kind: "coupon", code: cpnPretty(code),
+      tier: cpn.tier, tierName: TIER_NAME[cpn.tier] || cpn.tier,
+      days: +cpn.days || 0, memo: String(body.memo || "").slice(0, 200),
+      at: Date.now()
+    };
+    try { await KV.put("msg:" + id, JSON.stringify(rec), { expirationTtl: 60 * 86400 }); }
+    catch (e) { return J({ ok: false, err: "store", msg: "저장하지 못했습니다" }); }
+    return J({ ok: true, id, code: rec.code });
+  }
+
+  /* ── 내 안내 확인 — 로그인한 사용자가 자기 것만 ─────────────────────────── */
+  if (act === "inbox") {
+    const id = String(body.id || "").trim().toLowerCase();
+    const pass = String(body.pass || "");
+    if (!id || !pass) return J({ ok: true, msg: null });
+    const acc = await accLoad(store, id, legacyDb);
+    if (!acc) return J({ ok: true, msg: null });
+    if (!(await verifyPass(acc, pass))) return J({ ok: true, msg: null });
+    let m = null;
+    try { m = await KV.get("msg:" + id, "json"); } catch (e) { m = null; }
+    if (!m) return J({ ok: true, msg: null });
+    if (body.read) { try { await KV.delete("msg:" + id); } catch (e) {} }   // 한 번만 보여 준다
+    return J({ ok: true, msg: m });
+  }
+
   /* ── 직접 지정: 관리자만 (문의 메일을 받고 바로 올려 줄 때) ───────────── */
   if (act === "set") {
     if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
     const id = String(body.id || "").trim().toLowerCase();
-    const acc = await accLoad(store, id);
-    if (!acc) return J({ ok: false, err: "nouser", msg: "그런 계정이 없습니다" });
+    const acc = await accLoad(store, id, legacyDb);
+    if (!acc) return J({ ok: false, err: "nouser", msg: "그런 아이디가 없습니다" });
     const tier = String(body.tier || "free").toLowerCase();
     if (!TIER_KEYS.includes(tier)) return J({ ok: false, err: "tier" });
     if (tier === "free") { acc.tier = "free"; acc.tierUntil = null; acc.tierFrom = "관리자"; }
@@ -15643,7 +15693,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "12.8.0";
+var APP_VER = "13.0.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -1747,6 +1747,8 @@ function showErrBanner(msg){
    '현재 버전'이 영원히 1.91.0으로 보였고 → 업데이트 버튼이 "안 되는 것처럼" 보였다.
    이제 클라이언트도 번들에 동봉된 version-info(릴리스마다 자동 동기화)를 그대로 읽는다. */
 const APP_VERSION=(__BUNDLED_VER&&__BUNDLED_VER.version)||'0.0.0';
+/* [v13.0] 꼬리말 버전 표기 */
+try{ const _sf=document.getElementById('sfVer'); if(_sf)_sf.textContent='v'+APP_VERSION; }catch(e){}
 try{window.__boot&&(__boot.step(2),__boot.ver(APP_VERSION));}catch(e){}   // [v4.9] 입장화면: 버전·환경 확인
 const APP_BUILD=(()=>{try{const m=String(import.meta.url).match(/[?&]v=([\w.]+)/);return m?m[1]:'';}catch(e){return '';}})();
 
@@ -3720,6 +3722,8 @@ function migrateWatchModel(){
 let watchSortMode='chg';   // 계정별 값은 reloadPerUser()에서 로드
 let stockMemos={};          // [H2] 종목별 메모 — 계정 데이터로 클라우드 동기화
 function applyUser(u){
+  /* [v13.0] 로그인 직후에도 이용권 안내를 확인한다 — 세션 복원 경로와 별개다 */
+  try{ setTimeout(()=>{ try{ checkTierInbox(); }catch(e){} }, 3000); }catch(e){}
   const d=store.get('user:'+u)||{};
   bookOrders=Array.isArray(d.bookOrders)?d.bookOrders:[];
   priceAlerts=(d.priceAlerts&&typeof d.priceAlerts==='object')?d.priceAlerts:{};
@@ -5818,7 +5822,8 @@ function _showView(name){
   if(name==='pro')_paint(()=>safeRun('pro',()=>setProTab(proTab)));
   if(name==='folio')_paint(()=>safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); }));
   if(name==='index')_paint(()=>safeRun('ixDetail',renderIdxDetail));
-  if(name==='tier')_paint(()=>renderTierView());      /* [v10.4] 지수 상세 */
+  if(name==='tier')_paint(()=>renderTierView());
+  if(name==='admin')_paint(()=>safeRun('admin',renderAdminView));      /* [v10.4] 지수 상세 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
     /* [v4.81] 국내가 전 종목을 미리 받아 두듯 해외도 미리 받는다.
@@ -16308,6 +16313,8 @@ function __bootMain(){
     try{
       const _a=accounts()[sess];
       if(_a&&_a.pass)cloudCall({action:'login',id:sess,pass:_a.pass}).catch(()=>{});
+      /* [v13.0] 관리자가 보낸 이용권 안내가 있으면 띄운다 */
+      setTimeout(()=>{ try{ checkTierInbox(); }catch(e){} }, 2500);
     }catch(e){}
   }
   else if(backFromGoogle){
@@ -19351,7 +19358,218 @@ function tierNextFor(key,want){
    발급한 코드는 화면에 그대로 띄우고 '전체 복사'를 둔다 — 카톡으로 옮겨
    붙이는 것이 실제 사용 흐름이기 때문이다.
    ══════════════════════════════════════════════════════════════════════════════ */
-function cpAdmTok(){ const e=$('admTok'); return e?String(e.value||'').trim():''; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v13.0] 관리자 화면
+   ─────────────────────────────────────────────────────────────────────────────
+   설정 안에 흩어져 있던 관리 기능을 한 화면으로 모았다.
+   [잠금] 들어오면 먼저 암호를 묻는다. 암호는 서버의 NXT_ADMIN_TOKEN 이며,
+   맞는지는 서버에 물어 확인한다(화면에서 비교하면 코드만 봐도 뚫린다).
+   확인된 암호는 이 창을 닫을 때까지만 기억한다(sessionStorage).
+   [알림 보내기] 코드를 발급한 뒤 상대에게 카톡·메일로 알리는 것과 별개로,
+   앱을 열었을 때 안내창이 뜨도록 서버에 쪽지를 남긴다. 상대가 놓치지 않는다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v13.0] 이용권 안내 받기
+   ─────────────────────────────────────────────────────────────────────────────
+   관리자가 코드를 보내면 서버에 쪽지가 남는다. 로그인한 뒤 한 번 확인해,
+   있으면 안내창을 띄운다. 창에서 바로 등록까지 끝낼 수 있게 코드를 채워 둔다.
+   한 번 보여 준 쪽지는 서버에서 지운다(같은 안내가 계속 뜨면 성가시다).
+   ══════════════════════════════════════════════════════════════════════════════ */
+/* [v13.0] 저장은 붙여서, 표시는 4-5-5-5-1 로 — 서버와 같은 규칙 */
+function cpnPretty(raw){
+  const c=String(raw||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  return c.length===20?`${c.slice(0,4)}-${c.slice(4,9)}-${c.slice(9,14)}-${c.slice(14,19)}-${c.slice(19,20)}`:String(raw||'');
+}
+async function checkTierInbox(){
+  try{
+    if(!currentUser)return;
+    const acc=accounts()[currentUser]; if(!acc||!acc.pass)return;
+    const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({act:'inbox',id:currentUser,pass:acc.pass,read:1})});
+    const j=await r.json();
+    if(!j||!j.ok||!j.msg)return;
+    showTierGift(j.msg);
+  }catch(e){}
+}
+function showTierGift(m){
+  const t=TIERS.find(x=>x.k===m.tier)||TIERS[0];
+  const dur=m.days>0?`${m.days}일`:'기간 제한 없음';
+  openLiteGate('이용권이 도착했어요',`
+    <div class="gift" style="--tc:${t.c}">
+      <div class="gift-badge">${t.n}</div>
+      <p class="gift-lead"><b>${t.n} 이용권</b>이 발급되었습니다.<br>아래 버튼을 누르면 바로 적용돼요.</p>
+      ${m.memo?`<div class="gift-memo">${htmlEsc(m.memo)}</div>`:''}
+      <div class="gift-row"><span>이용 기간</span><b>${dur}</b></div>
+      <div class="gift-code" id="giftCode">${htmlEsc(cpnPretty(m.code))}</div>
+      <button type="button" class="mc-btn primary" id="giftGo" style="--nc:${t.c}">지금 등록하기</button>
+      <button type="button" class="mc-btn" id="giftCopy">코드 복사</button>
+      <p class="gift-note">나중에 하시려면 <b>멤버십 → 쿠폰 코드 입력</b>에서 이 코드를 넣으시면 됩니다.</p>
+    </div>`);
+  const cp=$('giftCopy');
+  if(cp)cp.onclick=()=>{
+    try{ navigator.clipboard&&navigator.clipboard.writeText(m.code); }catch(e){}
+    toast('ok','코드를 복사했어요','');
+  };
+  const go=$('giftGo');
+  if(go)go.onclick=async()=>{
+    const acc=accounts()[currentUser]; if(!acc)return;
+    go.disabled=true; go.textContent='등록 중…';
+    try{
+      const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({act:'redeem',id:currentUser,pass:acc.pass,
+          code:String(m.code).replace(/[^A-Za-z0-9]/g,'')})});
+      const j=await r.json();
+      if(j&&j.ok){
+        tierSet(j); closeLiteGate();
+        toast('ok',j.msg||'등급이 바뀌었습니다',TIERS[tierLv()].d);
+      }else{
+        toast('warn','등록하지 못했어요',(j&&j.msg)||'멤버십 화면에서 다시 시도해 주세요');
+      }
+    }catch(e){ toast('warn','연결에 실패했어요','네트워크 상태를 확인해 주세요'); }
+    finally{ const g=$('giftGo'); if(g){ g.disabled=false; g.textContent='지금 등록하기'; } }
+  };
+}
+
+function admTokGet(){ try{ return sessionStorage.getItem('admtok')||''; }catch(e){ return ''; } }
+function admTokSet(v){ try{ v?sessionStorage.setItem('admtok',v):sessionStorage.removeItem('admtok'); }catch(e){} }
+async function admCall(body){
+  const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({...body,token:admTokGet()})});
+  return r.json();
+}
+function renderAdminView(){
+  const lock=$('admLock'), work=$('admWork');
+  if(!lock||!work)return;
+  if(!admTokGet()){ work.hidden=true; renderAdmLock(); return; }
+  lock.innerHTML=''; work.hidden=false; renderAdmWork();
+}
+function renderAdmLock(){
+  const el=$('admLock'); if(!el)return;
+  el.innerHTML=`
+  <div class="panel adm-lock">
+    <div class="al-ico">🔒</div>
+    <b>관리자 암호를 넣어 주세요</b>
+    <span>서버에 설정한 <code>NXT_ADMIN_TOKEN</code> 값입니다.</span>
+    <input type="password" id="alPass" placeholder="관리자 암호" autocomplete="off" aria-label="관리자 암호">
+    <button type="button" class="mc-btn primary" id="alGo" style="--nc:var(--brand)">확인</button>
+    <div class="al-msg" id="alMsg"></div>
+  </div>`;
+  const go=async()=>{
+    const v=($('alPass')&&$('alPass').value||'').trim();
+    if(!v){ $('alMsg').textContent='암호를 넣어 주세요'; return; }
+    const b=$('alGo'); b.disabled=true; b.textContent='확인 중…';
+    admTokSet(v);
+    try{
+      const j=await admCall({act:'list'});
+      if(j&&j.ok){ renderAdminView(); return; }
+      admTokSet('');
+      $('alMsg').textContent=(j&&j.err==='forbidden')?'암호가 맞지 않습니다':'확인하지 못했습니다. 잠시 후 다시 시도해 주세요';
+    }catch(e){ admTokSet(''); $('alMsg').textContent='서버에 연결하지 못했습니다'; }
+    finally{ const b2=$('alGo'); if(b2){ b2.disabled=false; b2.textContent='확인'; } }
+  };
+  const btn=$('alGo'); if(btn)btn.onclick=go;
+  const ip=$('alPass');
+  if(ip){ ip.onkeydown=(e)=>{ if(e.key==='Enter')go(); }; setTimeout(()=>ip.focus(),100); }
+}
+function renderAdmWork(){
+  const el=$('admWork'); if(!el)return;
+  const tierOpts=(sel)=>TIERS.filter(t=>t.k!=='free')
+    .map(t=>`<option value="${t.k}"${t.k===sel?' selected':''}>${t.n}</option>`).join('');
+  el.innerHTML=`
+  <div class="panel adm-sec">
+    <div class="as-h">이용권 코드 발급</div>
+    <div class="as-grid">
+      <label>등급<select id="cpTier">${tierOpts('pro')}</select></label>
+      <label>기간<select id="cpDays">
+        <option value="0" selected>무기한</option><option value="7">7일</option>
+        <option value="30">30일</option><option value="90">90일</option><option value="365">1년</option>
+      </select></label>
+      <label>사용 인원<input id="cpMax" type="number" min="1" max="500" value="1"></label>
+      <label>발급 장수<input id="cpCount" type="number" min="1" max="50" value="1"></label>
+    </div>
+    <input class="as-in" id="cpMemo" placeholder="메모 (예: 친구 배포용)">
+    <div class="as-btns">
+      <button type="button" class="mc-btn primary" id="cpIssue" style="--nc:var(--brand)">코드 발급</button>
+      <button type="button" class="mc-btn" id="cpList">발급 현황</button>
+    </div>
+    <div class="as-out" id="cpOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
+    <div class="as-h">이용권 발급 안내 보내기</div>
+    <div class="as-d">코드를 만든 뒤 여기서 보내면, 그분이 앱을 열 때 <b>안내창이 뜹니다.</b>
+      메일·오픈채팅 답장과 함께 쓰시면 놓치지 않아요.</div>
+    <div class="as-grid2">
+      <label>받는 아이디<input id="nfId" placeholder="예: jinnytcrew1" autocomplete="off"></label>
+      <label>보낼 코드<input id="nfCode" placeholder="LIVE-XXXXX-XXXXX-XXXXX-0" autocomplete="off"></label>
+    </div>
+    <input class="as-in" id="nfMemo" placeholder="함께 남길 말 (선택) — 예: 오래 기다리셨어요!">
+    <div class="as-btns">
+      <button type="button" class="mc-btn primary" id="nfSend" style="--nc:var(--brand)">안내 보내기</button>
+    </div>
+    <div class="as-out" id="nfOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
+    <div class="as-h">등급 직접 지정</div>
+    <div class="as-d">문의를 받고 바로 올려 줄 때 씁니다. 코드를 거치지 않습니다.</div>
+    <div class="as-grid2">
+      <label>아이디<input id="cpUid" placeholder="아이디" autocomplete="off"></label>
+      <label>등급<select id="cpSetTier">
+        <option value="free">Free (되돌리기)</option>${tierOpts('pro')}
+      </select></label>
+    </div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn" id="cpSet">이 계정에 적용</button>
+    </div>
+    <div class="as-out" id="cpSetMsg"></div>
+  </div>
+
+  <div class="panel adm-sec">
+    <div class="as-h">업데이트 공지</div>
+    <input class="as-in" id="admVer" placeholder="버전 (예: 13.0.0)">
+    <textarea class="as-in as-area" id="admNotes" rows="5" placeholder="업데이트 내용 — 한 줄에 하나씩"></textarea>
+    <div class="as-btns">
+      <button type="button" class="mc-btn" id="admLoad">현재 공지 불러오기</button>
+      <button type="button" class="mc-btn primary" id="admSave" style="--nc:var(--brand)">공지 게시</button>
+    </div>
+    <div class="as-out" id="admMsg"></div>
+  </div>
+
+  <div class="adm-out"><button type="button" id="admLogout">관리자 나가기</button></div>`;
+  wireCouponAdmin();
+  wireAdmNotify();
+  const sv=$('admSave'); if(sv)sv.onclick=saveAdminNotice;
+  const ld=$('admLoad'); if(ld)ld.onclick=loadAdminCurrent;
+  const lo=$('admLogout');
+  if(lo)lo.onclick=()=>{ admTokSet(''); toast('ok','관리자에서 나왔습니다',''); renderAdminView(); };
+}
+/* ── 발급 안내 보내기 ─────────────────────────────────────────────────── */
+function wireAdmNotify(){
+  const b=$('nfSend'); if(!b)return;
+  b.onclick=async()=>{
+    const id=($('nfId').value||'').trim();
+    const code=($('nfCode').value||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+    const memo=($('nfMemo').value||'').trim();
+    const out=$('nfOut');
+    if(!id){ out.innerHTML='<b class="bad">받는 아이디를 넣어 주세요</b>'; return; }
+    if(code.length!==20){ out.innerHTML='<b class="bad">코드가 20자가 아닙니다. 발급된 코드를 그대로 넣어 주세요</b>'; return; }
+    b.disabled=true; b.textContent='보내는 중…';
+    try{
+      const j=await admCall({act:'notify',id,code,memo});
+      if(j&&j.ok){
+        out.innerHTML=`<b>보냈습니다.</b> <span>${htmlEsc(id)} 님이 앱을 열면 안내창이 뜹니다.</span>`;
+        toast('ok','안내를 보냈어요',`${id} 님에게 전달됩니다`);
+        $('nfMemo').value='';
+      }else out.innerHTML=`<b class="bad">${htmlEsc((j&&j.msg)||'보내지 못했습니다')}</b>`;
+    }catch(e){ out.innerHTML='<b class="bad">서버에 연결하지 못했습니다</b>'; }
+    finally{ b.disabled=false; b.textContent='안내 보내기'; }
+  };
+}
+
+function cpAdmTok(){ return admTokGet(); }   /* [v13.0] 관리자 화면의 암호를 쓴다 */
 async function cpCall(body){
   const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({...body,token:cpAdmTok()})});
@@ -19602,7 +19820,7 @@ function renderTierInfo(){
 /* ── ④ 자주 묻는 것 ──────────────────────────────────────────────────── */
 const TIER_FAQ=[
   ['이용권은 어떻게 받나요?',
-   '위의 <b>이용 문의하기</b>를 눌러 메일이나 오픈채팅으로 남겨 주세요. 확인 후 코드를 보내 드립니다. <b>요금은 받지 않습니다.</b>'],
+   '위의 <b>이용 문의</b>를 눌러 메일이나 오픈채팅으로 남겨 주세요. 확인 후 코드를 보내 드립니다.'],
   ['기간이 끝나면 담아 둔 것이 사라지나요?',
    '아니요. 관심종목·알림·메모는 <b>그대로 남습니다.</b> 한도를 넘은 상태에서는 새로 담는 것만 막히고, 기존 것은 계속 보실 수 있어요.'],
   ['다른 기기에서도 같은 등급인가요?',
@@ -19617,7 +19835,7 @@ const TIER_FAQ=[
 function renderTierFaq(){
   const el=$('tierFaq'); if(!el)return;
   el.innerHTML=`<div class="panel tf-panel">
-    <div class="tt-h">자주 묻는 것</div>
+    <div class="tt-h">FAQ</div>
     <div class="tf-list">${TIER_FAQ.map(([q,a],i)=>
       `<details class="tf-item"${i===0?' open':''}><summary>${htmlEsc(q)}</summary><p>${a}</p></details>`).join('')}</div>
     <!-- [v12.4] 관리자 구역으로 가는 길 — 설정 안에 숨겨 두었더니 못 찾는다는
@@ -19699,7 +19917,7 @@ function renderTierTable(){
     ${featRows}
   </div></div>
   <div class="tt-foot">● 쓸 수 있어요 · – 아직 잠겨 있어요<br>
-    이용권은 <b>무료로 발급</b>해 드립니다. 위의 <b>이용 문의</b>로 남겨 주세요.</div>`;
+    이용권은 위의 <b>이용 문의</b>로 신청하실 수 있어요.</div>`;
   /* ══ [v12.8] 내 등급 열을 화면 안으로 ═══════════════════════════════════════
      표는 6개 등급이라 좁은 화면에서 반드시 가로로 넘친다. 그런데 왼쪽부터
      보이므로, Plus 를 쓰는 사람이 표를 열면 Free·Lite·Basic 만 보이고 정작
@@ -20860,6 +21078,8 @@ try{
     /* [v11.1] 등급 화면을 눈으로 확인하기 위한 통로 — 서버 등급을 바꾸지 않는다.
        화면 표시만 바뀌며, 새로고침하면 서버가 준 값으로 돌아온다. */
     setTier:(lv)=>{ try{ tierSet({lv:+lv||0}); }catch(e){} },
+    inbox:()=>{ try{ return checkTierInbox(); }catch(e){} },
+    gift:(m)=>{ try{ showTierGift(m); }catch(e){} },
     tier:()=>{ try{ return {..._tier}; }catch(e){ return null; } },
     ixView:()=>{ try{ return {...idxView, n:idxView.n, cs:ixCandles().length, detN:idxDetN}; }catch(e){ return {err:String(e)}; } },
     ixPan:(bars)=>{ try{ const cs=ixCandles(); idxView.follow=false;
