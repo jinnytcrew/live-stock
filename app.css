@@ -5950,3 +5950,26 @@ html:not([data-theme="dark"]) .hm-x{border-top-color:rgba(120,105,70,.16)}
   color:var(--sub-2);vertical-align:middle}
 .us-head-nm .us-star-btn.on,.us-head-nm .us-star-btn:not(.on):hover{color:#f5a30d}
 .us-head-nm #usStarLab{margin-left:3px;font-size:11px;font-weight:700;color:var(--sub-2);cursor:pointer}
+
+/* ══ [v10.6] 관심종목 버튼을 눈에 띄게 · 해외 도구 줄 ═══════════════════════
+   예전 ☆는 이름 옆의 작은 글자라 있는 줄도 몰랐다. 다른 도구와 같은 칩 모양으로
+   키우고, 담긴 상태는 색으로 분명히 구분한다. */
+.d-tool.star-tool{font-weight:800}
+.d-tool.star-tool.on{background:linear-gradient(135deg,rgba(245,163,13,.16),rgba(245,163,13,.08));
+  border-color:rgba(245,163,13,.5);color:#b47207}
+html[data-theme="dark"] .d-tool.star-tool.on{color:#ffc247}
+.us-toolbar{margin-top:12px}
+/* 국내 종목 화면의 별도 눈에 띄게 — 같은 칩 모양으로 */
+.d-name .star{display:inline-flex;align-items:center;gap:4px;margin-left:8px;
+  padding:3px 10px;border-radius:99px;border:1px solid var(--border);
+  background:var(--panel);font-size:14px;line-height:1.2;cursor:pointer;vertical-align:middle}
+.d-name .star.on{background:linear-gradient(135deg,rgba(245,163,13,.16),rgba(245,163,13,.08));
+  border-color:rgba(245,163,13,.5);color:#b47207}
+html[data-theme="dark"] .d-name .star.on{color:#ffc247}
+.d-name #starLab{font-size:11.5px;font-weight:800;color:var(--sub-2);cursor:pointer;margin-left:3px}
+
+/* ══ [v10.8] 토스트 종류별 색 — 성공과 경고를 눈으로 구분한다 ═══════════════
+   ok(완료)·on(켜짐)에 규칙이 없어 경고와 똑같이 보였다. */
+.toast.ok .ic{background:#16a34a;color:#fff}
+.toast.on .ic{background:var(--sub-2);color:#fff}
+html[data-theme="dark"] .toast.ok .ic{background:#22c55e;color:#062012}

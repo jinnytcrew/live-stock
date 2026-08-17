@@ -5408,8 +5408,18 @@ async function tryBoth(code, tf) {
   if (c.length > 1) return { src: "stooq", candles: c.slice(-300) };
   return { src: "none", candles: [] };
 }
-async function yahooIndex(sym) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=8mo&interval=1d`;
+/* [v10.6] 앱이 쓰는 지수 키 → 야후 심볼. 새 지수를 추가하려면 여기만 늘리면 된다. */
+var IDX_SYM = {
+  KOSPI:"^KS11", KOSDAQ:"^KQ11", KOSPI200:"^KS200",
+  NASDAQ:"^IXIC", SP500:"^GSPC", DOW:"^DJI", RUSSELL:"^RUT", VIX:"^VIX",
+  NIKKEI:"^N225", HANGSENG:"^HSI", SHANGHAI:"000001.SS", SHENZHEN:"399001.SZ",
+  DAX:"^GDAXI", FTSE:"^FTSE", CAC:"^FCHI", STOXX:"^STOXX50E",
+  TAIEX:"^TWII", SENSEX:"^BSESN", NIFTY:"^NSEI", BOVESPA:"^BVSP",
+  ASX:"^AXJO", TSX:"^GSPTSE", USDKRW:"KRW=X", DXY:"DX-Y.NYB",
+  WTI:"CL=F", GOLD:"GC=F", SILVER:"SI=F", US10Y:"^TNX", BTCUSD:"BTC-USD"
+};
+async function yahooIndex(sym, range, interval) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=${encodeURIComponent(range||"8mo")}&interval=${encodeURIComponent(interval||"1d")}`;
   const txt = await fetchText2(url, 5e3, { "User-Agent": UA2, "Accept": "application/json" });
   let j;
   try {
@@ -5495,14 +5505,17 @@ var chart_default = async (req2) => {
   const tf = String(url.searchParams.get("tf") || "D").toUpperCase();
   try {
     let out;
-    if (code === "KOSPI" || code === "KOSDAQ") {
+    /* ══ [v10.6] 해외 지수 차트가 안 나오던 이유 ═══════════════════════════════
+       코스피·코스닥 두 개만 손으로 적어 두고 나머지는 종목 경로로 넘겼다.
+       그런데 NASDAQ·S&P500·다우는 종목 코드가 아니라 지수 심볼이라 조회가 실패했다.
+       야후는 이 지수들을 모두 제공하므로(^IXIC 등) 표를 만들어 함께 처리한다.
+       기간(tf)도 그대로 넘겨 일·주·월·년을 각각 받는다. */
+    if (IDX_SYM[code]) {
+      const RANGE = { D: "1y", W: "5y", M: "10y", Y: "max" };
+      const IV    = { D: "1d", W: "1wk", M: "1mo", Y: "1mo" };
       let c = [];
-      try {
-        c = await yahooIndex(code === "KOSPI" ? "^KS11" : "^KQ11");
-      } catch {
-        c = [];
-      }
-      out = { src: "yahoo-index", candles: c };
+      try { c = await yahooIndex(IDX_SYM[code], RANGE[tf] || "1y", IV[tf] || "1d"); } catch { c = []; }
+      out = { src: "yahoo-index", candles: c, sym: IDX_SYM[code], tf };
     } else if (tf === "MIN") {
       const mkt = String(url.searchParams.get("mkt") || "").toUpperCase();
       let r = { candles: [], src: "none" };
@@ -15316,7 +15329,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "10.5.0";
+var APP_VER = "10.8.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

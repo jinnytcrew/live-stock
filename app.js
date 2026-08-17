@@ -2886,7 +2886,7 @@ function bindSendOut(){
   if(go)go.onclick=async()=>{
     const no=($('xoNo').value||''), amt=($('xoAmt').value||'').replace(/[^0-9]/g,'');
     const memo=($('xoMemo').value||'');
-    if(!amt){toast('warn','금액을 입력해 주세요','');return;}
+    if(!amt){toast('warn','금액을 입력해 주세요','1원 이상 숫자로 넣어 주세요');return;}
     const ok=await askConfirm('송금 확인',
       `${KRW(+amt)}원을 보냅니다.\n받는 계좌 ${no}\n되돌릴 수 없습니다. 계속할까요?`,
       {okLabel:'보내기',danger:true});
@@ -4338,7 +4338,7 @@ async function deleteAccount(){
     return;}
   const accs=accounts(); delete accs[currentUser]; store.set('accounts',accs);
   store.del('user:'+currentUser); store.del('session');
-  toast('warn','계정이 삭제되었습니다',''); setTimeout(()=>location.reload(),700);
+  toast('warn','계정이 삭제되었어요','이 기기에 저장된 거래 내역도 함께 지워집니다'); setTimeout(()=>location.reload(),700);
 }
 function setPmTab(t){document.querySelectorAll('#pmTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pm===t));document.querySelectorAll('.pm-pane').forEach(p=>p.hidden=(p.id!=='pm-'+t));
   if(t==='data')try{renderAcctSet();}catch(e){}}
@@ -5149,7 +5149,7 @@ function pushIosBlocked(){
   }catch(e){ return false; }
 }
 async function pushEnable(){
-  if(!pushSupported()){ toast('warn','이 브라우저는 푸시를 지원하지 않습니다',''); return false; }
+  if(!pushSupported()){ toast('warn','이 브라우저에서는 알림을 받을 수 없어요','크롬·삼성인터넷·엣지에서는 됩니다. 아이폰은 홈 화면에 추가한 뒤 그 아이콘으로 열어 주세요'); return false; }
   if(pushIosBlocked()){
     toast('warn','아이폰은 홈 화면에 추가해야 합니다','공유 → 홈 화면에 추가 후 그 아이콘으로 열어 주세요');
     return false;
@@ -5162,14 +5162,14 @@ async function pushEnable(){
     }
     if(Notification.permission!=='granted'){
       const p=await Notification.requestPermission();
-      if(p!=='granted'){ toast('warn','알림 권한이 필요합니다',''); return false; }
+      if(p!=='granted'){ toast('warn','알림 권한이 꺼져 있어요','주소창 왼쪽 자물쇠(또는 ⓘ) → 알림 → 허용으로 바꾼 뒤 다시 눌러 주세요'); return false; }
     }
     notifyOk=true;
     if(!_swReg)await pushInit();
-    if(!_swReg){ toast('warn','서비스 워커 등록 실패',''); return false; }
+    if(!_swReg){ toast('warn','알림 준비에 실패했어요','새로고침한 뒤 다시 시도해 주세요. 시크릿 모드에서는 알림을 쓸 수 없습니다'); return false; }
     await navigator.serviceWorker.ready;
     const kr=await fetch('/api/push?act=key',{cache:'no-store'}).then(r=>r.json());
-    if(!kr||!kr.ok||!kr.key){ toast('warn','서버 키를 받지 못했습니다',''); return false; }
+    if(!kr||!kr.ok||!kr.key){ toast('warn','알림 서버에 연결하지 못했어요','잠시 후 다시 시도해 주세요. 계속 안 되면 네트워크 상태를 확인해 주세요'); return false; }
     _pushSub=await _swReg.pushManager.getSubscription();
     if(!_pushSub){
       _pushSub=await _swReg.pushManager.subscribe({
@@ -5211,8 +5211,8 @@ async function pushDisable(){
   }catch(e){ return false; }
 }
 async function pushTest(){
-  if(!currentUser){ toast('warn','로그인이 필요합니다',''); return; }
-  if(!_pushSub){ toast('warn','먼저 알림을 켜 주세요',''); return; }
+  if(!currentUser){ toast('warn','로그인이 필요해요','오른쪽 위 프로필에서 로그인해 주세요'); return; }
+  if(!_pushSub){ toast('warn','알림이 꺼져 있어요','위쪽 \'앱을 닫아도 알림 받기\'를 먼저 켜 주세요'); return; }
   toast('ok','시험 알림을 보냈습니다','앱을 닫거나 화면을 꺼도 도착합니다');
   try{
     const r=await fetch('/api/push?act=test',{method:'POST',
@@ -5719,7 +5719,7 @@ function _showView(name){
     safeRun('search',renderSearch);safeRun('hist',renderHist);safeRun('viewHist',renderViewHist);safeRun('short',renderSearchShortcuts);
   safeRun('histWire',()=>{const inp=$('searchInput');
     if(inp&&!inp._histWired){inp._histWired=true;
-      inp.addEventListener('keydown',e=>{if(e.key==='Enter')addHistQ(inp.value);});
+      inp.addEventListener('keydown',e=>{if(e.key==='Enter')pushHistQ(inp.value);});   /* [v10.7] addHistQ → pushHistQ */
       inp.addEventListener('input',()=>{if(!inp.value.trim())renderHist();});}});
     safeRun('nxtStatus',loadNxtStatus);}
   if(name==='clan'){safeRun('clan',renderClan);}
@@ -5741,10 +5741,19 @@ $('navToggle').onclick=(e)=>{e.stopPropagation();$('mainNav').classList.toggle('
 function openTrade(code){
   if(usMeta&&usMeta[code]){ try{openUS(code);}catch(e){} return; }   // [v4.41] 해외는 전용 화면으로
   if(!code)return;
+  /* ══ [v10.6] 목록에 없는 종목을 열면 화면 곳곳에서 오류가 터졌다 ═══════════
+     byCode 에 항목이 없는 상태로 진행하면 renderDetail·drawChart·loadFundamentals
+     같은 뒷단 함수들이 s.price / s.tags 를 읽다가 줄줄이 예외를 냈다
+     (첨부 3·4번의 openTrade:price · candles · fund · promise 오류 8~9건).
+     비교함에 이름 대신 코드(119850)만 뜬 것도 같은 이유다 — 이름이 담긴
+     항목이 아예 없었다. 열기 전에 빈 껍데기라도 만들어 둔다. */
+  try{ if(!byCode[code])ensureStock(code,'',''); }catch(e){}
   selected=code;userPrice=null;invExpanded=false;
   safeRun('openTrade:view',()=>showView('trade'));          // ① 무조건 먼저 이동
   safeRun('openTrade:market',()=>resolveMarket(code));
-  safeRun('openTrade:hist',()=>{const s0=byCode[code];if(s0&&currentView==='search')addHist(code,s0.name,s0.market);});
+  /* [v10.7] 함수 이름이 addHist 로 잘못 적혀 있어 검색 기록이 저장되지 않았다.
+     safeRun 이 예외를 삼켜 화면에는 아무 표시도 없었다 — 실제 이름은 pushHist. */
+  safeRun('openTrade:hist',()=>{const s0=byCode[code];if(s0&&currentView==='search')pushHist(code,s0.name,s0.market);});
   safeRun('openTrade:view',()=>{const s0=byCode[code]||{};
     /* [v5.03] 열람 기록을 따로 두지 않고 검색 기록에 함께 남긴다 */
     try{pushHist(code,s0.name||code,s0.market||'');}catch(e){}});
@@ -6356,7 +6365,7 @@ function renderEtfLounge(){
   if(!l.length){
     rows.innerHTML=etfError
       ?'<div class="empty">ETF 목록을 불러오지 못했습니다. <button class="etf-more" id="etfRetry">다시 시도</button></div>'
-      :'<div class="empty">조건에 맞는 ETF가 없습니다.</div>';
+      :'<div class="empty">조건에 맞는 ETF가 없습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">위 조건을 하나씩 풀어 보거나, 검색어를 더 짧게 넣어 보세요.</span></div>';
     const eb=$('etfRetry');if(eb)eb.onclick=()=>{etfList=null;etfError=false;renderEtfLounge();};
     $('etfMoreRows').hidden=true;return;}
   // [수정] 특정 종목 한 건이 예외를 내면 목록 전체가 비던 문제 → 행 단위로 격리
@@ -7431,7 +7440,7 @@ function renderThemes(){
   }
   {
   }
-  if(!list.length){rows.innerHTML='<div class="empty">검색 결과가 없습니다.</div>';const mb=$('thmMore');if(mb)mb.hidden=true;return;}
+  if(!list.length){rows.innerHTML='<div class="empty">검색 결과가 없습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">종목명 대신 6자리 코드로도 찾을 수 있어요.</span></div>';const mb=$('thmMore');if(mb)mb.hidden=true;return;}
   /* [v9.72c] 강도 막대 기준 — 화면에 보이는 목록의 최대 등락률(0으로 나누지 않게 하한) */
   const shown=list.slice(0,thmLimit);
   const mx=Math.max(...shown.map(g=>Math.abs(+g.rate||0)),0.1);
@@ -8158,12 +8167,12 @@ async function renderClanLobby(el){
     eg.querySelectorAll('button').forEach(b=>b.onclick=()=>{emblem=b.dataset.em;paintEm();});};
   paintEm();
   $('cjCreate').onclick=async()=>{const nm=($('cjName').value||'').trim();
-    if(nm.length<2){toast('warn','클랜 이름은 2자 이상','');return;}
+    if(nm.length<2){toast('warn','클랜 이름이 너무 짧아요','2자 이상으로 지어 주세요');return;}
     const r=await clanCall('create',{clanName:nm,emblem,intro:$('cjIntro').value,open:$('cjOpen').checked,ym:monthPerf().ym});
     if(r.ok){clanCache=r;toast('buy','클랜 창설!',nm);renderClan();clanAutoSync(true);}
     else toast('warn','창설 실패',clanErrMsg(r));};
   $('cjJoin').onclick=async()=>{const cd=($('cjCode').value||'').trim().toUpperCase();
-    if(cd.length<4){toast('warn','코드를 확인하세요','');return;}
+    if(cd.length<4){toast('warn','초대 코드를 찾을 수 없어요','대소문자와 공백을 다시 확인해 주세요');return;}
     const r=await clanCall('join',{code:cd,ym:monthPerf().ym});
     if(r.ok){clanCache=r;toast('buy','클랜 가입!',r.clan.name);renderClan();clanAutoSync(true);}
     else toast('warn','참여 실패',{nocode:'코드를 찾을 수 없어요',full:'정원(30명)이 가득 찼어요',already:'이미 클랜에 속해 있어요'}[r.err]||r.err||'');};
@@ -8225,7 +8234,7 @@ function paintClan(){
         ${m.msg?`<span class="cr-msg">“${htmlEsc(m.msg)}”</span>`:''}
         <span class="cr-meta">${m.tr?m.tr+'건':''}${m.updatedAt?` · ${agoStr2(m.updatedAt)}`:''}</span>
         <span class="cr-r num ${m.rate==null?'':(m.rate>=0?'up':'down')}">${m.rate==null?'미집계':pctS(m.rate)}</span></div>`;}).join('')
-      ||'<div class="empty">아직 멤버가 없어요</div>';
+      ||'<div class="empty">아직 멤버가 없어요<br><span style="font-size:11.5px;color:var(--sub-2)">초대 코드를 친구에게 보내면 함께할 수 있어요.</span></div>';
     rk.querySelectorAll('[data-mem]').forEach(b=>b.onclick=()=>openMemberCard(b.dataset.mem));
     $('clanMsgSave').onclick=async()=>{
       /* [v5.03] 클랜에는 전 계좌를 합친 값을 보낸다 — 계좌를 바꿔도 기록이 흔들리지 않는다 */
@@ -8271,13 +8280,13 @@ function paintClan(){
         <div class="panel fr-list">${c.pending.map(p=>`<div class="fr-r"><b>${htmlEsc(p.name)}</b><span class="fr-id">@${htmlEsc(p.id)}</span>
           <span class="fr-btns"><button class="fr-ok" data-ap="${p.id}">승인</button><button class="fr-no" data-dn="${p.id}">반려</button></span></div>`).join('')}</div>`:''}
       <div class="sec-title" style="margin-top:16px">활동 기록</div>
-      <div class="panel feed-wrap">${(c.feed&&c.feed.length)?c.feed.map(f=>`<div class="fd-r"><span class="fd-t">${f.t}</span><span class="fd-ts">${agoStr2(f.ts)}</span></div>`).join(''):'<div class="empty">아직 활동 기록이 없어요</div>'}</div>`;
+      <div class="panel feed-wrap">${(c.feed&&c.feed.length)?c.feed.map(f=>`<div class="fd-r"><span class="fd-t">${f.t}</span><span class="fd-ts">${agoStr2(f.ts)}</span></div>`).join(''):'<div class="empty">아직 활동 기록이 없어요<br><span style="font-size:11.5px;color:var(--sub-2)">매매를 하면 이곳에 기록이 쌓입니다.</span></div>'}</div>`;
     pane.querySelectorAll('[data-ap]').forEach(b=>b.onclick=async()=>{
       const r=await clanCall('approve',{target:b.dataset.ap});
       if(r.ok){clanCache=r;paintClan();toast('buy','가입 승인','');}else toast('warn','승인 실패',clanErrMsg(r));});
     pane.querySelectorAll('[data-dn]').forEach(b=>b.onclick=async()=>{
       const r=await clanCall('deny',{target:b.dataset.dn});
-      if(r.ok){clanCache=r;paintClan();toast('warn','신청 반려','');}});
+      if(r.ok){clanCache=r;paintClan();toast('warn','가입 신청이 반려되었어요','클랜장이 신청을 받지 않았습니다');}});
   }
   else if(clanTab==='explore'){
     pane.innerHTML=`<div class="fr-add panel"><input id="clSearch2" maxlength="16" placeholder="클랜 이름 검색"><button class="btn-primary" id="clSearchGo2">검색</button></div>
@@ -8286,7 +8295,7 @@ function paintClan(){
     const load=async(q)=>{
       const r=await clanCall('list',{q});
       const box=$('clanList2');if(!box)return;
-      if(!r.ok||!r.clans||!r.clans.length){box.innerHTML='<div class="empty">공개된 클랜이 없습니다.</div>';return;}
+      if(!r.ok||!r.clans||!r.clans.length){box.innerHTML='<div class="empty">공개된 클랜이 없습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">직접 만들거나, 친구에게 초대 코드를 받아 참여해 보세요.</span></div>';return;}
       box.innerHTML=r.clans.map((x,i)=>`<div class="fr-r ${x.cid===c.cid?'me':''}">
         <span class="cr-m">${i===0?'🥇':i===1?'🥈':i===2?'🥉':`<i class="cr-n">${i+1}</i>`}</span>
         <span class="cl-em">${x.emblem||'🛡️'}</span>
@@ -8730,7 +8739,7 @@ async function renderFriend(){
   $('frIdCopy').onclick=()=>{try{navigator.clipboard.writeText(currentUser);toast('buy','아이디 복사',currentUser);}catch(e){}};
   $('frAddGo').onclick=async()=>{
     const t=($('frIdIn').value||'').trim();
-    if(!t){toast('warn','아이디를 입력하세요','');return;}
+    if(!t){toast('warn','아이디를 입력해 주세요','영문·숫자로 된 아이디를 넣어 주세요');return;}
     const r=await frCall('add',{target:t});
     if(r.ok){frCache=r;renderFriend();frDot();toast('buy','친구 신청 완료',t+'님에게 신청을 보냈어요');}
     else toast('warn','신청 실패',{nouser:'그런 아이디가 없어요',already:'이미 친구예요',sent:'이미 신청을 보냈어요',self:'본인은 추가할 수 없어요'}[r.err]||r.err||'');};
@@ -8786,6 +8795,23 @@ function renderCmpUi(){
 }
 function openCmpGate(){
   const a=cmpList();if(a.length<2){toast('warn','비교하려면 2종목 이상','종목 화면의 ⚖ 버튼으로 담아 보세요');return;}
+  /* ══ [v10.6] 비교함에 이름 대신 코드만 뜨던 이유 ═══════════════════════════
+     비교함은 코드만 저장하고, 이름은 그릴 때 byCode 에서 찾는다. 그런데 그 종목을
+     이 접속에서 한 번도 연 적이 없으면 byCode 에 항목이 없어 코드가 그대로 나왔다
+     (첨부 4번의 '119850'). 전체 종목 명단(stockAll)에는 이름이 있으므로,
+     그릴 때 채워 넣고 시세도 함께 요청한다. */
+  try{
+    const need=a.filter(c=>!(byCode[c]&&byCode[c].name&&byCode[c].name!==c));
+    if(need.length){
+      need.forEach(c=>{
+        let nm='',mk='';
+        try{ const hit=(Array.isArray(stockAll)?stockAll:[]).find(x=>x&&(x.code===c));
+          if(hit){ nm=hit.name||''; mk=hit.market||''; } }catch(e){}
+        ensureStock(c,nm,mk);
+      });
+      primeQuotes(need);
+    }
+  }catch(e){}
   const rows=a.map(c=>{
     const st=byCode[c]||{},q=dispQuote(c)||{};
     const px=q.price!=null?q.price:st.price,pv=q.prevClose||st.prevClose;
@@ -8822,7 +8848,7 @@ function openAlertGate(){
   $('alSave').onclick=async()=>{
     const up=parseInt(($('alUp').value||'').replace(/[^0-9]/g,''))||0;
     const dn=parseInt(($('alDn').value||'').replace(/[^0-9]/g,''))||0;
-    if(!up&&!dn){toast('warn','알림가를 입력하세요','');return;}
+    if(!up&&!dn){toast('warn','알림 받을 가격을 입력해 주세요','위·아래 중 한 곳만 넣어도 됩니다');return;}
     priceAlerts[code]={name:st.name,above:up||undefined,below:dn||undefined};
     subscribeAutoCodes();saveState();closeLiteGate();
     toast('on','가격 알림 설정',(up?`↑${KRW(up)} `:'')+(dn?`↓${KRW(dn)}`:''));
@@ -8951,7 +8977,7 @@ function toggleBriefTts(){
     if(_ttsOn){speechSynthesis.cancel();_ttsOn=false;if(btn)btn.classList.remove('on');return;}
     const box=$('aiBrief');if(!box)return;
     const txt=(box.innerText||'').replace(/\s+/g,' ').slice(0,900);
-    if(!txt){toast('warn','읽을 브리핑이 없어요','');return;}
+    if(!txt){toast('warn','읽어 드릴 브리핑이 없어요','보유·관심 종목을 담으면 브리핑이 만들어집니다');return;}
     const u=new SpeechSynthesisUtterance(txt);u.lang='ko-KR';u.rate=1.05;
     u.onend=()=>{_ttsOn=false;if(btn)btn.classList.remove('on');};
     speechSynthesis.cancel();speechSynthesis.speak(u);
@@ -11283,11 +11309,16 @@ $('starBtn').onclick=async()=>{
   }
   openFolderPop(code,$('starBtn'));
 };
-function updateStar(){const on=watchlist.includes(selected);$('starBtn').textContent=on?'★':'☆';$('starBtn').classList.toggle('on',on);}
+function updateStar(){
+  /* [v10.6] 담긴 상태를 글자로도 알려 준다 — 별 모양만으로는 눈에 안 띄었다 */
+  const on=watchlist.includes(selected);
+  const b=$('starBtn'); if(b){ b.textContent=on?'★':'☆'; b.classList.toggle('on',on); }
+  const l=$('starLab'); if(l)l.textContent=on?'관심 담김':'관심';
+}
 
 /* 종목 상세 */
 function renderDetail(){
-  const s=byCode[selected];
+  const s=byCode[selected]||{};   /* [v10.6] 종목이 아직 없을 수 있다 */
   const _dq=dispQuote(selected)||{};
   const _px=_dq.price!=null?_dq.price:s.price, _pv=_dq.prevClose||s.prevClose;
   const has=_px!=null&&!!_pv;
@@ -11463,7 +11494,7 @@ function nxtRemovedNote(code){
 
 function renderExchangeRow(){
   const el=$('exRow'); if(!el)return;
-  const s=byCode[selected];
+  const s=byCode[selected]||{};   /* [v10.6] 종목이 아직 없을 수 있다 */
   const d=exCache[selected];
   const prev=(d&&d.prevClose)||(s&&s.prevClose)||null;
   const cap=nxtCapability(selected);
@@ -11877,7 +11908,7 @@ const BIZ_DESC={
 '068760':'셀트리온 그룹의 국내 의약품 제조·판매 계열사로 바이오시밀러와 케미컬 의약품을 담당합니다.',
 '402340':'SK그룹의 반도체·ICT 투자 전문 중간지주회사로 SK하이닉스 등을 자회사로 둡니다.'};
 function buildBizSummary(){
-  const s=byCode[selected],code=selected,sector=(s.tags&&s.tags[0])||'';
+  const s=byCode[selected]||{},code=selected,sector=(s.tags&&s.tags[0])||'';   /* [v10.6] */
   // ETF는 기업 설명 대신 상품 개요(기초지수·운용사·분류)를 사업요약으로 사용
   if(isFundLike(code)&&curEtf){
     /* [v2.5.4] ETF·ETN도 최소 5문장 서술형 — 기초지수·운용사·순자산·보수·성과·유의사항 */
@@ -12173,7 +12204,12 @@ var idxSiseMode='date';
 /* 지수도 종목과 같은 기간을 쓴다 */
 const IX_TFS=[['1m','1분'],['3m','3분'],['5m','5분'],['10m','10분'],['30m','30분'],
               ['60m','60분'],['D','일'],['W','주'],['M','월'],['Y','년']];
-function idxChartable(key){ return key==='KOSPI'||key==='KOSDAQ'; }
+/* [v10.6] 서버가 지원하는 지수 목록과 맞춘다 — 예전에는 코스피·코스닥만
+   차트를 그려 나스닥·S&P500·다우가 '자료 없음'으로 나왔다. */
+const IDX_CHARTABLE=new Set(['KOSPI','KOSDAQ','KOSPI200','NASDAQ','SP500','DOW','RUSSELL','VIX',
+  'NIKKEI','HANGSENG','SHANGHAI','SHENZHEN','DAX','FTSE','CAC','STOXX','TAIEX','SENSEX','NIFTY',
+  'BOVESPA','ASX','TSX','USDKRW','DXY','WTI','GOLD','SILVER','US10Y','BTCUSD']);
+function idxChartable(key){ return IDX_CHARTABLE.has(String(key||'').toUpperCase()); }
 function idxOpen(key){
   const x=(market.indices||[]).find(v=>v.key===key);
   if(!x)return;
@@ -12187,7 +12223,7 @@ function renderIdxDetail(){
   const x=(market.indices||[]).find(v=>v.key===key);
   const T=$('ixTitle'), H=$('ixHead'), G=$('ixGrid'), TF=$('ixTf'), N=$('ixNote');
   if(!H)return;
-  if(!x){ H.innerHTML='<div class="empty">지수 정보를 찾지 못했습니다.</div>';
+  if(!x){ H.innerHTML='<div class="empty">지수 정보를 찾지 못했습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">홈 화면의 주요 지수에서 다시 눌러 주세요.</span></div>';
     if(G)G.innerHTML=''; if(TF)TF.innerHTML=''; return; }
   if(T)T.textContent=x.name||key;
   const dir=dirOf(x.change);
@@ -12251,7 +12287,7 @@ function renderIxSise(key){
   const x=(market.indices||[]).find(v=>v.key===key)||{};
   if(idxSiseMode==='time'){
     const h=x.history||[];
-    if(h.length<2){ body.innerHTML='<div class="empty">오늘 분 단위 자료가 아직 없습니다.</div>'; return; }
+    if(h.length<2){ body.innerHTML='<div class="empty">오늘 분 단위 자료가 아직 없습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">장이 열리면 실시간으로 쌓입니다. 그전에는 일자별을 봐 주세요.</span></div>'; return; }
     const base=(x.price!=null&&x.change!=null)?x.price-x.change:h[0];
     /* history 는 오늘 장중 흐름이다. 정확한 시각이 없으므로 순번으로 표시한다. */
     const rows=h.map((v,i)=>{
@@ -12273,7 +12309,7 @@ function renderIxSise(key){
       .then(j=>{ idxDetData[ck]=(j&&j.candles)||[]; if(idxDetail===key)renderIxSise(key); }).catch(()=>{});
     return;
   }
-  if(!cs.length){ body.innerHTML='<div class="empty">일자별 시세 자료가 없습니다.</div>'; return; }
+  if(!cs.length){ body.innerHTML='<div class="empty">일자별 시세 자료가 없습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">차트 기간을 바꿔 보시거나 잠시 후 다시 열어 주세요.</span></div>'; return; }
   const arr=cs.slice(-60);
   const rows=arr.map((c,i)=>{
     const prev=arr[i-1];
@@ -12300,26 +12336,46 @@ function drawIdxChart(cs){
   if(arr.length<2){ x.fillStyle=getCss('--sub-2','#888'); x.font='12px Pretendard';
     x.fillText('차트 자료가 부족합니다',12,H/2); return; }
   const hi=Math.max(...arr.map(c=>c.h??c.c)), lo=Math.min(...arr.map(c=>c.l??c.c));
-  const rng=(hi-lo)||1, padT=14, padB=22, ph=H-padT-padB;
+  /* [v10.6] 오른쪽에 값 축, 아래에 날짜 축을 둘 자리를 비운다 */
+  const rng=(hi-lo)||1, padT=12, padB=20, padR0=6, padRight=58, ph=H-padT-padB;
+  const plotW=Math.max(20,W-padR0-padRight);
   const Y=(v)=>padT+(1-(v-lo)/rng)*ph;
-  const bw=Math.max(1.5,W/arr.length*0.62), step=W/arr.length;
+  const bw=Math.max(1.5,plotW/arr.length*0.62), step=plotW/arr.length;
   const up=getCss('--up','#e5443b'), dn=getCss('--down','#2f74ff');
   arr.forEach((c,i)=>{
-    const cx=i*step+step/2, o=c.o??c.c, cl=c.c, h2=c.h??Math.max(o,cl), l2=c.l??Math.min(o,cl);
+    const cx=padR0+i*step+step/2, o=c.o??c.c, cl=c.c, h2=c.h??Math.max(o,cl), l2=c.l??Math.min(o,cl);
     const rise=cl>=o;
     x.strokeStyle=rise?up:dn; x.fillStyle=rise?up:dn; x.lineWidth=1;
     x.beginPath(); x.moveTo(cx,Y(h2)); x.lineTo(cx,Y(l2)); x.stroke();
     const yo=Y(o), yc=Y(cl);
     x.fillRect(cx-bw/2,Math.min(yo,yc),bw,Math.max(1,Math.abs(yc-yo)));
   });
-  /* 축 라벨 */
-  x.fillStyle=getCss('--sub-2','#94a3b8'); x.font='10px Pretendard';
-  x.textAlign='left'; x.fillText(DEC(hi),4,padT-3);
-  x.fillText(DEC(lo),4,H-padB+12);
-  const f=arr[0].d,l=arr[arr.length-1].d;
+  /* ══ [v10.6] 종목 차트처럼 가로·세로축과 격자를 그린다 ═══════════════════
+     예전에는 위·아래 값과 시작·끝 날짜 네 개만 찍어, 중간 값을 읽을 수 없었다. */
+  const grid=getCss('--border-soft','rgba(120,120,120,.18)');
+  const lab=getCss('--sub-2','#94a3b8');
+  x.font='10px Pretendard';
+  /* 세로축 — 값 5칸 */
+  const STEPS=4;
+  x.strokeStyle=grid; x.lineWidth=1;
+  for(let i=0;i<=STEPS;i++){
+    const v=lo+rng*(1-i/STEPS), yy=Y(v);
+    x.beginPath(); x.moveTo(padR0,yy); x.lineTo(W-padRight,yy); x.stroke();
+    x.fillStyle=lab; x.textAlign='right'; x.textBaseline='middle';
+    x.fillText(DEC(v,rng<50?2:0),W-4,yy);
+  }
+  /* 가로축 — 날짜 4~5칸 */
   const dt=(d)=>d&&d.length>=8?`${d.slice(4,6)}.${d.slice(6,8)}`:'';
-  x.textAlign='left'; x.fillText(dt(f),4,H-4);
-  x.textAlign='right'; x.fillText(dt(l),W-4,H-4);
+  const N=Math.min(5,arr.length);
+  x.textBaseline='alphabetic';
+  for(let i=0;i<N;i++){
+    const gi=Math.round(i*(arr.length-1)/(N-1||1));
+    const cx=padR0+gi*step+step/2;
+    x.strokeStyle=grid; x.beginPath(); x.moveTo(cx,padT); x.lineTo(cx,H-padB); x.stroke();
+    x.fillStyle=lab;
+    x.textAlign=i===0?'left':(i===N-1?'right':'center');
+    x.fillText(dt(arr[gi].d),Math.max(2,Math.min(W-2,cx)),H-5);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -12533,7 +12589,7 @@ function fxAlertModal(cur){
   const nv=(id)=>{const v=($(id).value||'').replace(/[^0-9.]/g,''); return v?Number(v):null;};
   $('fxaSave').onclick=()=>{
     const up=nv('fxaUp'), dn=nv('fxaDn');
-    if(up!=null&&dn!=null&&dn>=up){ toast('warn','아래 값이 위 값보다 큽니다',''); return; }
+    if(up!=null&&dn!=null&&dn>=up){ toast('warn','값이 뒤바뀐 것 같아요','\'이 값 이하\'는 \'이 값 이상\'보다 낮아야 합니다'); return; }
     if(up==null&&dn==null){ delete fxAlerts[cur]; }
     else fxAlerts[cur]={...(up!=null?{above:up}:{}),...(dn!=null?{below:dn}:{})};
     fxAlertSave(); closeLiteGate(); try{renderFxAlerts();}catch(e){}
@@ -12771,10 +12827,10 @@ function renderAsking(el){
   /* [v9.81b] 이 경로는 국내 종목 전용이다. 해외 티커가 들어오면 네이버가
      엉뚱한 종목을 돌려줄 수 있으므로 아예 요청하지 않는다. */
   if(typeof usMeta!=='undefined'&&usMeta[code]){
-    el.innerHTML='<div class="empty">해외 종목은 호가를 제공하지 않습니다.</div>';return;
+    el.innerHTML='<div class="empty">해외 종목은 호가를 제공하지 않습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">국내 종목에서는 5단계 호가를 보실 수 있어요.</span></div>';return;
   }
   if(!/^[0-9A-Z]{5,7}$/.test(String(code||'').toUpperCase())){
-    el.innerHTML='<div class="empty">호가를 조회할 수 없는 종목입니다.</div>';return;
+    el.innerHTML='<div class="empty">호가를 조회할 수 없는 종목입니다.<br><span style="font-size:11.5px;color:var(--sub-2)">종목 코드가 6자리인 국내 상장 종목에서만 제공됩니다.</span></div>';return;
   }
   const d=_obData[code];
   if(d===undefined){
@@ -12891,7 +12947,7 @@ function renderSise(el){
     const d=_sumDaily[code];
     if(!d){el.innerHTML=seg+'<div class="empty">시세를 불러오는 중…</div>';bind();
       ensureDailySummary(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});return;}
-    if(!d.length){el.innerHTML=seg+'<div class="empty">일자별 시세 데이터가 없습니다.</div>';bind();return;}
+    if(!d.length){el.innerHTML=seg+'<div class="empty">일자별 시세 데이터가 없습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">상장한 지 얼마 안 된 종목일 수 있어요. 차트 탭을 먼저 열어 보세요.</span></div>';bind();return;}
     const arr=d.slice(-siseDays);
     /* 기간 요약 — 표 위에 먼저 둔다 */
     const first=arr[0], last=arr[arr.length-1];
@@ -12953,7 +13009,7 @@ function renderSise(el){
 /* 일별 시세를 CSV 로 — 엑셀에서 한글이 깨지지 않게 BOM 을 붙인다 */
 function siseCsv(code){
   try{
-    const d=_sumDaily[code]||[]; if(!d.length)return toast('warn','내려받을 데이터가 없습니다','');
+    const d=_sumDaily[code]||[]; if(!d.length)return toast('warn','내려받을 자료가 없어요','시세를 먼저 불러온 뒤 다시 시도해 주세요');
     const nm=(byCode[code]||{}).name||code;
     const arr=d.slice(-siseDays);
     const head='일자,시가,고가,저가,종가,전일대비,등락률(%),거래량\n';
@@ -12967,7 +13023,7 @@ function siseCsv(code){
     document.body.appendChild(a);a.click();
     setTimeout(()=>{try{URL.revokeObjectURL(a.href);a.remove();}catch(e){}},1000);
     toast('ok','CSV 를 내려받았습니다',`${nm} · ${arr.length}일치`);
-  }catch(e){ toast('warn','내려받기 실패',''); }
+  }catch(e){ toast('warn','내려받기에 실패했어요','브라우저가 파일 저장을 막았을 수 있습니다. 다시 시도해 주세요'); }
 }
 /* ===== 뉴스 / 공시 ===== */
 let newsType='all';const newsCache={};
@@ -12991,7 +13047,7 @@ function renderNews(el){
   el.innerHTML=seg+`<div class="news-list">${list}</div>`;bind();
 }
 function renderSummary(el,extraTop,extraBottom){
-  const code=curFund.code,s=byCode[selected];
+  const code=curFund.code,s=byCode[selected]||{};   /* [v10.6] */
   /* [수정] 상단 헤더는 dispQuote(통합·NXT 병합)를 쓰는데 여기만 byCode(KRX 원시값)를 읽어
      애프터마켓에 헤더 70,200 vs 요약 69,800처럼 서로 다른 가격이 표시됐다 — 같은 창구로 통일 */
   const _q=dispQuote(selected)||{};
@@ -14340,7 +14396,7 @@ function foPlanModal(code){
   const nv=(id)=>{const v=($(id).value||'').replace(/[^0-9.]/g,''); return v?Number(v):null;};
   $('fpSave').onclick=()=>{
     const t=nv('fpTgt'), s2=nv('fpStop');
-    if(t!=null&&s2!=null&&s2>=t){ toast('warn','손절가가 목표가보다 높습니다',''); return; }
+    if(t!=null&&s2!=null&&s2>=t){ toast('warn','손절가가 목표가보다 높아요','손절가는 지금 값보다 낮게, 목표가는 높게 잡습니다'); return; }
     /* [v9.72b] 값이 밀린 뒤 손절가를 내리는 것은 계획이 아니라 변명이다.
        막지는 않되(사용자의 판단이다) 무슨 일을 하는지는 분명히 알린다. */
     if(p.stop!=null&&s2!=null&&s2<p.stop*0.995){
@@ -14355,8 +14411,8 @@ function foPlanModal(code){
     const tr=Number(($('fpTrail').value||'').replace(/[^0-9.]/g,''))||0;
     if(tr>0&&tr<50){ h.trailPct=tr; if(!h.trailHi)h.trailHi=livePx(h.code,h.avg)||h.avg; }
     else { delete h.trailPct; delete h.trailHi; }
-    if(p.autoStop&&p.stop==null){ toast('warn','손절가를 먼저 넣어 주세요',''); return; }
-    if(p.autoTake&&p.target==null){ toast('warn','목표가를 먼저 넣어 주세요',''); return; }
+    if(p.autoStop&&p.stop==null){ toast('warn','손절가를 먼저 넣어 주세요','자동 매도를 켜려면 어느 값에서 팔지 정해야 합니다'); return; }
+    if(p.autoTake&&p.target==null){ toast('warn','목표가를 먼저 넣어 주세요','자동 매도를 켜려면 어느 값에서 팔지 정해야 합니다'); return; }
     if(!h.buyAt)h.buyAt=Date.now();
     saveState(); closeLiteGate(); renderFolio(); toast('ok','계획을 저장했습니다','');
   };
@@ -15163,7 +15219,7 @@ function drawChart(){
   ctx.setLineDash([]);ctx.globalAlpha=1;
   ctx.fillStyle=col;rr(padL+plotW+1,ly-9,padR-3,18,5);                                // [수정] 현재가 라벨을 알약 모양으로
   ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 10px Pretendard';ctx.fillText(KRW(last.c),padL+plotW+(padR-1)/2,ly);
-  const s=byCode[selected],dc=s.price!=null?s.price-s.prevClose:0,dir=dirOf(dc);
+  const s=byCode[selected]||{},dc=s.price!=null?s.price-s.prevClose:0,dir=dirOf(dc);   /* [v10.6] */
   const _lq=dispQuote(s.code),_lp=(_lq&&_lq.price!=null)?_lq.price:s.price;       // [수정] 범례도 통합가
   $('chartLegend').innerHTML=`<b>${TFLABEL[chartTf]}봉</b> · <span class="${dir}">${KRW(_lp)}</span> · ${m}/${n}`+((isMinute(chartTf)&&n<=2&&minuteDiag)?` · <span style="color:#c9902a">${minuteDiag}</span>`:'');
   // 크로스헤어
@@ -15292,7 +15348,7 @@ function sanitizeAccount(silent){
 }
 
 /* ===== 주문 폼 ===== */
-function currentPrice(){return byCode[selected].price??0;}
+function currentPrice(){const s=byCode[selected];return (s&&s.price!=null)?s.price:0;}   /* [v10.6] 지수 화면 등 종목이 없을 때 방어 */
 /* ══ [v9.90] 시장가는 '현재가'가 아니라 '상대 호가'에 체결된다 ═══════════════
    [무엇이 잘못돼 있었나] 시장가 주문의 체결가를 currentPrice() 즉 마지막 체결가로
    잡았다. 실제 거래소는 다르다. 시장가 매수는 매도 1호가(가장 싼 매도 주문)를
@@ -15526,7 +15582,7 @@ function renderAdvFlags(){
   box.hidden=false;
 }
 function availableExchanges(){
-  const st=byCode[selected];
+  const st=byCode[selected]||{};   /* [v10.6] */
   if(!(st&&st.nxt===true))return ['KRX'];
   /* 시장경보·거래정지·관리종목 → NXT 창구 즉시 잠금 (SOR 도 NXT 라우팅이 막히므로 함께 제외) */
   if(nxtSuspendInfo(selected))return ['KRX'];
@@ -15745,7 +15801,7 @@ function tradeSessionLabel(code){
   return '';
 }
 $('submitBtn').onclick=()=>{
-  const s=byCode[selected];if(s.price==null){toast('warn','시세 수신 대기','가격을 받은 뒤 주문하세요');return;}
+  const s=byCode[selected]||{};if(s.price==null){toast('warn','시세 수신 대기','가격을 받은 뒤 주문하세요');return;}
   if(settings.realHours&&!canTradeNow(s.code)){
     const _st=byCode[s.code];
     const _nx=nextTradeOpenText(s.code);
@@ -15835,7 +15891,24 @@ function executeOrderCore(s,o,tag){
     try{ foSeedPlan(s.code,price,false); }catch(e){}   /* [v9.72] 살 때 계획을 자동으로 심는다 */
     toast('buy',s.name+' 매수 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(qty)}주 · ${KRW(price)}원 · 결제 ${KRW(c.cost)}원 · 잔고 ${KRW(cash)}원`);
   }else{
-    const h=holdings.find(x=>x.code===s.code);const avg=intOf(h&&h.avg,price);
+    /* ══ [v10.7] 보유하지 않은 종목을 파는 것을 막는다 ═══════════════════════
+       [무엇이 위험했나] 매도 분기가 h(보유 항목)를 찾자마자 h.qty 를 고쳤다.
+       그런데 h 가 없을 수 있다 — 예약 매도가 남아 있는데 그 사이 전량이 다른
+       경로로 팔렸거나, 손절 자동 실행과 수동 매도가 겹치는 경우다. 그러면
+       h.qty 에서 예외가 나 주문 처리가 중간에 끊기고, 이미 차감한 값이
+       되돌려지지 않아 잔고가 어긋난다.
+       또 보유 수량보다 많이 팔면 h.qty 가 음수가 되어 '마이너스 보유'가 된다.
+       [고침] 보유가 없으면 아예 진행하지 않고, 수량은 보유분까지로 자른다. */
+    const h=holdings.find(x=>x.code===s.code);
+    if(!h||!(intOf(h.qty,0)>0)){
+      toast('warn','매도할 수 없습니다','보유 수량이 없습니다');
+      return false;
+    }
+    if(qty>intOf(h.qty,0)){
+      toast('warn','보유 수량을 넘습니다',`보유 ${KRW(intOf(h.qty,0))}주까지 매도할 수 있습니다`);
+      return false;
+    }
+    const avg=intOf(h&&h.avg,price);
     rec.avg=avg;rec.pnl=Math.round((price-avg)*qty-fee-tax);rec.roi=avg*qty?rec.pnl/(avg*qty)*100:0;
     h.qty=intOf(h.qty,0)-qty;
     cash=intOf(cash+c.proceeds,0);
@@ -15866,7 +15939,14 @@ function toast(type,title,sub){
      사용자나 상대방이 적은 값이 자주 섞인다. 호출부마다 이스케이프를 챙기는
      방식은 한 곳만 빠져도 뚫리므로, 출구인 여기서 일괄 처리한다.
      이미 이스케이프된 문자열이 다시 처리돼도 화면상 차이는 없다. */
-  t.className='toast '+type;t.innerHTML=`<span class="ic">${type==='buy'?'▲':type==='sell'?'▼':'!'}</span><span>${htmlEsc(title)}<small>${htmlEsc(sub)}</small></span>`;
+  /* ══ [v10.8] 성공 안내가 경고처럼 보이던 문제 ═══════════════════════════════
+     아이콘이 buy=▲, sell=▼, 나머지는 전부 '!' 였다. 그래서 '저장했습니다',
+     '알림을 켰습니다' 같은 성공 안내도 노란 느낌표로 떠 사용자가 무언가 잘못된
+     줄 알았다. 종류를 뜻에 맞게 나눈다.
+       buy 매수 ▲ · sell 매도 ▼ · ok 완료 ✓ · on 켜짐 ● · warn 주의 ! */
+  const ICON={buy:'▲',sell:'▼',ok:'✓',on:'●',warn:'!'};
+  t.className='toast '+type;
+  t.innerHTML=`<span class="ic">${ICON[type]||'!'}</span><span>${htmlEsc(title)}${sub?`<small>${htmlEsc(sub)}</small>`:''}</span>`;
   w.appendChild(t);setTimeout(()=>{t.style.transition='opacity .3s,transform .3s';t.style.opacity='0';t.style.transform='translateY(10px)';setTimeout(()=>t.remove(),300);},5200);   // [v2.1] 알림 유지 시간 연장
 }
 window.addEventListener('resize',()=>{drawChart();if(currentView==='home')renderMarket();});
@@ -17138,7 +17218,9 @@ try{
   Object.keys(usMeta).forEach(t=>{ const m2=usMeta[t];
     if(US_KRNAME[t])return;                       // 표에 이름이 있으면 그게 정답이다
     if(m2&&m2.kr===t&&m2.en&&m2.en!==t){ m2.kr=m2.en; if(usDyn[t]){usDyn[t].kr=m2.en;ch++;} } });
-  if(ch)localStorage.setItem('usDyn1',JSON.stringify(usDyn));
+  /* [v10.7] 저장 실패(용량 초과·비공개 모드)가 예외로 튀어나오면 이 함수를 부른
+     쪽 전체가 멈춘다. 이름 보정은 실패해도 앱이 계속 돌아야 한다. */
+  if(ch){ try{ localStorage.setItem('usDyn1',JSON.stringify(usDyn)); }catch(e){} }
 }catch(e){}
 /* 내장 + 별칭 + 등록분 통합 매칭 */
 function usLocalMatch(q){
@@ -18676,7 +18758,32 @@ function wireUsStar(){
     }catch(e){}
   };
   const b=$('usStarBtn'); if(b){ b.onclick=go; b.onkeydown=(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}} }
-  const l=$('usStarLab'); if(l)l.onclick=go;
+  /* [v10.6] 나머지 도구도 국내와 같은 함수를 그대로 쓴다 */
+  const wire=(id,fn)=>{ const e=$(id); if(e)e.onclick=()=>{ try{fn();}catch(err){} }; };
+  /* 국내 도구들은 전역 selected 를 본다. 해외에서도 같은 함수를 쓰되,
+     부르는 동안만 selected 를 이 종목으로 맞췄다가 되돌린다.
+     (해외 티커도 byCode 에 껍데기를 만들어 두어야 내부에서 터지지 않는다) */
+  const asSel=(fn)=>()=>{
+    const keep=selected;
+    try{
+      if(!byCode[usSel])ensureStock(usSel,(usMeta[usSel]&&usMeta[usSel].kr)||usSel,'해외');
+      const q=usQ[usSel];
+      if(q&&q.price!=null){ const b=byCode[usSel]; b.price=q.price; b.prevClose=q.prev; }
+      selected=usSel; fn();
+    }catch(e){}
+    finally{ selected=keep; }
+  };
+  wire('usAlertBtn',asSel(()=>openAlertGate()));
+  wire('usCmpBtn',asSel(()=>{ cmpToggle(usSel); toast('on','비교함',cmpList().includes(usSel)?'담았어요':'뺐어요'); renderUsHead(); wireUsStar(); }));
+  wire('usDartBtn',()=>{ window.open('https://finance.yahoo.com/quote/'+encodeURIComponent(usSel),'_blank','noopener'); });
+  wire('usHoldBtn',asSel(()=>openHoldGate()));
+  wire('usMemoBtn',asSel(async()=>{
+    const nm=(usMeta[usSel]&&usMeta[usSel].kr)||usSel;
+    const v=await askMemo(nm+' 메모',{value:stockMemos[usSel]||'',placeholder:'매수 이유, 목표가 근거 등을 남겨 두세요'});
+    if(v===null)return;
+    if(v.trim())stockMemos[usSel]=v.trim(); else delete stockMemos[usSel];
+    saveState(); renderUsHead(); wireUsStar();
+  }));
 }
 function renderUsTrade(){
   if(!usSel){showView('us');return;}
@@ -19479,13 +19586,23 @@ function renderUsHead(){
   $('usHead').innerHTML=`<div class="us-head-top">
     <div class="us-head-l">${usTick(usSel)}
       <div class="us-head-nm"><b>${htmlEsc(m.kr)}<span class="us-ex">${{O:'NASDAQ',N:'NYSE',A:'AMEX'}[m.sfx]||''}</span>${m.etf?'<span class="us-ex">ETF</span>':''}
-        <!-- [v10.5] 해외에도 관심종목 버튼 — 국내와 같은 자리·같은 모양 -->
-        <span class="star us-star-btn" id="usStarBtn" title="관심종목" role="button" tabindex="0">${watchlist.includes(usSel)?'★':'☆'}</span>
-        <span class="d-lab" id="usStarLab">관심</span></b>
+</b>
         <span>${usSel} · ${htmlEsc(m.en||'')}</span></div></div>
     <div class="us-head-px"><div class="p num ${dirOf(d||0)}">$${USD2(q.price)}</div>
       <div class="k num">${USDKR(q.price)}</div>
       <div class="d num ${dirOf(d||0)}">${d==null?'—':(d>=0?'+':'')+USD2(d)+' ('+usRateTxt(q)+')'}</div></div></div>
+  <!-- ══ [v10.6] 해외에도 국내와 같은 도구 줄 ═══════════════════════════════
+       관심·가격알림·비교함·공시·손절익절·메모가 해외에는 아예 없었다.
+       같은 기능을 같은 자리에 둔다. 관심은 눈에 띄게 칩 모양으로 크게. -->
+  <div class="d-toolbar us-toolbar">
+    <button class="d-tool star-tool ${watchlist.includes(usSel)?'on':''}" id="usStarBtn"
+      title="관심종목에 담기">${watchlist.includes(usSel)?'★':'☆'}<span>관심${watchlist.includes(usSel)?' 담김':''}</span></button>
+    <button class="d-tool" id="usAlertBtn" title="목표가에 도달하면 알려 줍니다">🔔<span>가격 알림</span></button>
+    <button class="d-tool" id="usCmpBtn" title="여러 종목을 표로 비교합니다">⚖<span>비교함</span></button>
+    <button class="d-tool" id="usDartBtn" title="이 종목의 공시·뉴스를 새 탭에서 봅니다">📄<span>공시</span></button>
+    <button class="d-tool" id="usHoldBtn" title="손절가·익절가 설정">🎯<span>손절·익절</span></button>
+    <button class="d-tool" id="usMemoBtn" title="이 종목에 메모를 남깁니다">📝<span>메모</span></button>
+  </div>
   <div class="us-sess-line ${ses.phase==='regular'?'on':ses.phase==='closed'?'':'ext'}"><i class="us-sess-dot"></i>
     ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next+' (한국시간)':' · 정규장 '+ses.kst.open+'~'+ses.kst.close+' KST'+(ses.dst?' · 서머타임':'')}
     ${q.at?` · <span class="num">${new Date(q.at).toTimeString().slice(0,5)} 수신</span>`:''}</div>`;
@@ -19728,6 +19845,24 @@ function usExecuteOrder(side,o){
 function renderUsMineSafe(){try{if(currentView==='us')renderUsMine();}catch(e){}}
 
 /* ══ [v4.33] 모든 선언이 끝난 뒤에 부팅한다 — 순서 문제를 구조적으로 없앤다 ══ */
+/* ══ [v10.7] 자가 점검 훅 ═══════════════════════════════════════════════════
+   app.js 는 type="module" 로 실행돼 안의 함수·상태가 전역에 노출되지 않는다.
+   평소에는 그게 맞다(전역 오염이 없다). 다만 화면을 자동으로 훑어 오류를 찾는
+   점검 도구가 붙을 자리가 없어, 사람이 일일이 눌러 보는 수밖에 없었다.
+   꼭 필요한 것만 하나의 창구로 내보낸다 — 진단 전용이며 앱 동작에는 영향이 없다. */
+try{
+  window.__diag={
+    showView:(v)=>showView(v),
+    openTrade:(c)=>openTrade(c),
+    openUS:(t)=>openUS(t),
+    idxOpen:(k)=>idxOpen(k),
+    state:()=>({view:currentView,selected,usSel,
+      codes:Object.keys(byCode).length,us:Object.keys(usMeta).length,
+      indices:(market.indices||[]).length,watch:watchlist.length,holdings:holdings.length}),
+    errs:()=>{ try{ return _errLog.slice(-60); }catch(e){ return []; } },
+    clearErrs:()=>{ try{ _errLog.length=0; }catch(e){} }
+  };
+}catch(e){}
 try{ __bootMain(); }
 catch(e){ try{ reportErr('boot',e); }catch(_){ }
   try{ window.__boot&&__boot.done(); }catch(_){ }   // 오류가 나도 입장화면은 반드시 걷는다
