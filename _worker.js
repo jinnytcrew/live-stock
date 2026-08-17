@@ -4776,7 +4776,9 @@ var accounts_default = async (req2) => {
       }
       clearTries(db, id); await saveAcc(id);          /* [v9.75] */
       await saveDb();
-      return json({ ok: true, name: acc.name, email: acc.email, created: acc.created, user: db.users[id] || {} });
+      /* [v11.0] 등급을 함께 보낸다 — 화면은 이 값만 믿는다(위조 불가) */
+      return json({ ok: true, name: acc.name, email: acc.email, created: acc.created,
+        user: db.users[id] || {}, ...tierPayload(acc) });
     }
     if (action === "sync") {
       const v = await verify(acc, pass, legacy);
@@ -4793,7 +4795,8 @@ var accounts_default = async (req2) => {
          다시 썼기 때문에, 비슷한 시각에 저장한 다른 사람의 변경이 통째로 날아갔다.
          이제 자기 키만 쓴다 — 서로 덮어쓸 수 없다. */
       const okU = await usrSave(store, id, db.users[id]);
-      return json({ ok: true, stored: okU ? "usr" : "fail" });
+      /* [v11.0] 동기화 응답에도 등급을 실어, 만료·발급이 화면에 곧 반영되게 한다 */
+      return json({ ok: true, stored: okU ? "usr" : "fail", ...tierPayload(acc) });
     }
     if (action === "delete") {
       if (!acc) return json({ ok: false, err: "noacct" });
@@ -5821,6 +5824,76 @@ async function accIndex(st, id, acc) {
     if (acc.email) await st.setJSON("mail:" + String(acc.email).trim().toLowerCase(), { id });
   } catch (e) {}
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v11.0] 등급 시스템 — 서버가 진실을 가진다
+   ─────────────────────────────────────────────────────────────────────────────
+   [왜 acc: 에 두나] 사용자 데이터(usr:)는 화면이 통째로 보낸 값을 그대로 저장한다
+   (sync 가 body.user 를 받아 쓴다). 거기에 등급을 두면 개발자도구에서 tier:'max'
+   한 줄 고치고 동기화하는 것만으로 최상위 등급이 된다.
+   계정 정보(acc:)는 서버만 쓰므로 화면이 손댈 수 없다 — 등급은 여기에 둔다.
+   [만료 판정] 읽을 때 계산한다. 만료가 지났으면 free 로 취급하고, 필요하면 그때
+   기록만 정리한다. Cron Trigger 없이도 정확하며, 별도 청소 작업이 필요 없다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var TIER_KEYS = ["free", "lite", "basic", "plus", "pro", "max"];
+var TIER_NAME = { free:"Free", lite:"Lite", basic:"Basic", plus:"Plus", pro:"Pro", max:"Max" };
+/* 관리자 확인 — 이미 쓰고 있는 NXT_ADMIN_TOKEN 을 그대로 쓴다(키를 늘리지 않는다) */
+function admOk(tok) {
+  const want = envGet("NXT_ADMIN_TOKEN");
+  return !!want && String(tok || "") === String(want);
+}
+/* 비밀번호 확인 — 계정 라우트의 verify 를 쿠폰에서도 쓴다 */
+async function verifyPass(acc, pass) {
+  try { const v = await verify(acc, pass, null); return !!(v && v.ok); }
+  catch (e) { return false; }
+}
+function tierIdx(k) {
+  const i = TIER_KEYS.indexOf(String(k || "free").toLowerCase());
+  return i < 0 ? 0 : i;
+}
+/* 계정에서 '지금 유효한' 등급을 꺼낸다. 만료됐으면 free. */
+function tierOf(acc) {
+  if (!acc) return { key: "free", lv: 0, until: null, expired: false };
+  const raw = String(acc.tier || "free").toLowerCase();
+  const lv0 = tierIdx(raw);
+  const until = acc.tierUntil ? Number(acc.tierUntil) : null;
+  if (lv0 > 0 && until && Date.now() > until) {
+    return { key: "free", lv: 0, until, expired: true };   // 지났다 — free 로 본다
+  }
+  return { key: TIER_KEYS[lv0], lv: lv0, until: until || null, expired: false };
+}
+/* 등급을 준다. 이미 상위 등급이면 등급은 지키고 기간만 늘린다. */
+function tierGrant(acc, key, days, from) {
+  const now = Date.now();
+  const cur = tierOf(acc);
+  const want = tierIdx(key);
+  const addMs = (days > 0) ? days * 864e5 : 0;      // days=0 이면 무기한
+
+  let nextLv = Math.max(cur.lv, want);
+  let nextUntil;
+
+  if (addMs === 0 || (cur.lv === want && !cur.until)) {
+    nextUntil = null;                                // 무기한이 한쪽이라도 있으면 무기한
+  } else if (want > cur.lv) {
+    nextUntil = now + addMs;                         // 등급이 오르면 기간을 새로 센다
+  } else {
+    /* 같거나 낮은 등급의 쿠폰 — 기간만 이어 붙인다 */
+    const base = (cur.until && cur.until > now) ? cur.until : now;
+    nextUntil = cur.until === null && cur.lv > 0 ? null : base + addMs;
+  }
+  acc.tier = TIER_KEYS[nextLv];
+  acc.tierUntil = nextUntil;
+  acc.tierAt = now;
+  if (from) acc.tierFrom = String(from).slice(0, 40);
+  return tierOf(acc);
+}
+/* 응답에 실어 보낼 모양 — 화면은 이것만 믿는다 */
+function tierPayload(acc) {
+  const t = tierOf(acc);
+  return { tier: t.key, lv: t.lv, until: t.until, expired: t.expired,
+           from: (acc && acc.tierFrom) || null };
+}
+
 async function accSave(st, id, acc) {
   const key = String(id == null ? "" : id).trim().toLowerCase();
   if (!key) return false;
@@ -10423,6 +10496,197 @@ async function srtFetchDay(mkt, ymd) {
   const rows = r.j.OutBlock_1 || r.j.output || r.j.block1 || [];
   return Array.isArray(rows) && rows.length ? rows : null;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v11.0] 쿠폰 — 발급과 등록
+   ─────────────────────────────────────────────────────────────────────────────
+   cpn:<코드>  { tier, days, maxUse, used, usedBy[], expireAt, memo, at }
+   · days=0  이면 무기한 등급
+   · maxUse  다회용 코드 지원(친구 15명에게 같은 코드를 뿌릴 수 있다)
+   · usedBy  같은 사람이 두 번 쓰는 것을 막는다
+   [코드 모양] LIVE-XXXX-XXXX. 0/O, 1/I 처럼 헷갈리는 글자는 뺀다 —
+   손으로 옮겨 적다가 틀리면 "코드가 안 된다"는 문의만 늘어난다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var CPN_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // 0,O,1,I 제외
+function cpnNorm(code) {
+  return String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+/* ══ [v11.3] 코드 형식 — LIVE-XXXXX-XXXXX-XXXXX-X ═══════════════════════════
+   저장은 붙여서(LIVE + 무작위 16자 = 20자), 표시는 4-5-5-5-1 로 끊는다.
+   [왜 소문자를 안 쓰나] 코드는 카톡으로 보내고 손으로 옮겨 적는 물건이다.
+   l/I/1, O/0 처럼 눈으로 구분이 안 되는 짝이 생기고, 자동 대문자 변환이 걸리는
+   기기도 있어 "코드가 안 된다"는 문의만 늘어난다.
+   대신 길이를 8→16자로 늘려 경우의 수를 1.2×10^24 로 확보했다 —
+   소문자를 넣어 얻는 이득보다 오타로 잃는 것이 크다. */
+function cpnPretty(raw) {
+  const c = cpnNorm(raw);
+  if (c.length !== 20) return c;
+  return `${c.slice(0,4)}-${c.slice(4,9)}-${c.slice(9,14)}-${c.slice(14,19)}-${c.slice(19,20)}`;
+}
+/* ══ [v11.4] 마지막 한 자리는 등급 식별 숫자 ═══════════════════════════════
+   LIVE + 무작위 15자(대문자+숫자) + 등급숫자 1자 = 20자.
+   등급숫자는 TIER_KEYS 의 자리번호를 그대로 쓴다 — 1=Lite … 5=Max.
+   [알아 둘 점] 코드만 보고 등급을 알 수 있게 된다. 관리에는 편하지만
+   받는 사람도 알게 되므로, 등급을 숨기고 싶다면 이 방식을 쓰지 않는 게 맞다.
+   위조는 불가능하다 — 서버가 KV 에서 실제 코드를 찾아 확인하기 때문에,
+   끝자리만 바꿔 넣어도 '없는 코드'가 된다. */
+function cpnMake(tier) {
+  const lv = tierIdx(tier);
+  let body = "";
+  const buf = new Uint8Array(15);
+  crypto.getRandomValues(buf);
+  for (let i = 0; i < 15; i++) body += CPN_ALPHA[buf[i] % CPN_ALPHA.length];
+  return "LIVE" + body + String(lv);
+}
+/* 코드 끝자리로 등급을 읽는다 — 화면 안내에만 쓰고, 판정은 서버가 KV 로 한다 */
+function cpnTierHint(code) {
+  const c = cpnNorm(code);
+  if (c.length !== 20) return null;
+  const n = Number(c.slice(19));
+  return (n >= 1 && n < TIER_KEYS.length) ? TIER_KEYS[n] : null;
+}
+var coupon_default = async (req2) => {
+  const url = new URL(req2.url);
+  const J = (o, st) => new Response(JSON.stringify(o), {
+    status: st || 200,
+    headers: { "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store", "access-control-allow-origin": "*" } });
+  if (!KV) return J({ ok: false, err: "nostore" });
+
+  let body = {};
+  try { body = await req2.json(); } catch (e) { body = {}; }
+  const act = String(body.act || "").toLowerCase();
+  const store = kvAdapter(KV, "app");
+
+  /* ── 등록: 사용자가 코드를 넣는다 ─────────────────────────────────────── */
+  if (act === "redeem") {
+    const id = String(body.id || "").trim().toLowerCase();
+    const pass = String(body.pass || "");
+    const code = cpnNorm(body.code);
+    if (!id || !pass) return J({ ok: false, err: "auth", msg: "로그인이 필요합니다" });
+    if (code.length !== 20) return J({ ok: false, err: "form", msg: "코드는 LIVE 로 시작하는 20자입니다. 다시 확인해 주세요" });
+
+    const acc = await accLoad(store, id);
+    if (!acc) return J({ ok: false, err: "auth", msg: "계정을 찾을 수 없습니다" });
+    const v = await verifyPass(acc, pass);
+    if (!v) return J({ ok: false, err: "auth", msg: "비밀번호가 맞지 않습니다" });
+
+    let cpn = null;
+    try { cpn = await KV.get("cpn:" + code, "json"); } catch (e) { cpn = null; }
+    if (!cpn) return J({ ok: false, err: "notfound", msg: "없는 코드입니다. 대소문자와 하이픈을 다시 확인해 주세요" });
+    if (cpn.expireAt && Date.now() > cpn.expireAt)
+      return J({ ok: false, err: "expired", msg: "사용 기간이 지난 코드입니다" });
+    if ((cpn.usedBy || []).includes(id))
+      return J({ ok: false, err: "already", msg: "이미 사용하신 코드입니다" });
+    if (cpn.maxUse && (cpn.used || 0) >= cpn.maxUse)
+      return J({ ok: false, err: "soldout", msg: "사용 횟수를 모두 채운 코드입니다" });
+
+    /* ══ [v11.6] 동시 등록 — 자리를 먼저 잡고 나서 등급을 준다 ═══════════════
+       [무엇이 위험했나] '읽고 → 검사하고 → 쓰기' 사이에 다른 요청이 끼어든다.
+       1회용 코드를 다섯 명이 같은 순간에 넣으면 다섯 명 모두 "아직 안 썼다"를
+       보고 통과했다(실제로 그렇게 확인됐다).
+       [고침] 순서를 뒤집는다 — 먼저 목록에 내 이름을 넣어 저장하고, 그 결과를
+       다시 읽어 '내가 몇 번째 자리인지' 확인한다. 정원을 넘는 자리면 등급을
+       주지 않는다. KV 에 잠금이 없으므로 이것이 실질적인 최선이다.
+       [남는 한계] 같은 밀리초에 겹치면 드물게 한 자리가 더 나갈 수 있다.
+       무료 발급이라 손해가 없고, 한두 명 더 들어와도 문제가 되지 않는다. */
+    const CK = "cpn:" + code;
+    let cur = cpn;
+    try { cur = (await KV.get(CK, "json")) || cpn; } catch (e) { cur = cpn; }
+    if ((cur.usedBy || []).includes(id))
+      return J({ ok: false, err: "already", msg: "이미 사용하신 코드입니다" });
+    if (cur.maxUse && (cur.used || 0) >= cur.maxUse)
+      return J({ ok: false, err: "soldout", msg: "사용 횟수를 모두 채운 코드입니다" });
+
+    /* ① 자리를 잡는다 */
+    const list = [...(cur.usedBy || [])];
+    list.push(id);
+    cur.usedBy = list;
+    cur.used = list.length;
+    try { await KV.put(CK, JSON.stringify(cur)); } catch (e) {}
+
+    /* ② 정말 얻었는지 다시 읽어 확인한다 */
+    let chk = cur;
+    try { chk = (await KV.get(CK, "json")) || cur; } catch (e) { chk = cur; }
+    const seat = (chk.usedBy || []).indexOf(id);
+    /* 내 이름이 사라졌다면 다른 요청의 쓰기에 덮인 것이다 — 다시 시도하면 된다.
+       (이 경우 목록에 내 이름이 없으므로 재시도가 막히지 않는다) */
+    if (seat < 0) return J({ ok: false, err: "retry", msg: "잠시 뒤 다시 시도해 주세요" });
+    /* 정원 밖 자리를 잡았다면 이름을 되돌려 놓는다 — 그대로 두면 다음에
+       "이미 사용하셨다"로 막혀, 정원이 빌 때도 영영 못 쓰게 된다. */
+    if (chk.maxUse && seat >= chk.maxUse) {
+      try {
+        const back = { ...chk, usedBy: (chk.usedBy || []).filter(x => x !== id) };
+        back.used = back.usedBy.length;
+        await KV.put(CK, JSON.stringify(back));
+      } catch (e) {}
+      return J({ ok: false, err: "soldout", msg: "사용 횟수를 모두 채운 코드입니다" });
+    }
+
+    const before = tierOf(acc);
+    const after  = tierGrant(acc, cpn.tier, +cpn.days || 0, cpnPretty(code));
+    await accSave(store, id, acc);
+
+    return J({ ok: true, before: before.key, ...tierPayload(acc),
+      msg: (before.lv === after.lv)
+        ? `${TIER_NAME[after.key]} 이용 기간이 늘었습니다`
+        : `${TIER_NAME[after.key]} 등급이 되었습니다` });
+  }
+
+  /* ── 발급: 관리자만 ───────────────────────────────────────────────────── */
+  if (act === "issue") {
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const tier = String(body.tier || "pro").toLowerCase();
+    if (!TIER_KEYS.includes(tier) || tier === "free")
+      return J({ ok: false, err: "tier", msg: "발급할 수 없는 등급입니다" });
+    const days   = Math.max(0, Math.min(3650, +body.days || 0));
+    const maxUse = Math.max(1, Math.min(500, +body.maxUse || 1));
+    const count  = Math.max(1, Math.min(50, +body.count || 1));
+    const validDays = Math.max(0, Math.min(3650, +body.validDays || 0));
+    const memo = String(body.memo || "").slice(0, 60);
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const code = cpnMake(tier);
+      const rec = { tier, days, maxUse, used: 0, usedBy: [], memo,
+        at: Date.now(), expireAt: validDays ? Date.now() + validDays * 864e5 : null };
+      try { await KV.put("cpn:" + code, JSON.stringify(rec)); out.push(cpnPretty(code)); } catch (e) {}
+    }
+    return J({ ok: true, codes: out, tier, days, maxUse });
+  }
+
+  /* ── 목록: 관리자만 ───────────────────────────────────────────────────── */
+  if (act === "list") {
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const out = [];
+    try {
+      const r = await KV.list({ prefix: "cpn:", limit: 200 });
+      for (const k of (r.keys || [])) {
+        const v = await KV.get(k.name, "json");
+        if (v) out.push({ code: cpnPretty(k.name.slice(4)), ...v, usedBy: undefined,
+                          users: (v.usedBy || []).length });
+      }
+    } catch (e) {}
+    out.sort((a, b) => (b.at || 0) - (a.at || 0));
+    return J({ ok: true, items: out });
+  }
+
+  /* ── 직접 지정: 관리자만 (문의 메일을 받고 바로 올려 줄 때) ───────────── */
+  if (act === "set") {
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const id = String(body.id || "").trim().toLowerCase();
+    const acc = await accLoad(store, id);
+    if (!acc) return J({ ok: false, err: "nouser", msg: "그런 계정이 없습니다" });
+    const tier = String(body.tier || "free").toLowerCase();
+    if (!TIER_KEYS.includes(tier)) return J({ ok: false, err: "tier" });
+    if (tier === "free") { acc.tier = "free"; acc.tierUntil = null; acc.tierFrom = "관리자"; }
+    else tierGrant(acc, tier, Math.max(0, +body.days || 0), "관리자");
+    await accSave(store, id, acc);
+    return J({ ok: true, id, ...tierPayload(acc) });
+  }
+
+  return J({ ok: false, err: "act" });
+};
+
 var srt_default = async (req2) => {
   const url = new URL(req2.url);
   const code = String(url.searchParams.get("code") || "").replace(/[^0-9A-Za-z]/g, "").slice(0, 12);
@@ -12419,6 +12683,7 @@ var ROUTES = {
   "market": market_default,
   "askprice": askprice_default,   /* [v9.81] 호가 */
   "srt": srt_default,             /* [v9.84] 공매도 잔고 */
+  "coupon": coupon_default,       /* [v11.0] 이용권 쿠폰 */
   "push": push_default,          /* [v9.76] 웹 푸시 */
   "meta": meta_default,
   "news": news_default,
@@ -15356,7 +15621,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "10.9.0";
+var APP_VER = "12.0.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

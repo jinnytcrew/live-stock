@@ -1209,7 +1209,54 @@ function paintPicks(j){
 function proLiveStamp(id){const el=$(id);if(!el)return;const t=new Date();
   el.innerHTML='<i class="dot on"></i>자동 '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');}
 let proTab='picks';
+/* ══ [v11.2] 고급 서비스 탭 잠금 ═══════════════════════════════════════════
+   급등주 예측·매집 포착기는 일봉 수십 종을 분석하는 무거운 계산이다.
+   서버 부담이 실제로 큰 기능이라 Pro 부터로 둔다. 다른 탭은 그대로 열려 있다. */
+const PRO_NEED={ surge:'surge', accum:'accum', bt:'backtest' };
+/* ══ [v11.8] 잠금이 한 번 걸리면 등급을 올려도 안 풀리던 문제 ═══════════════
+   [무엇이 잘못됐나] 잠금 카드를 그리면서 el.innerHTML 로 원래 내용을 통째로
+   덮어썼다. 그러면 그 안의 버튼·입력칸·캔버스가 영영 사라진다. 나중에 등급이
+   올라가도 되살릴 내용이 없어 화면이 빈 채로 남고, 그 요소를 찾던 다른 코드가
+   "Cannot set properties of null" 로 터졌다(실제로 그렇게 확인됐다).
+   [고침] 원래 내용은 그대로 두고 잠금 카드를 형제로 덧씌운다. 등급이 오르면
+   카드만 지우면 원래 화면이 그대로 돌아온다. */
+function proLockShow(t,need){
+  const el=$('pro-'+t); if(!el)return;
+  let lock=el.querySelector(':scope > .tc-lock');
+  const NM={surge:['급등주 예측','실시간 시세와 일봉을 분석해 조건에 맞는 종목을 찾아 드립니다'],
+            accum:['매집 포착기','거래량과 가격 흐름에서 조용히 모으는 흔적을 짚어 드립니다'],
+            bt:['백테스트','과거 데이터로 전략을 검증해 볼 수 있어요']};
+  const [nm,desc]=NM[t]||[t,''];
+  if(!lock){
+    lock=document.createElement('div');
+    lock.className='tc-lock';
+    el.prepend(lock);
+  }
+  lock.innerHTML=`<b>${nm}은(는) ${tierNeedName(need)} 부터예요</b>
+    <span>${desc}</span>
+    <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button>`;
+  /* 원래 내용은 지우지 않고 가리기만 한다 */
+  [...el.children].forEach(c=>{ if(c!==lock)c.classList.add('pro-hidden'); });
+  bindTierGo(lock);
+}
+function proLockClear(t){
+  const el=$('pro-'+t); if(!el)return;
+  const lock=el.querySelector(':scope > .tc-lock');
+  if(lock)lock.remove();
+  [...el.children].forEach(c=>c.classList.remove('pro-hidden'));
+}
 function setProTab(t){
+  const need=PRO_NEED[t];
+  if(need&&!tierAllow(need)){
+    proTab=t;
+    document.querySelectorAll('#proTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pt===t));
+    ['picks','nxthist','surge','accum','screener','thermo','port','compare','bt','risk']
+      .forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
+    proLockShow(t,need);
+    return;
+  }
+  /* 잠금이 걸려 있었다면 걷어낸다 — 등급이 오르면 곧바로 원래 화면으로 */
+  if(PRO_NEED[t])proLockClear(t);
   proTab=t;
   document.querySelectorAll('#proTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pt===t));
   ['picks','nxthist','surge','accum','screener','thermo','port','compare','bt','risk'].forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
@@ -3366,6 +3413,11 @@ function wireAeSheet(){
   }
 }
 function doAcctOpen(){
+  /* [v11.6] 계좌 개수도 등급을 따른다 */
+  try{
+    const _n=(acctList||[]).length;
+    if(_n>=tierLimit('account')){ tierBlockLimit('account',_n+1,'계좌는'); return; }
+  }catch(e){}
   aeSave();
   const t=ACCT_TYPES[aeSel]||ACCT_TYPES.general;
   const v=parseInt(String(aeForm.cash||'0').replace(/[^0-9]/g,''))||0;
@@ -3588,7 +3640,11 @@ async function cloudCall(body){
   if(!CLOUD&&body.action!=='login'&&body.action!=='signup'&&body.action!=='ensure')return null;  // [v4.18] 가입·복구도 항상 시도
   const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);   // 8초 넘으면 포기(무한 '확인 중' 방지)
   try{const r=await fetch('/api/accounts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctrl.signal});
-    if(!r.ok)return null;const j=await r.json();if(j&&j.err==='nostore'){CLOUD=false;return null;}return j;}
+    if(!r.ok)return null;const j=await r.json();if(j&&j.err==='nostore'){CLOUD=false;return null;}
+    /* [v11.0] 로그인·동기화 응답에 담긴 등급을 여기 한 곳에서 받는다.
+       호출부마다 챙기면 한 곳만 빠져도 등급이 안 바뀌므로 입구를 하나로 둔다. */
+    try{ if(j&&j.ok&&(j.tier!=null||j.lv!=null))tierSet(j); }catch(e){}
+    return j;}
   catch{return null;}
   finally{clearTimeout(to);}
 }
@@ -5059,6 +5115,15 @@ function wireAdminPanel(){
   const sv=$('admSave'); if(sv)sv.onclick=saveAdminNotice;
   const ld=$('admLoad'); if(ld)ld.onclick=loadAdminCurrent;
 }
+/* [v11.3] 쿠폰 관리 배선은 관리 패널이 열리는 경로와 별개로 걸어 둔다.
+   wireAdminPanel 은 verRow(버전 줄) 가 있어야 실행되는데, 그 요소가 아직
+   그려지기 전이면 통째로 건너뛴다. 쿠폰 버튼은 설정 창에 늘 있으므로
+   문서가 준비되면 한 번만 걸면 된다. */
+try{
+  if(document.readyState==='loading')
+    document.addEventListener('DOMContentLoaded',()=>{ try{wireCouponAdmin();}catch(e){} },{once:true});
+  else wireCouponAdmin();
+}catch(e){}
 function openAdminPanel(){
   const pn=$('admPanel'); if(!pn)return;
   pn.hidden=false;
@@ -5149,6 +5214,11 @@ function pushIosBlocked(){
   }catch(e){ return false; }
 }
 async function pushEnable(){
+  /* [v11.2] 앱을 닫아도 받는 알림은 Basic 부터 — 서버가 계속 감시해야 한다 */
+  if(!tierAllow('push')){
+    tierBlockFeat('push','앱을 닫아도 알림 받기','보유 종목이 손절선에 닿으면 알려 드립니다');
+    return false;
+  }
   if(!pushSupported()){ toast('warn','이 브라우저에서는 알림을 받을 수 없어요','크롬·삼성인터넷·엣지에서는 됩니다. 아이폰은 홈 화면에 추가한 뒤 그 아이콘으로 열어 주세요'); return false; }
   if(pushIosBlocked()){
     toast('warn','아이폰은 홈 화면에 추가해야 합니다','공유 → 홈 화면에 추가 후 그 아이콘으로 열어 주세요');
@@ -5732,7 +5802,7 @@ function _showView(name){
     safeRun('nxtStatus',loadNxtStatus);}
   if(name==='clan'){safeRun('clan',renderClan);}
   if(name==='friend'){safeRun('friend',renderFriend);}
-  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('acctsend',renderAcctSend);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
+  if(name==='account'){safeRun('tierCard',renderTierCard);safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('acctsend',renderAcctSend);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
     safeRun('equity',()=>{seedEquityFromTrades();recordEquity();requestAnimationFrame(drawEquity);});
     safeRun('bgList',refreshStockListSoon);
     if(currentView==='home')safeRun('heroeq',drawHeroEq);
@@ -8803,13 +8873,19 @@ setTimeout(()=>{try{if(currentUser)frAutoSync(true);}catch(e){}},6000);
 /* ══ [v2.5] 신규 기능 렌더러 묶음 ══ */
 /* 비교함(최대 4종목) */
 function cmpList(){try{return JSON.parse(localStorage.getItem('cmpSet')||'[]');}catch(e){return [];}}
-function cmpSave(a){try{localStorage.setItem('cmpSet',JSON.stringify(a.slice(0,4)));}catch(e){}}
+/* [v11.2] 4로 잘라 두면 Max(8칸)가 저장 단계에서 막힌다 — 절대 상한만 남긴다 */
+function cmpSave(a){try{localStorage.setItem('cmpSet',JSON.stringify(a.slice(0,8)));}catch(e){}}
 function cmpToggle(code){
   let a=cmpList();
+  /* [v11.2] 비교함 칸 수도 등급을 따른다 */
+  const cap=tierLimit('compare');
   if(a.includes(code))a=a.filter(c=>c!==code);
-  else{if(a.length>=4){toast('warn','비교함 가득','최대 4종목까지 담을 수 있어요');return;}a.push(code);}
+  else{
+    if(a.length>=cap){ tierBlockLimit('compare',a.length+1,'비교함은'); return; }
+    a.push(code);
+  }
   cmpSave(a);renderCmpUi();
-  toast('on','비교함',a.includes(code)?'담았어요 ('+a.length+'/4)':'뺐어요 ('+a.length+'/4)');
+  toast('on','비교함',a.includes(code)?`담았어요 (${a.length}/${tierFmt(cap)})`:`뺐어요 (${a.length}/${tierFmt(cap)})`);
 }
 function renderCmpUi(){
   const a=cmpList();
@@ -8885,6 +8961,11 @@ function openAlertGate(){
     const up=parseInt(($('alUp').value||'').replace(/[^0-9]/g,''))||0;
     const dn=parseInt(($('alDn').value||'').replace(/[^0-9]/g,''))||0;
     if(!up&&!dn){toast('warn','알림 받을 가격을 입력해 주세요','위·아래 중 한 곳만 넣어도 됩니다');return;}
+    /* [v11.2] 등급별 가격 알림 개수 — 이미 걸어 둔 종목은 수정이므로 세지 않는다 */
+    if(!priceAlerts[code]){
+      const n=Object.keys(priceAlerts).filter(c=>priceAlerts[c]&&(priceAlerts[c].above||priceAlerts[c].below)).length;
+      if(n>=tierLimit('alert')){ tierBlockLimit('alert',n+1,'가격 알림은'); return; }
+    }
     priceAlerts[code]={name:st.name,above:up||undefined,below:dn||undefined};
     subscribeAutoCodes();saveState();closeLiteGate();
     toast('on','가격 알림 설정',(up?`↑${KRW(up)} `:'')+(dn?`↓${KRW(dn)}`:''));
@@ -11025,7 +11106,9 @@ document.querySelectorAll('#searchMktTabs button').forEach(b=>b.onclick=()=>{
    · 행 「폴더」 버튼 → 체크박스 팝오버(화면 아래선 위로 뒤집힘)
    · ☑ 선택 모드: 여러 종목을 한 번에 폴더에 담기/빼기
    · 폴더 요약 바(상승·하락·평균), NXT 배지, 게스트 저장 안내 */
-const FOLDER_MAX=12;
+/* [v11.2] 등급이 생기면서 12는 Pro(30)·Max(무제한)를 가로막는다.
+   실제 한도는 등급이 정하고, 이 값은 '아무리 높아도 여기까지'라는 안전선이다. */
+const FOLDER_MAX=200;
 const FD_ICONS=['📈','💎','🔋','🤖','🏦','💊','🚗','⭐'];
 const FD_COLORS=['#e5484d','#f59e0b','#22a559','#2f74ff','#8b5cf6','#64748b'];
 let wlSelMode=false, wlSelSet=new Set();
@@ -11120,7 +11203,9 @@ function renderWatch(){
 }
 
 async function newFolderFlow(preCodes){
-  if(watchFolders.length>=FOLDER_MAX){toast('warn','폴더는 최대 '+FOLDER_MAX+'개','기존 폴더를 정리해 주세요');return null;}
+  /* [v11.2] 폴더 한도는 등급을 따른다(FOLDER_MAX 는 절대 상한으로만 남긴다) */
+  const _fmax=Math.min(FOLDER_MAX,tierLimit('folder'));
+  if(watchFolders.length>=_fmax){ tierBlockLimit('folder',watchFolders.length+1,'폴더는'); return null; }
   const nm=await askText('새 폴더 이름',{placeholder:'예: 반도체, 배당주',maxLen:12});
   if(!nm)return null;
   if(watchFolders.some(f=>f.name===nm)){toast('warn','같은 이름 폴더가 있어요',nm);return null;}
@@ -11237,6 +11322,12 @@ function openFolderPop(code,btn){
   d.querySelectorAll('input[data-f]').forEach(ch=>ch.onchange=()=>{
     const f=folderOf(ch.dataset.f); if(!f)return;
     const before=watchlist.includes(code);
+    /* [v11.2] 등급별 관심종목 한도 */
+    if(ch.checked&&!before&&watchlist.length>=tierLimit('watch')){
+      ch.checked=false;
+      tierBlockLimit('watch',watchlist.length+1,'관심종목은');
+      return;
+    }
     if(ch.checked){if(!f.codes.includes(code))f.codes.push(code);}
     else f.codes=f.codes.filter(c=>c!==code);
     syncWatchUnion();                                   // [v1.99] 관심 = 폴더 합집합
@@ -11379,6 +11470,11 @@ function renderDetail(){
   if(_mb)_mb.onclick=async(e)=>{e.stopPropagation();
     const v=await askMemo(s.name+' 메모',{value:stockMemos[s.code]||'',placeholder:'매수 이유, 목표가 근거 등을 남겨 두세요'});
     if(v===null)return;
+    /* [v11.6] 메모 개수도 등급을 따른다 — 이미 있는 메모 수정은 세지 않는다 */
+    if(v.trim()&&!stockMemos[s.code]){
+      const _n=Object.keys(stockMemos).length;
+      if(_n>=tierLimit('memo')){ tierBlockLimit('memo',_n+1,'종목 메모는'); return; }
+    }
     if(v.trim())stockMemos[s.code]=v.trim(); else delete stockMemos[s.code];
     saveState(); renderDetail();
   };
@@ -12261,6 +12357,91 @@ function idxOpen(key){
   try{ showView('index'); }catch(e){}
   renderIdxDetail();
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v12.0] 지수 차트 제스처 — 종목 차트와 같은 조작감
+   ─────────────────────────────────────────────────────────────────────────────
+   예전에는 차트 위에 「− 120봉 +」 작은 상자를 얹어 두었다. 종목 차트는
+   손가락으로 밀고 오므려 조작하는데 지수만 달라, 같은 앱인데 규칙이 둘이었다.
+   [무엇을 옮겼나] 종목 차트의 조작 세 가지를 그대로 가져온다.
+     · 끌어서 좌우 이동    · 두 손가락(휠)로 확대·축소    · ＋/－/⟳ 버튼
+   [보이는 범위] idxView.n = 몇 봉을 볼지, idxView.end = 오른쪽 끝이 몇 번째인지.
+   end 가 마지막이면 follow=true 로 두어, 자료가 갱신돼도 오른쪽 끝에 붙어 있는다. */
+var idxView={n:120,end:-1,follow:true};
+var _ixWired=false;
+function ixCandles(){ try{ return idxDetData[idxDetail+':'+idxDetTf]||[]; }catch(e){ return []; } }
+function ixClamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function ixApply(){
+  const cs=ixCandles(); if(!cs.length)return;
+  idxView.n=Math.round(ixClamp(idxView.n,20,Math.max(20,cs.length)));
+  const last=cs.length-1;
+  if(idxView.follow||idxView.end<0)idxView.end=last;
+  idxView.end=Math.round(ixClamp(idxView.end,Math.min(idxView.n-1,last),last));
+  idxDetN=idxView.n;                      // 그리는 쪽이 쓰는 값
+  drawIdxChart(cs);
+}
+function ixWireGestures(){
+  const cv=$('ixChart'); if(!cv)return;
+  const btnIn=$('ixZoomIn'), btnOut=$('ixZoomOut'), btnRe=$('ixZoomReset');
+  if(btnIn)btnIn.onclick=()=>{ idxView.n=Math.round(idxView.n*0.8); ixApply(); };
+  if(btnOut)btnOut.onclick=()=>{ idxView.n=Math.round(idxView.n*1.25); ixApply(); };
+  if(btnRe)btnRe.onclick=()=>{ idxView.n=120; idxView.follow=true; idxView.end=-1; ixApply(); };
+  if(_ixWired)return;                      // 제스처는 한 번만 건다
+  _ixWired=true;
+  let drag=null, pinch=null;
+  const dist=(e)=>{const a=e.touches[0],b=e.touches[1];return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);};
+  cv.addEventListener('pointerdown',e=>{
+    if(pinch)return;
+    const cs=ixCandles(); if(!cs.length)return;
+    drag={x:e.clientX,end:idxView.end<0?cs.length-1:idxView.end};
+    /* [v12.0] setPointerCapture 를 쓰지 않는다.
+       캡처를 걸면 그 뒤 pointermove 가 캔버스가 아니라 캡처 대상으로 가는데,
+       drawIdxChart 가 매번 캔버스 크기를 다시 잡으면서 캡처가 풀려
+       이동 이벤트가 중간에 끊겼다. 종목 차트도 캡처 없이 문서에서 받는다. */
+  });
+  document.addEventListener('pointermove',e=>{
+    if(!drag||pinch)return;
+    const cs=ixCandles(); if(!cs.length)return;
+    const box=cv.getBoundingClientRect();
+    const plotW=Math.max(20,box.width-64);
+    const barW=plotW/Math.max(8,idxView.n);
+    const dBars=Math.round((e.clientX-drag.x)/barW);
+    if(!dBars)return;                       // 움직임이 한 봉도 안 되면 그대로 둔다
+    /* ══ [v12.0] 끄는 방향 ═══════════════════════════════════════════════════
+       종이를 손으로 미는 감각이다. 왼쪽으로 밀면(dBars<0) 종이가 왼쪽으로
+       가면서 오른쪽에 있던 '더 과거'가 아니라 '더 최근'이 보여야 할 것 같지만,
+       차트는 오른쪽이 최신이다. 즉 왼쪽으로 밀면 과거로 간다 — end 가 줄어야 한다.
+       dBars 는 왼쪽으로 밀 때 음수이므로 그대로 더한다(end += dBars).
+       예전 코드는 빼고 있어(end -= dBars) 방향이 뒤집혀 있었다. */
+    idxView.follow=false;
+    idxView.end=drag.end+dBars;
+    if(idxView.end>=cs.length-1){ idxView.end=cs.length-1; idxView.follow=true; }
+    ixApply();
+  });
+  const stop=()=>{drag=null;};
+  document.addEventListener('pointerup',stop);
+  document.addEventListener('pointercancel',stop);
+  cv.addEventListener('wheel',e=>{
+    e.preventDefault();
+    /* [v12.0] 확대·축소는 오른쪽 끝을 고정한 채 봉 개수만 바꾼다.
+       follow 를 끄지 않으면 늘 마지막 봉에 붙으므로 그대로 둔다. */
+    idxView.n=Math.round(idxView.n*(e.deltaY>0?1.2:0.82));
+    ixApply();
+  },{passive:false});
+  cv.addEventListener('touchstart',e=>{
+    if(e.touches.length===2){ drag=null; pinch={d:dist(e),n:idxView.n}; }
+  },{passive:false});
+  cv.addEventListener('touchmove',e=>{
+    if(pinch&&e.touches.length===2){
+      e.preventDefault();
+      const d=dist(e);
+      idxView.n=Math.round(pinch.n*(pinch.d/Math.max(1,d)));
+      ixApply();
+    }
+  },{passive:false});
+  cv.addEventListener('touchend',e=>{ if(e.touches.length<2)pinch=null; });
+}
+
 function renderIdxDetail(){
   if(!idxDetail)return;
   const key=idxDetail;
@@ -12291,25 +12472,27 @@ function renderIdxDetail(){
        분 단위로 주지 않으므로, 없으면 '자료 없음'을 정직하게 알린다. */
     TF.innerHTML=IX_TFS.map(([k,l])=>
       `<button data-ixtf="${k}" class="${k===idxDetTf?'on':''}">${l}</button>`).join('');
-    TF.querySelectorAll('[data-ixtf]').forEach(b=>b.onclick=()=>{idxDetTf=b.dataset.ixtf;renderIdxDetail();});
-    const wrap=document.querySelector('.ix-chart'); if(wrap)wrap.hidden=false;
-    document.querySelectorAll('[data-ixz]').forEach(b=>b.onclick=()=>{
-      idxDetN=b.dataset.ixz==='in'?Math.max(30,Math.round(idxDetN*0.7)):Math.min(400,Math.round(idxDetN*1.4));
-      const r=$('ixRange'); if(r)r.textContent=idxDetN+'봉';
-      const ck=idxDetail+':'+idxDetTf;
-      if(idxDetData[ck])drawIdxChart(idxDetData[ck]);
+    TF.querySelectorAll('[data-ixtf]').forEach(b=>b.onclick=()=>{
+      idxDetTf=b.dataset.ixtf;
+      idxView.end=-1; idxView.follow=true;   /* [v12.0] 기간을 바꾸면 맨 앞으로 */
+      renderIdxDetail();
     });
-    const r=$('ixRange'); if(r)r.textContent=idxDetN+'봉';
+    const wrap=document.querySelector('.ix-chart'); if(wrap)wrap.hidden=false;
+    const tools=document.querySelector('.ix-tools'); if(tools)tools.hidden=false;
+    const hint=document.querySelector('.ix-hint'); if(hint)hint.hidden=false;
+    ixWireGestures();
     const ck=key+':'+idxDetTf;
-    if(idxDetData[ck])requestAnimationFrame(()=>drawIdxChart(idxDetData[ck]));
+    if(idxDetData[ck])requestAnimationFrame(()=>ixApply());
     else{
       fetch(`/api/chart?code=${key}&tf=${idxDetTf}`,{cache:'default'})
         .then(r2=>r2.json()).then(j=>{ idxDetData[ck]=(j&&j.candles)||[];
-          if(idxDetail===key)drawIdxChart(idxDetData[ck]); }).catch(()=>{});
+          if(idxDetail===key){ idxView.end=-1; idxView.follow=true; ixApply(); } }).catch(()=>{});
     }
   }else{
     TF.hidden=true; TF.innerHTML='';
     const wrap=document.querySelector('.ix-chart'); if(wrap)wrap.hidden=true;
+    const tools=document.querySelector('.ix-tools'); if(tools)tools.hidden=true;
+    const hint=document.querySelector('.ix-hint'); if(hint)hint.hidden=true;
   }
   /* 오늘 흐름 */
   try{ if(hasH)requestAnimationFrame(()=>drawSpark($('ixSpark'),h,x.change>=0)); }catch(e){}
@@ -12376,7 +12559,12 @@ function drawIdxChart(cs){
   cv.width=W*dpr;cv.height=H*dpr;
   const x=cv.getContext('2d'); if(!x)return;
   x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
-  const arr=cs.slice(-Math.max(20,idxDetN)).filter(c=>c&&c.c>0);
+  /* [v12.0] 좌우로 민 위치(idxView.end)를 반영해 잘라 낸다.
+     예전에는 늘 '마지막 N봉'이라 끌어도 화면이 그대로였다. */
+  const _n=Math.max(20,idxDetN);
+  let _end=(typeof idxView!=='undefined'&&idxView.end>=0)?idxView.end:cs.length-1;
+  _end=Math.max(Math.min(_n-1,cs.length-1),Math.min(_end,cs.length-1));
+  const arr=cs.slice(Math.max(0,_end-_n+1),_end+1).filter(c=>c&&c.c>0);
   if(arr.length<2){ x.fillStyle=getCss('--sub-2','#888'); x.font='12px Pretendard';
     x.fillText('차트 자료가 부족합니다',12,H/2); return; }
   const hi=Math.max(...arr.map(c=>c.h??c.c)), lo=Math.min(...arr.map(c=>c.l??c.c));
@@ -12509,6 +12697,13 @@ function sbRun(candles,days,amount,mode){
 /* 백테스트 화면 — 종목 정보 탭에 붙는다 */
 function renderSimBt(el){
   const code=selected;
+  /* [v11.2] 백테스트 시뮬레이터는 Pro 부터 */
+  if(!tierAllow('backtest')){
+    el.innerHTML=`<div class="tc-lock"><b>백테스트는 ${tierNeedName('backtest')} 부터예요</b>
+      <span>"그때 샀다면 어땠을까"를 최대 낙폭까지 함께 계산해 드립니다.</span>
+      <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button></div>`;
+    bindTierGo(el); return;
+  }
   const term=SB_TERMS.find(t=>t.k===sbTerm)||SB_TERMS[1];
   const tf=sbNeedTf(term.d);
   const key=code+':'+tf;
@@ -12639,7 +12834,14 @@ function fxAlertModal(cur){
     const up=nv('fxaUp'), dn=nv('fxaDn');
     if(up!=null&&dn!=null&&dn>=up){ toast('warn','값이 뒤바뀐 것 같아요','\'이 값 이하\'는 \'이 값 이상\'보다 낮아야 합니다'); return; }
     if(up==null&&dn==null){ delete fxAlerts[cur]; }
-    else fxAlerts[cur]={...(up!=null?{above:up}:{}),...(dn!=null?{below:dn}:{})};
+    else {
+      /* [v11.2] 등급별 환율 알림 개수 */
+      if(!fxAlerts[cur]){
+        const n=Object.keys(fxAlerts).filter(k=>fxAlerts[k]&&(fxAlerts[k].above||fxAlerts[k].below)).length;
+        if(n>=tierLimit('fxAlert')){ tierBlockLimit('fxAlert',n+1,'환율 알림은'); return; }
+      }
+      fxAlerts[cur]={...(up!=null?{above:up}:{}),...(dn!=null?{below:dn}:{})};
+    }
     fxAlertSave(); closeLiteGate(); try{renderFxAlerts();}catch(e){}
     toast('ok','환율 알림을 설정했습니다',
       [up!=null?`${DEC(up)}원 이상`:'',dn!=null?`${DEC(dn)}원 이하`:''].filter(Boolean).join(' · '));
@@ -12778,6 +12980,13 @@ function taxRealized(year){
 }
 function renderTaxReport(){
   const el=$('taxBody'); if(!el)return;
+  /* [v11.2] 손익·세금 리포트는 Basic 부터 */
+  if(!tierAllow('tax')){
+    el.innerHTML=`<div class="tc-lock"><b>손익·세금 리포트는 ${tierNeedName('tax')} 부터예요</b>
+      <span>매도로 확정된 손익을 선입선출로 계산하고, 해외 양도세까지 미리 짚어 드립니다.</span>
+      <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button></div>`;
+    bindTierGo(el); return;
+  }
   const yNow=new Date().getFullYear();
   const all=taxRealized();
   if(!all.length){
@@ -13056,6 +13265,8 @@ function renderSise(el){
 }
 /* 일별 시세를 CSV 로 — 엑셀에서 한글이 깨지지 않게 BOM 을 붙인다 */
 function siseCsv(code){
+  /* [v11.2] CSV 내려받기는 Lite 부터 */
+  if(!tierAllow('csv')){ tierBlockFeat('csv','시세 CSV 내려받기','표를 파일로 저장해 엑셀에서 보실 수 있어요'); return; }
   try{
     const d=_sumDaily[code]||[]; if(!d.length)return toast('warn','내려받을 자료가 없어요','시세를 먼저 불러온 뒤 다시 시도해 주세요');
     const nm=(byCode[code]||{}).name||code;
@@ -13672,6 +13883,9 @@ function vpSectionHtml(vp,px,cvId,F){
 }
 var _aiTry={};
 function renderAiStock(el,force){
+  /* [v11.6] AI 분석은 Free~Basic 도 요약은 본다. 상세(근거·시나리오)만 Plus 부터.
+     통째로 막으면 "AI 분석이 있다"는 사실조차 모르게 되므로 맛보기는 남긴다. */
+  const _aiFull=tierAllow('aiFull');
   el=el||$('infoBody');if(!el)return;
   const code=selected,now=Date.now();
   if(!force&&el.dataset.ai===code&&el.querySelector('.ai-wrap')&&now-_aiLast<2500)return;
@@ -13794,6 +14008,14 @@ function calcConsensus(){
 }
 const scoreLabel=(s)=>s>=4.3?'강력매수':s>=3.4?'매수':s>=2.6?'중립':s>=1.7?'매도':'강력매도';
 function renderConsensus(el){
+  /* [v11.6] 증권가 전망은 Basic 부터 */
+  if(!tierAllow('consensus')){
+    if(el){ el.innerHTML=`<div class="tc-lock"><b>증권가 전망은 ${tierNeedName('consensus')} 부터예요</b>
+      <span>목표주가와 투자의견을 한눈에 모아 보여 드립니다.</span>
+      <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button></div>`;
+      bindTierGo(el); }
+    return;
+  }
   const d=calcConsensus();
   const stats=curFund.stats||[];
   if(!d||(d.ai==null&&d.target==null&&!(d.est&&d.est.target))){
@@ -14454,10 +14676,19 @@ function foPlanModal(code){
     }
     p.why=$('fpWhy').value; p.target=t; p.stop=s2; p.horizon=$('fpHz').value;
     /* [v9.82] 자동 실행 설정 */
+    /* [v11.2] 자동 매도는 Plus 부터 — 감시 대상이 늘어나는 기능이다 */
+    if(($('fpAutoStop').checked||$('fpAutoTake').checked)&&!tierAllow('autoStop')){
+      tierBlockFeat('autoStop','손절·익절 자동 실행','값에 닿으면 앱이 대신 팔아 드립니다');
+      $('fpAutoStop').checked=false; $('fpAutoTake').checked=false;
+      return;
+    }
     p.autoStop=$('fpAutoStop').checked?1:0;
     p.autoTake=$('fpAutoTake').checked?1:0;
     const tr=Number(($('fpTrail').value||'').replace(/[^0-9.]/g,''))||0;
-    if(tr>0&&tr<50){ h.trailPct=tr; if(!h.trailHi)h.trailHi=livePx(h.code,h.avg)||h.avg; }
+    if(tr>0&&!tierAllow('trailing')){
+      tierBlockFeat('trailing','트레일링 스탑','오르면 손절선이 따라 올라갑니다');
+    }
+    else if(tr>0&&tr<50){ h.trailPct=tr; if(!h.trailHi)h.trailHi=livePx(h.code,h.avg)||h.avg; }
     else { delete h.trailPct; delete h.trailHi; }
     if(p.autoStop&&p.stop==null){ toast('warn','손절가를 먼저 넣어 주세요','자동 매도를 켜려면 어느 값에서 팔지 정해야 합니다'); return; }
     if(p.autoTake&&p.target==null){ toast('warn','목표가를 먼저 넣어 주세요','자동 매도를 켜려면 어느 값에서 팔지 정해야 합니다'); return; }
@@ -15880,6 +16111,10 @@ $('submitBtn').onclick=()=>{
     const q=dispQuote(s.code)||{},cur=q.price!=null?q.price:s.price;
     const immediate=ordSide==='buy'?(cur!=null&&cur<=price):(cur!=null&&cur>=price);
     if(!immediate){
+      /* [v11.2] 등급별 예약 주문 개수 — 감시 대상이 늘어나면 서버 부담도 는다 */
+      if(bookOrders.length>=tierLimit('book')){
+        tierBlockLimit('book',bookOrders.length+1,'예약 주문은'); return false;
+      }
       bookOrders.push({id:'b'+Date.now().toString(36),code:s.code,name:s.name,side:ordSide,qty,price,createdAt:Date.now()});
       subscribeAutoCodes();saveState();
       toast('on','예약 주문 등록',`${s.name} ${ordSide==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 도달 시 자동 체결`);
@@ -18938,6 +19173,411 @@ function renderUsSummary(el){
    [무엇을 더 쓸 수 있나] 이미 받아 둔 시세에 쓰지 않던 값이 많다.
    시가총액·52주 위치·거래대금·PER·배당·전일 대비 — 전부 usQ 에 들어 있다.
    없는 사실을 지어내지 않고, 가진 숫자를 읽어 주는 문장으로 바꾼다. */
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v11.0] 등급 — 화면 쪽
+   ─────────────────────────────────────────────────────────────────────────────
+   서버가 로그인·동기화 응답에 tier 를 실어 준다. 화면은 그 값을 그대로 쓰고,
+   스스로 올리지 않는다. localStorage 에도 저장하지 않는다 — 저장해 두면
+   그것만 고쳐도 잠금이 풀리는 것처럼 보여, 사용자가 오해하기 쉽다.
+   (진짜 잠금은 서버가 하는 것이 맞지만, 지금은 무료 앱이라 화면 잠금까지만 한다)
+
+   [늘리기 쉬운 구조] 배열 순서 = 등급 순서. 등급을 더 넣거나 한도를 바꿀 때
+   아래 표만 고치면 되고, 화면 코드(tierAllow/tierLimit)는 손댈 필요가 없다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+const TIERS=[
+  {k:'free',  n:'Free',  c:'#8a97a8', d:'기본 기능을 모두 쓸 수 있어요'},
+  {k:'lite',  n:'Lite',  c:'#14b8a6', d:'관심종목을 더 담고 자료를 내려받을 수 있어요'},
+  {k:'basic', n:'Basic', c:'#2f74ff', d:'앱을 닫아도 알림을 받고 세금 리포트를 볼 수 있어요'},
+  {k:'plus',  n:'Plus',  c:'#7c3aed', d:'손절·익절이 자동으로 실행되고 AI 분석이 전부 열려요'},
+  {k:'pro',   n:'Pro',   c:'#e5443b', d:'급등주 예측·매집 포착기·백테스트를 쓸 수 있어요'},
+  {k:'max',   n:'Max',   c:'#f5a30d', d:'모든 한도가 사라지고 시세를 우선으로 받아요'},
+];
+const INF=Infinity;
+/* 한도 — 배열 순서가 곧 free→max */
+const TIER_LIMITS={
+  watch:    [ 20,  40,  80, 200, 500, INF],
+  folder:   [  2,   4,   8,  15,  30, INF],
+  alert:    [  3,   6,  15,  50, 150, INF],
+  fxAlert:  [  1,   2,   5,  10,  20, INF],
+  book:     [  3,   6,  15,  30,  80, INF],
+  compare:  [  2,   2,   3,   4,   6,   8],
+  account:  [  2,   3,   5,   8,  15, INF],
+  memo:     [  5, INF, INF, INF, INF, INF],
+};
+/* [v11.6] 아래 두 가지는 표만 있고 실제로 거는 자리가 없어 뺐다.
+   btYears — 백테스트 화면이 기간을 직접 받지 않는다(전 구간을 한 번에 계산).
+   pushDev — 기기 수는 서버가 push:<id> 로 관리하며 화면이 셀 수 없다.
+   지키지 못할 약속을 표에 남겨 두면 카드의 다른 항목까지 믿을 수 없게 된다.
+   나중에 그 자리가 생기면 그때 다시 넣는다. */
+/* 기능 — 필요한 최소 등급 번호 */
+const TIER_NEED={
+  csv:1, push:2, tax:2, consensus:2,
+  autoStop:3, trailing:3, aiFull:3,
+  surge:4, accum:4, backtest:4,
+};
+/* ══ [v11.6] 서버가 알려 주기 전까지는 잠그지 않는다 ═══════════════════════
+   [무엇이 잘못됐나] _tier 의 처음 값이 free 였다. 그런데 서버 응답이 오기 전
+   (앱을 막 켰을 때), 인터넷이 끊겼을 때, 로그인하지 않았을 때도 모두 free 다.
+   그러면 Pro 를 쓰던 사람이 지하철에서 앱을 켰을 때 관심종목이 20개로 잠긴다.
+   내 잘못이 아닌 이유로 기능이 막히는 것은 나쁜 경험이다.
+   [고침] '아직 모름' 상태를 따로 둔다. 모르는 동안에는 한도를 걸지 않고,
+   서버가 알려 준 뒤부터 적용한다. 마지막으로 받은 등급은 이 브라우저에
+   기억해 두었다가 다음에 켤 때 곧바로 쓴다(서버 값이 오면 덮어쓴다).
+   [이래도 되나] 이 앱은 요금을 받지 않는다. 잠금은 '이런 것도 있다'를 알리는
+   장치이지 방어벽이 아니다. 확실하지 않을 때는 열어 두는 편이 맞다. */
+var _tier={tier:'free', lv:0, until:null, expired:false, known:false};
+try{
+  const _c=JSON.parse(localStorage.getItem('tierCache')||'null');
+  if(_c&&typeof _c.lv==='number'&&(!_c.until||_c.until>Date.now())){
+    _tier={tier:_c.tier||'free', lv:_c.lv, until:_c.until||null, expired:false, known:true};
+  }
+}catch(e){}
+function tierSet(p){
+  try{
+    if(!p||typeof p!=='object')return;
+    if(p.tier==null&&p.lv==null)return;
+    const prevLv=_tier.known?_tier.lv:-1;
+    const lv=Math.max(0,Math.min(TIERS.length-1, p.lv!=null?+p.lv:TIERS.findIndex(t=>t.k===p.tier)));
+    _tier={tier:TIERS[lv].k, lv, until:p.until||null, expired:!!p.expired, known:true};
+    /* 다음에 앱을 켤 때 곧바로 쓰도록 기억해 둔다 — 서버 값이 오면 덮어쓴다 */
+    try{ localStorage.setItem('tierCache',JSON.stringify({tier:_tier.tier,lv,until:_tier.until})); }catch(e){}
+    try{ renderTierCard(); }catch(e){}
+    try{ paintTierBadge(); }catch(e){}
+    /* ══ [v11.8] 등급이 바뀌면 보고 있던 화면도 다시 그린다 ═══════════════════
+       예전에는 등급 카드와 배지만 갱신했다. 그래서 쿠폰을 등록해 Pro 가 되어도
+       그 순간 보고 있던 화면(고급 서비스·세금 리포트 등)은 잠긴 채로 남았고,
+       다른 메뉴에 갔다 돌아와야 풀렸다. "코드를 넣었는데 그대로네?"로 보인다.
+       등급이 실제로 달라졌을 때만 다시 그린다(같은 값이면 헛일을 하지 않는다). */
+    if(prevLv!==lv){
+      try{ if(typeof currentView!=='undefined'&&typeof showView==='function')showView(currentView); }catch(e){}
+    }
+  }catch(e){}
+}
+function tierLv(){ return _tier.lv||0; }
+function tierKey(){ return _tier.tier||'free'; }
+function tierInfo(){ return TIERS[tierLv()]||TIERS[0]; }
+/* [v11.6] 아직 서버 답을 못 받았으면 막지 않는다 */
+function tierKnown(){ return !!_tier.known; }
+function tierAllow(feat){
+  if(!tierKnown())return true;
+  const need=TIER_NEED[feat]; return need==null?true:tierLv()>=need;
+}
+function tierLimit(key){
+  if(!tierKnown())return INF;
+  const a=TIER_LIMITS[key]; return a?a[tierLv()]:INF;
+}
+/* 이 기능·한도를 열려면 어느 등급이 필요한가 */
+function tierNeedName(feat){ const n=TIER_NEED[feat]; return n==null?null:(TIERS[n]||{}).n; }
+function tierNextFor(key,want){
+  const a=TIER_LIMITS[key]; if(!a)return null;
+  for(let i=tierLv()+1;i<a.length;i++){ if(a[i]>=want||a[i]===INF)return TIERS[i]; }
+  return null;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v11.3] 쿠폰 관리 — 설정 > 관리자 패널
+   ─────────────────────────────────────────────────────────────────────────────
+   토큰은 이미 있는 admTok 입력칸을 그대로 쓴다. 관리 창구를 둘로 나누면
+   어느 쪽에 넣었는지 헷갈리기만 한다.
+   발급한 코드는 화면에 그대로 띄우고 '전체 복사'를 둔다 — 카톡으로 옮겨
+   붙이는 것이 실제 사용 흐름이기 때문이다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+function cpAdmTok(){ const e=$('admTok'); return e?String(e.value||'').trim():''; }
+async function cpCall(body){
+  const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({...body,token:cpAdmTok()})});
+  return r.json();
+}
+function cpMsg(el,html,bad){
+  const e=$(el); if(!e)return;
+  e.innerHTML=html; e.classList.toggle('bad',!!bad);
+}
+function wireCouponAdmin(){
+  const iss=$('cpIssue');
+  if(iss)iss.onclick=async()=>{
+    if(!cpAdmTok()){ cpMsg('cpOut','<b>관리자 토큰을 먼저 넣어 주세요</b>',true); return; }
+    iss.disabled=true; iss.textContent='발급 중…';
+    try{
+      const j=await cpCall({act:'issue',
+        tier:$('cpTier').value, days:+$('cpDays').value||0,
+        maxUse:+$('cpMax').value||1, count:+$('cpCount').value||1,
+        memo:$('cpMemo').value||''});
+      if(j&&j.ok){
+        const d=j.days?`${j.days}일`:'무기한';
+        cpMsg('cpOut',`<div class="cpn-head">${(TIER_NAME_C[j.tier]||j.tier)} · ${d} · ${j.maxUse}명 사용 가능
+            <button type="button" class="set-btn mini" id="cpCopy">전체 복사</button></div>
+          <div class="cpn-codes">${j.codes.map(c=>`<code>${htmlEsc(c)}</code>`).join('')}</div>`);
+        const cb=$('cpCopy');
+        if(cb)cb.onclick=()=>{
+          try{ navigator.clipboard&&navigator.clipboard.writeText(j.codes.join('\n')); }catch(e){}
+          toast('ok','코드를 복사했어요',`${j.codes.length}장`);
+        };
+      }else{
+        cpMsg('cpOut',`<b>${htmlEsc((j&&j.msg)||'발급하지 못했습니다')}</b>${
+          j&&j.err==='forbidden'?'<br>토큰이 맞는지 확인해 주세요':''}`,true);
+      }
+    }catch(e){ cpMsg('cpOut','<b>연결에 실패했습니다</b>',true); }
+    finally{ iss.disabled=false; iss.textContent='코드 발급'; }
+  };
+
+  const lst=$('cpList');
+  if(lst)lst.onclick=async()=>{
+    if(!cpAdmTok()){ cpMsg('cpOut','<b>관리자 토큰을 먼저 넣어 주세요</b>',true); return; }
+    lst.disabled=true; lst.textContent='불러오는 중…';
+    try{
+      const j=await cpCall({act:'list'});
+      if(j&&j.ok){
+        if(!j.items.length){ cpMsg('cpOut','아직 발급한 코드가 없습니다'); return; }
+        cpMsg('cpOut',`<div class="cpn-head">발급 현황 ${j.items.length}건</div>
+          <div class="cpn-list">${j.items.map(x=>{
+            const d=x.days?`${x.days}일`:'무기한';
+            const used=`${x.used||0}/${x.maxUse||1}`;
+            const done=(x.used||0)>=(x.maxUse||1);
+            const exp=x.expireAt&&Date.now()>x.expireAt;
+            return `<div class="cpn-item${done||exp?' off':''}">
+              <code>${htmlEsc(x.code)}</code>
+              <span class="cpn-tag">${TIER_NAME_C[x.tier]||x.tier}</span>
+              <span>${d}</span>
+              <span class="cpn-used">${used}${done?' · 소진':''}${exp?' · 기간만료':''}</span>
+              ${x.memo?`<em>${htmlEsc(x.memo)}</em>`:''}
+            </div>`;}).join('')}</div>`);
+      }else cpMsg('cpOut',`<b>${htmlEsc((j&&j.msg)||'불러오지 못했습니다')}</b>`,true);
+    }catch(e){ cpMsg('cpOut','<b>연결에 실패했습니다</b>',true); }
+    finally{ lst.disabled=false; lst.textContent='발급 현황'; }
+  };
+
+  const setb=$('cpSet');
+  if(setb)setb.onclick=async()=>{
+    const id=String(($('cpUid').value||'')).trim();
+    if(!id){ cpMsg('cpSetMsg','아이디를 넣어 주세요',true); return; }
+    if(!cpAdmTok()){ cpMsg('cpSetMsg','관리자 토큰을 먼저 넣어 주세요',true); return; }
+    setb.disabled=true;
+    try{
+      const tier=$('cpSetTier').value;
+      const days=(tier==='free')?0:(+$('cpDays').value||0);
+      const j=await cpCall({act:'set',id,tier,days});
+      if(j&&j.ok){
+        const until=j.until?new Date(j.until).toLocaleDateString('ko-KR'):'기간 제한 없음';
+        cpMsg('cpSetMsg',`<b>${htmlEsc(id)}</b> → ${TIER_NAME_C[j.tier]||j.tier} · ${until}`);
+        toast('ok','등급을 적용했어요',`${id} → ${TIER_NAME_C[j.tier]||j.tier}`);
+      }else cpMsg('cpSetMsg',htmlEsc((j&&j.msg)||'적용하지 못했습니다'),true);
+    }catch(e){ cpMsg('cpSetMsg','연결에 실패했습니다',true); }
+    finally{ setb.disabled=false; }
+  };
+}
+const TIER_NAME_C={free:'Free',lite:'Lite',basic:'Basic',plus:'Plus',pro:'Pro',max:'Max'};
+
+/* ══ [v11.2] 한도에 닿았을 때 ═══════════════════════════════════════════════
+   막기만 하면 답답하다. 지금 한도가 얼마인지, 어느 등급에서 얼마나 열리는지
+   알려 주고 문의로 이어 준다. 잠금은 사용자를 쫓아내는 것이 아니라
+   "이런 것도 있다"를 알리는 자리다. */
+function tierBlockLimit(key, want, label){
+  const cur=tierLimit(key), nx=tierNextFor(key,want);
+  const line=nx?`${nx.n} 로 올리면 ${tierFmt((TIER_LIMITS[key]||[])[TIERS.indexOf(nx)])}까지 담을 수 있어요`
+                :'더 올릴 수 있는 등급이 없어요';
+  toast('warn',`${label} ${tierFmt(cur)}개까지 담을 수 있어요`,line);
+  try{ setTimeout(()=>{ if(confirmLike())openTierAsk(); },0); }catch(e){}
+}
+function tierBlockFeat(feat, label, desc){
+  const need=tierNeedName(feat);
+  toast('warn',`${label}은(는) ${need} 부터 이용할 수 있어요`, desc||'내 계좌에서 이용 등급을 확인해 보세요');
+}
+function confirmLike(){ return false; }   /* 자동으로 창을 열지는 않는다 */
+/* 잠금 카드 안의 '이용 문의하기' 버튼을 연결한다 */
+function bindTierGo(root){
+  try{ (root||document).querySelectorAll('[data-tier-go]').forEach(b=>b.onclick=()=>openTierAsk()); }catch(e){}
+}
+const tierFmt=(v)=>v===INF?'무제한':KRW(v);
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v11.1] 이용 등급 카드
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇을 보여 주나] 지금 등급, 남은 기간, 이 등급으로 열리는 것, 다음 등급에서
+   더 열리는 것. 그리고 두 개의 길 — 문의하기와 쿠폰 등록.
+   [가격을 적지 않는다] 이 앱은 요금을 받지 않는다. 가격을 적어 두면 "결제하려는데
+   왜 안 되지?" 하고 막히고, 팔 준비도 없이 광고처럼 보인다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+/* 연락처 — 나중에 이 두 줄만 바꾸면 앱 전체에 반영된다 */
+/* ══ 문의 창구 — 이 두 줄만 채우면 앱 전체에 반영된다 ═══════════════════════
+   mail : 받을 메일 주소. 앱에 그대로 노출되므로 개인 메일보다 전용 주소를 권한다.
+   chat : 카카오 오픈채팅 링크(공유 → 링크 복사).
+          1:1 오픈채팅으로 만들면 다른 사람에게 대화가 보이지 않는다.
+          참여 코드는 걸지 않는 편이 낫다 — 문의하러 와서 코드를 또 물어야 한다. */
+const CONTACT={
+  mail:'2026livestock@gmail.com',
+  chat:'https://open.kakao.com/o/svGdDhJi',
+};
+/* 등급별로 '이 등급에서 새로 열리는 것' — 카드에 그대로 보여 준다 */
+const TIER_PERKS=[
+  ['관심종목 20종','기본 시세·차트·호가','MY 포트폴리오'],
+  ['관심종목 40종','시세 CSV 내려받기','종목 메모 무제한'],
+  ['관심종목 80종','앱을 닫아도 알림 받기','손익·세금 리포트','컨센서스'],
+  ['관심종목 200종','손절·익절 자동 실행','트레일링 스탑','AI 종목 분석 전체'],
+  ['관심종목 500종','급등주 예측','매집 포착기','백테스트 시뮬레이터'],
+  ['모든 한도 무제한','계좌·메모·알림 제한 없음'],
+];
+function tierRemainText(){
+  const u=_tier.until;
+  if(!u)return tierLv()>0?'기간 제한 없음':'';
+  const left=u-Date.now();
+  if(left<=0)return '만료됨';
+  const d=Math.ceil(left/864e5);
+  const dt=new Date(u);
+  return `${dt.getFullYear()}.${String(dt.getMonth()+1).padStart(2,'0')}.${String(dt.getDate()).padStart(2,'0')}까지 · ${d}일 남음`;
+}
+function renderTierCard(){
+  const el=$('tierCard'); if(!el)return;
+  const lv=tierLv(), me=TIERS[lv], next=TIERS[lv+1]||null;
+  const rem=tierRemainText();
+  const chip=(t,on)=>`<span class="tc-chip${on?' on':''}" style="${on?`--tc:${t.c}`:''}">${t.n}</span>`;
+  el.innerHTML=`
+  <div class="panel tier-card">
+    <div class="tc-top">
+      <div class="tc-now">
+        <span class="tc-badge" style="--tc:${me.c}">${me.n}</span>
+        <div class="tc-t"><b>이용 등급</b>
+          <span>${rem||'무료로 이용 중'}</span></div>
+      </div>
+      ${_tier.expired?'<div class="tc-warn">이용 기간이 끝나 Free 로 돌아왔어요</div>':''}
+    </div>
+
+    <div class="tc-line">${TIERS.map((t,i)=>chip(t,i===lv)).join('<i>›</i>')}</div>
+    <div class="tc-desc">${htmlEsc(me.d)}</div>
+
+    <div class="tc-perks">
+      <div class="tc-ph">지금 쓸 수 있어요</div>
+      <ul>${TIER_PERKS[lv].map(x=>`<li>${htmlEsc(x)}</li>`).join('')}</ul>
+    </div>
+
+    ${next?`<div class="tc-next">
+      <div class="tc-ph">${next.n} 로 올리면</div>
+      <ul>${TIER_PERKS[lv+1].map(x=>`<li>${htmlEsc(x)}</li>`).join('')}</ul>
+    </div>`:''}
+
+    <div class="tc-btns">
+      <!-- [v11.2] Max 도 문의를 남길 수 있어야 한다. 최상위라도 기간 연장·재발급·
+           문제 신고 같은 용건이 있고, 창구를 닫아 둘 이유가 없다. -->
+      <button type="button" class="btn-primary" id="tcAsk">이용 문의하기</button>
+      <button type="button" class="btn-ghost" id="tcCoupon">쿠폰 코드 입력</button>
+    </div>
+    <div class="tc-note">문의를 남기시면 확인 후 이용권 코드를 보내 드립니다.</div>
+  </div>`;
+  const a=$('tcAsk'); if(a)a.onclick=()=>openTierAsk();
+  const c=$('tcCoupon'); if(c)c.onclick=()=>openCouponGate();
+}
+/* 프로필 옆 작은 배지 */
+function paintTierBadge(){
+  try{
+    const lv=tierLv(); if(lv<=0){ document.querySelectorAll('.tier-mini').forEach(e=>e.remove()); return; }
+    const me=TIERS[lv];
+    document.querySelectorAll('[data-tier-slot]').forEach(slot=>{
+      let b=slot.querySelector('.tier-mini');
+      if(!b){ b=document.createElement('span'); b.className='tier-mini'; slot.appendChild(b); }
+      b.textContent=me.n; b.style.setProperty('--tc',me.c);
+      b.classList.toggle('max',me.k==='max');
+    });
+  }catch(e){}
+}
+/* ── 문의 ─────────────────────────────────────────────────────────────── */
+function openTierAsk(){
+  const lv=tierLv(), me=TIERS[lv];
+  /* [v11.2] 최상위(Max)면 올릴 등급이 없다 — 지금 등급을 그대로 두고
+     '기간 연장·기타 문의'를 고를 수 있게 한다. 창구를 막지 않는다. */
+  const opts=(lv>=TIERS.length-1)?[TIERS[lv]]:TIERS.slice(lv+1);
+  const isTop=lv>=TIERS.length-1;
+  openLiteGate('이용 문의하기',`
+    <div class="tc-ask">
+      <div class="fld2"><label>${isTop?'문의 내용':'희망 등급'}</label>
+        <select id="tcWant">${
+          isTop
+            ? `<option value="max">Max 기간 연장</option>
+               <option value="etc">그 밖의 문의</option>`
+            : opts.map(t=>`<option value="${t.k}">${t.n} — ${htmlEsc(t.d)}</option>`).join('')
+        }</select></div>
+      <div class="fld2"><label>남기실 말 <small style="font-weight:600;color:var(--sub-2)">— 없으면 비워 두셔도 됩니다</small></label>
+        <textarea id="tcMemo" rows="3" placeholder="예: 관심종목을 더 담고 싶어요"></textarea></div>
+      <div class="tc-ask-n">아래 버튼을 누르면 <b>내용이 채워진 채로</b> 메일 앱(또는 채팅)이 열립니다.
+        보내시면 확인 후 코드를 드려요.</div>
+      <div class="lg-row" id="tcAskBtns"></div>
+      <div class="tc-ask-n" id="tcAskFall" hidden></div>
+    </div>`);
+  const btns=$('tcAskBtns');
+  const mk=(label,fn)=>{ const b=document.createElement('button'); b.className='btn-ghost'; b.textContent=label; b.onclick=fn; btns.appendChild(b); };
+  const body=()=>{
+    const want=$('tcWant')?$('tcWant').value:'';
+    const wn=want==='etc'?'그 밖의 문의':((TIERS.find(t=>t.k===want)||{}).n||want);
+    const memo=($('tcMemo')&&$('tcMemo').value||'').trim();
+    return [`[LIVE증권] 이용권 문의`,'',
+      `계정: ${currentUser||'(로그인 안 함)'}`,
+      `현재 등급: ${me.n}`,
+      `${want==='etc'?'용건':'희망 등급'}: ${wn}`,
+      `앱 버전: v${APP_VERSION}`,
+      memo?`\n남기실 말:\n${memo}`:''].join('\n');
+  };
+  if(CONTACT.mail){
+    mk('메일로 문의',()=>{
+      const u=`mailto:${CONTACT.mail}?subject=${encodeURIComponent('[LIVE증권] 이용권 문의')}&body=${encodeURIComponent(body())}`;
+      try{ location.href=u; }catch(e){}
+    });
+  }
+  if(CONTACT.chat){
+    mk('오픈채팅으로 문의',()=>{
+      try{ navigator.clipboard&&navigator.clipboard.writeText(body()); }catch(e){}
+      toast('ok','문의 내용을 복사했어요','채팅창에 붙여 넣어 주세요');
+      try{ window.open(CONTACT.chat,'_blank','noopener'); }catch(e){}
+    });
+  }
+  if(!CONTACT.mail&&!CONTACT.chat){
+    /* 아직 연락처를 안 넣었을 때 — 그냥 복사만 해 준다 */
+    mk('문의 내용 복사',()=>{
+      try{ navigator.clipboard&&navigator.clipboard.writeText(body()); }catch(e){}
+      toast('ok','문의 내용을 복사했어요','관리자에게 보내 주세요');
+    });
+    const f=$('tcAskFall');
+    if(f){ f.hidden=false; f.innerHTML='문의 창구를 준비 중입니다. 우선 내용을 복사해 두세요.'; }
+  }
+}
+/* ── 쿠폰 등록 ────────────────────────────────────────────────────────── */
+function openCouponGate(){
+  if(!currentUser){ toast('warn','로그인이 필요해요','오른쪽 위 프로필에서 로그인해 주세요'); return; }
+  openLiteGate('쿠폰 코드 입력',`
+    <div class="fld2"><label>코드</label>
+      <input id="cpnCode" placeholder="LIVE-XXXXX-XXXXX-XXXXX-X" autocomplete="off" aria-label="쿠폰 코드"></div>
+    <div class="lg-row"><button class="btn-primary" id="cpnGo">등록</button></div>
+    <div class="tc-ask-n">받으신 코드를 그대로 넣어 주세요. 대소문자와 하이픈은 알아서 맞춰 드립니다.</div>`);
+  const inp=$('cpnCode');
+  /* [v11.3] LIVE-XXXXX-XXXXX-XXXXX-X — 치는 동안 하이픈이 알아서 들어간다 */
+  if(inp){ inp.oninput=()=>{
+    let v=inp.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,20);
+    /* [v11.4] 마지막 한 자리는 등급 숫자다 — 글자가 들어오면 지운다 */
+    if(v.length===20&&!/[0-9]/.test(v[19]))v=v.slice(0,19);
+    const parts=[v.slice(0,4),v.slice(4,9),v.slice(9,14),v.slice(14,19),v.slice(19,20)].filter(Boolean);
+    inp.value=parts.join('-');
+  }; setTimeout(()=>inp.focus(),80); }
+  $('cpnGo').onclick=async()=>{
+    const code=(inp&&inp.value||'').replace(/[^A-Za-z0-9]/g,'');
+    if(code.length<20){ toast('warn','코드를 확인해 주세요','LIVE 로 시작하는 20자를 그대로 넣어 주세요'); return; }
+    const acc=accounts()[currentUser];
+    if(!acc){ toast('warn','로그인이 필요해요',''); return; }
+    const btn=$('cpnGo'); btn.disabled=true; btn.textContent='확인 중…';
+    try{
+      const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({act:'redeem',id:currentUser,pass:acc.pass,code})});
+      const j=await r.json();
+      if(j&&j.ok){
+        tierSet(j);
+        closeLiteGate();
+        toast('ok',j.msg||'등급이 바뀌었습니다',TIERS[tierLv()].d);
+        try{ renderTierCard(); }catch(e){}
+      }else{
+        toast('warn','등록하지 못했어요',(j&&j.msg)||'잠시 후 다시 시도해 주세요');
+      }
+    }catch(e){ toast('warn','연결에 실패했어요','네트워크 상태를 확인해 주세요'); }
+    finally{ const b=$('cpnGo'); if(b){ b.disabled=false; b.textContent='등록'; } }
+  };
+}
+
 function usCompanyBrief(t){
   const m=usMeta[t]||{}, q=usQ[t]||{};
   const TH={ai:'AI·반도체',big:'빅테크 플랫폼',ev:'전기차·모빌리티',coin:'디지털자산·핀테크',
@@ -19919,6 +20559,39 @@ try{
       codes:Object.keys(byCode).length,us:Object.keys(usMeta).length,
       indices:(market.indices||[]).length,watch:watchlist.length,holdings:holdings.length}),
     errs:()=>{ try{ return _errLog.slice(-60); }catch(e){ return []; } },
+    /* [v11.1] 등급 화면을 눈으로 확인하기 위한 통로 — 서버 등급을 바꾸지 않는다.
+       화면 표시만 바뀌며, 새로고침하면 서버가 준 값으로 돌아온다. */
+    setTier:(lv)=>{ try{ tierSet({lv:+lv||0}); }catch(e){} },
+    tier:()=>{ try{ return {..._tier}; }catch(e){ return null; } },
+    ixView:()=>{ try{ return {...idxView, n:idxView.n, cs:ixCandles().length, detN:idxDetN}; }catch(e){ return {err:String(e)}; } },
+    ixPan:(bars)=>{ try{ const cs=ixCandles(); idxView.follow=false;
+      idxView.end=(idxView.end<0?cs.length-1:idxView.end)-bars; ixApply();
+      return {...idxView}; }catch(e){ return {err:String(e)}; } },
+    /* [v11.9] 한도·잠금이 실제로 걸리는지 눈으로 확인하기 위한 통로.
+       값을 읽기만 하며 아무것도 바꾸지 않는다. */
+    limits:()=>{ try{
+      const o={};
+      Object.keys(TIER_LIMITS).forEach(k=>{ const v=tierLimit(k); o[k]=(v===Infinity?'무제한':v); });
+      Object.keys(TIER_NEED).forEach(k=>{ o['feat:'+k]=tierAllow(k); });
+      o._known=tierKnown();
+      return o;
+    }catch(e){ return {err:String(e)}; } },
+    counts:()=>{ try{ return {
+      watch:watchlist.length, folder:watchFolders.length,
+      alert:Object.keys(priceAlerts||{}).length, fx:Object.keys(fxAlerts||{}).length,
+      book:(bookOrders||[]).length, cmp:cmpList().length,
+      acct:(acctList||[]).length, memo:Object.keys(stockMemos||{}).length };
+    }catch(e){ return {err:String(e)}; } },
+    /* 관심종목을 폴더 팝업 경로 그대로 담아 본다 — 한도가 정말 막는지 확인용 */
+    tryWatch:(code)=>{ try{
+      const before=watchlist.length;
+      if(watchlist.length>=tierLimit('watch'))return {blocked:true,before,after:watchlist.length};
+      let f=watchFolders[0];
+      if(!f){ f={id:'ftest',name:'테스트',codes:[],icon:'',color:''}; watchFolders.push(f); }
+      if(!f.codes.includes(code))f.codes.push(code);
+      syncWatchUnion();
+      return {blocked:false,before,after:watchlist.length};
+    }catch(e){ return {err:String(e)}; } },
     clearErrs:()=>{ try{ _errLog.length=0; }catch(e){} }
   };
 }catch(e){}

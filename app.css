@@ -5987,3 +5987,92 @@ html[data-theme="dark"] .d-name .star.on{color:#ffc247}
 html[data-theme="dark"] .toast.ok .ic{background:#22c55e;color:#062012}
 /* [v10.9] 국내 섹터 아이콘 — 해외 테마와 같은 자리·크기 */
 .uss-h .uss-ic{flex:0 0 auto;font-size:15px;line-height:1;margin-right:2px}
+
+/* ══ [v11.1] 이용 등급 카드 ═══════════════════════════════════════════════ */
+.tier-card{padding:16px;margin-bottom:12px}
+.tc-top{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.tc-now{display:flex;align-items:center;gap:11px;min-width:0}
+.tc-badge{flex:0 0 auto;font-size:13px;font-weight:900;letter-spacing:.2px;
+  color:#fff;background:var(--tc,#8a97a8);border-radius:99px;padding:5px 14px;
+  box-shadow:0 3px 10px color-mix(in srgb,var(--tc,#8a97a8) 40%,transparent)}
+.tc-t{min-width:0}
+.tc-t b{display:block;font-size:13.5px;font-weight:900}
+.tc-t span{display:block;font-size:11.5px;font-weight:700;color:var(--sub-2);margin-top:1px}
+.tc-warn{font-size:11.5px;font-weight:700;color:#b45309;
+  background:rgba(245,158,11,.14);border-radius:9px;padding:7px 10px}
+/* 등급 흐름 줄 */
+.tc-line{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:9px}
+.tc-line i{font-style:normal;font-size:11px;color:var(--sub-2);opacity:.6}
+.tc-chip{font-size:10.5px;font-weight:800;color:var(--sub-2);
+  border:1px solid var(--border);border-radius:99px;padding:2.5px 9px}
+.tc-chip.on{color:#fff;background:var(--tc);border-color:transparent}
+.tc-desc{font-size:12px;line-height:1.6;color:var(--sub);margin-bottom:12px}
+/* 혜택 목록 */
+.tc-perks,.tc-next{border-radius:12px;padding:11px 13px;margin-bottom:10px}
+.tc-perks{background:var(--border-soft)}
+.tc-next{border:1px dashed var(--border)}
+.tc-ph{font-size:11px;font-weight:800;color:var(--sub-2);margin-bottom:6px}
+.tc-perks ul,.tc-next ul{margin:0;padding-left:16px}
+.tc-perks li,.tc-next li{font-size:12.5px;line-height:1.75;font-weight:700}
+.tc-next li{color:var(--sub)}
+.tc-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.tc-btns button{flex:1 1 140px}
+.tc-note{font-size:11px;line-height:1.65;color:var(--sub-2)}
+.tc-note b{color:var(--sub);font-weight:800}
+.tc-ask-n{margin-top:10px;font-size:11.5px;line-height:1.65;color:var(--sub-2);
+  background:var(--border-soft);border-radius:10px;padding:10px 12px}
+.tc-ask-n b{color:var(--sub);font-weight:800}
+.tc-ask textarea{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:11px;
+  border:1px solid var(--border);background:var(--panel);color:var(--text);
+  font-size:13px;font-family:inherit;resize:vertical}
+/* 프로필 옆 작은 배지 */
+.tier-mini{margin-left:6px;font-size:9.5px;font-weight:900;letter-spacing:.2px;
+  color:#fff;background:var(--tc,#8a97a8);border-radius:99px;padding:2px 7px;
+  vertical-align:middle;white-space:nowrap}
+.tier-mini.max{background:linear-gradient(135deg,#ffd166,#f5a30d);color:#3a2600;
+  box-shadow:0 0 0 1px rgba(245,163,13,.35), 0 2px 8px rgba(245,163,13,.35)}
+
+/* [v11.2] 잠긴 기능 안내 카드 — 막기만 하지 않고 무엇이 열리는지 알려 준다 */
+.tc-lock{padding:22px 16px;text-align:center;border:1px dashed var(--border);
+  border-radius:14px;background:var(--border-soft)}
+.tc-lock b{display:block;font-size:14px;font-weight:900;margin-bottom:7px}
+.tc-lock span{display:block;font-size:12px;line-height:1.7;color:var(--sub);margin-bottom:13px}
+.tc-lock button{min-width:150px}
+
+/* ══ [v11.3] 쿠폰 관리 ═══════════════════════════════════════════════════ */
+.cpn-adm{margin-top:8px}
+.cpn-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.cpn-row label{flex:1 1 130px;min-width:0;font-size:11.5px;font-weight:800;color:var(--sub-2);
+  display:flex;flex-direction:column;gap:4px}
+.cpn-row select,.cpn-row input{width:100%;box-sizing:border-box;padding:9px 11px;
+  border-radius:10px;border:1px solid var(--border);background:var(--panel);
+  color:var(--text);font-size:13px;font-weight:700}
+.cpn-out{margin-top:10px;font-size:12px;line-height:1.6}
+.cpn-out.bad{color:var(--up)}
+.cpn-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:11.5px;font-weight:800;color:var(--sub-2);margin-bottom:8px}
+.set-btn.mini{margin-left:auto;padding:4px 10px;font-size:11px}
+.cpn-codes{display:flex;flex-direction:column;gap:6px}
+.cpn-codes code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+  font-weight:800;letter-spacing:.6px;background:var(--border-soft);
+  border-radius:9px;padding:9px 11px;user-select:all;word-break:break-all}
+.cpn-list{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto}
+.cpn-item{display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  padding:8px 10px;border-radius:10px;background:var(--border-soft);font-size:11.5px}
+.cpn-item.off{opacity:.5}
+.cpn-item code{font-family:ui-monospace,monospace;font-size:11.5px;font-weight:800;user-select:all}
+.cpn-tag{font-size:10px;font-weight:900;color:#fff;background:var(--sub-2);
+  border-radius:99px;padding:1.5px 7px}
+.cpn-used{margin-left:auto;font-weight:800;color:var(--sub-2)}
+.cpn-item em{flex:1 1 100%;font-style:normal;font-size:10.5px;color:var(--sub-2)}
+.cpn-hint{font-size:10.5px;line-height:1.6;color:var(--sub-2);margin:6px 0 2px}
+/* [v11.8] 잠긴 탭 — 원래 내용은 지우지 않고 감춘다(등급이 오르면 그대로 복귀) */
+.pro-hidden{display:none !important}
+
+/* [v12.0] 지수 차트 도구 줄 — 종목 차트와 같은 모양 */
+.ix-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.ix-tools .ix-tf{margin-bottom:0;flex:1 1 auto}
+.ix-tools .zoom{flex:0 0 auto;display:flex;gap:5px}
+.ix-chart canvas{touch-action:none;cursor:grab}
+.ix-chart canvas:active{cursor:grabbing}
+.ix-hint{font-size:10.5px;color:var(--sub-2);margin:-6px 0 12px;text-align:right}
