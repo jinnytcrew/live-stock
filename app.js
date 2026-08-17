@@ -5134,18 +5134,16 @@ function maybeShowUpdBanner(){
   }catch(e){}
 }
 
-/* ===== 관리자 패널 — 버전 행 7번 연속 탭으로 열림 =====
-   별도 계정 DB 없이 서버 환경변수 NXT_ADMIN_TOKEN 하나로 인증한다(가장 안전·단순).
-   토큰은 이 브라우저 세션에만 잠깐 보관되고 저장되지 않는다. */
-let _admTap=0,_admTapAt=0;
+/* ══ [v12.5] 숨겨진 진입 경로를 없앴다 ═══════════════════════════════════════
+   예전에는 설정 > 정보의 버전 줄을 7번 연속 탭해야 관리자 패널이 열렸다.
+   숨겨 두면 안전해 보이지만 실제로는 그렇지 않다.
+     · 만든 사람도 여는 법을 잊어버린다(실제로 그런 일이 있었다)
+     · 우연히 여러 번 눌러 열릴 수 있다
+     · 어차피 진짜 방어는 서버의 NXT_ADMIN_TOKEN 이다. 화면을 숨기는 것은
+       방어가 아니라 불편일 뿐이다
+   이제 멤버십 화면 아래의 「관리자 구역」 버튼 하나로만 연다.
+   토큰이 없으면 아무 동작도 하지 못하므로 노출돼도 위험하지 않다. */
 function wireAdminPanel(){
-  const row=$('verRow'); if(!row||row._admWired)return; row._admWired=true;
-  row.addEventListener('click',()=>{
-    const now=Date.now();
-    if(now-_admTapAt>2500)_admTap=0;
-    _admTapAt=now;_admTap++;
-    if(_admTap>=7){_admTap=0;openAdminPanel();}
-  });
   const sv=$('admSave'); if(sv)sv.onclick=saveAdminNotice;
   const ld=$('admLoad'); if(ld)ld.onclick=loadAdminCurrent;
 }
@@ -12377,7 +12375,9 @@ let siseMode='date';
 var idxDetail=null, idxDetTf='D', idxDetData={}, idxDetN=120;
 var idxSiseMode='date';
 /* 지수도 종목과 같은 기간을 쓴다 */
-const IX_TFS=[['1m','1분'],['3m','3분'],['5m','5분'],['10m','10분'],['30m','30분'],
+/* [v12.7] 야후가 실제로 주는 간격만 둔다 — 1·2·5·15·30·60분.
+   3분·10분 버튼을 두고 5분·15분을 보여 주면 "눌러도 안 바뀐다"가 된다. */
+const IX_TFS=[['1m','1분'],['2m','2분'],['5m','5분'],['15m','15분'],['30m','30분'],
               ['60m','60분'],['D','일'],['W','주'],['M','월'],['Y','년']];
 /* [v10.6] 서버가 지원하는 지수 목록과 맞춘다 — 예전에는 코스피·코스닥만
    차트를 그려 나스닥·S&P500·다우가 '자료 없음'으로 나왔다. */
@@ -16297,7 +16297,19 @@ function __bootMain(){
      처리에 실패했을 때만 그때 로그인 창을 연다. */
   let backFromGoogle=false;
   try{ backFromGoogle=/[?&]glogin=/.test(location.search); }catch(e){}
-  if(sess&&accounts()[sess]){applyUser(sess);unlockApp();initApp();}
+  if(sess&&accounts()[sess]){
+    applyUser(sess);unlockApp();initApp();
+    /* ══ [v12.4] 세션으로 바로 들어올 때 등급을 못 받던 문제 ═══════════════════
+       로그인 화면을 거치면 login 응답에 등급이 실려 온다. 그런데 이미 로그인해
+       둔 상태로 앱을 열면 여기서 곧바로 들어가므로 서버에 아무것도 묻지 않았다.
+       그래서 등급이 '모름'으로 남았고, 화면에는 Free 인데 한도가 무제한으로
+       적히는 앞뒤 안 맞는 표시가 나왔다.
+       [고침] 들어온 직후 한 번 물어 등급을 받아 둔다. 실패해도 앱은 그대로 돈다. */
+    try{
+      const _a=accounts()[sess];
+      if(_a&&_a.pass)cloudCall({action:'login',id:sess,pass:_a.pass}).catch(()=>{});
+    }catch(e){}
+  }
   else if(backFromGoogle){
     /* 표를 처리한 뒤 결과에 따라 결정한다 */
     (async()=>{
@@ -19283,22 +19295,45 @@ function tierSet(p){
        다른 메뉴에 갔다 돌아와야 풀렸다. "코드를 넣었는데 그대로네?"로 보인다.
        등급이 실제로 달라졌을 때만 다시 그린다(같은 값이면 헛일을 하지 않는다). */
     if(prevLv!==lv){
-      try{ if(typeof currentView!=='undefined'&&typeof showView==='function')showView(currentView); }catch(e){}
+      /* ══ [v12.4] 멤버십 화면에서는 showView 로 되돌리지 않는다 ═══════════════
+         showView 는 화면을 처음부터 다시 그린다. 그런데 멤버십 화면은 바로 위에서
+         이미 renderTierView() 로 새로 그린 뒤다. 여기서 showView 를 또 부르면
+         requestAnimationFrame 으로 미뤄진 그리기가 나중에 실행되며 방금 그린
+         것을 덮는데, 그때 쓰는 값이 옛 상태라 한도가 되돌아갔다.
+         (Pro 로 올려도 화면에 20 이 그대로 남던 이유다)
+         다른 화면은 잠금 해제를 반영해야 하므로 그대로 다시 그린다. */
+      try{
+        if(typeof currentView!=='undefined'&&currentView!=='tier'
+           &&typeof showView==='function')showView(currentView);
+      }catch(e){}
     }
   }catch(e){}
 }
 function tierLv(){ return _tier.lv||0; }
 function tierKey(){ return _tier.tier||'free'; }
 function tierInfo(){ return TIERS[tierLv()]||TIERS[0]; }
-/* [v11.6] 아직 서버 답을 못 받았으면 막지 않는다 */
+/* ══ [v12.4] '모름' 상태를 잘못 다뤄 Free 가 무제한으로 보이던 문제 ═══════════
+   [무엇이 잘못됐나] 서버 답을 못 받았을 때(known=false) 한도를 무제한으로
+   돌려주도록 했다. 인터넷이 끊겼을 때 기능이 잠기지 않게 하려던 것이었는데,
+   ① 서버가 tier 를 안 보내는 경우(옛 워커·응답 누락)
+   ② 아직 로그인 전
+   에도 계속 무제한이 유지됐다. 그래서 화면에 'Free · 관심종목 6/무제한'
+   같은 앞뒤가 안 맞는 표시가 나왔다.
+   [고침] 두 가지를 나눈다.
+     · 실제 동작(막을지 말지)  → 모르면 막지 않는다(예전 의도 유지)
+     · 화면에 적는 숫자        → 언제나 지금 등급의 실제 한도를 적는다
+   그래서 Free 면 화면에는 반드시 '20'이 적히고, 서버 답을 못 받은 잠깐 동안만
+   실제로는 막지 않는다. 보이는 것과 적히는 것이 어긋나지 않는다. */
 function tierKnown(){ return !!_tier.known; }
+/* 화면 표기용 — 지금 등급의 실제 한도. '모름'이어도 숫자를 그대로 적는다. */
+function tierCap(key){ const a=TIER_LIMITS[key]; return a?a[tierLv()]:INF; }
 function tierAllow(feat){
-  if(!tierKnown())return true;
+  if(!tierKnown())return true;             // 모를 때는 막지 않는다
   const need=TIER_NEED[feat]; return need==null?true:tierLv()>=need;
 }
 function tierLimit(key){
-  if(!tierKnown())return INF;
-  const a=TIER_LIMITS[key]; return a?a[tierLv()]:INF;
+  if(!tierKnown())return INF;              // 모를 때는 막지 않는다
+  return tierCap(key);
 }
 /* 이 기능·한도를 열려면 어느 등급이 필요한가 */
 function tierNeedName(feat){ const n=TIER_NEED[feat]; return n==null?null:(TIERS[n]||{}).n; }
@@ -19524,7 +19559,7 @@ function renderTierUsage(){
   const el=$('tierUsage'); if(!el)return;
   const c=tierCounts();
   const rows=TU_ROWS.map(([k,nm])=>{
-    const used=c[k]||0, cap=tierLimit(k);
+    const used=c[k]||0, cap=tierCap(k);   /* [v12.4] 표기는 실제 등급 한도로 */
     const inf=(cap===INF);
     const pct=inf?0:Math.min(100,Math.round(used/Math.max(1,cap)*100));
     const near=!inf&&pct>=80, full=!inf&&used>=cap;
@@ -19536,8 +19571,8 @@ function renderTierUsage(){
       ${full?`<div class="tu-n">가득 찼어요${nx?` · ${nx.n} 로 올리면 ${tierFmt((TIER_LIMITS[k]||[])[TIERS.indexOf(nx)])}까지`:''}</div>`
         :near?`<div class="tu-n">거의 찼어요${nx?` · ${nx.n} 로 올리면 ${tierFmt((TIER_LIMITS[k]||[])[TIERS.indexOf(nx)])}까지`:''}</div>`:''}
     </div>`;}).join('');
-  const fullN=TU_ROWS.filter(([k])=>{const cap=tierLimit(k);return cap!==INF&&(c[k]||0)>=cap;}).length;
-  el.innerHTML=`<div class="panel tu-panel">
+  const fullN=TU_ROWS.filter(([k])=>{const cap=tierCap(k);return cap!==INF&&(c[k]||0)>=cap;}).length;
+  el.innerHTML=`<div class="panel tu-panel" style="--tc:${TIERS[tierLv()].c}">
     <div class="tt-h">내 이용 현황</div>
     <div class="tt-sub">${fullN?`<b>${fullN}가지</b>가 한도에 닿았어요.`:'아직 여유가 있어요.'}
       한도를 넘어도 <b>이미 담은 것은 사라지지 않습니다</b>.</div>
@@ -19585,7 +19620,19 @@ function renderTierFaq(){
     <div class="tt-h">자주 묻는 것</div>
     <div class="tf-list">${TIER_FAQ.map(([q,a],i)=>
       `<details class="tf-item"${i===0?' open':''}><summary>${htmlEsc(q)}</summary><p>${a}</p></details>`).join('')}</div>
+    <!-- [v12.4] 관리자 구역으로 가는 길 — 설정 안에 숨겨 두었더니 못 찾는다는
+         이야기가 나왔다. 여기에 조용히 두되, 눌렀을 때만 보이게 한다. -->
+    <div class="tf-adm"><button type="button" id="tierAdm">관리자 구역</button></div>
   </div>`;
+  const ab=$('tierAdm');
+  if(ab)ab.onclick=()=>{
+    try{
+      const g=$('setGate'); if(g)g.hidden=false;
+      document.querySelectorAll('#setTabs button').forEach(b=>{ if(/정보/.test(b.textContent))b.click(); });
+      openAdminPanel();
+      setTimeout(()=>{ const p2=$('admPanel'); if(p2)p2.scrollIntoView({block:'start',behavior:'smooth'}); },200);
+    }catch(e){}
+  };
 }
 function renderTierView(){
   safeRun('tierExpire',renderTierExpire);
@@ -19652,45 +19699,67 @@ function renderTierTable(){
     ${featRows}
   </div></div>
   <div class="tt-foot">● 쓸 수 있어요 · – 아직 잠겨 있어요<br>
-    이용권은 <b>무료로 발급</b>해 드립니다. 위의 <b>이용 문의하기</b>로 남겨 주세요.</div>`;
+    이용권은 <b>무료로 발급</b>해 드립니다. 위의 <b>이용 문의</b>로 남겨 주세요.</div>`;
+  /* ══ [v12.8] 내 등급 열을 화면 안으로 ═══════════════════════════════════════
+     표는 6개 등급이라 좁은 화면에서 반드시 가로로 넘친다. 그런데 왼쪽부터
+     보이므로, Plus 를 쓰는 사람이 표를 열면 Free·Lite·Basic 만 보이고 정작
+     자기 열은 밖에 있었다. 스스로 밀어 봐야 찾을 수 있다는 뜻이다.
+     열자마자 자기 열이 보이도록 가로 스크롤을 맞춰 둔다. */
+  try{
+    const sc=box.querySelector('.tt-scroll');
+    const now=box.querySelector('.tt-head .tt-c.now');
+    if(sc&&now){
+      requestAnimationFrame(()=>{
+        const sb=sc.getBoundingClientRect(), nb=now.getBoundingClientRect();
+        const c0=box.querySelector('.tt-c0');
+        const lock=c0?c0.getBoundingClientRect().width:0;   // 왼쪽 고정 칸은 가린다
+        const want=sc.scrollLeft+(nb.left-sb.left)-lock-8;
+        sc.scrollTo({left:Math.max(0,want),behavior:'auto'});
+      });
+    }
+  }catch(e){}
 }
 
 function renderTierCard(){
   const el=$('tierCard'); if(!el)return;
   const lv=tierLv(), me=TIERS[lv], next=TIERS[lv+1]||null;
   const rem=tierRemainText();
-  const chip=(t,on)=>`<span class="tc-chip${on?' on':''}" style="${on?`--tc:${t.c}`:''}">${t.n}</span>`;
+  /* ══ [v12.8] 멤버십 카드 — 요금제 표가 아니라 '받은 카드'로 ═══════════════
+     아무도 돈을 내지 않고 초대로만 받는 자리다. 그래서 플랜 비교표처럼 굴지
+     않고, 손에 쥔 멤버십 카드처럼 보이게 했다.
+     · 왼쪽 색 띠 + 은은한 빛 — 등급을 색 하나로 알아보게
+     · 6단계를 연결된 레일로 — 등급은 진짜 '순서'라 이 표현이 맞다
+       (순서가 없는 것에 번호를 붙이는 건 장식일 뿐이지만, 여기선 정보다)
+     · 굵기·크기 대비만으로 위계를 만든다. 새 서체를 들이면 앱과 어긋난다. */
+  const rail=TIERS.map((t,i)=>{
+    const done=i<lv, now=i===lv;
+    return `<div class="mc-step${done?' done':''}${now?' now':''}" style="--tc:${t.c}">
+      <i class="mc-dot"></i><span>${t.n}</span></div>`;
+  }).join('');
   el.innerHTML=`
-  <div class="panel tier-card">
-    <div class="tc-top">
-      <div class="tc-now">
-        <span class="tc-badge" style="--tc:${me.c}">${me.n}</span>
-        <div class="tc-t"><b>이용 등급</b>
-          <span>${rem||'무료로 이용 중'}</span></div>
+  <div class="mcard" style="--tc:${me.c}">
+    <div class="mc-edge"></div>
+    <div class="mc-body">
+      <div class="mc-top">
+        <div class="mc-tier">${me.n}</div>
+        <div class="mc-meta">
+          <b>이용 등급</b>
+          <span>${rem||'무료로 이용 중'}</span>
+        </div>
       </div>
-      ${_tier.expired?'<div class="tc-warn">이용 기간이 끝나 Free 로 돌아왔어요</div>':''}
+      <p class="mc-desc">${htmlEsc(me.d)}</p>
+
+      <div class="mc-rail">${rail}</div>
+
+      <!-- [v12.8] 채움 버튼은 '받게 될 등급'의 색으로 — 지금 등급색으로 칠하면
+           Free 에서 회색 버튼이 되어 눌러 볼 마음이 안 생긴다. -->
+      <div class="mc-acts"${next?` style="--nc:${next.c}"`:''}>
+        <button type="button" class="mc-btn primary" id="tcAsk">
+          ${next?`${next.n} 이용 문의`:'이용 문의'}</button>
+        <button type="button" class="mc-btn" id="tcCoupon">쿠폰 코드 입력</button>
+      </div>
+      <p class="mc-note">문의를 남기시면 확인 후 이용권 코드를 보내 드립니다.</p>
     </div>
-
-    <div class="tc-line">${TIERS.map((t,i)=>chip(t,i===lv)).join('<i>›</i>')}</div>
-    <div class="tc-desc">${htmlEsc(me.d)}</div>
-
-    <div class="tc-perks">
-      <div class="tc-ph">지금 쓸 수 있어요</div>
-      <ul>${TIER_PERKS[lv].map(x=>`<li>${htmlEsc(x)}</li>`).join('')}</ul>
-    </div>
-
-    ${next?`<div class="tc-next">
-      <div class="tc-ph">${next.n} 로 올리면</div>
-      <ul>${TIER_PERKS[lv+1].map(x=>`<li>${htmlEsc(x)}</li>`).join('')}</ul>
-    </div>`:''}
-
-    <div class="tc-btns">
-      <!-- [v11.2] Max 도 문의를 남길 수 있어야 한다. 최상위라도 기간 연장·재발급·
-           문제 신고 같은 용건이 있고, 창구를 닫아 둘 이유가 없다. -->
-      <button type="button" class="btn-primary" id="tcAsk">이용 문의하기</button>
-      <button type="button" class="btn-ghost" id="tcCoupon">쿠폰 코드 입력</button>
-    </div>
-    <div class="tc-note">문의를 남기시면 확인 후 이용권 코드를 보내 드립니다.</div>
   </div>`;
   const a=$('tcAsk'); if(a)a.onclick=()=>openTierAsk();
   const c=$('tcCoupon'); if(c)c.onclick=()=>openCouponGate();
