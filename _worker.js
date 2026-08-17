@@ -5436,7 +5436,11 @@ async function yahooIndex(sym, range, interval) {
   for (let i = 0; i < ts.length; i++) {
     if (cl[i] == null) continue;
     const d = new Date(ts[i] * 1e3);
-    out.push({ d: ymd(d), o: q.open && q.open[i] || cl[i], h: q.high && q.high[i] || cl[i], l: q.low && q.low[i] || cl[i], c: cl[i], v: q.volume && q.volume[i] || 0 });
+    /* [v10.9] 분봉은 한 날짜에 여러 봉이 들어간다. 날짜만 붙이면 축 라벨이
+       전부 같은 값이 되고 시세 목록에서도 구분이 안 된다 — 시각을 함께 담는다. */
+    const _isMin = /m$/.test(String(interval || ""));
+    const _t = _isMin ? String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0") : "";
+    out.push({ d: ymd(d), t: _t, o: q.open && q.open[i] || cl[i], h: q.high && q.high[i] || cl[i], l: q.low && q.low[i] || cl[i], c: cl[i], v: q.volume && q.volume[i] || 0 });
   }
   return out;
 }
@@ -5511,11 +5515,34 @@ var chart_default = async (req2) => {
        야후는 이 지수들을 모두 제공하므로(^IXIC 등) 표를 만들어 함께 처리한다.
        기간(tf)도 그대로 넘겨 일·주·월·년을 각각 받는다. */
     if (IDX_SYM[code]) {
-      const RANGE = { D: "1y", W: "5y", M: "10y", Y: "max" };
-      const IV    = { D: "1d", W: "1wk", M: "1mo", Y: "1mo" };
+      /* ══ [v10.9] 지수 분봉·연봉이 안 나오던 이유 ═══════════════════════════
+         ① tf 는 위에서 toUpperCase() 된다. 화면은 '1m','60m' 같은 소문자를
+            보내므로 '1M','60M' 이 되어 표에 없는 값이 됐다 → 일봉으로 떨어졌다.
+         ② 연봉(Y)에 월간(1mo) 간격을 줘서 월봉과 똑같은 그림이 나왔다.
+         야후는 분봉을 지원한다(1m/5m/15m/30m/60m). 다만 조회 가능한 기간이
+         짧아(1분은 7일, 그 외 60일) 범위를 각각 맞춰 준다. */
+      const MAP = {
+        "1M":  ["7d",  "1m"],   "3M":  ["1mo", "5m"],   // 3분은 야후에 없어 5분으로 대신한다
+        "5M":  ["1mo", "5m"],   "10M": ["1mo", "15m"],  // 10분 → 15분
+        "30M": ["3mo", "30m"],  "60M": ["6mo", "60m"],
+        "D":   ["2y",  "1d"],   "W":   ["10y", "1wk"],
+        "M":   ["max", "1mo"],  "Y":   ["max", "3mo"]
+      };
+      const pick = MAP[tf] || MAP.D;
       let c = [];
-      try { c = await yahooIndex(IDX_SYM[code], RANGE[tf] || "1y", IV[tf] || "1d"); } catch { c = []; }
-      out = { src: "yahoo-index", candles: c, sym: IDX_SYM[code], tf };
+      try { c = await yahooIndex(IDX_SYM[code], pick[0], pick[1]); } catch { c = []; }
+      /* 연봉은 야후가 따로 주지 않는다 — 분기봉을 받아 연 단위로 묶는다 */
+      if (tf === "Y" && c.length) {
+        const byY = new Map();
+        c.forEach(k => {
+          const y = String(k.d || "").slice(0, 4); if (!y) return;
+          const g = byY.get(y);
+          if (!g) byY.set(y, { d: y + "1231", o: k.o, h: k.h, l: k.l, c: k.c, v: k.v || 0 });
+          else { g.h = Math.max(g.h, k.h); g.l = Math.min(g.l, k.l); g.c = k.c; g.v += (k.v || 0); }
+        });
+        c = [...byY.values()];
+      }
+      out = { src: "yahoo-index", candles: c, sym: IDX_SYM[code], tf, iv: pick[1] };
     } else if (tf === "MIN") {
       const mkt = String(url.searchParams.get("mkt") || "").toUpperCase();
       let r = { candles: [], src: "none" };
@@ -15329,7 +15356,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "10.8.0";
+var APP_VER = "10.9.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

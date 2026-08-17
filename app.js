@@ -5699,15 +5699,23 @@ function _showView(name){
   if(name!=='ustrade'){ try{usChartMount(false);}catch(e){}        // [v4.57] 차트 카드 제자리로
     try{ document.querySelectorAll('#tfSeg [data-tf]').forEach(b=>{b.style.display='';}); }catch(e){} }
   // [수정] 화면별 렌더러가 예외를 던져도 탭 전환 자체는 성공하도록 격리
-  if(name==='home'){safeRun('home',renderHome);safeRun('market',renderMarket);safeRun('aiBrief',()=>{renderAiBrief();aiSchedule();});}
-  if(name==='watch')safeRun('watch',renderWatch);
-  if(name==='sector')safeRun('sector',()=>{setSecTab(secTab);applySectorMkt();});   // [v4.40]
-  if(name==='etf'){safeRun('etfLounge',renderEtfLounge);safeRun('etfLoad',loadEtfList);}
-  if(name==='us')safeRun('usLounge',renderUsLounge);
-  if(name==='ustrade')safeRun('usTrade',renderUsTrade);
-  if(name==='pro')safeRun('pro',()=>setProTab(proTab));
-  if(name==='folio')safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); });   /* [v9.99] 들어올 때는 전체 */
-  if(name==='index')safeRun('ixDetail',renderIdxDetail);      /* [v10.4] 지수 상세 */
+  /* ══ [v10.9] 메뉴를 누르면 버벅이던 이유 ═══════════════════════════════════════
+     화면 전환 한 번에 렌더러 40개가 같은 프레임에서 돌았다. 홈이면 renderHome +
+     renderMarket + AI 브리핑이 한꺼번에 실행되는데, 그동안 브라우저는 아무것도
+     그리지 못한다. 그래서 누른 뒤 화면이 잠깐 굳었다가 툭 바뀌는 것처럼 보였다.
+     [고침] 화면 전환(hidden 토글·스크롤)만 즉시 하고, 무거운 그리기는 다음
+     프레임으로 미룬다. 사용자는 빈 화면이라도 '바뀌었다'를 먼저 보게 되고,
+     그다음 한 프레임 뒤에 내용이 채워진다. 총 시간은 같지만 체감이 크게 다르다. */
+  const _paint=(fn)=>{ try{ requestAnimationFrame(()=>{ try{fn();}catch(e){} }); }catch(e){ try{fn();}catch(e2){} } };
+  if(name==='home')_paint(()=>{safeRun('home',renderHome);safeRun('market',renderMarket);safeRun('aiBrief',()=>{renderAiBrief();aiSchedule();});});
+  if(name==='watch')_paint(()=>safeRun('watch',renderWatch));
+  if(name==='sector')_paint(()=>safeRun('sector',()=>{setSecTab(secTab);applySectorMkt();}));
+  if(name==='etf')_paint(()=>{safeRun('etfLounge',renderEtfLounge);safeRun('etfLoad',loadEtfList);});
+  if(name==='us')_paint(()=>safeRun('usLounge',renderUsLounge));
+  if(name==='ustrade')_paint(()=>safeRun('usTrade',renderUsTrade));
+  if(name==='pro')_paint(()=>safeRun('pro',()=>setProTab(proTab)));
+  if(name==='folio')_paint(()=>safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); }));
+  if(name==='index')_paint(()=>safeRun('ixDetail',renderIdxDetail));      /* [v10.4] 지수 상세 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
     /* [v4.81] 국내가 전 종목을 미리 받아 두듯 해외도 미리 받는다.
@@ -7385,6 +7393,33 @@ function thmFiltered(){
    [어떻게 맞췄나] 같은 카드 구조로 바꾸되, 국내에만 있는 정보(상승/하락 종목
    수, 펼쳐서 보는 상세)는 살린다. 강도 막대의 기준값(mx)은 목록 전체의
    최대 등락률이라 렌더 시점에 계산해 넘긴다. */
+/* ══ [v10.9] 국내 섹터에도 아이콘 ═══════════════════════════════════════════
+   해외 테마(US_THEMES)는 이름 앞에 이모지가 붙어 한눈에 구분됐는데, 국내는
+   글자만 나와 목록이 밋밋했다. 국내 업종·테마 이름은 거래소가 정한 것이라
+   이모지를 미리 박을 수 없다 — 이름에서 낱말을 찾아 골라 준다.
+   먼저 맞는 것이 이기므로, 더 구체적인 낱말을 위에 둔다. */
+const SEC_ICONS=[
+  [/반도체|메모리|파운드리|소부장/,'💾'], [/2차전지|배터리|전지/,'🔋'],
+  [/자동차|모빌리티|타이어/,'🚗'],       [/조선|해운|항만/,'🚢'],
+  [/항공|우주|방산|무기/,'🚀'],          [/제약|바이오|의료|헬스|병원/,'💊'],
+  [/은행|증권|보험|금융|카드/,'🏦'],     [/건설|건축|시멘트|토목/,'🏗'],
+  [/철강|금속|비철|광물/,'⛓'],          [/화학|정유|석유|소재/,'⚗'],
+  [/전력|에너지|원자력|원전|태양광|풍력|수소/,'⚡'],
+  [/통신|인터넷|플랫폼|포털/,'🌐'],      [/게임|엔터|미디어|콘텐츠|음악|영화/,'🎮'],
+  [/유통|소매|백화점|마트|이커머스|쇼핑/,'🛒'],
+  [/음식료|식품|음료|주류|담배/,'🍚'],   [/화장품|뷰티|미용/,'💄'],
+  [/의류|섬유|패션|신발/,'👕'],          [/기계|장비|로봇|공작/,'🛠'],
+  [/전기전자|가전|디스플레이|부품/,'📺'],[/운송|물류|택배|철도/,'🚚'],
+  [/지주|holdings|홀딩스/i,'🏛'],        [/부동산|리츠|임대/,'🏢'],
+  [/교육|출판/,'📚'],                    [/보안|소프트|IT|클라우드|AI|인공지능/i,'🖥'],
+  [/농업|축산|수산|비료/,'🌾'],          [/여행|호텔|레저|카지노/,'✈'],
+  [/ETF|인덱스|지수/i,'📊'],
+];
+function secIcon(name){
+  const n=String(name||'');
+  for(const [re,ic] of SEC_ICONS){ if(re.test(n))return ic; }
+  return '📈';                         // 못 찾으면 기본
+}
 function thmRowHtml(g,rank,mx){
   const rate=(g.rate==null?null:g.rate);
   const dir=dirOf(rate==null?0:rate);
@@ -7394,6 +7429,7 @@ function thmRowHtml(g,rank,mx){
   const tot=(g.up==null&&g.down==null)?null:((+g.up||0)+(+g.down||0));
   return `<div class="us-sect thm-card ${open?'open':''}" data-no="${g.no}">
       <div class="uss-h"><span class="uss-rk num${rank<=3?' top':''}">${rank}</span>
+        <span class="uss-ic">${secIcon(g.name)}</span>
         <b>${htmlEsc(g.name)}</b>
         <span class="uss-avg num ${dir}">${rate==null?'—':pctS(rate)}</span></div>
       <div class="uss-bar"><i class="${rate>=0?'up':'down'}" style="width:${w.toFixed(1)}%"></i></div>
@@ -11310,10 +11346,18 @@ $('starBtn').onclick=async()=>{
   openFolderPop(code,$('starBtn'));
 };
 function updateStar(){
-  /* [v10.6] 담긴 상태를 글자로도 알려 준다 — 별 모양만으로는 눈에 안 띄었다 */
+  /* [v10.9] 버튼이 [별][글자] 두 조각이라 textContent 를 통째로 바꾸면 글자가
+     사라진다. 별만 갈아 끼우고 라벨은 따로 손댄다. */
   const on=watchlist.includes(selected);
-  const b=$('starBtn'); if(b){ b.textContent=on?'★':'☆'; b.classList.toggle('on',on); }
-  const l=$('starLab'); if(l)l.textContent=on?'관심 담김':'관심';
+  const b=$('starBtn');
+  if(b){
+    b.classList.toggle('on',on);
+    const lab=b.querySelector('#starLab');
+    b.childNodes.forEach&&0;                     // (호환용 no-op)
+    if(b.firstChild&&b.firstChild.nodeType===3)b.firstChild.nodeValue=on?'★':'☆';
+    else b.insertBefore(document.createTextNode(on?'★':'☆'),b.firstChild);
+    if(lab)lab.textContent=on?'관심 담김':'관심';
+  }
 }
 
 /* 종목 상세 */
@@ -12365,7 +12409,11 @@ function drawIdxChart(cs){
     x.fillText(DEC(v,rng<50?2:0),W-4,yy);
   }
   /* 가로축 — 날짜 4~5칸 */
-  const dt=(d)=>d&&d.length>=8?`${d.slice(4,6)}.${d.slice(6,8)}`:'';
+  /* [v10.9] 분봉이면 시:분, 아니면 월.일 */
+  const isMin=/m$/.test(String(idxDetTf||''));
+  const dt=(c)=>{ if(!c)return '';
+    if(isMin&&c.t)return c.t;
+    const d=String(c.d||''); return d.length>=8?`${d.slice(4,6)}.${d.slice(6,8)}`:''; };
   const N=Math.min(5,arr.length);
   x.textBaseline='alphabetic';
   for(let i=0;i<N;i++){
@@ -12374,7 +12422,7 @@ function drawIdxChart(cs){
     x.strokeStyle=grid; x.beginPath(); x.moveTo(cx,padT); x.lineTo(cx,H-padB); x.stroke();
     x.fillStyle=lab;
     x.textAlign=i===0?'left':(i===N-1?'right':'center');
-    x.fillText(dt(arr[gi].d),Math.max(2,Math.min(W-2,cx)),H-5);
+    x.fillText(dt(arr[gi]),Math.max(2,Math.min(W-2,cx)),H-5);
   }
 }
 
@@ -18751,7 +18799,7 @@ function wireUsStar(){
         const f=await newFolderFlow([code]);
         if(f){ syncWatchUnion(); feed&&feed.addCode(code); saveState();
           toast('buy','관심종목 추가',`${(usMeta[code]&&usMeta[code].kr)||code} → ${f.icon?f.icon+' ':''}${f.name}`);
-          renderUsHead(); wireUsStar(); renderWatch(); }
+          renderUsHead(); renderWatch(); }   /* [v10.9] renderUsHead 가 스스로 배선한다 */
         return;
       }
       openFolderPop(code,$('usStarBtn'));
@@ -18774,7 +18822,7 @@ function wireUsStar(){
     finally{ selected=keep; }
   };
   wire('usAlertBtn',asSel(()=>openAlertGate()));
-  wire('usCmpBtn',asSel(()=>{ cmpToggle(usSel); toast('on','비교함',cmpList().includes(usSel)?'담았어요':'뺐어요'); renderUsHead(); wireUsStar(); }));
+  wire('usCmpBtn',asSel(()=>{ cmpToggle(usSel); toast('on','비교함',cmpList().includes(usSel)?'담았어요':'뺐어요'); renderUsHead(); }));
   wire('usDartBtn',()=>{ window.open('https://finance.yahoo.com/quote/'+encodeURIComponent(usSel),'_blank','noopener'); });
   wire('usHoldBtn',asSel(()=>openHoldGate()));
   wire('usMemoBtn',asSel(async()=>{
@@ -18782,12 +18830,12 @@ function wireUsStar(){
     const v=await askMemo(nm+' 메모',{value:stockMemos[usSel]||'',placeholder:'매수 이유, 목표가 근거 등을 남겨 두세요'});
     if(v===null)return;
     if(v.trim())stockMemos[usSel]=v.trim(); else delete stockMemos[usSel];
-    saveState(); renderUsHead(); wireUsStar();
+    saveState(); renderUsHead();
   }));
 }
 function renderUsTrade(){
   if(!usSel){showView('us');return;}
-  renderUsHead(); wireUsStar(); renderUsOrder();
+  renderUsHead(); renderUsOrder();
   /* [v4.57] 봉 종류·이동평균·확대축소는 국내 차트 카드가 그대로 들고 온다 —
      해외 전용 세그먼트를 따로 그리지 않는다(그게 두 화면이 달라진 원인이었다). */
   document.querySelectorAll('#usInfoTabs button').forEach(b2=>b2.onclick=()=>{
@@ -19579,7 +19627,18 @@ function renderUsTradeLive(){ if(currentView!=='ustrade')return;
   const pxIn=$('usPxIn'); if(pxIn&&document.activeElement!==pxIn&&usOrdPx==null)renderUsOrder();
   else updateUsSum();
 }
+/* ══ [v10.9] 해외 도구 버튼이 눌러도 아무 일이 없던 이유 ═══════════════════════
+   renderUsHead() 는 헤더 HTML 을 통째로 다시 만든다. 그러면 앞서 걸어 둔
+   onclick 이 함께 사라진다. 그런데 이 함수는 시세가 올 때마다(20초), 계좌를
+   바꿀 때, 주문을 넣을 때 등 5곳에서 따로 불리는데 그중 대부분이 wireUsStar()
+   를 함께 부르지 않았다. 그래서 화면에 들어온 직후 잠깐만 작동하고,
+   첫 시세가 도착하는 순간 모든 버튼이 죽었다.
+   [고침] 부르는 쪽이 기억하게 두지 않는다. 그리는 함수가 스스로 배선한다. */
 function renderUsHead(){
+  _renderUsHeadInner();
+  try{ wireUsStar(); }catch(e){}
+}
+function _renderUsHeadInner(){
   const m=usMeta[usSel],q=usQ[usSel]||byCode[usSel]||{};
   const ses=usSession();
   const d=(q.price!=null&&q.prev)?q.price-q.prev:null;

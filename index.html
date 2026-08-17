@@ -184,12 +184,20 @@
   /* [v10.6] 문구는 '표시 중인 %'가 속한 단계를 따른다.
      앱이 0.4초 만에 끝나도 막대가 차오르는 동안 단계 문구가 차례로 지나가므로,
      사용자는 무엇을 준비했는지 읽을 수 있다. 실제 진행보다 앞서지는 않는다. */
+  /* ══ [v10.9] 막대는 96%인데 문구는 '준비 완료'이던 문제 ═══════════════════
+     예전 판정은 stepIdx(앱이 알린 실제 단계)를 상한으로 삼았다. 앱이 0.4초 만에
+     끝나면 stepIdx 가 곧바로 마지막이 되고, 막대가 아직 96%여도 문구만 먼저
+     '준비 완료'가 됐다. 사람 눈에는 "다 됐다는데 왜 안 끝나지?"로 보인다.
+     [고침] 문구는 '지금 보이는 %'만 따른다. 96%면 그 %가 속한 단계를 말한다.
+     '준비 완료'는 막대가 100%에 닿았을 때만 나온다. */
   function label(){
     var i = 0;
-    for(var k=0;k<STEPS.length;k++){ if(shown + 0.5 >= STEPS[k].p) i = k; }
-    i = Math.min(i + 1, stepIdx, STEPS.length-1);
-    if(shown >= 99.5) i = STEPS.length-1;
-    return STEPS[Math.max(0,i)].t;
+    for(var k = 0; k < STEPS.length - 1; k++){        // 마지막(100%)은 아래에서 따로
+      if(shown >= STEPS[k].p - 0.5) i = k + 1;
+    }
+    if(i > STEPS.length - 2) i = STEPS.length - 2;    // 99%까지는 '화면을 구성하는 중'
+    if(shown >= 99.9) i = STEPS.length - 1;           // 100%에서만 '준비 완료'
+    return STEPS[Math.max(0, i)].t;
   }
   function draw(){
     try{
@@ -1253,7 +1261,7 @@
         <div class="d-head">
           <div class="d-top">
             <div>
-              <div class="d-name"><span id="dName">—</span><span class="star" id="starBtn" title="관심종목">☆</span><span class="d-lab" id="starLab">관심</span></div>
+              <div class="d-name"><span id="dName">—</span></div>
               <div class="d-code num" id="dCode">—</div>
               <div class="d-tags" id="dTags"></div>
               <div class="adv-flags" id="advFlags" hidden></div>
@@ -1262,6 +1270,9 @@
               <div class="d-live" id="dLive"></div></div>
           </div>
           <div class="d-toolbar">
+            <!-- [v10.9] 관심 버튼을 해외와 같은 자리·같은 모양으로 옮긴다.
+                 이름 옆 작은 ☆ 는 있는 줄도 모르는 사람이 많았다. -->
+            <button class="d-tool star-tool" id="starBtn" title="관심종목에 담기">☆<span id="starLab">관심</span></button>
             <button class="d-tool" id="alertBtn" title="목표가에 도달하면 알려 줍니다">🔔<span>가격 알림</span></button>
             <button class="d-tool" id="cmpBtn" title="여러 종목을 표로 비교합니다">⚖<span>비교함</span></button>
             <button class="d-tool" id="dartBtn" title="이 종목의 공시·기업 뉴스를 새 탭에서 봅니다">📄<span>공시</span></button>

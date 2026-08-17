@@ -789,8 +789,18 @@
   @keyframes pkb{0%,100%{opacity:.3}50%{opacity:1}}
   /* [C2] 긴 목록 성능 — 화면 밖 행의 레이아웃/페인트를 건너뛴다(브라우저 네이티브 가상 스크롤).
      수천 행을 그려도 실제 렌더 비용은 보이는 부분만 든다. */
-  #searchResults .srow, #etfList .srow, .picks-list .pick-row, #watchBody tr, #holdBody tr,
-  .ea-list .ea-row, .nh-list .nh-row{content-visibility:auto}
+  /* ══ [v10.9] 아래에서 위로 빠르게 스크롤하면 흰 칸이 보이던 이유 ═══════════
+     content-visibility:auto 는 화면 밖 요소의 렌더를 건너뛴다. 그런데 크기를
+     알려 주지 않으면 브라우저가 그 자리를 0 으로 잡았다가, 화면에 들어온 뒤에야
+     실제 크기로 다시 계산한다. 빠르게 스크롤하면 그 '다시 계산'이 못 따라와
+     빈 흰 칸이 스쳐 지나간다. 스크롤 막대 길이도 널뛴다.
+     contain-intrinsic-size 로 미리 높이를 알려 주면 자리를 먼저 잡아 두므로
+     흰 칸이 생기지 않는다. auto 를 붙이면 한 번 그린 뒤에는 실제 높이를 기억한다. */
+  #searchResults .srow, #etfList .srow, .picks-list .pick-row,
+  .ea-list .ea-row, .nh-list .nh-row{
+    content-visibility:auto; contain-intrinsic-size:auto 60px}
+  #watchBody tr, #holdBody tr{
+    content-visibility:auto; contain-intrinsic-size:auto 52px}
   #searchResults .srow, #etfList .srow{contain-intrinsic-size:auto 62px}
   .picks-list .pick-row{contain-intrinsic-size:auto 74px}
   #watchBody tr, #holdBody tr{contain-intrinsic-size:auto 56px}
@@ -1393,7 +1403,9 @@ html.reduce-motion{scroll-behavior:auto}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
 ::-webkit-scrollbar-thumb:hover{background:var(--sub-2)}
-.sec{contain:content}
+/* [v10.9] contain:content 는 자식이 넘칠 때 잘라내며, 높이 힌트가 없어
+   스크롤 중 빈 칸을 만든다. 페인트 격리 이득만 남기고 layout 격리는 뺀다. */
+.sec{contain:paint}
 /* [v4.56] 내 계좌의 환전·송금 코너는 렌더러가 통째로 그려 넣는 블록이라,
    index.html 에 style="margin-top:16px" 을 직접 단 다른 코너들과 달리 위 여백이 없었다.
    블록 자체에 여백을 줘서 어느 코너든 같은 간격으로 보이게 한다. */
@@ -5973,3 +5985,5 @@ html[data-theme="dark"] .d-name .star.on{color:#ffc247}
 .toast.ok .ic{background:#16a34a;color:#fff}
 .toast.on .ic{background:var(--sub-2);color:#fff}
 html[data-theme="dark"] .toast.ok .ic{background:#22c55e;color:#062012}
+/* [v10.9] 국내 섹터 아이콘 — 해외 테마와 같은 자리·크기 */
+.uss-h .uss-ic{flex:0 0 auto;font-size:15px;line-height:1;margin-right:2px}
