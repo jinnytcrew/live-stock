@@ -3993,7 +3993,13 @@ function requireAuth(){
   try{oaBind();}catch(e){}
   try{ window.__gateShown=true; }catch(e){}   // [v8.4] 로그인 창을 거쳤음을 남긴다
   /* 창이 실제로 그려진 뒤에 입장 화면을 걷는다(한 프레임 뒤) */
-  const finish=()=>{ try{window.__boot&&(__boot.step(4),__boot.step(5),__boot.step(6),__boot.done());}catch(e){} };
+  /* ══ [v14.0] 입장 화면을 걷지 않고 붙잡아 둔다 ═══════════════════════════════
+     예전에는 여기서 __boot.done() 으로 입장 화면을 걷었다. 그래서 로그인이
+     끝나지 않았는데도 로그인 창 뒤로 홈 화면이 그대로 드러났다.
+     이제 막대는 100%까지 채우되 화면은 남기고(hold), 로그인 창을 그 위에 둔다.
+     실제로 걷는 것은 로그인·회원가입이 끝난 뒤 unlockApp 에서 한다. */
+  try{ document.body.classList.add('needs-auth'); }catch(e){}
+  const finish=()=>{ try{window.__boot&&(__boot.step(4),__boot.step(5),__boot.step(6),__boot.hold());}catch(e){} };
   try{ requestAnimationFrame(()=>requestAnimationFrame(finish)); }catch(e){ finish(); }
 }
 function unlockApp(){
@@ -4009,15 +4015,22 @@ function unlockApp(){
     if(g){g.hidden=true;g.classList.remove('auth-force');}
     try{document.body.classList.remove('locked');}catch(e){}
   };
+  /* ══ [v14.0] 이제 입장 화면은 인증이 끝날 때까지 계속 떠 있다 ═══════════════
+     예전에는 로그인 창이 열릴 때 입장 화면을 걷었다가, 로그인이 끝나면 다시
+     띄우는(replay) 구조였다. 그 사이사이에 홈이 드러나는 순간이 생겼다.
+     지금은 애초에 걷지 않으므로 다시 띄울 필요가 없다.
+     로그인 창만 조용히 닫고, 그 위를 덮고 있던 입장 화면을 마지막에 걷는다.
+     순서: 로그인 창 닫기 → (입장 화면이 여전히 화면 전체를 덮음) → 걷기 */
   try{
-    const cameFromGate=!!window.__gateShown;
-    if(cameFromGate&&window.__boot&&__boot.replay&&!window.__replayed){
-      window.__replayed=true;
-      __boot.replay(1500);                 // ① 입장 화면이 먼저 화면을 덮는다
-      setTimeout(closeGate,120);           // ② 덮인 뒤에 로그인 창을 치운다
-    }else{
-      closeGate();
-      window.__boot&&__boot.done();
+    closeGate();
+    try{ document.body.classList.remove('needs-auth'); }catch(e){}
+    if(window.__boot){
+      if(__boot.release)__boot.release();   // 붙잡아 둔 것을 풀어 준다
+      else __boot.done();
+      /* 화면이 준비될 시간을 조금 준 뒤 걷는다 — 덜 그려진 홈이 스치지 않게 */
+      try{ requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        try{ __boot.release?__boot.release():__boot.done(); }catch(e){}
+      })); }catch(e){}
     }
   }catch(e){ closeGate(); }
 }
@@ -21558,6 +21571,8 @@ try{
     mutate:(c)=>{ try{ cash=+c||0; holdings=[{code:'005930',qty:10,avg:74000}];
       tradeLog=[{buy:1}]; saveState(); return {cash,rev:revGet(currentUser)}; }catch(e){ return String(e); } },
     rev:()=>{ try{ return {my:_myRev, store:revGet(currentUser)}; }catch(e){ return null; } },
+    requireAuth:()=>{ try{ requireAuth(); return true; }catch(e){ return String(e); } },
+    unlockApp:()=>{ try{ unlockApp(); return true; }catch(e){ return String(e); } },
     pull:(f)=>{ try{ return pullFromServer(!!f); }catch(e){ return String(e); } },
     setUser:(d)=>{ try{ store.set('user:'+currentUser,d); return true; }catch(e){ return false; } },
     getUser:()=>{ try{ return store.get('user:'+currentUser); }catch(e){ return null; } },
