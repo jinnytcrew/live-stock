@@ -1,19 +1,200 @@
 
 
-/* ===== 고급 서비스: 실시간 급등주 예측 =====
-   증권사·전문가가 공개한 대표 조건검색식을 참고해 3종 전략을 구성했다.
-   실시간 시세(등락률·거래대금·고저 대비 위치)와 일봉(이평·신고가)을 함께 사용한다.
-   ※ 규칙 기반 추정이며 미래 수익을 보장하지 않는다. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v15.0] 급등주 예측 2.0 — 전면 재설계
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇을 근거로 삼았나 — 공개 문헌·검증된 기법만 사용]
+   · 포켓 피벗(Kacher·Morales, 『Trade Like an O'Neil Disciple』):
+     상승 마감일의 거래량이 "직전 10거래일의 최대 하락일 거래량"을 넘으면
+     기관 매수의 발자국. 10일선 위/돌파 + 베이스 내(비확장)에서만 유효.
+   · VCP(미너비니, 『Think & Trade Like a Champion』): 수축 폭이 차례로
+     줄고(예 18→12→6%) 마지막 수축 ≤10%, 거래량이 베이스 최저 수준으로
+     마른 뒤 피벗 돌파. 전제는 추세 템플릿(이평 정배열·고점 근접).
+   · 거래대금 z-점수: 단순 "평균의 3배"는 원래 시끄러운 종목에서 남발된다.
+     20일 평균·표준편차로 표준화해 "그 종목 기준으로 이례적인 자금"만 잡는다.
+   · 눌림목 첫 반등: 20>60 추세 유지 + 고점 -4~-15% 조정 + 조정 중 거래
+     감소(매물 소진) + 5일선 회복일. 한국 실전 조건검색의 표준형.
+   · NR(Narrow Range)·밴드폭 압축: 변동폭이 통계적 바닥일 때 확장이 온다.
+   · 공통 과열 배제: 전일 상한가·단기 +45% 급등 종목은 다음 날 되돌림
+     확률이 높아 제외(자동매매 실전 규칙).
+   ※ 규칙 기반 추정이며 미래 수익을 보장하지 않는다. 적중률은 앱이 실제로
+     기록한 예측과 백테스트로만 말한다(임의 숫자 금지).
+   ═══════════════════════════════════════════════════════════════════════════ */
+/*QF-CORE-BEGIN*/
+/* 정량 코어 — 일봉 배열(과거→최근, {o,h,l,c,v})에서 검증가능한 특징을 뽑는다.
+   급등 예측·백테스트가 같은 함수를 쓰므로 "실시간과 검증의 기준이 다른" 문제가 없다. */
+function qFeat(cd){
+  if(!cd||cd.length<62)return null;
+  if(cd.length>260)cd=cd.slice(-260);
+  const N=cd.length;
+  const C=cd.map(x=>+x.c||0),H=cd.map(x=>+(x.h!=null?x.h:x.c)||0),
+        L=cd.map(x=>+(x.l!=null?x.l:x.c)||0),O=cd.map(x=>+(x.o!=null?x.o:x.c)||0),
+        V=cd.map(x=>+x.v||0);
+  if(C.slice(-62).some(x=>!(x>0)))return null;
+  const last=C[N-1],prevC=C[N-2];
+  const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+  const ma=k=>avg(C.slice(-k));
+  const ma5=ma(5),ma10=ma(10),ma20=ma(20),ma60=ma(60);
+  const ma120=N>=125?ma(120):null, ma200=N>=205?ma(200):null;
+  const slope20=ma20/avg(C.slice(-25,-5))-1;
+  const ma60p=avg(C.slice(-70,-10).slice(-60));       // 10일 전 60일선
+  /* ATR(14) — Wilder 방식 */
+  let atr=0;{let trs=[];for(let i=N-14;i<N;i++){const tr=Math.max(H[i]-L[i],Math.abs(H[i]-C[i-1]),Math.abs(L[i]-C[i-1]));trs.push(tr);}atr=avg(trs);}
+  const atrPct=last>0?atr/last*100:3;
+  /* RSI(14) */
+  let g=0,l2=0;for(let i=N-14;i<N;i++){const d=C[i]-C[i-1];if(d>0)g+=d;else l2-=d;}
+  const rsi=l2===0?100:100-100/(1+g/l2);
+  /* 거래량 통계 */
+  const v20a=V.slice(-21,-1),v20=avg(v20a)||1,v5=avg(V.slice(-6,-1))||1;
+  const vSd=Math.sqrt(avg(v20a.map(x=>(x-v20)*(x-v20))))||1;
+  const volZ=(V[N-1]-v20)/vSd;                         // 오늘 거래량 z-점수
+  const volRatio=V[N-1]/v20;
+  /* 상승/하락일 거래량 비(20일) — 미너비니 압력 지표 */
+  let uV=0,dV=0;for(let i=N-20;i<N;i++){const d=C[i]-C[i-1];if(d>0)uV+=V[i];else if(d<0)dV+=V[i];}
+  const udRatio=dV>0?uV/dV:2;
+  /* 포켓 피벗 — 상승 마감 + 거래량 > 직전 10일 최대 하락일 거래량 + 10일선 위/회복 */
+  const ppAt=i=>{
+    if(i<12||C[i]<=C[i-1])return false;
+    let mx=0;for(let k=i-10;k<i;k++)if(C[k]<C[k-1])mx=Math.max(mx,V[k]);
+    if(!(V[i]>mx&&mx>0))return false;
+    const m10=avg(C.slice(Math.max(0,i-9),i+1));
+    return C[i]>=m10*0.995;                            // 10일선 위 또는 그 자리 회복
+  };
+  const ppToday=ppAt(N-1);
+  let ppCnt=0;for(let i=N-12;i<N;i++)if(ppAt(i))ppCnt++;
+  /* VDU(거래량 고갈) — 최근 5일 최저 거래량이 "베이스 40일 전체"의 하위 15%인가
+     (연구 근거: 최근 평균이 아니라 베이스 전체와 견줘야 의미가 있다) */
+  const base40=V.slice(-40).slice().sort((a,b)=>a-b);
+  const q15=base40[Math.floor(base40.length*0.15)]||1;
+  const vdu=Math.min(...V.slice(-5))<=q15;
+  /* 수축열(VCP) — 스윙 고점 사이 되돌림 깊이가 차례로 줄어드는가 */
+  const legs=[];{
+    const w=Math.min(70,N);const hh=H.slice(-w),ll=L.slice(-w),cc=C.slice(-w);
+    const sw=[];for(let i=2;i<w-2;i++)if(hh[i]>=hh[i-1]&&hh[i]>=hh[i-2]&&hh[i]>=hh[i+1]&&hh[i]>=hh[i+2])sw.push(i);
+    const picks=[];for(const i of sw){if(!picks.length||i-picks[picks.length-1]>=4)picks.push(i);}
+    for(let k=0;k<picks.length;k++){
+      const a=picks[k],b=k+1<picks.length?picks[k+1]:w-1;
+      if(b<=a)continue;
+      const top=hh[a],bot=Math.min(...ll.slice(a,b+1));
+      if(top>0)legs.push((top-bot)/top*100);
+    }
+  }
+  const legs3=legs.slice(-3);
+  const contracting=legs3.length>=2&&legs3.every((d,i)=>i===0||d<=legs3[i-1]+0.5);
+  const lastDepth=legs3.length?legs3[legs3.length-1]:null;
+  /* 볼린저 밴드폭 백분위(60일) — 낮을수록 압축 */
+  const bwArr=[];for(let i=N-60;i<N;i++){if(i<20)continue;
+    const seg=C.slice(i-19,i+1),m=avg(seg);
+    const sd=Math.sqrt(avg(seg.map(x=>(x-m)*(x-m))));
+    bwArr.push(m>0?4*sd/m:0);}
+  const bwNow=bwArr[bwArr.length-1]||0;
+  const bwPct=bwArr.length?bwArr.filter(x=>x<=bwNow).length/bwArr.length*100:50;
+  /* NR·인사이드(최근 7일) */
+  let nrCnt=0;{const rngs=[];for(let i=N-8;i<N;i++)rngs.push(H[i]-L[i]);
+    const mn=Math.min(...rngs.slice(0,-1));
+    for(let i=N-7;i<N;i++){const inside=H[i]<=H[i-1]&&L[i]>=L[i-1];
+      if(inside||(H[i]-L[i])<=mn*1.02)nrCnt++;}}
+  /* 위치·추세 */
+  const hi20=Math.max(...H.slice(-20)),hi60=Math.max(...H.slice(-60));
+  const hiMax=Math.max(...H.slice(-Math.min(240,N)));
+  const lo20=Math.min(...L.slice(-20)),loMax=Math.min(...L.slice(-Math.min(240,N)));
+  const drawFromHi=hi60>0?(hi60-last)/hi60:0;          // 60일 고점 대비 되돌림
+  const nearPivot=hi60>0?(last/hi60-1)*100:0;          // 피벗(60일 고가) 대비 %
+  const closePos=(H[N-1]>L[N-1])?(last-L[N-1])/(H[N-1]-L[N-1]):0.5;
+  const body=(O[N-1]>0)?(last-O[N-1])/O[N-1]*100:0;
+  const yChg=prevC&&C[N-3]?(prevC/C[N-3]-1)*100:0;      // 어제 등락률
+  const run5=C[N-6]?(last/C[N-6]-1)*100:0;              // 5일 누적
+  let dryPull=false;{                                   // 조정 구간 거래 감소(눌림 질)
+    let dn=0,dnV2=0,up=0,upV2=0;
+    for(let i=N-10;i<N;i++){const d=C[i]-C[i-1];if(d<0){dn++;dnV2+=V[i];}else if(d>0){up++;upV2+=V[i];}}
+    dryPull=dn>0&&up>0?(dnV2/dn)<(upV2/up)*1.0:false;
+  }
+  const recl5=prevC<avg(C.slice(-6,-1))&&last>ma5;      // 5일선 회복일
+  let hlUp=false;{const l1=Math.min(...L.slice(-10)),l0=Math.min(...L.slice(-25,-10));hlUp=l1>=l0;}
+  let streak=0;for(let i=N-1;i>0&&C[i]>C[i-1];i--)streak++;
+  return {n:N,last,prevC,o:O[N-1],h:H[N-1],l:L[N-1],v:V[N-1],
+    ma5,ma10,ma20,ma60,ma120,ma200,slope20,ma60Up:ma60>ma60p,
+    atr,atrPct,rsi,v5,v20,volZ,volRatio,udRatio,
+    ppToday,ppCnt,vdu,legs:legs3,contracting,lastDepth,bwPct,nrCnt,
+    hi20,hi60,hiMax,lo20,loMax,drawFromHi,nearPivot,closePos,body,
+    yChg,run5,dryPull,recl5,hlUp,streak,
+    stack:(ma20>ma60?1:0)+(ma60&&ma120&&ma60>ma120?1:0)+(last>ma20?1:0),
+    ext20:(last-ma20)/ma20};
+}
+/* 전략 평가 — 실시간 스캔과 백테스트가 같은 조건식을 쓴다.
+   live = {chg,pos,val(억),volRatio,body} : 실시간이면 오늘 세션 값,
+   백테스트면 해당 일봉에서 만든 값. q 는 그 시점까지의 qFeat. */
+function sgEval(sid,q,live){
+  const vr=live.volRatio!=null?live.volRatio:q.volRatio;
+  const pos=live.pos!=null?live.pos:q.closePos;
+  const chg=live.chg!=null?live.chg:((q.last/q.prevC-1)*100);
+  const body=live.body!=null?live.body:q.body;
+  const val=live.val;                                  // 억 (백테스트는 null 가능)
+  const C=(t,ok,p)=>({t,ok:!!ok,p});
+  if(sid==='pp')return {checks:[
+    C(`상승 마감 ${pctS(chg)}`,chg>0,'오늘 오르면서 끝났어요'),
+    C(`포켓 피벗 거래량${q.ppToday?' ✓':''}`,q.ppToday,'최근 2주의 가장 큰 매도 물량보다 더 많은 매수가 들어왔어요 (기관 발자국)'),
+    C('10일선 위',q.last>=q.ma10*0.995,'단기 흐름 위에서 움직여요'),
+    C(`베이스 내 (고점 -${(q.drawFromHi*100).toFixed(1)}%)`,q.drawFromHi>=0.02&&q.drawFromHi<=0.18,'아직 크게 오르기 전 자리예요 (추격 아님)'),
+    C('중기 추세 유지',q.ma20>q.ma60,'한 달 흐름이 석 달 흐름보다 위예요'),
+    C(`매수 우위 ${q.udRatio.toFixed(2)}`,q.udRatio>=0.9,'최근 한 달, 오르는 날 거래가 내리는 날보다 무겁지 않지 않아요'),
+    C(`종가위치 ${Math.round(pos*100)}%`,pos>=0.55,'장 후반까지 매수세가 버텼어요'),
+  ],extra:(q.ppCnt-1)*6+(q.vdu?6:0)};
+  if(sid==='vcp')return {checks:[
+    C('수축열 확인'+(q.legs.length?` (${q.legs.map(d=>d.toFixed(0)).join('→')}%)`:''),q.contracting,'출렁임이 차례로 줄고 있어요 — 매물이 마르는 전형적 모양'),
+    C(`마지막 수축 ${q.lastDepth!=null?q.lastDepth.toFixed(1)+'%':'—'}`,q.lastDepth!=null&&q.lastDepth<=10,'마지막 흔들림이 아주 작아졌어요'),
+    C(`밴드폭 하위 ${Math.round(q.bwPct)}%`,q.bwPct<=30,'최근 석 달 중 가장 조용한 구간이에요'),
+    C('거래량 고갈(VDU)',q.vdu,'베이스 전체에서 가장 거래가 마른 상태예요'),
+    C('추세 정렬',q.ma20>q.ma60&&(!q.ma120||q.ma60>q.ma120),'중·장기 흐름이 위로 정렬됐어요'),
+    C(`피벗 대비 ${q.nearPivot>=0?'+':''}${q.nearPivot.toFixed(1)}%`,q.nearPivot>=-6&&q.nearPivot<=6,'돌파 지점 코앞이에요'),
+    C(`돌파 거래량 z=${q.volZ.toFixed(1)}`,q.nearPivot<0||q.volZ>=1,'돌파라면 거래가 실려야 해요'),
+  ],extra:(30-Math.min(30,q.bwPct))*0.5+(q.hlUp?5:0)};
+  if(sid==='burst')return {checks:[
+    C(`거래대금 z=${(live.valZ!=null?live.valZ:q.volZ).toFixed(1)}`,(live.valZ!=null?live.valZ:q.volZ)>=2.5||vr>=3,'이 종목 기준으로 이례적인 돈이 몰렸어요'),
+    C(`종가위치 ${Math.round(pos*100)}%`,pos>=0.8,'가장 비싼 값 근처에서 마감 — 밀리지 않았어요'),
+    C(`장대양봉 +${body.toFixed(1)}%`,body>=2,'시작가보다 훨씬 높게 끝났어요'),
+    C(`거래대금 ${val!=null?val.toFixed(0)+'억':'—'}`,val==null||val>=50,'큰손이 드나들 수 있는 규모예요'),
+    C('20일선 위',q.last>q.ma20,'한 달 평균 위에서 벌어진 일이에요'),
+    C(`5일 누적 ${pctS(q.run5)}`,q.run5<25,'아직 단기 과열은 아니에요'),
+    C(`등락률 ${pctS(chg)}`,chg>=2&&chg<25,'의미 있게 올랐지만 상한가 추격은 아니에요'),
+  ],extra:Math.min(12,Math.max(0,(live.valZ!=null?live.valZ:q.volZ)-2)*4)+pos*6};
+  if(sid==='pull')return {checks:[
+    C('중기 상승 추세',q.ma20>q.ma60&&q.slope20>-0.006,'큰 흐름은 여전히 위를 향해요 (조정 중 완만한 기울기 둔화는 정상)'),
+    C(`조정 깊이 -${(q.drawFromHi*100).toFixed(1)}%`,q.drawFromHi>=0.04&&q.drawFromHi<=0.15,'적당히 쉬었어요 (얕지도 깊지도 않게)'),
+    C('5일선 회복'+(q.recl5?' ✓':''),q.recl5||q.last>q.ma5&&chg>0,'오늘 단기선을 되찾았어요 — 반등 첫날 신호'),
+    C('조정 중 거래 감소',q.dryPull,'쉬는 동안 파는 사람이 줄었어요 (매물 소진)'),
+    C(`RSI ${q.rsi.toFixed(0)}`,q.rsi>=30&&q.rsi<=62,'과열이 식은 자리에서의 반등이에요'),
+    C('60일선 위',q.last>q.ma60,'중기 지지선은 지켜냈어요'),
+    C(`오늘 ${pctS(chg)}`,chg>0,'반등이 실제로 시작됐어요'),
+  ],extra:(q.dryPull?6:0)+(q.recl5?8:0)};
+  /* tight — 초응축(NR·밴드폭) */
+  return {checks:[
+    C(`좁은 날 ${q.nrCnt}/7`,q.nrCnt>=3,'최근 1주, 유난히 조용한 날이 많았어요'),
+    C(`밴드폭 하위 ${Math.round(q.bwPct)}%`,q.bwPct<=20,'통계적으로 가장 눌린 구간이에요'),
+    C('20일선 위',q.last>q.ma20,'눌림이 아니라 응축이에요 (평균 위)'),
+    C('저점 상승',q.hlUp,'바닥이 조금씩 올라오고 있어요'),
+    C(`종가위치 ${Math.round(pos*100)}%`,pos>=0.55,'윗쪽에서 마감하며 방향을 암시해요'),
+    C(`거래 회복 ${(q.v5/q.v20).toFixed(2)}`,q.v5/q.v20>=0.75,'거래가 다시 붙기 시작했어요'),
+    C(`60일 고점 -${(q.drawFromHi*100).toFixed(1)}%`,q.drawFromHi<=0.12,'돌파하면 바로 신고가권이에요'),
+  ],extra:(20-Math.min(20,q.bwPct))*0.6+q.nrCnt*2};
+}
+/*QF-CORE-END*/
 const SURGE_STRATS=[
-  {id:'flow', name:'세력 유입형', sub:'거래대금 급증 + 고가권 마감',
-   desc:'평소보다 자금이 몰리고 당일 고가 부근에서 버티는 종목. 증권사 「전일대비 거래량 증가」 + 「당일 고가 근접」 조건을 결합했습니다.',
-   cond:['거래대금이 20일 평균의 3배 이상','종가가 당일 고가 대비 상위 20% 이내','등락률 +2% 이상','거래대금 30억 이상']},
-  {id:'trend', name:'추세 지속형', sub:'이평 정배열 + 신고가 근접',
-   desc:'5·20·60일선이 정배열이고 최근 고점에 근접한 종목. 「이평 정배열(5,20,60)」 + 「25봉 최고종가 -3% 이내」 조건을 사용했습니다.',
-   cond:['5일선 > 20일선 > 60일선 (정배열)','25일 최고가 대비 -3% 이내','종가가 20일선 위','거래량 전일 대비 증가']},
-  {id:'squeeze', name:'에너지 응축형', sub:'이평 수렴 후 돌파',
-   desc:'20·60일선이 5% 이내로 모였다가 위로 뚫는 자리. 「이평선 이격도 5% 이내 수렴」 후 돌파 조건입니다.',
-   cond:['20일선·60일선 이격도 5% 이내','당일 20일선 상향 돌파','거래대금이 20일 평균의 2배 이상','등락률 +1% 이상']},
+  {id:'pp',   name:'기관 발자국',   sub:'포켓 피벗 (Kacher·Morales)',
+   desc:'상승 마감일 거래량이 직전 10거래일의 최대 하락일 거래량을 넘으면 기관 매수의 발자국입니다. 베이스 내부·10일선 위에서만 유효하며, 돌파 전에 먼저 잡는 조기 신호입니다.',
+   cond:['상승 마감','거래량 > 직전 10일 최대 하락일 거래량','10일선 위 또는 회복','베이스 내 (고점 -2~-18%)','20일선 > 60일선','상승일 거래 우위']},
+  {id:'vcp',  name:'수축 완료 돌파', sub:'VCP (미너비니)',
+   desc:'되돌림 폭이 차례로 줄고(예 15→9→5%) 거래량이 베이스 최저 수준으로 마른 뒤, 피벗(60일 고가) 부근에 붙은 자리입니다. 돌파에는 거래량 확장이 따라야 합니다.',
+   cond:['수축 폭 순차 감소','마지막 수축 ≤10%','밴드폭 하위 30%','거래량 고갈(VDU)','이평 정렬','피벗 ±6% 이내']},
+  {id:'burst',name:'자금 폭발',     sub:'거래대금 z-점수 + 강한 마감',
+   desc:'그 종목 기준으로 통계적으로 이례적인 거래대금(z≥2.5)이 몰리고, 종가가 당일 고가권(상위 20%)에서 버틴 종목입니다. 단순 배수가 아닌 표준화 점수를 써서 원래 시끄러운 종목의 허수를 걸러냅니다.',
+   cond:['거래대금 z-점수 ≥2.5','종가위치 80% 이상','시가 대비 +2% 장대양봉','거래대금 50억↑','5일 누적 +25% 미만(추격 배제)']},
+  {id:'pull', name:'눌림 첫 반등',  sub:'추세 유지 + 매물 소진 + 5일선 회복',
+   desc:'중기 추세(20>60일선)는 살아 있는데 고점 대비 4~15% 조정을 받았고, 조정 중 거래가 줄어든(파는 사람이 소진된) 종목이 5일선을 되찾는 첫날입니다.',
+   cond:['20일선 > 60일선 · 기울기 위','고점 -4~-15% 조정','조정 중 거래 감소','5일선 회복일','RSI 35~62']},
+  {id:'tight',name:'초응축',        sub:'NR·밴드폭 압축 극단',
+   desc:'최근 1주에 유난히 좁은 날(NR·인사이드)이 3일 이상이고 볼린저 밴드폭이 60일 하위 20%인, 통계적으로 가장 눌린 자리입니다. 압축 뒤에는 방향은 몰라도 확장이 옵니다 — 20일선 위 + 저점 상승으로 위쪽에 베팅합니다.',
+   cond:['좁은 날 3일↑/7일','밴드폭 하위 20%','20일선 위','저점 상승','60일 고점 -12% 이내']},
 ];
 let surgeRes=null,surgeBusy=false,surgeRegime=null,surgeBT=null;
 let surgeAt=0,scrAt=0;   // [추가] 고급 서비스 자동 갱신 — 마지막 스캔/검색 시각
@@ -163,17 +344,27 @@ function surgeExclude(s,chg,valEok){
   if(/스팩|기업인수목적/.test(n))return '스팩 제외';
   if(/우$|[0-9]우[BC]?$|우선주/.test(n))return '우선주 제외';
   if(/리츠$/.test(n))return '리츠 제외';
-  if(chg>=29)return '상한가 · 추격 위험';
+  if(chg>=25)return '상한가권 · 추격 위험';
+  if(chg<=-15)return '급락 진행 중';
   if((valEok!=null?valEok*1e8:(s.value||0))<3e8)return '거래대금 3억 미만';
   if(s.price<1000)return '저가주(1,000원 미만)';
   return '';
 }
-// 목표가·손절가 — 당일 변동폭(고가-저가)을 변동성 대용으로 사용하고 최소/최대 폭을 제한한다.
-function surgeLevels(s,chg){
+/* [v15.0] 일봉이 있어야 아는 과열 — 전일 상한가·단기 폭등은 되돌림 확률이 높다 */
+function surgeExcludeDaily(q){
+  if(!q)return '';
+  if(q.yChg>=27)return '전일 상한가 · 되돌림 위험';
+  if(q.run5>=45)return '5일 +45% 폭등 직후';
+  return '';
+}
+/* [v15.0] 목표·손절 — ATR(14) 기반. 목표 +2.2×ATR / 손절 -1.1×ATR = 손익비 2:1.
+   ATR 를 모르면(일봉 미수신) 당일 변동폭으로 대신한다. 상·하한 폭 클램프 유지. */
+function surgeLevels(s,chg,atrPct){
   const px=s.price||0;
-  let range=(s.high!=null&&s.low!=null&&s.high>s.low)?(s.high-s.low)/px*100:3;
-  range=Math.max(2,Math.min(12,range));
-  const upPct=Math.min(20,range*1.8),dnPct=Math.min(10,range*0.9);
+  let a=atrPct;
+  if(a==null||!(a>0))a=(s.high!=null&&s.low!=null&&s.high>s.low)?(s.high-s.low)/px*100:3;
+  a=Math.max(1.5,Math.min(9,a));
+  const upPct=Math.min(22,a*2.2),dnPct=Math.max(2.5,Math.min(9,a*1.1));
   const tick=(v)=>{const t=v<2000?1:v<5000?5:v<20000?10:v<50000?50:v<200000?100:v<500000?500:1000;
     return Math.round(v/t)*t;};
   return {target:tick(px*(1+upPct/100)),stop:tick(px*(1-dnPct/100)),upPct,dnPct};
@@ -271,74 +462,41 @@ async function runSurge(){
   }
   $('surgeBody').innerHTML=`<div class="empty">후보 ${cand.length}종목의 일봉을 분석 중…</div>`;
   const daily={};
-  for(const f of cand){ try{ fnBump(); daily[f.s.code]=dailyFeat(await ensureDailySummary(f.s.code)); }catch(e){ daily[f.s.code]=null; } }
+  for(const f of cand){ try{ fnBump(); daily[f.s.code]=qFeat(await ensureDailySummary(f.s.code)); }catch(e){ daily[f.s.code]=null; } }
 
   // 3) 전략별 '조건 충족도' 채점 — 완전 충족(신호)과 부분 충족(관찰)을 모두 반환한다.
   //    조건을 100% 만족하는 날만 결과를 내면 대부분의 날에 화면이 비어 실효성이 없다.
   const out={};
   SURGE_STRATS.forEach(st=>out[st.id]=[]);
   for(const f of cand){
-    const d=daily[f.s.code], s=f.s;
-    if(d&&f.noneQ){   // 실시간·스냅샷 둘 다 없던 종목 — 마지막 일봉으로 세션 값 복원
-      if(d.prevClose)f.chg=(d.lastC-d.prevClose)/d.prevClose*100;
-      f.val=d.lastC*(d.lastV||0)/1e8;
-      f.pos=(d.high>d.low)?(d.lastC-d.low)/(d.high-d.low):0.5;
+    const q=daily[f.s.code], s=f.s;
+    if(!q)continue;
+    if(q&&f.noneQ){   // 실시간·스냅샷 둘 다 없던 종목 — 마지막 일봉으로 세션 값 복원
+      if(q.prevC)f.chg=(q.last/q.prevC-1)*100;
+      f.val=q.last*(q.v||0)/1e8;
+      f.pos=(q.h>q.l)?(q.last-q.l)/(q.h-q.l):0.5;
     }
-    const volRatio=(d&&d.v20)?(s.volume||0)/d.v20:null;
-    const push=(sid,checks,extra)=>{
+    /* [v15.0] 일봉 기반 과열 배제 — 전일 상한가·5일 폭등은 후보에서 제외 */
+    const exD=surgeExcludeDaily(q);
+    if(exD){excl.push({name:s.name,why:exD});continue;}
+    /* 실시간 거래대금 z-점수 — 20일 거래량 분포에 오늘 실측 대금을 표준화 */
+    const volRatio=(q.v20)?(s.volume||q.v)/q.v20:q.volRatio;
+    const valZ=(()=>{const est=(s.volume||q.v);const sd=Math.max(1,q.v20*0.6);return (est-q.v20)/sd;})();
+    const live={chg:f.chg,pos:f.pos,val:f.val,volRatio,body:(q.o>0)?((s.price-q.o)/q.o*100):q.body,valZ};
+    const push=(sid)=>{
+      const ev=sgEval(sid,q,live);
+      const checks=ev.checks;
       const met=checks.filter(c=>c.ok).length;
       const ratio=met/checks.length;
       if(ratio<0.5)return;                                  // 절반도 못 채우면 제외
-      const score=Math.round(ratio*70+Math.min(30,(extra||0)));
+      const score=Math.round(ratio*70+Math.min(30,(ev.extra||0)));
       out[sid].push({...f,score,full:met===checks.length,met,total:checks.length,
+        atrPct:q.atrPct,
         why:checks.map(c=>`${c.ok?'✓':'·'} ${c.t}`),
-        plain:checks.filter(c=>c.ok&&c.p).map(c=>c.p),        // 충족한 조건의 일상어 설명
-        miss:checks.filter(c=>!c.ok&&c.p).map(c=>c.p)});      // 못 채운 조건
+        plain:checks.filter(c=>c.ok&&c.p).map(c=>c.p),
+        miss:checks.filter(c=>!c.ok&&c.p).map(c=>c.p)});
     };
-    if(!d)continue;
-    const gap20=(s.price/d.ma20-1)*100;                       // 20일선 이격도
-    const gapMA=Math.abs(d.ma20/d.ma60-1)*100;                // 20/60 수렴도
-    const near25=(s.price/d.hi25)*100, near60=(s.price/d.hi60)*100;
-    const body=(d.open>0)?((s.price-d.open)/d.open*100):0;    // 시가 대비(장대양봉)
-    const volTrend=d.v5/d.v20;
-    // 세력 유입형 (자금 유입 + 매물대 돌파)
-    push('flow',[
-      {t:`거래대금 ${volRatio!=null?volRatio.toFixed(1)+'배':'—'}`, ok:volRatio!=null&&volRatio>=3,
-        p:`평소보다 거래가 ${volRatio!=null?volRatio.toFixed(1):'?'}배 몰렸어요`},
-      {t:`고가권 ${Math.round(f.pos*100)}%`, ok:f.pos>=0.8,
-        p:'오늘 가장 비쌌던 값 근처에서 마감했어요 (밀리지 않았다는 뜻)'},
-      {t:`등락률 ${pctS(f.chg)}`, ok:f.chg>=2, p:`오늘 ${pctS(f.chg)} 움직였어요`},
-      {t:`거래대금 ${f.val.toFixed(0)}억`, ok:f.val>=30, p:`오늘 약 ${f.val.toFixed(0)}억 원어치가 거래됐어요`},
-      {t:`매물대 ${s.price>=d.vwap60?'돌파':'미돌파'}`, ok:s.price>=d.vwap60,
-        p:'예전에 물려 있던 사람들의 가격대를 넘어섰어요'},
-      {t:`거래량 추세 ${volTrend.toFixed(1)}배`, ok:volTrend>=1, p:'최근 5일 동안 거래가 꾸준히 늘고 있어요'},
-      {t:`양봉 ${body>=0?'+':''}${body.toFixed(1)}%`, ok:body>=2, p:'장 시작가보다 높은 값으로 끝났어요'},
-      {t:'20일선 위', ok:s.price>d.ma20, p:'최근 한 달 평균 가격보다 위에 있어요'},
-    ], (volRatio||0)*3+f.pos*8);
-    // 추세 지속형 (정배열 + 신고가 + 과열 회피)
-    push('trend',[
-      {t:'이평 정배열', ok:d.ma5>d.ma20&&d.ma20>d.ma60,
-        p:'1주일·1달·3달 평균 가격이 모두 위를 향해요 (흐름이 한 방향)'},
-      {t:`25일 고점 대비 ${near25.toFixed(1)}%`, ok:s.price>=d.hi25*0.97, p:'최근 한 달 최고가에 거의 닿았어요'},
-      {t:'20일선 위', ok:s.price>d.ma20, p:'최근 한 달 평균 가격보다 위에 있어요'},
-      {t:`거래량 ${volRatio!=null?volRatio.toFixed(1)+'배':'—'}`, ok:volRatio!=null&&volRatio>=1, p:'거래가 평소만큼은 붙어 있어요'},
-      {t:`이격도 ${gap20.toFixed(1)}%`, ok:gap20<=25, p:'너무 급하게 오르진 않아서 과열 위험이 낮아요'},
-      {t:`MACD ${d.macd>d.signal?'상향':'하향'}`, ok:d.macd>d.signal, p:'상승에 힘이 붙고 있는 신호가 나왔어요'},
-      {t:`RSI ${d.rsi.toFixed(0)}`, ok:d.rsi>=50&&d.rsi<=75, p:'과열도 냉각도 아닌 적당한 온도예요'},
-      {t:`60일 고점 대비 ${near60.toFixed(1)}%`, ok:s.price>=d.hi60*0.92, p:'최근 3개월 최고가 근처예요'},
-    ], Math.max(0,(near25-90))*1.0);
-    // 에너지 응축형 (수렴 + 볼린저 돌파)
-    push('squeeze',[
-      {t:`이평 수렴 ${gapMA.toFixed(1)}%`, ok:gapMA<=5, p:'한동안 가격이 좁은 범위에 눌려 있었어요 (에너지 축적)'},
-      {t:'20일선 돌파', ok:s.prevClose<=d.ma20&&s.price>d.ma20, p:'오늘 한 달 평균선을 위로 뚫었어요'},
-      {t:`거래량 ${volRatio!=null?volRatio.toFixed(1)+'배':'—'}`, ok:volRatio!=null&&volRatio>=2,
-        p:`거래가 평소의 ${volRatio!=null?volRatio.toFixed(1):'?'}배로 늘었어요`},
-      {t:`등락률 ${pctS(f.chg)}`, ok:f.chg>=1, p:`오늘 ${pctS(f.chg)} 움직였어요`},
-      {t:`볼린저 ${s.price>=d.bbUp?'상단 돌파':'밴드 내'}`, ok:s.price>=d.bbUp, p:'평소 움직이던 범위의 위쪽을 벗어났어요'},
-      {t:`지지선 대비 +${((s.price/d.lo20-1)*100).toFixed(0)}%`, ok:s.price>=d.lo20*1.05, p:'최근 바닥에서 충분히 올라와 있어요'},
-      {t:`RSI ${d.rsi.toFixed(0)}`, ok:d.rsi>=45, p:'하락 분위기에서는 벗어난 상태예요'},
-      {t:`연속 상승 ${d.streak}일`, ok:d.streak>=2, p:`${d.streak}일 연속 오르고 있어요`},
-    ], Math.max(0,(5-gapMA))*2.5+(volRatio||0)*2);
+    SURGE_STRATS.forEach(st=>push(st.id));
   }
   Object.keys(out).forEach(k=>out[k].sort((a,b)=>b.score-a.score));
   surgeRes=out; surgeRegime={...marketRegime(),basis:sessionBasis()}; surgeBusy=false;
@@ -362,9 +520,11 @@ function surgeProb(sid,score){
    → ① 결론을 맨 위 한 줄로  ② 전략을 합쳐 종목 하나당 카드 하나로
       ③ 이유를 일상어 3줄로  ④ 확률을 '10번 중 몇 번'으로  ⑤ 쉽게/자세히 모드 분리 */
 const SURGE_EASY={
-  flow:   {icon:'💰', name:'돈이 몰리는 중',   one:'평소보다 훨씬 많은 돈이 들어왔고, 오늘 높은 값에서 버틴 종목입니다.'},
-  trend:  {icon:'📈', name:'계속 오르는 중',   one:'흐름이 이미 위를 향하고 있고, 최근 최고가 근처까지 올라온 종목입니다.'},
-  squeeze:{icon:'🎯', name:'눌렸다 튀는 자리', one:'한동안 좁게 눌려 있다가 오늘 위로 뚫고 나온 종목입니다.'},
+  pp:    {icon:'🐘', name:'기관 발자국',     one:'큰손이 조용히 사들인 흔적(포켓 피벗)이 오늘 찍힌 종목입니다.'},
+  vcp:   {icon:'🌀', name:'수축 끝 돌파대기', one:'출렁임이 차례로 줄며 완전히 눌렸다가, 돌파 지점 코앞까지 온 종목입니다.'},
+  burst: {icon:'💥', name:'자금 폭발',       one:'이 종목 기준으로 이례적인 돈이 몰렸고, 가장 비싼 값 근처에서 버틴 종목입니다.'},
+  pull:  {icon:'🪃', name:'눌림 첫 반등',    one:'추세는 살아 있는데 적당히 쉬었다가, 오늘 단기선을 되찾은 종목입니다.'},
+  tight: {icon:'🧨', name:'초응축',          one:'통계적으로 가장 조용해진 자리 — 압축 뒤엔 확장이 옵니다.'},
 };
 // [주의] 이 줄은 store 선언보다 위에서 실행되므로 localStorage를 직접 읽는다(TDZ 회피).
 let surgeMode=(()=>{try{return JSON.parse(localStorage.getItem('surgeMode'))||'easy';}catch(e){return 'easy';}})();
@@ -386,7 +546,7 @@ function surgeMerged(){
       const entry={sid:st.id,score:x.score,full:x.full,met:x.met,total:x.total,
         why:x.why,plain:x.plain||[],miss:x.miss||[],prob:Math.round(surgeProb(st.id,x.score)*(x.full?1:0.75))};
       const cur=m.get(x.s.code);
-      if(!cur)m.set(x.s.code,{s:x.s,chg:x.chg,val:x.val,pos:x.pos,hits:[entry]});
+      if(!cur)m.set(x.s.code,{s:x.s,chg:x.chg,val:x.val,pos:x.pos,atrPct:x.atrPct,hits:[entry]});
       else cur.hits.push(entry);
     });
   });
@@ -404,7 +564,7 @@ function surgeMerged(){
 function surgeCard(o,rank){
   const _p=dispQuote(o.s.code);                                   // [수정] 카드 현재가도 헤더와 같은 통합가
   const px=((_p&&_p.price!=null)?_p.price:o.s.price)||0;
-  const lv=surgeLevels((_p&&_p.price!=null)?{...o.s,price:px}:o.s,o.chg);
+  const lv=surgeLevels((_p&&_p.price!=null)?{...o.s,price:px}:o.s,o.chg,o.atrPct);
   const upP=px?((lv.target-px)/px*100):0, dnP=px?((px-lv.stop)/px*100):0;
   const rr=dnP>0?(upP/dnP):0;
   const tags=o.hits.map(h=>`<span class="sg-tag t-${h.sid}">${SURGE_EASY[h.sid].icon} ${SURGE_EASY[h.sid].name}</span>`).join('');
@@ -525,23 +685,19 @@ function renderSurge(){
    '유튜브 검색식'의 가장 큰 함정인 생존 편향(성공 사례만 보여주기)을 피하려면
    반드시 이런 사후 검증이 필요하다. */
 function btOne(cd,sid,i,target,hold){
+  /* [v15.0] 백테스트가 실시간과 "같은 조건식(sgEval)"을 쓴다 — 예전엔 여기에
+     옛 조건이 하드코딩돼 있어 화면의 전략과 검증 대상이 서로 달랐다. */
   target=target||5; hold=hold||3;
-  if(i<62||i+hold>=cd.length)return null;
-  const c=cd.slice(0,i+1).map(x=>x.c);
-  const ma=(n)=>{const a=c.slice(-n);return a.reduce((x,y)=>x+y,0)/a.length;};
+  if(i<64||i+hold>=cd.length)return null;
+  const q=qFeat(cd.slice(0,i+1));
+  if(!q)return null;
+  if(surgeExcludeDaily(q))return null;
   const d=cd[i],prev=cd[i-1];
-  const vol=cd.slice(0,i+1).map(x=>x.v||0);
-  const v20=vol.slice(-21,-1).reduce((a,b)=>a+b,0)/20||1;
-  const volRatio=(d.v||0)/v20;
   const chg=prev.c?(d.c/prev.c-1)*100:0;
   const pos=(d.h>d.l)?(d.c-d.l)/(d.h-d.l):0.5;
-  const ma5=ma(5),ma20=ma(20),ma60=ma(60);
-  const hi25=Math.max(...cd.slice(i-24,i+1).map(x=>x.h||x.c));
-  let hit=false;
-  if(sid==='flow') hit=volRatio>=3&&pos>=0.8&&chg>=2;
-  if(sid==='trend') hit=ma5>ma20&&ma20>ma60&&d.c>=hi25*0.97&&d.c>ma20&&volRatio>=1;
-  if(sid==='squeeze'){const gap=Math.abs(ma20/ma60-1)*100;hit=gap<=5&&prev.c<=ma20&&d.c>ma20&&volRatio>=2&&chg>=1;}
-  if(!hit)return null;
+  const ev=sgEval(sid,q,{chg,pos,val:null,volRatio:q.volRatio,body:q.body,valZ:q.volZ});
+  const met=ev.checks.filter(c=>c.ok).length;
+  if(met!==ev.checks.length)return null;               // 조건 '전부' 충족한 날만 신호
   const fut=Math.max(...cd.slice(i+1,i+1+hold).map(x=>x.c));
   return {win:(fut/d.c-1)>=target/100, ret:(fut/d.c-1)*100};
 }
@@ -1778,9 +1934,38 @@ function loadPrefs(fromCloud){
   applyPrefs();
 }
 function savePrefs(){pset('prefs',userPrefs);try{cloudSync();}catch(e){}}
+/* ══ [v14.4] zoom 세대 판별 — 표준(배치 폭을 스스로 줄임) vs 구형(그림만 키움) ═══
+   글자 크기(sm/lg)는 body{zoom:배율}로 구현한다. 표준 엔진은 zoom 이 배치 폭을
+   1/배율로 알아서 줄이므로 그대로 두면 정확히 화면 폭이 되고, 구형 엔진은
+   폭이 그대로라 오른쪽이 배율만큼 잘린다 → 구형일 때만 width 보정을 켠다.
+   판별은 이론이 아니라 실측: 숨은 상자에 zoom:2 를 걸고 안쪽 100% 폭이
+   바깥의 절반으로 줄어드는지(표준) 그대로인지(구형)를 잰다. */
+function detectLegacyZoom(){
+  try{
+    const host=document.body||document.documentElement;
+    const probe=document.createElement('div');
+    probe.style.cssText='position:absolute;left:-9999px;top:0;width:200px;visibility:hidden;pointer-events:none';
+    const zoomed=document.createElement('div');
+    zoomed.style.cssText='zoom:2';
+    const inner=document.createElement('div');
+    inner.style.cssText='width:100%;height:1px';
+    zoomed.appendChild(inner);probe.appendChild(zoomed);host.appendChild(probe);
+    const w=inner.getBoundingClientRect().width;   // 표준: ≈200(100px×2) → 좌표상 200 · 구형: 200 그대로 좌표는 100? 실측으로 가른다
+    const layoutW=inner.offsetWidth;               // 표준: 100 · 구형: 200
+    probe.remove();
+    return layoutW>150;                             // 배치 폭이 안 줄었으면 구형
+  }catch(e){return false;}
+}
 function applyPrefs(){
   const de=document.documentElement;
   de.dataset.fs=userPrefs.fontSize||'md';
+  /* zoom 을 실제로 쓰는 설정(sm/lg)일 때만 판별을 돌린다 — md 는 배율 1이라 무관 */
+  try{
+    if(de.dataset.fs!=='md'){
+      if(applyPrefs._legacy===undefined)applyPrefs._legacy=detectLegacyZoom();
+      de.classList.toggle('fs-zoom-legacy',!!applyPrefs._legacy);
+    }else de.classList.remove('fs-zoom-legacy');
+  }catch(e){}
   de.classList.toggle('reduce-motion',!!userPrefs.reduceMotion);
   de.classList.toggle('cb-palette',!!userPrefs.colorblind);
   /* 홈 섹션 표시/숨김 — 래퍼를 런타임에 찾아 토글(HTML 수정 불필요) */
@@ -10854,9 +11039,13 @@ function bindRankRetry(){
   const u=$('usRankRetry'); /* [v4.48] 해외 순위 다시 시도 */
   if(u)u.addEventListener('click',(e)=>{e.stopPropagation();_usQFail=0;
     usPop=null; usPopAt=0; _usPopTry=0;          // [v4.58] 인기 목록도 새로 받는다
+    /* [v14.5] 전체 시장 상승/하락 순위도 처음부터 다시 */
+    try{ usRk={up:null,down:null}; usRkFail={up:0,down:0}; usRkBusy={up:false,down:false}; }catch(e2){}
     $('searchResults').classList.remove('two-col');$('searchResults').innerHTML=rankSection(); bindStockClicks($('searchResults')); bindRankRetry(); paintRankBox($('searchResults'));});
   const pd=$('usPopDiag');                       // [v4.59] 어느 사이트에서 왔는지 직접 확인
   if(pd)pd.addEventListener('click',(e)=>{e.stopPropagation();openUsPopDiag();});
+  const rd=$('usRankDiag');                      /* [v14.5.1] 순위 원천 진단 */
+  if(rd)rd.addEventListener('click',(e)=>{e.stopPropagation();openUsRankDiag();});
 }
 try{ window.rankRetry=rankRetry; }catch(e){}   /* [v8.9] 인라인 onclick 에서 부른다 — 모듈 스코프라 노출이 필요하다 */
 
@@ -10869,6 +11058,67 @@ try{ window.rankRetry=rankRetry; }catch(e){}   /* [v8.9] 인라인 onclick 에�
    목록도 유니버스 113종 안에서만 뽑지 않고, 서버가 준 인기 종목 중 모르는 티커는
    즉석에서 등록해(usRegister) 시세까지 받아 온다 → 진짜 TOP 100 이 된다. */
 var usPop=null, usPopAt=0, usPopBusy=false, usPopBasis=null, usByVal=[];   /* [v9.96] usValShown 제거 — 200줄을 한 번에 그린다 */
+/* ══ [v14.5] 미국 전체 상승률·하락률 순위(/api/usrank) 상태 ═══════════════════
+   usRk.up / usRk.down = {items, src, mktOpen, at}. 저장소에 하루까지 보관해
+   진입 즉시 그리고, 새 값이 오면 조용히 갈아 끼운다(usPop 과 같은 방식). */
+var usRk={up:null,down:null}, usRkBusy={up:false,down:false}, usRkFail={up:0,down:0}, usRkTry={up:0,down:0};
+function usRkSave(kind){
+  try{ const st=usRk[kind]; if(!st||!st.items||!st.items.length)return;
+    localStorage.setItem('usRank_'+kind+'_v1',JSON.stringify(st)); }catch(e){}
+}
+function usRkRestore(kind){
+  try{
+    const raw=localStorage.getItem('usRank_'+kind+'_v1'); if(!raw)return false;
+    const c=JSON.parse(raw);
+    if(!c||!Array.isArray(c.items)||!c.items.length)return false;
+    if(Date.now()-(c.at||0)>24*3600e3)return false;
+    usRk[kind]={items:c.items,src:c.src,mktOpen:c.mktOpen,at:0};   // at:0 → 곧바로 새 값도 요청
+    return true;
+  }catch(e){ return false; }
+}
+function usRankLoad(kind,cb){
+  if(usRkBusy[kind])return;
+  usRkBusy[kind]=true;
+  fetch('/api/usrank?type='+kind,{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    usRkBusy[kind]=false;
+    if(!j||!j.ok||!Array.isArray(j.items)||!j.items.length){
+      usRkFail[kind]++;
+      /* 순간 오류일 수 있으니 한 번만 곧바로 더 두드린다 — 두 번째도 실패하면
+         화면은 113종 폴백으로 넘어가고, 재개는 '다시 시도' 버튼 몫이다 */
+      if(usRkFail[kind]<2){ setTimeout(()=>{ usRkBusy[kind]=false; usRankLoad(kind,cb); },800); return; }
+      cb&&cb(); return; }
+    usRkFail[kind]=0;
+    usRk[kind]={items:j.items.slice(0,100),src:j.src||'',mktOpen:j.mktOpen,at:Date.now()};
+    usRkSave(kind);
+    cb&&cb();
+  }).catch(()=>{ usRkBusy[kind]=false; usRkFail[kind]++;
+    if(usRkFail[kind]<2){ setTimeout(()=>usRankLoad(kind,cb),800); return; }
+    cb&&cb(); });
+}
+/* [v14.5.1] 순위 원천 진단 — 네이버(2경로)·TradingView·야후를 각각 두드려
+   어느 원천이 살아 있는지 화면에서 바로 본다(조회수 진단과 같은 창). */
+async function openUsRankDiag(){
+  openLiteGate('전체 시장 순위 · 원천 확인','<div class="usdg"><div class="usdg-wait">순위 원천 4곳을 직접 두드리는 중… 최대 30초</div></div>');
+  let j=null,err='';
+  try{ const r=await fetch('/api/usrankdiag?type=up',{cache:'no-store'}); j=await r.json(); }
+  catch(e){ err=String(e).slice(0,80); }
+  const body=$('liteBody'); if(!body)return;
+  if(!j){ body.innerHTML=`<div class="usdg"><div class="usdg-bad">진단 서버에 연결하지 못했습니다<br><small>${htmlEsc(err)}</small></div></div>`; return; }
+  const rows=(j.tried||[]).map(t=>{
+    const ok=(t.parsed||0)>0;
+    return `<div class="usdg-r ${ok?'ok':'no'}">
+      <span class="usdg-b">${ok?'정상':'실패'}</span>
+      <span class="usdg-n">${htmlEsc(t.label||'')}</span>
+      <span class="usdg-s">${htmlEsc(String(t.err?'ERR':(t.detail||'—')).slice(0,40))}</span>
+      <span class="usdg-l">${ok?t.parsed+'건':''}</span></div>`;}).join('');
+  const u=j.usable||[];
+  body.innerHTML=`<div class="usdg">
+    <div class="usdg-sum ${u.length?'ok':'no'}">${u.length
+      ?`전체 시장 순위를 가져올 수 있는 곳 <b>${u.length}곳</b><br><small>${htmlEsc(u.join(' · '))}</small>`
+      :'순위 원천에 <b>하나도</b> 연결하지 못했습니다.'}</div>
+    <div class="usdg-list">${rows||'<div class="usdg-bad">응답이 비었습니다</div>'}</div>
+    <div class="usdg-note">정상인 곳이 하나라도 있으면 '다시 시도'로 곧바로 전체 시장 순위가 뜹니다.</div></div>`;
+}
 /* [v4.59] 조회수 원천 진단 — 어느 사이트가 응답하는지 화면에서 바로 본다 */
 async function openUsPopDiag(){
   openLiteGate('조회수 원천 확인','<div class="usdg"><div class="usdg-wait">각 사이트를 직접 두드리는 중… 최대 30초</div></div>');
@@ -11044,7 +11294,72 @@ function usRankSection(){
      화면(탭 버튼)에서 뺐고, 이 분기도 도달할 수 없으므로 지운다.
      usPop 자료 자체는 종목 등록·한글명 보충에 계속 쓰이므로 그대로 둔다. */
 
-  /* ── 상승률·하락률 탭 ── 시세가 필요하므로 유니버스 기준 ── */
+  /* ══ [v14.5] 상승률·하락률 탭 — '미국 전체 상장 종목' 기준으로 ═══════════════
+     [무엇이 잘못돼 있었나] 이 두 탭만 내장 유니버스 113종 안에서 정렬했다.
+     실제 시장 1위가 +198%(소형주)인 날에도 앱 1위는 SOXS +15% — 실제 MTS 와
+     순위가 통째로 달랐다(첨부 사진). 거래대금 탭은 이미 시장 전체(야후) 기준인데
+     이 둘만 남아 있던 것.
+     [고침] 서버(/api/usrank)가 시장 전체 순위를 내려준다. 목록의 낯선 티커는
+     즉석 등록해 시세·캔들까지 받고, 등록이 안 되는 종목도 서버가 실어 준
+     가격·등락률을 그대로 보여 준다. 서버가 실패한 날만 예전 113종 계산으로
+     버티되, 그 사실을 화면에 그대로 밝힌다. */
+  {
+    const kind=tab==='상승률'?'up':'down';
+    if(!usRk[kind])usRkRestore(kind);
+    const st=usRk[kind];
+    const open=usSession().phase!=='closed';
+    const ttl=open?180e3:6*3600e3;
+    /* 실패가 확정된 탭은 자동 재시도하지 않는다 — '다시 시도' 버튼으로만 재개
+       (국내 순위 로더와 같은 규칙 · 실패→다시 그림→즉시 재요청 고리 차단) */
+    if((!st||!st.at||Date.now()-st.at>ttl)&&!usRkBusy[kind]&&usRkFail[kind]===0){
+      usRkTry[kind]=Date.now();
+      usRankLoad(kind,()=>redraw());
+    }
+    if(st&&Array.isArray(st.items)&&st.items.length){
+      const rows=st.items;
+      /* 낯선 티커 즉석 등록 — 거래소를 아는 것만(시세 경로에 필요) */
+      rows.forEach(x=>{ if(!usMeta[x.t]&&x.sfx)
+        usRegister({t:x.t,sfx:x.sfx,kr:/[가-힣]/.test(String(x.kr||''))?x.kr:'',en:x.en||''}); });
+      const head=rows.slice(0,120).map(x=>x.t).filter(t=>usMeta[t]);
+      const miss=head.filter(t=>!(usQ[t]&&usQ[t].price!=null));
+      if(miss.length)usEnsureQuotes(head,true).then(redraw);
+      const ses=usSession();
+      const srcLab=st.src==='naver'?'네이버 해외증시':st.src==='tradingview'?'TradingView 실시간 스캐너':'야후 파이낸스';
+      const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
+        · ${tab} 상위 <b>${rows.length}종</b> · <b>미국 전체 상장 종목</b> 기준<br>
+        <small>${srcLab} 순위${st.mktOpen===false||ses.phase==='closed'?' · <b>마지막 개장일 기준</b>':''}</small></div>`;
+      setTimeout(()=>{ try{ usLazyQuotes(); }catch(e){} },0);
+      return note+`<div class="us-ranklist">${rows.map((x,i)=>{
+        const t=x.t;
+        /* 시세 행(usRow)은 '실시간 등락률'을 그린다. 순위표의 등락률(서버 값)과
+           크게 어긋나면 — 전일종가 미수신·기준 시점 차이 등 — 1위가 0.00%로
+           보이는 사고가 난다. 시세가 순위 값과 같은 방향·비슷한 크기일 때만
+           usRow(캔들·원화환산 포함)를 쓰고, 아니면 서버 값 행으로 그린다. */
+        if(usMeta[t]&&usQ[t]&&usQ[t].price!=null){
+          const q=usQ[t];
+          const qr=(q.prev)?(q.price-q.prev)/q.prev*100:null;
+          const sr=x.rate;
+          const okSame=(sr==null)||(qr!=null&&(qr>=0)===(sr>=0)&&Math.abs(qr-sr)<=Math.max(5,Math.abs(sr)*0.5));
+          if(okSame)return usRow(t,i+1,'val');
+        }
+        /* 시세 등록 전(또는 불가) — 서버가 준 값으로 즉시 그린다 */
+        const rt=x.rate;
+        return `<div class="sr us-row has-rk" data-us="${t}" data-srvfix="1"${usMeta[t]?` data-code="${t}" role="button" tabindex="0"`:''}><div class="sr-l"><span class="rk${i<3?' top':''}">${i+1}</span>
+          <div class="sr-t"><div class="nm"><span class="nm-t">${htmlEsc(x.kr||x.en||t)}</span></div>
+            <div class="cd num">${t}${x.sfx?'&thinsp;·&thinsp;'+({O:'나스닥',N:'뉴욕',A:'아멕스'}[x.sfx]||''):''}</div></div></div>
+          <div class="px num ${rt>=0?'up':'down'}">${x.px!=null?'$'+USD2(x.px):'—'}</div>
+          <div class="ch num ${rt>=0?'up':'down'}">${rt!=null?(rt>=0?'▲ +':'▼ ')+rt.toFixed(2)+'%':'—'}</div>
+          <div class="sr-sp"></div></div>`;
+      }).join('')}</div>`;
+    }
+    if(usRkFail[kind]>=2){
+      /* 서버 실패 — 예전 방식(113종)으로 버티되 사실을 밝힌다 */
+    }else{
+      return '<div class="empty">미국 전체 '+tab+' 순위를 불러오는 중…<br>'
+        +'<small style="color:var(--sub-2)">거래소 전 종목 기준</small></div>';
+    }
+  }
+  /* ── (폴백) 서버 순위를 못 받은 경우 — 유니버스 기준임을 명시 ── */
   const pool=US_UNI.map(u=>u[0]).filter(t=>usQ[t]&&usQ[t].price!=null);
   if(!pool.length){
     if(_usQFail>=2)
@@ -11057,7 +11372,8 @@ function usRankSection(){
   let list=pool.slice().sort((a,b)=>tab==='상승률'?rate(b)-rate(a):rate(a)-rate(b)).slice(0,200);
   const ses=usSession();
   const note=`<div class="rank-note us-rank-note">🇺🇸 미국 ${ses.label}${ses.phase==='closed'?' · 다음 개장 '+ses.next:''}
-    · ${tab} 상위 <b>${list.length}종</b> · 유니버스 ${US_UNI.length}종 기준</div>`;
+    · ${tab} 상위 <b>${list.length}종</b> · <b>주요 ${US_UNI.length}종 기준</b><br>
+    <small>전체 시장 순위 서버에 연결하지 못해 내장 종목만 정렬했습니다 · <button class="rank-retry" id="usRankRetry">다시 시도</button> <button class="rank-retry" id="usRankDiag">원천 확인</button></small></div>`;
   /* [v9.95] 이 탭만 옛 행 구조(.us-nm/.us-px/.us-rt)를 쓰고 있었다 —
      거래대금 탭·국내 목록과 생김새가 달라 보인다. usRow 로 통일한다.
      usRow 는 캔들·원화환산·ETF 태그를 모두 포함하므로 코드도 짧아진다. */
@@ -11620,8 +11936,8 @@ function renderWatch(){
      sumBar=`<div class="wl-stats">
        <div class="ws-c"><span>상승 / 하락</span><b><i class="up">${up}</i> / <i class="down">${dn}</i></b></div>
        <div class="ws-c"><span>평균 등락</span><b class="num ${avg>=0?'up':'down'}">${pctS(avg)}</b></div>
-       <div class="ws-c click" data-code="${best.st.code}"><span>베스트</span><b>${anyLogo(best.st.code,best.st.name,'xs')}${best.st.name} <i class="num up">${pctS(best.p)}</i></b></div>
-       ${ch.length>1?`<div class="ws-c click" data-code="${worst.st.code}"><span>워스트</span><b>${anyLogo(worst.st.code,worst.st.name,'xs')}${worst.st.name} <i class="num down">${pctS(worst.p)}</i></b></div>`:''}
+       <div class="ws-c click" data-code="${best.st.code}"><span>베스트</span><b>${anyLogo(best.st.code,best.st.name,'xs')}<u class="ws-nm">${best.st.name}</u> <i class="num up">${pctS(best.p)}</i></b></div>
+       ${ch.length>1?`<div class="ws-c click" data-code="${worst.st.code}"><span>워스트</span><b>${anyLogo(worst.st.code,worst.st.name,'xs')}<u class="ws-nm">${worst.st.name}</u> <i class="num down">${pctS(worst.p)}</i></b></div>`:''}
        ${bs.mode!=='live'||/마지막|전일|금요일/.test(bs.label)?`<div class="ws-basis"><i class="lv-dot"></i>${bs.label}</div>`:''}
      </div>`;}}
   const rows=watchSortMode==='chg'?listByChange(codes):codes.map(c=>byCode[c]).filter(Boolean);
@@ -16806,28 +17122,56 @@ function acOBV(bars){const o=[0];for(let i=1;i<bars.length;i++){const d=bars[i].
 function acAvg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0;}
 const acClamp=(v)=>Math.max(0,Math.min(100,Math.round(v)));
 function acScore(rawBars,invRows){
+  /* ══ [v15.0] 매집 포착기 2.0 — 성분별 근거 ═══════════════════════════════════
+     ① 수급 흐름: OBV(전량 가산)와 A/D(캔들 내 마감 위치 가중, Chaikin) "둘 다"의
+        기울기를 가격 기울기와 견준다. OBV 하나만 보면 갭·꼬리에 속는다.
+     ② 드라이업(VDU): 최근 3~5일 거래량이 "베이스 40일 전체"의 최저 수준인가.
+        (최근 평균과만 비교하면 주말·이벤트에 속는다 — 공개 문헌의 교정 그대로)
+        + 하락일/상승일 거래량 비(매물이 마르면 하락일 거래가 가벼워진다).
+     ③ 베이스 질(VCP): 박스 폭 + 저점 상승 + "되돌림 폭의 순차 감소"(미너비니 수축열).
+     ④ 기관 발자국: 흡수 캔들(대량+상단 마감+유지) + 포켓 피벗 횟수
+        (상승일 거래량 > 직전 10일 최대 하락일 거래량 — Kacher·Morales).
+     ⑤ 수급: 외국인+기관 누적을 5일/20일로 나눠 본다 — 하루 수치보다 누적 추세가
+        중요하고, 최근 5일이 가속 중이면 가점(국내 수급 분석 표준).
+     ⑥ 돌파 준비: 60일 고점 근접 + 와이코프 스프링(저거래 하단 이탈→즉시 복귀).
+     전 성분 0~100 순수 함수 · 가중 합산. 수급이 없으면(ETF 등) 재분배. ═══ */
   const bars=acBars(rawBars);
   if(bars.length<45)return {ok:false,why:'일봉 데이터가 부족합니다 (45일 이상 필요)'};
   const n=bars.length, look=Math.min(60,n), seg=bars.slice(n-look);
   const close=seg.map(b=>b.c), vol=seg.map(b=>b.v);
-  /* ① OBV 다이버전스 — 가격 기울기 대비 OBV 기울기 */
+  /* ① 수급 흐름 — OBV + A/D 이중 다이버전스 */
   const obvAll=acOBV(bars), obv=obvAll.slice(n-look);
-  const obvSpan=Math.max(...obv)-Math.min(...obv)||1;
-  const pSl=acSlope(close), oSl=acSlope(obv.map(v=>(v-obv[0])/obvSpan*close[0]+close[0]));
-  const obvScore=acClamp(50+(oSl-pSl)*9000);
-  /* ② 드라이업 — 최근20 vs 이전 거래량 수축 + 하락일/상승일 거래량 비 */
+  const adAll=(()=>{const o=[0];for(let i=1;i<bars.length;i++){const b=bars[i],r=(b.h-b.l)||1e-9;
+    const clv=((b.c-b.l)-(b.h-b.c))/r; o.push(o[i-1]+clv*b.v);}return o;})();
+  const ad=adAll.slice(n-look);
+  const norm=(arr)=>{const sp=Math.max(...arr)-Math.min(...arr)||1;
+    return arr.map(v=>(v-arr[0])/sp*close[0]+close[0]);};
+  const pSl=acSlope(close), oSl=acSlope(norm(obv)), aSl=acSlope(norm(ad));
+  const flowSl=(oSl+aSl)/2;
+  const obvScore=acClamp(50+(flowSl-pSl)*9000);
+  /* ② 드라이업 — VDU(베이스 전체 대비) + 하락/상승일 거래량 비 */
   const v20=acAvg(vol.slice(-20)), vPrev=acAvg(vol.slice(0,Math.max(1,look-20)))||1;
   const shrink=v20/vPrev;
+  const sorted=vol.slice(-40).slice().sort((x,y)=>x-y);
+  const q15=sorted[Math.floor(sorted.length*0.15)]||1;
+  const vduHit=Math.min(...vol.slice(-5))<=q15;
   let dnV=0,upV=0;seg.slice(-30).forEach((b,i,arr)=>{if(i===0)return;
     const d=b.c-arr[i-1].c; if(d<0)dnV+=b.v; else if(d>0)upV+=b.v;});
   const duRatio=upV>0?dnV/upV:1.5;
-  const dryScore=acClamp(60-(shrink-0.75)*90-(duRatio-0.85)*45);
-  /* ③ 박스 응집 — 40일 박스폭 + 저점 상승 */
+  const dryScore=acClamp(50-(shrink-0.8)*70-(duRatio-0.9)*45+(vduHit?18:0));
+  /* ③ 베이스 질 — 박스 폭 + 저점 상승 + VCP 수축열 */
   const b40=seg.slice(-40), hi=Math.max(...b40.map(b=>b.h)), lo=Math.min(...b40.map(b=>b.l));
   const mid=(hi+lo)/2||1, width=(hi-lo)/mid;
   const lowSl=acSlope(b40.map(b=>b.l));
-  const baseScore=acClamp(70-(width-0.14)*260+lowSl*5200);
-  /* ④ 흡수 캔들 — 대량 + 상단 마감 + 이후 3일 -4% 미만 */
+  const legs=(()=>{const hh=b40.map(x=>x.h),ll=b40.map(x=>x.l),w=b40.length,sw=[];
+    for(let i=2;i<w-2;i++)if(hh[i]>=hh[i-1]&&hh[i]>=hh[i-2]&&hh[i]>=hh[i+1]&&hh[i]>=hh[i+2])sw.push(i);
+    const pk=[];for(const i of sw){if(!pk.length||i-pk[pk.length-1]>=4)pk.push(i);}
+    const out=[];for(let k=0;k<pk.length;k++){const a2=pk[k],b2=k+1<pk.length?pk[k+1]:w-1;
+      if(b2<=a2)continue;const top=hh[a2],bot=Math.min(...ll.slice(a2,b2+1));
+      if(top>0)out.push((top-bot)/top*100);}return out.slice(-3);})();
+  const contracting=legs.length>=2&&legs.every((d,i)=>i===0||d<=legs[i-1]+0.5);
+  const baseScore=acClamp(62-(width-0.14)*220+lowSl*5200+(contracting?14:0));
+  /* ④ 기관 발자국 — 흡수 캔들 + 포켓 피벗 */
   const vAvg=acAvg(vol)||1, stars=[];
   for(let i=Math.max(1,look-60);i<look;i++){
     const b=seg[i], rng=b.h-b.l;
@@ -16837,21 +17181,28 @@ function acScore(rawBars,invRows){
       if(okAfter)stars.push(n-look+i);
     }
   }
-  const absScore=acClamp(stars.length*24);
-  /* ⑤ 수급 — 외인+기관 20일 누적 순매매량 / 20일 거래량 */
-  let supScore=null,supNet=0;
+  let ppCnt=0;{const C2=seg.map(b=>b.c),V2=seg.map(b=>b.v);
+    for(let i=12;i<look;i++){
+      if(C2[i]<=C2[i-1])continue;
+      let mx=0;for(let k=i-10;k<i;k++)if(C2[k]<C2[k-1])mx=Math.max(mx,V2[k]);
+      if(!(V2[i]>mx&&mx>0))continue;
+      const m10=acAvg(C2.slice(Math.max(0,i-9),i+1));
+      if(C2[i]>=m10*0.995)ppCnt++;
+    }}
+  const absScore=acClamp(stars.length*18+Math.min(3,ppCnt)*14);
+  /* ⑤ 수급 — 5일/20일 이원 누적 */
+  let supScore=null,supNet=0,supNet5=0;
   if(Array.isArray(invRows)&&invRows.length){
-    const r20=invRows.slice(0,20); // 최신이 앞
-    /* [v4.9 · 버그] 워커의 종목별 수급 행은 {date, values:{'외국인','기관계','개인'}} 형태다.
-       r.foreign / r.inst 로 읽으면 항상 0이 되어 수급 성분이 무력화됐다 — 두 형태 모두 지원. */
     const netOf=(r)=>{ if(!r)return 0;
       if(r.values)return (Number(r.values['외국인'])||0)+(Number(r.values['기관계'])||Number(r.values['기관'])||0);
       return (+(r.foreign!=null?r.foreign:r.frgn)||0)+(+(r.inst!=null?r.inst:r.org)||0); };
-    r20.forEach(r=>{supNet+=netOf(r);});
-    const volSum=vol.slice(-20).reduce((a,b)=>a+b,0)||1;
-    supScore=acClamp(50+supNet/volSum*900);
+    invRows.slice(0,20).forEach(r=>{supNet+=netOf(r);});
+    invRows.slice(0,5).forEach(r=>{supNet5+=netOf(r);});
+    const volSum=vol.slice(-20).reduce((a2,b2)=>a2+b2,0)||1;
+    const accel=(supNet5/5)>(supNet/20)?8:0;             // 최근 5일이 가속 중이면 가점
+    supScore=acClamp(50+supNet/volSum*900+accel);
   }
-  /* ⑥ 돌파 준비 — 60일 고점 대비 + 스프링 감지 */
+  /* ⑥ 돌파 준비 — 60일 고점 대비 + 스프링 */
   const last=seg[look-1], hi60=Math.max(...close);
   const gap=(hi60-last.c)/hi60;
   let brkScore=acClamp(gap<=0?92:78-gap*420);
@@ -16863,25 +17214,27 @@ function acScore(rawBars,invRows){
       if(spring)break;
     }
   }
-  /* 가중 합산 — 수급이 없으면(ETF 등) 나머지에 재분배 */
+  /* 가중 합산 — 수급이 없으면 재분배 */
   const w={obv:.22,dry:.16,base:.14,abs:.20,sup:.16,brk:.12};
   let total,comps={obv:obvScore,dry:dryScore,base:baseScore,abs:absScore,sup:supScore,brk:brkScore};
   if(supScore==null){const f=1/(1-w.sup);
     total=(obvScore*w.obv+dryScore*w.dry+baseScore*w.base+absScore*w.abs+brkScore*w.brk)*f;}
   else total=obvScore*w.obv+dryScore*w.dry+baseScore*w.base+absScore*w.abs+supScore*w.sup+brkScore*w.brk;
   total=acClamp(total);
+  const grade=total>=80?'S':total>=70?'A':total>=58?'B':total>=42?'C':'D';
   /* 단계 판정 */
   let stage,cls;
   const brokeOut=last.c>hi*1.005&&last.v>vAvg*1.6;
   if(brokeOut&&total>=55){stage='마크업 진입 — 박스 상단을 거래량과 함께 돌파';cls='s4';}
-  else if(total>=72){stage=spring?'돌파 임박 — 스프링 확인 후 상단 근접':'매집 진행 — 수급·흡수 동반';cls='s4';}
-  else if(total>=58){stage='매집 후보 — 횡보 속 흡수 흔적';cls='s3';}
+  else if(total>=72){stage=spring?'돌파 임박 — 스프링 확인 후 상단 근접':(contracting?'매집 성숙 — 수축열·발자국 동반':'매집 진행 — 수급·흡수 동반');cls='s4';}
+  else if(total>=58){stage=ppCnt>=2?'매집 후보 — 기관 발자국 반복 포착':'매집 후보 — 횡보 속 흡수 흔적';cls='s3';}
   else if(total>=42){stage='관찰 — 일부 신호만 존재';cls='s2';}
-  else if(obvScore<35&&pSl>0){stage='분산 우세 — 상승에도 OBV 이탈(고점 대량거래 주의)';cls='s0';}
+  else if(obvScore<35&&pSl>0){stage='분산 우세 — 상승에도 수급선(OBV·A/D) 이탈, 고점 대량거래 주의';cls='s0';}
   else {stage='매집 근거 약함';cls='s1';}
   return {ok:true,total,comps,stars,spring,stage,cls,box:{hi,lo,from:n-40},
     meta:{shrink:+shrink.toFixed(2),duRatio:+duRatio.toFixed(2),width:+(width*100).toFixed(1),
-      gap:+(gap*100).toFixed(1),supNet,pSl:+(pSl*1e4).toFixed(2),oSl:+(oSl*1e4).toFixed(2)}};
+      gap:+(gap*100).toFixed(1),supNet,supNet5,pSl:+(pSl*1e4).toFixed(2),oSl:+(oSl*1e4).toFixed(2),
+      aSl:+(aSl*1e4).toFixed(2),vdu:vduHit,ppCnt,legs:legs.map(d=>+d.toFixed(1)),contracting,grade}};
 }
 /* ══ [v8.9] 매매 타점 엔진 ═══════════════════════════════════════════════════
    [왜 필요한가] 점수와 단계만 보여 주면 '그래서 언제 사라는 건데?' 가 남는다.
@@ -17173,11 +17526,11 @@ async function acAnalyze(code){
   const r=acScore(bars,inv);
   if(!r.ok){body.innerHTML=`<div class="empty">${st.name||code}: ${r.why}</div>`;return;}
   const compDef=[
-    ['obv','OBV 다이버전스','가격 대비 누적 거래량 흐름'],
-    ['dry','거래량 드라이업','매물 소진 · 하락일 거래 위축'],
-    ['base','박스 응집','횡보 폭 축소 · 저점 상승'],
-    ['abs','흡수 캔들','대량 + 상단 마감 + 유지'],
-    ['sup','기관·외국인 수급','20일 누적 순매수'],
+    ['obv','수급선 이중 확인','OBV·A/D 기울기 vs 가격 기울기'],
+    ['dry','거래량 고갈(VDU)','베이스 전체 대비 최저 + 하락일 위축'],
+    ['base','베이스 질(VCP)','폭 축소 · 저점 상승 · 수축열'],
+    ['abs','기관 발자국','흡수 캔들 + 포켓 피벗'],
+    ['sup','기관·외국인 수급','5일/20일 누적 · 가속 여부'],
     ['brk','돌파 준비','고점 근접 · 스프링'],
   ];
   const compsHtml=compDef.map(([k,t,d])=>{const v=r.comps[k];
@@ -17186,7 +17539,10 @@ async function acAnalyze(code){
   const badges=[];
   if(r.spring)badges.push('<span class="ac-bdg spring">🌀 와이코프 스프링 감지</span>');
   if(r.stars.length)badges.push(`<span class="ac-bdg">★ 흡수 캔들 ${r.stars.length}회</span>`);
-  if(r.meta.shrink<0.7)badges.push(`<span class="ac-bdg">거래량 ${Math.round((1-r.meta.shrink)*100)}% 수축</span>`);
+  if(r.meta.ppCnt)badges.push(`<span class="ac-bdg">🐘 포켓 피벗 ${r.meta.ppCnt}회</span>`);
+  if(r.meta.contracting)badges.push(`<span class="ac-bdg">🌀 수축열 ${(r.meta.legs||[]).join('→')}%</span>`);
+  if(r.meta.vdu)badges.push('<span class="ac-bdg">거래량 고갈(VDU)</span>');
+  else if(r.meta.shrink<0.7)badges.push(`<span class="ac-bdg">거래량 ${Math.round((1-r.meta.shrink)*100)}% 수축</span>`);
   const interp=[];
   interp.push(r.comps.obv>=62?`가격 흐름 대비 <b>OBV가 뚜렷이 위</b>에 있습니다 — 조용히 사 모으는 쪽이 우세하다는 뜻입니다.`
     :r.comps.obv<=38?`가격에 비해 <b>OBV가 처집니다</b> — 오르는 날보다 내리는 날 거래가 무겁습니다(분산 의심).`
@@ -19099,8 +19455,62 @@ function renderUsRankBody(){
   const val=t=>{const q=usQ[t];return (q.price||0)*(q.vol||0);};
   const rated=pool.filter(t=>usQ[t].prev);
   let list,note;
-  if(usRankTab==='up'){list=rated.slice().sort((a,b)=>rate(b)-rate(a));note='오늘 가장 많이 오른 순서';}
-  else if(usRankTab==='down'){list=rated.slice().sort((a,b)=>rate(a)-rate(b));note='오늘 가장 많이 내린 순서';}
+  /* ══ [v14.5.2] 해외 화면 상승·하락 탭도 '미국 전체 상장 종목' 기준으로 ═══════
+     [무엇이 남아 있었나] 검색>해외 탭(v14.5)은 고쳤는데, 이 화면(해외 주식 순위)의
+     상승·하락 탭은 여전히 내장 113종 풀에서만 정렬하고 있었다 — 같은 병의
+     두 번째 자리. 서버 순위(usRk)를 그대로 쓰고, 등록 안 되는 티커는 서버가
+     실어 준 가격·등락률로 즉시 그린다. 서버가 죽은 날만 113종 계산으로 버티되
+     그 사실을 화면에 밝힌다. */
+  if(usRankTab==='up'||usRankTab==='down'){
+    const kind=usRankTab;
+    if(!usRk[kind])usRkRestore(kind);
+    const st=usRk[kind];
+    const open=usSession().phase!=='closed';
+    const ttl=open?180e3:6*3600e3;
+    if((!st||!st.at||Date.now()-st.at>ttl)&&!usRkBusy[kind]&&usRkFail[kind]===0){
+      usRankLoad(kind,()=>{ if(currentView==='us')renderUsRankBody(); });
+    }
+    if(st&&Array.isArray(st.items)&&st.items.length){
+      const rows=st.items;
+      rows.forEach(x=>{ if(!usMeta[x.t]&&x.sfx)
+        usRegister({t:x.t,sfx:x.sfx,kr:/[가-힣]/.test(String(x.kr||''))?x.kr:'',en:x.en||''}); });
+      const head=rows.slice(0,120).map(x=>x.t).filter(t=>usMeta[t]);
+      const miss=head.filter(t=>!(usQ[t]&&usQ[t].price!=null));
+      if(miss.length)usEnsureQuotes(head,true).then(()=>{ if(currentView==='us')renderUsRankBody(); });
+      const srcLab=st.src==='naver'?'네이버 해외증시':st.src==='tradingview'?'TradingView 실시간 스캐너':'야후 파이낸스';
+      if(bd)bd.innerHTML=`<div class="uz-note">${kind==='up'?'오늘 가장 많이 오른':'오늘 가장 많이 내린'} 순서
+        · <b>미국 전체 상장 종목</b> 기준 · <b>${rows.length}종</b>
+        · ${srcLab}${st.mktOpen===false||!open?' · <b>마지막 개장일 기준</b>':''}</div>`;
+      box.innerHTML=`<div class="uz-list">${rows.map((x,i)=>{
+        const t=x.t;
+        if(usMeta[t]&&usQ[t]&&usQ[t].price!=null){
+          const q=usQ[t];
+          const qr=(q.prev)?(q.price-q.prev)/q.prev*100:null;
+          const sr=x.rate;
+          const okSame=(sr==null)||(qr!=null&&(qr>=0)===(sr>=0)&&Math.abs(qr-sr)<=Math.max(5,Math.abs(sr)*0.5));
+          if(okSame)return usRow(t,i+1,'');
+        }
+        const rt=x.rate;
+        return `<div class="sr us-row has-rk" data-us="${t}" data-srvfix="1"${usMeta[t]?` data-code="${t}" role="button" tabindex="0"`:''}><div class="sr-l"><span class="rk${i<3?' top':''}">${i+1}</span>
+          <div class="sr-t"><div class="nm"><span class="nm-t">${htmlEsc(x.kr||x.en||t)}</span></div>
+            <div class="cd num">${t}${x.sfx?'&thinsp;·&thinsp;'+({O:'나스닥',N:'뉴욕',A:'아멕스'}[x.sfx]||''):''}</div></div></div>
+          <div class="px num ${rt>=0?'up':'down'}">${x.px!=null?'$'+USD2(x.px):'—'}</div>
+          <div class="ch num ${rt>=0?'up':'down'}">${rt!=null?(rt>=0?'▲ +':'▼ ')+rt.toFixed(2)+'%':'—'}</div>
+          <div class="sr-sp"></div></div>`;
+      }).join('')}</div>`;
+      try{ usCandlesPaint(box); }catch(e){}
+      return;
+    }
+    if(usRkFail[kind]<2){
+      if(bd)bd.innerHTML='';
+      box.innerHTML='<div class="uz-empty"><b>미국 전체 '+(kind==='up'?'상승률':'하락률')+' 순위를 불러오는 중…</b><span>거래소 전 종목 기준</span></div>';
+      return;
+    }
+    /* 서버 실패 확정 — 113종 계산으로 버티되 사실을 밝힌다(아래 공용 경로로 계속) */
+    if(usRankTab==='up'){list=rated.slice().sort((a,b)=>rate(b)-rate(a));note='오늘 가장 많이 오른 순서 · <b>주요 '+US_UNI.length+'종 기준</b> — 전체 시장 순위 서버에 연결하지 못했습니다 <button type="button" class="uz-retry sm" id="usRkRe2">다시 시도</button>';}
+    else {list=rated.slice().sort((a,b)=>rate(a)-rate(b));note='오늘 가장 많이 내린 순서 · <b>주요 '+US_UNI.length+'종 기준</b> — 전체 시장 순위 서버에 연결하지 못했습니다 <button type="button" class="uz-retry sm" id="usRkRe2">다시 시도</button>';}
+    setTimeout(()=>{ const b2=$('usRkRe2'); if(b2)b2.onclick=()=>{ usRkFail[kind]=0; renderUsRankBody(); }; },0);
+  }
   else if(usRankTab==='cap'){
     /* [v4.62] 시가총액 탭에서만 cap 을 따로 받아 온다 */
     const noCap=pool.filter(t=>!(usQ[t]&&usQ[t].cap>0));
@@ -19270,6 +19680,10 @@ function renderUsRules(){
    어느 화면이든 눈에 보이는 행을 갱신한다. */
 function usPaintRows(root){
   (root||document).querySelectorAll('.us-row[data-us], .us-star[data-us]').forEach(el=>{
+    /* [v14.5.2] 전체 시장 순위 화면의 '서버 값 고정 행' — 순위의 기준 시점 값을
+       실시간 시세로 덧칠하면 1위가 +6% 처럼 보이는 사고가 난다(하네스 재현).
+       data-srvfix 가 붙은 행은 시세 페인트를 건너뛴다. */
+    if(el.dataset.srvfix)return;
     const t=el.dataset.us,q=usQ[t]; if(!q||q.price==null)return;
     /* [v9.93] 목록 구조를 국내와 통일하면서 칸 클래스가 .px/.ch 로 바뀌었다.
        예전 셀렉터(.us-px/.us-rt)만 보면 시세가 와도 갱신되지 않는다 — 둘 다 본다. */
@@ -19296,6 +19710,11 @@ function usPaintRows(root){
    같으면 건너뛰고, 달라졌을 때만 다시 그린다. */
 function usRankOrderChanged(){
   try{
+    /* [v14.5.2] 상승·하락 탭의 순서는 이제 서버(/api/usrank)가 정한다 —
+       실시간 시세로 재정렬 비교를 하면 매 틱 '바뀌었다'로 판정돼 통째로
+       다시 그려진다(로고 깜빡임·스크롤 흔들림). 서버 갱신은 renderUsRankBody
+       안의 TTL 로직이 맡으므로 여기서는 그대로 둔다. */
+    if(usRankTab==='up'||usRankTab==='down')return false;
     const box=$('usRankBody'); if(!box)return true;
     const shown=[...box.querySelectorAll('[data-us]')].map(e=>e.dataset.us);
     if(!shown.length)return true;
@@ -21613,3 +22032,33 @@ try{ __bootMain(); }
 catch(e){ try{ reportErr('boot',e); }catch(_){ }
   try{ window.__boot&&__boot.done(); }catch(_){ }   // 오류가 나도 입장화면은 반드시 걷는다
 }
+
+/* ══ [v14.3.1] 좁은 화면 자리표시 문구 축약 ══════════════════════════════════
+   사진 3처럼 검색창 안내문("…전체 상장 종목·ETF 검색 (예: 삼성전자, SOL AI반도체
+   TOP2플러스, 000660)")이 좁은 화면에서 중간이 잘려 '(예: /성전' 같은 깨진
+   글로 보였다. CSS 로는 placeholder 를 줄일 수 없어, 화면 폭에 맞는 짧은
+   문구로 바꿔 끼운다(넓어지면 원문 복원). */
+try{(function(){
+  const FULL={searchInput:null,etfSearch:null,usSearch:null,thmSearch:null,acSearch:null};
+  const SHORT={
+    searchInput:'종목명·코드 검색 (예: 삼성전자)',
+    etfSearch:'ETF명·코드 검색 (예: KODEX 200)',
+    usSearch:'티커·종목명 검색 (예: NVDA)',
+    thmSearch:'테마·업종 검색 (예: 반도체)',
+    acSearch:'종목명·코드 검색'
+  };
+  const mq=window.matchMedia('(max-width:480px)');
+  function apply(){
+    const narrow=mq.matches;
+    for(const id in SHORT){
+      const el=document.getElementById(id); if(!el)continue;
+      if(FULL[id]==null)FULL[id]=el.getAttribute('placeholder')||'';
+      el.setAttribute('placeholder',narrow?SHORT[id]:FULL[id]);
+    }
+  }
+  apply();
+  (mq.addEventListener?mq.addEventListener('change',apply):mq.addListener(apply));
+  /* 화면 전환 때 새로 그려지는 입력창(acSearch 등)도 붙잡는다 */
+  document.addEventListener('visibilitychange',apply);
+  setInterval(apply,4000);
+})();}catch(e){}

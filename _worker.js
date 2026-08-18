@@ -128,6 +128,16 @@ function blobsLike(a) {
     async delete(key) {
       return a.del(key);
     },
+    /* ══ [v14.2] del 별칭 — 계정 삭제가 실제로는 아무것도 지우지 않던 이유 ═══════
+       이 저장소는 delete(key) 를 제공하는데, 계정·데이터 삭제 코드는 del(key) 를
+       불렀다. 없는 함수라 호출 즉시 예외가 나고, 그 예외를 try/catch 가 삼켰다.
+       그래서 서버는 "삭제했습니다"라고 응답하면서 KV 에는 acc:<id>·usr:<id> 가
+       그대로 남았고, 같은 아이디로 다시 로그인하면 그냥 들어가졌다.
+       이름 하나 어긋났을 뿐인데 삭제 기능 전체가 무력했다.
+       두 이름을 모두 받아, 어느 쪽으로 불러도 실제로 지워지게 한다. */
+    async del(key) {
+      return a.del(key);
+    },
     async list(opts) {
       const ks = await a.list(opts && opts.prefix || "");
       return { blobs: ks.map((k) => ({ key: k })) };
@@ -2970,121 +2980,176 @@ function rsi(closes, n = 14) {
    않으면 '지금은 자리가 아니다'로 보고 후보에서 뺀다 — 억지로 채우지 않는다.
    ══════════════════════════════════════════════════════════════════════════ */
 function sdev(a) { if (!a.length) return 0; const m = avg(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) * (x - m), 0) / a.length); }
+/* ══ [v15.0] 내일 장 추천주 2.0 — 특징·자리 판정 전면 재작성 ═══════════════════
+   [설계 근거 — 공개 문헌·검증된 기법]
+   · 포켓 피벗(Kacher·Morales): 상승 마감일 거래량 > 직전 10일 최대 하락일 거래량
+     + 10일선 위 = 기관 매수의 발자국. 베이스 내부에서만 유효.
+   · VCP·수축(미너비니): 되돌림 폭 순차 감소 + 밴드폭 압축 + 거래량 고갈 뒤 돌파.
+   · 강한 마감(gap-continuation): 종가가 당일 고가권(상위 15%)에서 거래를 동반해
+     끝난 날은 다음 날 갭 상승·연속성이 통계적으로 우세하다.
+   · 과열 배제(자동매매 실전 규칙): 전일 상한가·단기 폭등 직후는 되돌림 확률이
+     높아 후보에서 뺀다.
+   · 손절·목표는 ATR(14) 기반 — 종목마다 다른 변동성에 맞춘 폭. */
 function feat(cs) {
   if (!cs || cs.length < 62) return null;
   const c = cs.map(x => +x.c || 0), h = cs.map(x => +x.h || 0), l = cs.map(x => +x.l || 0), v = cs.map(x => +x.v || 0);
+  const o = cs.map(x => +x.o || 0);
   if (c.slice(-62).some(x => !(x > 0))) return null;
   const n = c.length, last = c[n - 1];
   const ma = (k) => avg(c.slice(-k));
   const ma5 = ma(5), ma10 = ma(10), ma20 = ma(20), ma60 = ma(60);
-  /* 일간 수익률과 변동성 */
   const rets = []; for (let i = n - 21; i < n; i++) rets.push(c[i] / c[i - 1] - 1);
-  const vol20 = sdev(rets);                                    // 일간 변동성
-  /* 거래량 — 최근 3일 대 20일(직전) */
+  const vol20 = sdev(rets);
   const vRecent = avg(v.slice(-3)), vBase = avg(v.slice(-23, -3));
   const volRatio = vBase > 0 ? vRecent / vBase : 0;
-  /* 위치 */
+  const v20 = avg(v.slice(-21, -1)) || 1;
   const hi20 = Math.max(...h.slice(-20)), lo20 = Math.min(...l.slice(-20));
   const hi60 = Math.max(...h.slice(-60));
   const posInRange = hi20 > lo20 ? (last - lo20) / (hi20 - lo20) : 0.5;
-  /* 추세 */
   const upTrend = ma5 > ma20 && ma20 > ma60;
   const midTrend = last > ma20 && ma20 > ma60;
-  const slope20 = ma20 / avg(c.slice(-25, -5)) - 1;            // 20일선 기울기
-  /* 이격 */
+  const slope20 = ma20 / avg(c.slice(-25, -5)) - 1;
   const ext5 = (last - ma5) / ma5, ext20 = (last - ma20) / ma20;
-  /* 연속 상승일 — 많을수록 되돌림 위험 */
   let runUp = 0; for (let i = n - 1; i > 0 && c[i] > c[i - 1]; i--) runUp++;
-  /* 수축(스퀴즈) — 최근 10일 폭이 그 앞 30일 폭보다 얼마나 좁은가 */
-  /* [v9.71 수정] '수축'은 팽창이 시작되기 '직전'까지를 재야 한다. 최근 며칠을
-     포함해 재면, 거래량이 붙어 폭이 커지는 순간 수축 지표가 되레 커져
-     스퀴즈 자리를 영영 못 찾는다. 최근 4일을 빼고 그 앞 구간끼리 견준다. */
-  const rng = (a, b) => { const hh = Math.max(...h.slice(a, b)), ll = Math.min(...l.slice(a, b)); return ll > 0 ? (hh - ll) / ll : 1; };
+  const rng = (a2, b2) => { const hh = Math.max(...h.slice(a2, b2)), ll = Math.min(...l.slice(a2, b2)); return ll > 0 ? (hh - ll) / ll : 1; };
   const rNear = rng(n - 26, n - 4), rFar = rng(n - 56, n - 26);
   const squeeze = rFar > 0 ? rNear / rFar : 1;
-  /* 최근 되돌림 깊이 — 20일 고가 대비 */
   const drawFromHi = hi20 > 0 ? (hi20 - last) / hi20 : 0;
+  const drawFromHi60 = hi60 > 0 ? (hi60 - last) / hi60 : 0;
+  /* ATR(14) */
+  let atr = 0; { const trs = []; for (let i = n - 14; i < n; i++) trs.push(Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]))); atr = avg(trs); }
+  const atrPct = last > 0 ? atr / last * 100 : 3;
+  /* 상승/하락일 거래량 비(20일) — 미너비니 압력 */
+  let uV = 0, dV = 0; for (let i = n - 20; i < n; i++) { const d = c[i] - c[i - 1]; if (d > 0) uV += v[i]; else if (d < 0) dV += v[i]; }
+  const udRatio = dV > 0 ? uV / dV : 2;
+  /* 포켓 피벗 — 오늘 + 최근 12일 횟수 */
+  const ppAt = (i) => {
+    if (i < 12 || c[i] <= c[i - 1]) return false;
+    let mx = 0; for (let k = i - 10; k < i; k++) if (c[k] < c[k - 1]) mx = Math.max(mx, v[k]);
+    if (!(v[i] > mx && mx > 0)) return false;
+    return c[i] >= avg(c.slice(Math.max(0, i - 9), i + 1)) * 0.995;
+  };
+  const ppToday = ppAt(n - 1);
+  let ppCnt = 0; for (let i = n - 12; i < n; i++) if (ppAt(i)) ppCnt++;
+  /* 강한 마감 — 종가위치 + 시가 대비 */
+  const closeStr = (h[n - 1] > l[n - 1]) ? (last - l[n - 1]) / (h[n - 1] - l[n - 1]) : 0.5;
+  const body = (o[n - 1] > 0) ? (last - o[n - 1]) / o[n - 1] : 0;
+  /* 수축열(VCP) */
+  const legs = (() => { const w2 = Math.min(60, n), hh = h.slice(-w2), ll = l.slice(-w2), sw = [];
+    for (let i = 2; i < w2 - 2; i++) if (hh[i] >= hh[i - 1] && hh[i] >= hh[i - 2] && hh[i] >= hh[i + 1] && hh[i] >= hh[i + 2]) sw.push(i);
+    const pk = []; for (const i of sw) { if (!pk.length || i - pk[pk.length - 1] >= 4) pk.push(i); }
+    const out = []; for (let k = 0; k < pk.length; k++) { const a2 = pk[k], b2 = k + 1 < pk.length ? pk[k + 1] : w2 - 1;
+      if (b2 <= a2) continue; const top = hh[a2], bot = Math.min(...ll.slice(a2, b2 + 1));
+      if (top > 0) out.push((top - bot) / top * 100); } return out.slice(-3); })();
+  const contracting = legs.length >= 2 && legs.every((d, i) => i === 0 || d <= legs[i - 1] + 0.5);
+  /* 밴드폭 백분위 + NR */
+  const bwArr = []; for (let i = n - 60; i < n; i++) { if (i < 20) continue;
+    const seg = c.slice(i - 19, i + 1), m = avg(seg);
+    const sd2 = Math.sqrt(avg(seg.map(x => (x - m) * (x - m))));
+    bwArr.push(m > 0 ? 4 * sd2 / m : 0); }
+  const bwNow = bwArr[bwArr.length - 1] || 0;
+  const bwPct = bwArr.length ? bwArr.filter(x => x <= bwNow).length / bwArr.length * 100 : 50;
+  let nrCnt = 0; { const rngs = []; for (let i = n - 8; i < n; i++) rngs.push(h[i] - l[i]);
+    const mn = Math.min(...rngs.slice(0, -1));
+    for (let i = n - 7; i < n; i++) { const inside = h[i] <= h[i - 1] && l[i] >= l[i - 1];
+      if (inside || (h[i] - l[i]) <= mn * 1.02) nrCnt++; } }
+  /* 전일 등락 — 전일 상한가 배제용 */
+  const yChg = (c[n - 3] > 0) ? (c[n - 2] / c[n - 3] - 1) * 100 : 0;
+  /* 조정 중 거래 감소(눌림 질) + 5일선 회복일 */
+  let dryPull = false; { let dn = 0, dnV = 0, up = 0, upV2 = 0;
+    for (let i = n - 10; i < n; i++) { const d = c[i] - c[i - 1]; if (d < 0) { dn++; dnV += v[i]; } else if (d > 0) { up++; upV2 += v[i]; } }
+    dryPull = dn > 0 && up > 0 ? (dnV / dn) < (upV2 / up) : false; }
+  const recl5 = c[n - 2] < avg(c.slice(-6, -1)) && last > ma5;
+  let hlUp = false; { const l1 = Math.min(...l.slice(-10)), l0 = Math.min(...l.slice(-25, -10)); hlUp = l1 >= l0; }
   return {
-    last, ma5, ma10, ma20, ma60, vol20, volRatio, hi20, lo20, hi60, posInRange,
-    upTrend, midTrend, slope20, ext5, ext20, runUp, squeeze, drawFromHi,
+    last, ma5, ma10, ma20, ma60, vol20, volRatio, v20, hi20, lo20, hi60, posInRange,
+    upTrend, midTrend, slope20, ext5, ext20, runUp, squeeze, drawFromHi, drawFromHi60,
     rsi: rsi(c, 14),
-    mom20: last / c[n - 21] - 1,
-    mom5: last / c[n - 6] - 1,
-    mom60: last / c[n - 61] - 1,
-    turnover: last * avg(v.slice(-5))                          // 최근 5일 평균 거래대금
+    mom20: last / c[n - 21] - 1, mom5: last / c[n - 6] - 1, mom60: last / c[n - 61] - 1,
+    turnover: last * avg(v.slice(-5)),
+    atr, atrPct, udRatio, ppToday, ppCnt, closeStr, body, legs, contracting,
+    bwPct, nrCnt, yChg, dryPull, recl5, hlUp, vToday: v[n - 1], volZ: (() => {
+      const arr = v.slice(-21, -1), m = avg(arr) || 1;
+      const sd2 = Math.sqrt(avg(arr.map(x => (x - m) * (x - m)))) || 1;
+      return (v[n - 1] - m) / sd2; })()
   };
 }
 function score(cs) {
   const f = feat(cs);
   if (!f) return null;
-  /* ── 먼저 거를 것들 — 통과하지 못하면 후보가 아니다 ── */
-  if (f.last < 1000) return null;                              // 초저가주 제외
-  if (f.turnover < 5e8) return null;                           // 5일 평균 거래대금 5억 미만 = 유동성 부족
-  if (f.vol20 > 0.11) return null;                             // 일간 변동성 11% 초과 = 통제 불가
-  if (f.ext20 > 0.35) return null;                             // 20일선 대비 35% 초과 이격 = 과열
-  if (f.runUp >= 6) return null;                               // 6일 연속 상승 = 되돌림 구간(돌파는 연속 상승을 동반하므로 5일까지는 허용하고 아래에서 감점)
+  /* ── 하드 필터 — 통과하지 못하면 후보가 아니다 ── */
+  if (f.last < 1000) return null;                              // 초저가주
+  if (f.turnover < 5e8) return null;                           // 유동성 부족
+  if (f.vol20 > 0.11) return null;                             // 변동성 통제 불가
+  if (f.ext20 > 0.35) return null;                             // 과열 이격
+  if (f.runUp >= 6) return null;                               // 되돌림 구간
   if (f.rsi > 80) return null;                                 // 과매수 극단
-  if (f.mom20 > 0.60) return null;                             // 한 달 60% 초과 = 이미 급등 완료
+  if (f.mom20 > 0.60) return null;                             // 한 달 60% 초과 급등 완료
+  if (f.yChg >= 27) return null;                               // [v15.0] 전일 상한가 — 되돌림 위험
+  if (f.mom5 > 0.45) return null;                              // [v15.0] 5일 +45% 폭등 직후
 
-  /* ── 세 갈래 자리 판정 ── */
+  /* ── 다섯 갈래 자리 판정 ── */
   const setups = [];
-  /* ① 눌림목 — 중기 추세는 살아 있고 단기 조정을 받은 자리
-     [v9.71 정정] 처음에는 upTrend(5일선>20일선>60일선)를 요구했는데, 이건
-     눌림목의 정의와 어긋난다. 조정을 받으면 5일선이 20일선 아래로 내려가는
-     것이 정상이라, 이 조건을 걸면 '조정받지 않은 종목'만 남아 눌림목이
-     한 건도 잡히지 않았다. 중기 추세(20일선>60일선)만 확인한다. */
-  const pullback = f.ma20 > f.ma60 && f.last > f.ma60 * 0.98 && f.slope20 > 0
-    && f.drawFromHi >= 0.025 && f.drawFromHi <= 0.18
+  /* ① 눌림목 첫 반등 — 중기 추세 + 매물 소진 + 단기선 회복 */
+  const pullback = f.ma20 > f.ma60 && f.last > f.ma60 * 0.98 && f.slope20 > -0.006
+    && f.drawFromHi >= 0.025 && f.drawFromHi <= 0.16
     && f.ext20 > -0.10 && f.ext20 < 0.12
-    && f.rsi >= 33 && f.rsi <= 66;
-  /* ② 수축 후 거래량 — 변동폭이 좁아진 뒤 거래가 붙기 시작 */
-  const coil = f.squeeze <= 0.78 && f.midTrend
-    && f.volRatio >= 1.3 && f.posInRange >= 0.40
+    && f.rsi >= 30 && f.rsi <= 64
+    && (f.recl5 || f.last > f.ma5);
+  /* ② 응축 — 수축열·밴드폭·NR 이 겹치고 거래가 붙기 시작 */
+  const coil = (f.squeeze <= 0.80 || f.bwPct <= 25 || (f.contracting && f.nrCnt >= 2)) && f.midTrend
+    && f.volRatio >= 1.2 && f.posInRange >= 0.40 && f.hlUp
     && f.ext20 < 0.20 && f.rsi >= 42 && f.rsi <= 72;
   /* ③ 거래량 동반 돌파 — 60일 고가대를 이제 막 넘어섰다 */
-  /* [v9.71 정정] 돌파는 성질상 RSI가 높게 나온다 — 조용한 바닥에서 사흘만
-     강하게 올라도 75~80이 된다. 74로 막으면 진짜 돌파가 전부 걸러진다.
-     대신 전역 안전장치(RSI 80 초과 제외)는 그대로 두어 극단만 막는다. */
   const breakout = f.last >= f.hi60 * 0.975 && f.last <= f.hi60 * 1.08
-    && f.volRatio >= 1.7 && f.midTrend
+    && (f.volRatio >= 1.7 || f.volZ >= 2) && f.midTrend
     && f.ext20 <= 0.25 && f.rsi <= 79;
+  /* ④ 포켓 피벗 — 기관 발자국이 오늘 찍혔고 베이스 내부다 */
+  const pocket = f.ppToday && f.ma20 > f.ma60
+    && f.drawFromHi60 >= 0.02 && f.drawFromHi60 <= 0.18
+    && f.udRatio >= 0.9 && f.ext20 < 0.15;
+  /* ⑤ 강한 마감 — 고가권 마감 + 장대양봉 + 거래 실림 (다음 날 연속성 근거) */
+  const strongClose = f.closeStr >= 0.85 && f.body >= 0.02
+    && (f.volRatio >= 1.5 || f.volZ >= 1.5)
+    && f.last > f.ma20 && f.ext20 <= 0.18 && f.runUp <= 3;
   if (pullback) setups.push("pullback");
   if (coil) setups.push("coil");
   if (breakout) setups.push("breakout");
-  /* ══ [v9.71b] '조건 미달이면 아무것도 안 보여 준다'는 지나쳤다 ═══════════════
-     기준 미달 종목을 '추천'으로 올리는 건 여전히 안 된다. 하지만 화면을 통째로
-     비우면 사용자는 고장인지 없는 건지 알 수 없고, 어떤 종목이 근접했는지도
-     못 본다. 자리에 들지 못한 종목은 '근접 후보'로 표시만 하고 추천에선 뺀다.
-     near=true 인 항목은 위쪽 추천 목록에 들어가지 않는다. */
+  if (pocket) setups.push("pocket");
+  if (strongClose) setups.push("strongClose");
   const near = setups.length === 0;
 
   /* ── 점수 — 자리의 '질'만 본다. 이미 오른 폭에는 점수를 주지 않는다 ── */
-  let sc = near ? 20 : 34;        /* 자리에 못 든 종목은 낮은 점수에서 시작한다 */
+  let sc = near ? 20 : 32;
   const tags = [];
-  if (pullback) { sc += 18; tags.push("\uB20C\uB9BC\uBAA9"); }              // 눌림목
-  if (coil)     { sc += 16; tags.push("\uBCC0\uB3D9\uD3ED \uC218\uCD95"); } // 변동폭 수축
-  if (breakout) { sc += 17; tags.push("\uAC70\uB798\uB7C9 \uB3CC\uD30C"); } // 거래량 돌파
-  if (setups.length >= 2) sc += 6;                             // 두 갈래가 겹치면 더 좋은 자리
+  if (pullback)    { sc += 17; tags.push("\uB20C\uB9BC\uBAA9"); }                       // 눌림목
+  if (coil)        { sc += 15; tags.push("\uC751\uCD95(VCP)"); }                        // 응축(VCP)
+  if (breakout)    { sc += 16; tags.push("\uAC70\uB798\uB7C9 \uB3CC\uD30C"); }          // 거래량 돌파
+  if (pocket)      { sc += 18; tags.push("\uD3EC\uCF13 \uD53C\uBC97"); }                // 포켓 피벗
+  if (strongClose) { sc += 13; tags.push("\uAC15\uD55C \uB9C8\uAC10"); }                // 강한 마감
+  if (setups.length >= 2) sc += 7;
 
   /* 추세의 질 */
   if (f.upTrend) sc += 8;
-  sc += Math.max(-4, Math.min(8, f.slope20 * 220));            // 20일선 기울기
-  if (f.mom60 > 0 && f.mom60 < 0.5) sc += 4;                   // 중기 상승 기조
+  sc += Math.max(-4, Math.min(8, f.slope20 * 220));
+  if (f.mom60 > 0 && f.mom60 < 0.5) sc += 4;
+  if (f.hlUp) sc += 3;
 
-  /* 거래량 — 지나치게 큰 값은 되레 감점(단발성 이벤트일 확률) */
+  /* 거래량의 질 — 압력(상승/하락 거래 비) + 이례성(z) */
+  if (f.udRatio >= 1.2) sc += Math.min(8, (f.udRatio - 1) * 6);
   if (f.volRatio >= 1.5 && f.volRatio <= 5) sc += Math.min(10, (f.volRatio - 1.2) * 4);
   else if (f.volRatio > 8) sc -= 6;
+  if (f.ppCnt >= 2) sc += 5;                                   // 발자국 반복
 
-  /* 과열 방어 — 여러 겹으로 */
+  /* 과열 방어 */
   sc -= Math.max(0, (f.ext20 - 0.18)) * 60;
   sc -= Math.max(0, (f.rsi - 68)) * 0.7;
   sc -= f.runUp >= 3 ? (f.runUp - 2) * 4 : 0;
-  sc -= Math.max(0, (f.vol20 - 0.045)) * 130;                  // 변동성이 클수록 감점
+  sc -= Math.max(0, (f.vol20 - 0.045)) * 130;
 
-  /* 유동성 가점 — 거래대금이 두터울수록 다음 날 실제로 사고팔 수 있다 */
+  /* 유동성 가점 */
   if (f.turnover >= 5e9) sc += 5; else if (f.turnover >= 2e9) sc += 3;
 
-  /* 근접 후보에는 '무엇이 모자란지'를 적어 준다 */
   let nearWhy = "";
   if (near) {
     if (f.drawFromHi < 0.03) nearWhy = "\uACE0\uAC00\uAD8C \uBD99\uC5B4 \uB20C\uB9BC \uC5C6\uC74C";
@@ -3093,7 +3158,15 @@ function score(cs) {
     else if (f.rsi > 68) nearWhy = "\uACFC\uC5F4 \uAD6C\uAC04";
     else nearWhy = "\uC790\uB9AC \uBBF8\uC644\uC131";
   }
-  const setupLabel = pullback ? "\uB20C\uB9BC\uBAA9 \uC7AC\uC9C4\uC785" : coil ? "\uC218\uCD95 \uD6C4 \uD655\uC7A5" : breakout ? "\uC800\uD56D \uB3CC\uD30C" : nearWhy;
+  const setupLabel = pocket ? "\uD3EC\uCF13 \uD53C\uBC97(\uAE30\uAD00 \uBC1C\uC790\uAD6D)"
+    : pullback ? "\uB20C\uB9BC\uBAA9 \uCCAB \uBC18\uB4F1"
+    : breakout ? "\uC800\uD56D \uB3CC\uD30C"
+    : coil ? "\uC218\uCD95 \uD6C4 \uD655\uC7A5"
+    : strongClose ? "\uAC15\uD55C \uB9C8\uAC10 \uC5F0\uC18D\uC131" : nearWhy;
+  /* [v15.0] 다음 날 운용 기준 — ATR(14) 기반. 손절 -1.2×ATR(폭 3~8% 클램프),
+     목표 +2×ATR%(3~12% 클램프) → 손익비 대략 1.7~2:1 */
+  const stopPct = Math.max(0.03, Math.min(0.08, f.atrPct / 100 * 1.2));
+  const tgtPct = Math.max(3, Math.min(12, f.atrPct * 2));
   return {
     near, nearWhy,
     score: Math.round(Math.max(0, Math.min(100, sc))),
@@ -3109,10 +3182,13 @@ function score(cs) {
       runUp: f.runUp, vol20: Number((f.vol20 * 100).toFixed(1)),
       turnoverEok: Math.round(f.turnover / 1e8),
       trendUp: f.upTrend,
-      /* 다음 날 운용 기준 — 자리별로 다르게 준다 */
+      atrPct: Number(f.atrPct.toFixed(2)),
+      udRatio: Number(f.udRatio.toFixed(2)),
+      ppCnt: f.ppCnt, closeStr: Number((f.closeStr * 100).toFixed(0)),
+      bwPct: Math.round(f.bwPct),
       entry: Math.round(pullback ? f.ma5 : f.last * 0.995),
-      stop: Math.round(Math.min(f.ma20, f.last * (1 - Math.max(0.03, f.vol20 * 2)))),
-      targetPct: Number((Math.max(3, Math.min(9, f.vol20 * 100 * 1.6)).toFixed(1)))
+      stop: Math.round(f.last * (1 - stopPct)),
+      targetPct: Number(tgtPct.toFixed(1))
     }
   };
 }
@@ -4517,9 +4593,19 @@ async function verify(acc, pass, legacy) {
    's'+64자리 16진수(또는 구버전 숫자 해시)만 보내므로, 그 형태가 아니면 거절한다.
    이것만으로 '규칙을 우회한 계정 생성' 경로가 닫힌다. */
 function credOk(v) {
+  /* ══ [v14.3] 새 비밀번호로 받아들일 형식 ═══════════════════════════════════
+     [무엇이 헐거웠나] 숫자 4자리 이상이면 통과시켰다("구버전 폴백"). 그런데
+     화면의 옛 해시(legacyHash)는 'h' + 16진수 형태라 이 규칙에 걸리지도 않는다.
+     쓰는 곳이 없는 규칙이면서, API 로 직접 pass:"1234" 를 보내면 그런 비밀번호로
+     계정이 만들어지는 통로만 열어 두고 있었다(실제로 통과됨을 확인).
+     [고침] 화면이 실제로 보내는 두 형식만 받는다.
+       · 현행 : s + 64자리 16진수 (SHA-256)
+       · 옛것 : h + 16진수        (legacyHash — 옛 계정 로그인 호환)
+     옛 계정의 '검증'은 verify(acc, pass, legacy) 가 따로 처리하므로,
+     여기를 좁혀도 기존 사용자가 로그인하지 못하는 일은 없다. */
   const s = String(v == null ? "" : v);
   if (/^s[0-9a-f]{64}$/i.test(s)) return true;      // 현행 SHA-256
-  if (/^-?\d{4,}$/.test(s)) return true;            // 구버전 legacyHash 폴백
+  if (/^h[0-9a-f]{6,10}$/i.test(s)) return true;    // 옛 legacyHash (h+16진수)
   return false;
 }
 async function setPassword(acc, pass) {
@@ -4831,12 +4917,27 @@ var accounts_default = async (req2) => {
         await saveAcc(id);                            /* [v9.75] */
         return json({ ok: false, err: "wrongpass" });
       }
-      await accDelete(store, id, db.accounts[id]);   /* [v9.75] 계정 키·되찾기 키까지 */
+      /* ══ [v14.2] 정말 지워졌는지 확인하고 답한다 ═══════════════════════════════
+         예전에는 지우려는 시도만 하고 무조건 ok:true 를 돌려줬다. 실제로는 하나도
+         지워지지 않았는데 화면에는 "계정이 삭제되었어요"가 떴고, 같은 아이디로
+         다시 로그인하면 그냥 들어가졌다. 확인한 것만 성공이라고 말한다. */
+      const okAcc = await accDelete(store, id, db.accounts[id]);
       delete db.accounts[id];
       delete db.users[id];
-      await usrDelete(store, id);                    /* [v9.74] 계정별 키도 함께 지운다 */
+      const okUsr = await usrDelete(store, id);
       if (db.tries) delete db.tries[id];
-      await saveDb();
+      await saveDb(true);                            /* 옛 저장소에서도 반드시 지운다 */
+      /* 캐시에 남아 있으면 다음 요청이 되살린다 — 확실히 비운다 */
+      try { delete _accCache[String(id).trim().toLowerCase()]; } catch (e) {}
+      try { delete _usrCache[id]; delete _usrSig[id]; } catch (e) {}
+      try { dbCacheSet(db); } catch (e) {}
+      /* 마지막 확인 — 정말 사라졌는가 */
+      let gone = true;
+      try { gone = (await accLoad(store, id, db)) == null; } catch (e) { gone = false; }
+      if (!okAcc || !gone) {
+        console.error("[LIVE] 계정 삭제가 완료되지 않았습니다:", id, { okAcc, okUsr, gone });
+        return json({ ok: false, err: "delfail" });
+      }
       return json({ ok: true, deleted: id });
     }
     if (action === "profile") {
@@ -5949,15 +6050,28 @@ async function accSave(st, id, acc) {
   await accIndex(st, key, acc);
   return true;
 }
+/* ══ [v14.2] 삭제는 성공 여부를 반드시 확인한다 ═══════════════════════════════
+   예전에는 모든 삭제를 try/catch 로 감싸 조용히 넘겼다. 그래서 실제로 지워지지
+   않아도 "삭제 완료"가 떴다. 지웠으면 지워졌는지 확인하고, 실패하면 알린다. */
+async function delKey(st, key) {
+  const rm = (typeof st.delete === "function") ? st.delete.bind(st)
+           : (typeof st.del === "function") ? st.del.bind(st) : null;
+  if (!rm) { console.error("[LIVE] 저장소에 삭제 기능이 없습니다:", key); return false; }
+  try { await rm(key); } catch (e) { console.error("[LIVE] 삭제 실패:", key, String(e).slice(0,90)); return false; }
+  /* 정말 사라졌는지 확인한다 */
+  try { const left = await st.get(key, { type: "json" }); if (left != null) return false; } catch (e) {}
+  return true;
+}
 async function accDelete(st, id, acc) {
   const key = String(id == null ? "" : id).trim().toLowerCase();
-  if (!key) return;
+  if (!key) return false;
   delete _accCache[key];
-  try { await st.del(accKeyOf(key)); } catch (e) {}
+  let ok = await delKey(st, accKeyOf(key));
   try {
-    if (acc && acc.googleSub) await st.del("gsub:" + acc.googleSub);
-    if (acc && acc.email) await st.del("mail:" + String(acc.email).trim().toLowerCase());
+    if (acc && acc.googleSub) await delKey(st, "gsub:" + acc.googleSub);
+    if (acc && acc.email) await delKey(st, "mail:" + String(acc.email).trim().toLowerCase());
   } catch (e) {}
+  return ok;
 }
 /* 구글 sub·이메일로 계정 아이디를 되찾는다. 새 키를 먼저 보고, 없으면 옛 db 를 훑는다. */
 async function accFindByGoogle(st, gsub, email, legacyDb) {
@@ -6053,9 +6167,10 @@ async function usrSave(st, id, val, force) {
   }
 }
 async function usrDelete(st, id) {
-  if (!id) return;
+  if (!id) return false;
   delete _usrCache[id];
-  try { await st.del("usr:" + id); } catch (e) {}
+  try { delete _usrSig[id]; } catch (e) {}    /* [v14.2] 지문도 함께 — 안 지우면 다음 저장이 건너뛴다 */
+  return await delKey(st, "usr:" + id);
 }
 var _dbCache=null, _dbCacheAt=0;
 var DB_CACHE_MS=90000;
@@ -14506,17 +14621,26 @@ async function naverWorldPopular(diag,budget){
   }
   return null;
 }
-/* 야후 화면(스크리너) — 한 번에 100종. 이름·거래소·시가총액까지 함께 준다 */
-async function yahooScreen(scrId,count,diag,budget){
+/* 야후 화면(스크리너) — 한 번에 100종. 이름·거래소·시가총액까지 함께 준다
+   [v14.5.1] 2023년부터 쿠키+crumb 없이는 401/403/429 를 자주 던진다 —
+   인증 오류를 만나면 fc.yahoo.com 쿠키 → getcrumb 를 밟아 딱 한 번 재시도한다. */
+async function yahooScreen(scrId,count,diag,budget,_auth){
   if(budget&&budget.left<=1)return null;
   if(budget)budget.left--;
   try{
     const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
-    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
-      +"?scrIds="+encodeURIComponent(scrId)+"&count="+count+"&start=0",
-      {headers:{ "User-Agent":UA20, Accept:"application/json" },signal:c.signal});
+    const hdr={ "User-Agent":UA20, Accept:"application/json" };
+    let qs="?scrIds="+encodeURIComponent(scrId)+"&count="+count+"&start=0";
+    if(_auth&&_auth.crumb){ hdr.Cookie=_auth.cookie; qs+="&crumb="+encodeURIComponent(_auth.crumb); }
+    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"+qs,
+      {headers:hdr,signal:c.signal});
     clearTimeout(t);
-    if(!r.ok){ diag.push(scrId+":"+r.status); return null; }
+    if(!r.ok){ diag.push(scrId+":"+r.status);
+      if(!_auth&&(r.status===401||r.status===403||r.status===429)){
+        const a=await yahooCrumbGet(diag);
+        if(a)return yahooScreen(scrId,count,diag,budget,a);
+      }
+      return null; }
     const j=await r.json();
     const q=(j&&j.finance&&j.finance.result&&j.finance.result[0]&&j.finance.result[0].quotes)||[];
     const out=[];
@@ -15724,6 +15848,301 @@ ROUTES["usinfo"]=usinfo_default;
 ROUTES["usall"]=usall_default;
 ROUTES["usview"]=usview_default;
 ROUTES["uspopular"]=uspopular_default;
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v14.5] /api/usrank — 미국 '전체 상장 종목' 상승률·하락률 순위
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇이 잘못돼 있었나] 해외 상승률·하락률 탭은 앱에 내장된 113종 유니버스
+   안에서만 정렬했다(화면에도 '유니버스 113종 기준'이라 적혀 있었다).
+   그래서 실제 시장 1위가 +198%(PFSA)인 날에도 앱 1위는 SOXS +15% 였다 —
+   순위가 '계산이 틀린' 게 아니라 '모집단이 좁아' 실제 MTS 와 전혀 달랐다.
+   [고침] 서버가 시장 전체 순위를 받아 내려보낸다.
+     ① 네이버 해외증시 순위(국내 MTS 와 같은 눈높이 · 1달러 미만 종목 포함)를
+        후보 주소 사다리로 시도하고, 한 번 성공한 주소는 KV 에 적어 재사용
+     ② 실패하면 야후 스크리너(day_gainers/day_losers + 소형주·활발주 보강)
+     ③ 그래도 실패하면 {ok:false} — 화면은 기존 113종 계산으로 버티되
+        '전체 시장 기준이 아님'을 밝힌다
+   응답 순서 = 순위. 각 항목에 가격·등락률을 실어 보내므로, 시세 등록이 안 되는
+   낯선 티커도 화면은 값을 그대로 보여 줄 수 있다. */
+function usRankRowFrom(x){
+  /* 네이버 해외 종목 행(JSON 키가 화면마다 조금씩 다르다)을 공통 꼴로 */
+  const num=(v)=>{ if(v==null)return null; const n=parseFloat(String(v).replace(/,/g,"")); return isNaN(n)?null:n; };
+  const reu=String(x.reutersCode||x.reuters_code||"").toUpperCase();
+  /* [v14.5.1] 로이터코드 'BRK.B.N' 꼴(클래스주) — 마지막 조각이 거래소(O/N/A)면
+     떼어 내고, 남은 조각들을 '-'로 이어 티커로 쓴다(BRK-B). 예전 split('.')[0] 은
+     'BRK' 만 남겨 다른 종목이 되어 버렸다. */
+  let reuT="",reuSfx=null;
+  if(reu){ const seg=reu.split(".");
+    if(seg.length>1&&(seg[seg.length-1]==="O"||seg[seg.length-1]==="N"||seg[seg.length-1]==="A"))
+      reuSfx=seg.pop();
+    reuT=seg.join("-"); }
+  let t=String(x.symbolCode||x.symbol||x.ticker||reuT).toUpperCase().replace(/\./g,"-");
+  if(!/^[A-Z][A-Z0-9-]{0,6}$/.test(t))return null;
+  let sfx=reuSfx;
+  if(!sfx)sfx=usExchSfx(x.stockExchangeType&&(x.stockExchangeType.name||x.stockExchangeType)||x.exchangeCode||x.stockExchangeName||"");
+  const px=num(x.closePrice!=null?x.closePrice:(x.tradePrice!=null?x.tradePrice:x.price));
+  let rate=num(x.fluctuationsRatio!=null?x.fluctuationsRatio:(x.changeRate!=null?x.changeRate:x.rate));
+  /* changeRate 가 0.198 같은 소수 비율로 오는 응답도 있다 — %로 통일 */
+  if(rate!=null&&Math.abs(rate)<=1&&x.changeRate!=null&&x.fluctuationsRatio==null)rate=+(rate*100).toFixed(2);
+  const kr=/[가-힣]/.test(String(x.stockName||""))?String(x.stockName):"";
+  const en=!kr?String(x.stockName||x.stockNameEng||x.name||"").trim():String(x.stockNameEng||"").trim();
+  const vol=num(x.accumulatedTradingVolume!=null?x.accumulatedTradingVolume:x.volume)||0;
+  const cap=num(x.marketValue!=null?x.marketValue:x.marketCap)||0;
+  if(px==null&&rate==null)return null;
+  return {t,sfx,kr,en,px,rate,vol,val:(px&&vol)?Math.round(px*vol):0,cap};
+}
+function usFindRankArray(o,depth){
+  /* JSON 을 훑어 '해외 종목 순위 배열'(20개 이상 · 등락률 필드 보유)을 찾는다 */
+  if(!o||typeof o!=="object"||(depth||0)>7)return null;
+  if(Array.isArray(o)){
+    if(o.length>=20&&o[0]&&typeof o[0]==="object"
+      &&(o[0].reutersCode!=null||o[0].symbolCode!=null)
+      &&(o[0].fluctuationsRatio!=null||o[0].changeRate!=null||o[0].rate!=null)){
+      const out=[]; for(const it of o){ const r=usRankRowFrom(it); if(r)out.push(r); }
+      return out.length>=20?out:null;
+    }
+    for(const it of o){ const r=usFindRankArray(it,(depth||0)+1); if(r)return r; }
+    return null;
+  }
+  for(const k in o){ const r=usFindRankArray(o[k],(depth||0)+1); if(r)return r; }
+  return null;
+}
+async function naverWorldRank(kind,diag,budget){
+  const savedKey="usrk:nvurl:"+kind;
+  const cands=[];
+  try{ const s=KV?await KV.get(savedKey):null; if(s)cands.push(s); }catch(e){}
+  const ks=kind==="up"?["up","rise"]:["down","fall"];
+  for(const k of ks){
+    cands.push(`https://api.stock.naver.com/stock/ranking/${k}?nation=USA&page=1&pageSize=100`);
+    cands.push(`https://m.stock.naver.com/api/stocks/worldStock/${k}/USA?page=1&pageSize=100`);
+    cands.push(`https://api.stock.naver.com/stock/worldRanking/${k}?nationType=USA&page=1&pageSize=100`);
+  }
+  cands.push(`https://m.stock.naver.com/worldstock/ranking/${kind==="up"?"up":"down"}/USA`);
+  const seen=new Set();
+  for(const u of cands){
+    if(seen.has(u))continue; seen.add(u);
+    if(budget&&budget.left<=1)break; if(budget)budget.left--;
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+      const r=await fetch(u,{headers:{ "User-Agent":UA25, Accept:"text/html,application/json",
+        "Accept-Language":"ko-KR,ko;q=0.9", Referer:"https://m.stock.naver.com/" },signal:c.signal});
+      clearTimeout(t);
+      if(!r.ok){ diag.push("nvrk:"+r.status); continue; }
+      const txt=await r.text();
+      const jsons=[]; try{ jsons.push(JSON.parse(txt)); }catch(e){}
+      const mNext=txt.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if(mNext){ try{ jsons.push(JSON.parse(mNext[1])); }catch(e){} }
+      let arr=null;
+      for(const j of jsons){ arr=usFindRankArray(j,0); if(arr)break; }
+      if(!arr){ diag.push("nvrk:no-list"); continue; }
+      /* 방향 검증 — 상승 탭인데 하락 목록을 받는 사고를 막는다.
+         앞쪽 표본의 부호가 80% 이상 맞고, 1위의 |등락률| ≥ 꼴찌의 |등락률| 이어야 한다 */
+      const rates=arr.map(x=>x.rate).filter(v=>v!=null);
+      if(rates.length<10){ diag.push("nvrk:no-rate"); continue; }
+      const head=rates.slice(0,10);
+      const good=head.filter(v=>kind==="up"?v>=0:v<=0).length;
+      if(good<8||Math.abs(rates[0])+1e-9<Math.abs(rates[rates.length-1])){ diag.push("nvrk:dir"); continue; }
+      try{ if(KV)await KV.put(savedKey,u,{expirationTtl:7*86400}); }catch(e){}
+      diag.push("nvrk:"+arr.length);
+      return arr.slice(0,100);
+    }catch(e){ diag.push("nvrk:"+String(e).slice(0,10)); }
+  }
+  return null;
+}
+async function yahooUsRank(kind,diag,budget){
+  const key=(x)=>x.t;
+  const merge=(a,b)=>{ const m=new Map(); (a||[]).concat(b||[]).forEach(x=>{ if(x&&x.rate!=null&&!m.has(key(x)))m.set(key(x),x); }); return [...m.values()]; };
+  if(kind==="up"){
+    const a=await yahooScreen("day_gainers",100,diag,budget);
+    /* 야후 day_gainers 는 5달러 이상만 준다 — 실제 1위권(1달러대 급등주)을 놓친다.
+       소형주 급등 화면을 합쳐 빈틈을 줄인다. */
+    const b=await yahooScreen("small_cap_gainers",100,diag,budget);
+    const m=merge(a,b).filter(x=>x.rate>0).sort((x,y)=>y.rate-x.rate);
+    return m.length?m.slice(0,100):null;
+  }
+  const a=await yahooScreen("day_losers",100,diag,budget);
+  const b=(await yahooScreen("most_actives",250,diag,budget)||[]).filter(x=>x.rate!=null&&x.rate<0);
+  const m=merge(a,b).filter(x=>x.rate<0).sort((x,y)=>x.rate-y.rate);
+  return m.length?m.slice(0,100):null;
+}
+/* ══ [v14.5.1] /api/usrank 원천 3중 보강 ═══════════════════════════════════════
+   [무엇이 문제였나] v14.5 의 두 원천이 실전에서 둘 다 무너질 수 있었다.
+     · 네이버: nation=USA 꼴의 '추측 주소'들 — 실제 공개 API 는 거래소별
+       (…/stock/exchange/NASDAQ/up)이라 전부 404 가능성이 높다.
+     · 야후 스크리너: 2023년부터 쿠키+crumb 없이는 401/403 을 자주 던진다.
+   둘 다 실패하면 {ok:false} → 화면은 113종 폴백 = 첨부 사진 그대로.
+   [고침]
+     ① 네이버 '거래소별' 순위(나스닥·뉴욕·아멕스)를 각각 받아 병합 — 실제 MTS
+        '전체' 탭과 같은 모집단이 된다. 성공 주소틀은 KV 에 적어 재사용.
+     ② TradingView 스캐너(POST · 무인증 · 미국 전 종목) 를 새 원천으로 추가.
+     ③ 야후는 fc.yahoo.com 쿠키 → getcrumb 부트스트랩을 밟은 뒤 재시도.
+   우선순위: 네이버(한글 종목명 포함) → TradingView → 야후. */
+async function naverWorldRankExch(kind,diag,budget){
+  const savedKey="usrk:nvex:"+kind;
+  let savedTpl=null; try{ savedTpl=KV?await KV.get(savedKey):null; }catch(e){}
+  const cats=kind==="up"?["up","rise"]:["down","fall"];
+  const tpls=[];
+  if(savedTpl)tpls.push(savedTpl);
+  for(const c of cats){
+    tpls.push("https://api.stock.naver.com/stock/exchange/{EX}/"+c+"?page=1&pageSize=100");
+    tpls.push("https://m.stock.naver.com/api/stock/exchange/{EX}/"+c+"?page=1&pageSize=100");
+  }
+  const EXS=["NASDAQ","NYSE","AMEX"];
+  let zeroStreak=0;   /* [v14.5.2] 주소틀 2개(두 호스트)가 연속 전멸이면 나머지도 죽었다고 보고 멈춘다 — 예산 절약 */
+  for(const tpl of tpls){
+    if(budget&&budget.left<=EXS.length)break;
+    if(zeroStreak>=2)break;
+    const got=[];
+    for(const ex of EXS){
+      if(budget)budget.left--;
+      try{
+        const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+        const r=await fetch(tpl.replace("{EX}",ex),{headers:{ "User-Agent":UA25, Accept:"application/json",
+          "Accept-Language":"ko-KR,ko;q=0.9", Referer:"https://m.stock.naver.com/" },signal:c.signal});
+        clearTimeout(t);
+        if(!r.ok){ diag.push("nvex:"+ex+":"+r.status); continue; }
+        const j=await r.json().catch(()=>null);
+        const arr=j?usFindRankArray(j,0):null;
+        if(arr&&arr.length){ diag.push("nvex:"+ex+":"+arr.length); got.push(...arr); }
+        else diag.push("nvex:"+ex+":no-list");
+      }catch(e){ diag.push("nvex:"+ex+":"+String(e).slice(0,10)); }
+    }
+    if(got.length>=30){
+      zeroStreak=0;
+      /* 병합 → 등락률 정렬(=전체 탭) · 방향 검증 */
+      const m=new Map(); got.forEach(x=>{ if(x&&x.rate!=null&&!m.has(x.t))m.set(x.t,x); });
+      let all=[...m.values()].filter(x=>kind==="up"?x.rate>0:x.rate<0);
+      all.sort((a,b)=>kind==="up"?b.rate-a.rate:a.rate-b.rate);
+      if(all.length>=20){
+        try{ if(KV)await KV.put(savedKey,tpl,{expirationTtl:7*86400}); }catch(e){}
+        diag.push("nvex:merged:"+all.length);
+        return all.slice(0,100);
+      }
+    }
+    else if(got.length===0)zeroStreak++;   /* 이 주소틀은 세 거래소 전부 빈손 */
+  }
+  return null;
+}
+async function tradingviewUsRank(kind,diag,budget){
+  if(budget&&budget.left<=0)return null; if(budget)budget.left--;
+  try{
+    const body={
+      filter:[{left:"change",operation:"nempty"},{left:"close",operation:"greater",right:0},
+              {left:"volume",operation:"greater",right:0}],
+      options:{lang:"ko"},markets:["america"],
+      symbols:{query:{types:["stock","dr","fund"]}},
+      columns:["name","description","close","change","volume","exchange"],
+      sort:{sortBy:"change",sortOrder:kind==="up"?"desc":"asc"},
+      range:[0,100]};
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),7000);
+    const r=await fetch("https://scanner.tradingview.com/america/scan",{
+      method:"POST",
+      headers:{ "User-Agent":UA25, "content-type":"application/json",
+        Accept:"application/json", Origin:"https://www.tradingview.com",
+        Referer:"https://www.tradingview.com/" },
+      body:JSON.stringify(body),signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok){ diag.push("tv:"+r.status); return null; }
+    const j=await r.json().catch(()=>null);
+    const rows=(j&&j.data)||[];
+    const out=[];
+    for(const it of rows){
+      const d=it.d||[];
+      const t2=String(d[0]||String(it.s||"").split(":")[1]||"").toUpperCase().replace(/\./g,"-");
+      if(!/^[A-Z][A-Z0-9-]{0,6}$/.test(t2))continue;
+      const px=+d[2]||null, rate=(d[3]!=null)?+(+d[3]).toFixed(2):null, vol=+d[4]||0;
+      if(rate==null)continue;
+      if(kind==="up"?rate<=0:rate>=0)continue;   // 방향이 섞인 응답 방어
+      const exch=String(d[5]||String(it.s||"").split(":")[0]||"");
+      out.push({t:t2,sfx:usExchSfx(exch)||usGuessSfx(t2),kr:"",
+        en:String(d[1]||"").trim(),px,rate,vol,val:(px&&vol)?Math.round(px*vol):0,cap:0});
+    }
+    if(out.length<20){ diag.push("tv:few"+out.length); return null; }
+    diag.push("tv:"+out.length);
+    return out.slice(0,100);
+  }catch(e){ diag.push("tv:"+String(e).slice(0,10)); return null; }
+}
+/* 야후 쿠키+crumb — 6시간 KV 캐시. 실패해도 조용히 null(무-crumb 경로가 통하는 지역도 있다) */
+async function yahooCrumbGet(diag){
+  try{
+    const c=KV?await KV.get("usrk:ycrumb","json"):null;
+    if(c&&c.crumb&&c.cookie&&Date.now()-(c.at||0)<6*3600e3)return c;
+  }catch(e){}
+  try{
+    const c1=new AbortController(); const t1=setTimeout(()=>c1.abort(),6000);
+    const r1=await fetch("https://fc.yahoo.com/",{headers:{ "User-Agent":UA20 },signal:c1.signal,redirect:"manual"});
+    clearTimeout(t1);
+    const sc=r1.headers.get("set-cookie")||"";
+    const cookie=sc.split(";")[0]||"";
+    if(!cookie){ diag.push("ycr:no-cookie"); return null; }
+    const c2=new AbortController(); const t2=setTimeout(()=>c2.abort(),6000);
+    const r2=await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb",
+      {headers:{ "User-Agent":UA20, Accept:"text/plain", Cookie:cookie },signal:c2.signal});
+    clearTimeout(t2);
+    if(!r2.ok){ diag.push("ycr:"+r2.status); return null; }
+    const crumb=(await r2.text()).trim();
+    if(!crumb||crumb.length>32||crumb.includes("<")){ diag.push("ycr:bad"); return null; }
+    const rec={crumb,cookie,at:Date.now()};
+    try{ if(KV)await KV.put("usrk:ycrumb",JSON.stringify(rec),{expirationTtl:6*3600}); }catch(e){}
+    diag.push("ycr:ok");
+    return rec;
+  }catch(e){ diag.push("ycr:"+String(e).slice(0,10)); return null; }
+}
+async function usrank_default(req2,ctx2){
+  const url=new URL(req2.url);
+  const kind=url.searchParams.get("type")==="down"?"down":"up";
+  const CK="usrk:v1:"+kind;
+  const fresh=url.searchParams.get("fresh")==="1";
+  const _open=usMarketOpenish();
+  const TTL=_open?5*60e3:26*3600e3;   // 장중 5분 · 폐장 시 마지막 개장일 값 고정
+  const J=(o)=>new Response(JSON.stringify(o),
+    {headers:{ "content-type":"application/json", "cache-control":"no-store", "access-control-allow-origin":"*" }});
+  if(!fresh){
+    try{
+      const c=KV?await KV.get(CK,"json"):null;
+      if(c&&c.at&&Date.now()-c.at<TTL&&Array.isArray(c.items)&&c.items.length>=20)
+        return J({ok:true,type:kind,items:c.items,src:c.src,mktOpen:c.mktOpen,madeAt:c.at,cached:1});
+    }catch(e){}
+  }
+  /* [v14.5.2] 호출 예산 — 실측: 네이버가 '한 번 성공해 KV 에 주소가 저장된 뒤'
+     죽으면, 저장 주소 재시도까지 겹쳐 24회가 사다리 중간에서 바닥나
+     마지막 원천(야후)이 시도조차 못 했다(하네스 재현). 예산을 34로 올리고,
+     야후 직전에 최소 4회를 보장한다(워커 한도 50회 대비 여유 충분). */
+  const diag=[],budget={left:34};
+  /* 원천 사다리: 네이버(옛 주소틀) → 네이버 거래소별 병합 → TradingView → 야후 */
+  let src="naver", items=await naverWorldRank(kind,diag,budget);
+  if(!items||items.length<20){ src="naver"; items=await naverWorldRankExch(kind,diag,budget); }
+  if(!items||items.length<20){ src="tradingview"; items=await tradingviewUsRank(kind,diag,budget); }
+  if(!items||items.length<20){ src="yahoo"; if(budget.left<4)budget.left=4; items=await yahooUsRank(kind,diag,budget); }
+  if(!items||!items.length)return J({ok:false,type:kind,diag});
+  items=items.slice(0,100).map(x=>({ t:x.t, sfx:x.sfx||usGuessSfx(x.t), kr:x.kr||"", en:x.en||"",
+    px:(x.px!=null?x.px:null), rate:(x.rate!=null?x.rate:null), val:x.val||0, vol:x.vol||0, cap:x.cap||0 }));
+  const payload={at:Date.now(),items,src,mktOpen:_open};
+  try{ if(KV)await KV.put(CK,JSON.stringify(payload),{expirationTtl:_open?900:30*3600}); }catch(e){}
+  return J({ok:true,type:kind,items,src,mktOpen:_open,madeAt:payload.at,diag});
+}
+ROUTES["usrank"]=usrank_default;
+/* [v14.5.1] /api/usrankdiag — 순위 원천 4곳을 각각 직접 두드려 결과를 보여 준다.
+   배포 직후 어느 원천이 살아 있는지 화면(조회수 진단과 같은 창)에서 바로 확인용. */
+async function usrankdiag_default(req2,ctx2){
+  const J=(o)=>new Response(JSON.stringify(o),
+    {headers:{ "content-type":"application/json", "cache-control":"no-store", "access-control-allow-origin":"*" }});
+  const kind=(new URL(req2.url)).searchParams.get("type")==="down"?"down":"up";
+  const tried=[],usable=[];
+  const run=async(label,fn)=>{
+    const d=[],b={left:12};
+    let n=0,err="";
+    try{ const a=await fn(kind,d,b); n=(a&&a.length)||0; }catch(e){ err=String(e).slice(0,60); }
+    tried.push({label,parsed:n,err:err||undefined,detail:d.slice(0,8).join(" ")});
+    if(n)usable.push(label);
+  };
+  await run("네이버(통합 주소틀)",naverWorldRank);
+  await run("네이버(거래소별 병합)",naverWorldRankExch);
+  await run("TradingView 스캐너",tradingviewUsRank);
+  await run("야후 스크리너",yahooUsRank);
+  return J({ok:true,type:kind,tried,usable});
+}
+ROUTES["usrankdiag"]=usrankdiag_default;
 ROUTES["usdiag"]=usdiag_default;
 
 
@@ -15757,7 +16176,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "14.1.0";
+var APP_VER = "15.0.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

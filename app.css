@@ -1386,8 +1386,19 @@ html[data-theme="dark"] .wl-tabwrap::after{background:linear-gradient(90deg,rgba
 .srch-short{margin:8px 0 4px}
 .sh-chip.sc{background:var(--bg)}
 /* ===== [S3] 글자 크기 / [S17] 모션 / [S18] 색약 ===== */
+/* ══ [v14.4] 글자 크기 배율 — 브라우저 두 세대를 모두 맞춘다 ═══════════════════
+   zoom 의 동작이 2024년에 표준화되면서 브라우저마다 정반대가 됐다.
+   · 표준 zoom(크롬 128+·최신 WebView): zoom 이 배치 폭을 스스로 1/배율로 줄인다.
+     여기에 v14.3.1 의 width:calc(100%/1.12) 보정까지 겹치면 '이중 축소'가 되어
+     본문 폭이 1/1.254 로 좁아지고 오른쪽에 빈 띠가 생기며, 좁아진 폭 때문에
+     이름·버튼이 접히고 잘렸다(첨부 사진들의 증상). → 표준 엔진에는 보정을 뺀다.
+   · 구형 zoom(옛 크롬·일부 WebView): 배치 폭을 그대로 두고 그림만 키운다.
+     이때는 보정이 꼭 필요하다. → 부팅 때 JS 가 실측으로 판별해
+     구형일 때만 html.fs-zoom-legacy 를 붙이고, 그 경우에만 보정을 건다. */
 html[data-fs="sm"] body{zoom:.9}
 html[data-fs="lg"] body{zoom:1.12}
+html.fs-zoom-legacy[data-fs="sm"] body{width:calc(100%/.9)}
+html.fs-zoom-legacy[data-fs="lg"] body{width:calc(100%/1.12)}
 html.reduce-motion *,html.reduce-motion *::before,html.reduce-motion *::after{animation:none!important;transition:none!important}
 html.cb-palette{--up:#e69f00;--down:#0072b2}
 
@@ -6411,3 +6422,255 @@ html[data-theme="dark"] .tt-y{color:#22c55e}
 }
 
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v14.3.1] 모바일 전면 수리 — 첨부 실기기 스크린샷 8장(글자 세로 깨짐·잘림·
+   비율 붕괴)의 원인별 교정. 전부 '뒤에 덧붙여 덮어쓰기'라 기존 규칙은 그대로다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ① [근본 원인 A] '글자 크게' 설정 = body{zoom:1.12}
+   zoom 은 실제 배치 폭을 12% 좁히지만(412px 폰 → 368px 배치),
+   @media 는 기기 폭(412px) 그대로 판정한다. 그래서 380px용 압축 규칙은
+   켜지지 않은 채 화면만 좁아져 — 사진 1~8 전체의 공통 뿌리였다.
+   좁은 기기에서는 확대율을 낮춰 배치 폭 하한(약 360px)을 지킨다. */
+@media (max-width:430px){
+  html[data-fs="lg"] body{zoom:1.07}
+  html.fs-zoom-legacy[data-fs="lg"] body{width:calc(100%/1.07)}
+}
+@media (max-width:370px){
+  html[data-fs="lg"] body{zoom:1.03}
+  html.fs-zoom-legacy[data-fs="lg"] body{width:calc(100%/1.03)}
+}
+
+/* ② [근본 원인 B] 한글 낱글자 줄바꿈 — '편\n집'·'일괄 알\n림'·'SK하이닉\n스'(사진 6).
+   기본 word-break:normal 은 한글을 아무 글자 사이에서나 꺾는다.
+   keep-all 은 공백에서만 줄을 바꾼다(한국어 웹 표준 관행). */
+html{word-break:keep-all}
+
+/* ③ 칩·소형 버튼은 아예 줄바꿈 금지 — 두 단어짜리('일괄 알림')도 세로로 깨지지 않게.
+   대신 이들이 든 줄은 ⑧에서 가로 스크롤을 준다. */
+.wl-mini,.wl-tab,.sh-chip,.uz-chip,.hh-c,.tf-seg button,.seg2 button,.d-tool,
+.qty-quick button,.ord-tabs button,.info-tabs button,.rank-tabs button,.mkt-tabs button,
+.hh-mkt button,.etf-more,.wl-fd,.px-src,.nxt-badge,.mkt-tag,.tag{white-space:nowrap}
+
+/* ④ 헤더 — 사용자 칩이 오른쪽 밖으로 나가던 문제(실측: 412px 화면에서 right 457px).
+   이름만 말줄임하고 칩·시계는 줄어들 수 있게 한다. */
+@media (max-width:768px){
+  .header-right{min-width:0;flex:0 1 auto}
+  .userchip{min-width:0;flex:0 1 auto;overflow:hidden}
+  #uName{max-width:24vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+}
+
+/* ⑤ 종목 상세 통계(사진 5: '고가 288,000'·'하한가 192,200' 잘림) —
+   4열 고정 그리드에서 1fr 의 최소값은 auto 라 긴 숫자가 열을 밀어
+   판 밖으로 넘쳤다. 좁은 화면은 2열로, 열 최소폭은 0으로 명시한다. */
+@media (max-width:640px){
+  .d-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .st{padding:10px 14px}
+  .st .v{white-space:nowrap;font-size:13.5px}
+}
+
+/* ⑥ 상세 머리(로고가 뜨기 전 '코스피' 자리표시 글자가 이름과 겹쳐
+   문서 폭을 576px까지 벌리던 과도기 넘침) — 어떤 순간에도 판을 못 넘게. */
+.d-head{overflow:hidden}
+#dName{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;max-width:100%}
+.d-code,.d-tags{min-width:0;overflow-wrap:anywhere}
+
+/* ⑦ 주문 패널(사진 1: 수량 스테퍼의 '주' 단위가 화면 끝에서 잘림) —
+   input 의 고유 최소폭이 flex 축소를 막아 스테퍼가 판 밖으로 넘쳤다. */
+.stepper{max-width:100%}
+.stepper input{min-width:0}
+.ord-summary{gap:8px;flex-wrap:wrap;align-items:baseline}
+.ord-summary .amt{min-width:0;overflow-wrap:anywhere;text-align:right}
+
+/* ⑧ 관심종목 도구 줄(사진 6) — 버튼이 세로로 깨지는 대신 줄 전체를 옆으로 민다. */
+.wl-tools{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+.wl-tools::-webkit-scrollbar{display:none}
+.wl-tools>*{flex:0 0 auto}
+
+/* ⑨ 관심종목 요약 카드(사진 6: 'SK하이닉스'가 두 줄로 꺾임) —
+   한 줄에 두 장씩 넉넉히 펴고, 이름은 한 줄 유지. */
+@media (max-width:640px){
+  .ws-c{flex:1 1 44%;min-width:44%}
+  .ws-c b{white-space:nowrap;overflow:hidden}
+  .ws-c b i{flex:0 0 auto}
+}
+
+/* ⑩ 관심종목 표(사진 6: '등락률'부터 오른쪽이 잘림) —
+   좁은 화면에서는 '전일대비'(3열)와 '거래량'(6열)을 접어
+   종목·현재가·등락률·봉·알림이 옆으로 밀지 않고 한 판에 들게 한다. */
+@media (max-width:560px){
+  #view-watch .table-wrap table{min-width:0;width:100%}
+  #view-watch th:nth-child(3),#view-watch tbody td:nth-child(3),
+  #view-watch th:nth-child(6),#view-watch tbody td:nth-child(6){display:none}
+  #view-watch tbody td .nm{font-size:13.5px}
+}
+
+/* ⑪ 검색·순위 목록(사진 3: 이름이 '삼' 한 글자, 코드가 '00593…') —
+   가격 칸 안의 세션 배지('장 종료')가 auto 열을 옆으로 벌려
+   이름 열(1fr)을 13px까지 눌러 버렸다(실측). 배지를 가격 위 줄로 올리고
+   등락 칸 최소폭을 푼다 → 이름·코드가 제 폭을 되찾는다. */
+@media (max-width:520px){
+  .sr .px{display:flex;flex-direction:column;align-items:flex-end;gap:2px;justify-self:end}
+  .sr .px .px-src{margin:0}
+  .sr .ch{min-width:0;font-size:12px}
+  .sr .rk{font-size:11px}
+  .sr .cd{font-size:11px}
+}
+
+/* ⑫ ETF 목록(사진 8: 이름이 사라지고 코드가 '069…'만 남음) —
+   680px 이하용 고정 열(26+34+92+82px)이 '글자 크게' 배치 폭에서 이름 열을
+   16px까지 짓눌렀다(실측). 숫자 열을 auto(내용 맞춤)로 바꿔 이름이 남은
+   폭을 전부 갖게 한다. */
+@media (max-width:680px){
+  .etf-table-head,.etf-row{grid-template-columns:22px 30px minmax(0,1fr) auto auto;gap:8px}
+  .etf-row .c2,.etf-row .c3{font-size:12.5px}
+  .etf-row .e2-nm b{font-size:13px}
+  .etf-row .e2-nm .etf-brand{max-width:72px;overflow:hidden;text-overflow:ellipsis}
+}
+@media (max-width:400px){
+  .etf-table-head,.etf-row{grid-template-columns:18px 26px minmax(0,1fr) auto auto;gap:6px}
+}
+
+/* ⑬ 홈 인기 종목 줄(감사 실측: 문서 폭 719px, 칩 줄이 좌우로 −393~805px) —
+   칩 줄이 부모 폭을 무시하고 내용 폭으로 커져 홈 전체가 옆으로 끌렸다.
+   줄 자체를 스크롤 상자로 못박는다. */
+.home-hot-wrap{max-width:100%;min-width:0}
+.home-hot{flex:1 1 100%;min-width:0;max-width:100%;overflow-x:auto;justify-content:flex-start!important}
+.home-hot>*{flex:0 0 auto}
+
+/* ⑭ '아주 좁은 화면' 압축 규칙(기존 380px 전용)을 '글자 크게' 기기에도 —
+   412px 폰이라도 lg 배치 폭은 385px 안팎이라 같은 압축이 필요하다. */
+@media (max-width:430px){
+  html[data-fs="lg"] .sr .nm{font-size:13.5px}
+  html[data-fs="lg"] .sr .px{font-size:13px}
+  html[data-fs="lg"] .sr .ch{font-size:11.5px;min-width:0}
+  html[data-fs="lg"] .table-wrap table,html[data-fs="lg"] .cmp-wrap table{min-width:460px}
+}
+
+/* ⑮ 마지막 안전망 — 어떤 판도 화면 폭을 넘지 못한다(넘치면 그 판 안에서만 스크롤). */
+.panel,.sec,.card{max-width:100%}
+
+/* ⑯ [거래·주문 화면 — 마지막 남은 문서 넘침(실측: 360px에서 문서 폭 513px)] —
+   .trade-grid 의 1fr 열은 최소폭이 auto 라, 패널 안 nowrap 줄들의 고유폭(약 500px)
+   아래로는 절대 줄어들지 않았다. 패널 두 장이 그 폭을 고집하며 문서를 옆으로
+   벌렸고, 종목 머리말·주문 패널·통계 격자가 통째로 오른쪽에서 잘렸다(사진 1·5).
+   열 최소폭을 0으로 명시하고 패널에도 축소를 허용한다 — 데스크톱(1fr 360px)은
+   360px 고정 열이 그대로라 배치가 변하지 않고, 좁은 화면 한 열일 때만 효과가 난다. */
+.trade-grid{grid-template-columns:minmax(0,1fr) 360px}
+@media (max-width:900px){ .trade-grid{grid-template-columns:minmax(0,1fr)} }
+.trade-grid>.panel{min-width:0;max-width:100%}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v14.4] 모바일 마무리 — Playwright 실측 감사(320·360·412·600·720px ×
+   글자크기 md/lg)에서 남은 넘침 전부 교정. 뒤에 덧붙여 기존 규칙은 그대로다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ㉑ 통합·KRX·NXT 3분할 카드(실측: 360px에서 NXT 칸이 355px로 판을 밀어냄) —
+   1fr 의 최소폭은 auto 라, 말줄임(ellipsis)이 걸린 .ex-v 조차 '원문 전체 폭'을
+   최소폭으로 주장했다. 열·칸·글줄 모두 최소폭 0을 명시해야 말줄임이 실제로 든다. */
+.ex-row{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ex-box{min-width:0;max-width:100%}
+.ex-box .ex-v,.ex-box .ex-ch,.ex-box .ex-px{min-width:0;max-width:100%}
+.ex-note{min-width:0;overflow-wrap:anywhere}
+
+/* ㉒ 종목요약 가격 줄(실측: 360px에서 '▼ -11,000 (-4.01%)' 가 9px 넘침) —
+   가격과 등락이 한 줄(nowrap 베이스라인 정렬)을 고집했다. 모자라면 등락이
+   아랫줄로 내려온다. */
+.sum-price{flex-wrap:wrap;row-gap:2px;min-width:0}
+.sum-price .sp-now{min-width:0}
+.sum-price .sp-chg{white-space:nowrap}
+
+/* ㉓ 초소형 화면(≈320px·폴더블 커버 등) — 헤더 사용자 칩의 등급 배지·화살표가
+   3~17px 삐져나갔다(실측). 여백을 조이고 겹치는 장식부터 순서대로 줄인다. */
+@media (max-width:380px){
+  .header-inner{gap:8px;padding:8px 12px}
+  .header-right{gap:6px}
+  .userchip{gap:5px;padding:4px 5px}
+  #uName{max-width:20vw}
+}
+@media (max-width:350px){
+  .userchip .tier-mini{display:none}   /* 등급은 프로필 창 안에서 확인 가능 */
+  #uName{max-width:17vw}
+}
+/* 관심종목 표 등락률 칸이 320px에서 4px 넘침 — 칸 여백·글자를 살짝 조인다 */
+@media (max-width:350px){
+  #view-watch td,#view-watch th{padding-left:6px;padding-right:6px}
+  #view-watch td .num{font-size:12px}
+}
+
+/* ㉔ 관심종목 요약 카드(베스트/워스트) — 320px에서 등락률(%)이 4px 넘쳤다.
+   이름이 남는 폭에서 말줄임되고 %는 항상 온전히 보이게 역할을 나눈다. */
+.ws-c b>i.num{flex:0 0 auto}
+.ws-c b{min-width:0}
+.ws-c b:not(:has(i.num)){overflow:visible}
+@media (max-width:640px){
+  .ws-c.click b{display:flex}
+  .ws-c.click b .lgo{flex:0 0 auto}
+  /* 이름 텍스트 노드는 감쌀 수 없어, 카드 자체를 살짝 더 좁은 폰에서 한 줄 100%로 편다 */
+}
+@media (max-width:350px){
+  .ws-c{flex:1 1 100%;min-width:0}
+}
+
+/* ㉕ 내 계좌 — 환전 통화 칩(🇨🇭CHF 등)과 방향 칩(원화→USD)이 좁은 폭에서
+   두 줄로 접혔다(실측 360px). 칩 안 요소는 절대 줄바꿈하지 않고,
+   환율 숫자만 남는 폭에서 말줄임한다. */
+.afx-c{white-space:nowrap;min-width:0}
+.afx-c .num{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.us-chip{white-space:nowrap}
+@media (max-width:400px){
+  .afx-cur{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
+  .afx-c{padding:9px 8px;gap:5px}
+}
+/* '📊 월간 리포트' 등 소형 버튼 — 320px에서 낱말이 접혔다. 접지 않는다. */
+.mini-btn{white-space:nowrap}
+
+/* ㉖ 검색·순위 행(사진 3의 진짜 마지막 원인) — 넘치지는 않지만 이름이
+   '삼' 한 글자로 짓눌렸다. 한 줄에 [이름|가격|등락|봉] 네 칸을 두면
+   가격(1,621,000)·등락(▼ -4.01%)·봉이 고유폭을 다 가져가 이름 몫이 30px뿐.
+   좁은 화면에선 가격과 등락을 '한 칸 두 줄'로 포개 이름에 폭을 돌려준다. */
+@media (max-width:600px){
+  .sr{grid-template-columns:minmax(0,1fr) auto auto;grid-template-rows:auto auto;
+      column-gap:9px;row-gap:1px;align-items:center}
+  .sr .sr-l{grid-column:1;grid-row:1/3}
+  .sr .px{grid-column:2;grid-row:1;align-self:end;font-size:14px}
+  .sr .ch{grid-column:2;grid-row:2;align-self:start;min-width:0;font-size:11.5px}
+  .sr .sr-sp{grid-column:3;grid-row:1/3;align-self:center}
+  /* 이름·코드는 남은 폭 전부를 쓰고, 배지들은 이름을 밀지 않는다 */
+  .sr .nm{display:flex;align-items:center;gap:5px;min-width:0}
+  .sr .nm .nm-t{flex:0 1 auto;min-width:2.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sr .nm .nxt-badge,.sr .nm .tag,.sr .nm .mkt-tag{flex:0 0 auto}
+  .sr .cd{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+}
+/* 380px 미만은 봉 스파크를 접어 이름을 한 번 더 살린다(정보는 상세에 그대로) */
+@media (max-width:379px){
+  .sr .sr-sp{display:none}
+  .sr{grid-template-columns:minmax(0,1fr) auto}
+}
+
+/* ㉗ 베스트/워스트 카드 — 등락률(%)이 카드 밖으로 밀려 잘렸다(실기기 사진 6·
+   실측 스크린샷 동일). 이름을 요소(<u.ws-nm>)로 감싸 이름만 말줄임하고
+   %는 항상 온전히 보이게 한다. */
+.ws-nm{font-style:normal;text-decoration:none;min-width:0;flex:0 1 auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-c b>i.num{flex:0 0 auto;margin-left:auto}
+
+/* ㉘ 관심종목 표 — 좁은 화면에서 가로 스크롤 없이도 핵심 열이 다 들어가게.
+   종목 칸의 업종 태그를 접고(NXT·폴더는 유지), 여백·글자를 조인다.
+   그래도 모자라면 기존 가로 스크롤이 안전망으로 남는다. */
+@media (max-width:560px){
+  #view-watch td,#view-watch th{padding:10px 7px}
+  #view-watch td:first-child,#view-watch th:first-child{padding-left:12px}
+  #view-watch .td-t .tag,#view-watch .td-t .mkt-tag{display:none}
+  #view-watch .td-t .nm{display:inline-block;max-width:96px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;font-size:13px}
+  #view-watch .wl-fd{padding:4px 8px;font-size:10.5px}
+  #view-watch th{font-size:11px;white-space:nowrap}
+  #view-watch .cdl-td canvas{max-width:22px}
+}
+@media (max-width:400px){
+  #view-watch .td-t .nxt-badge{display:none}
+  #view-watch .td-t .nm{max-width:76px}
+  #view-watch .lgo{width:26px;height:26px}
+}
