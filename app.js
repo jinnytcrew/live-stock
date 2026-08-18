@@ -2226,8 +2226,20 @@ function acctRequire(what){
 function acctCur(){ return acctList.find(a=>a.id===acctActive)||acctList[0]||null; }
 function acctNewId(){ return 'ac'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
 /* 현재 화면의 잔고·보유를 활성 계좌 장부에 담아 둔다 */
+/* ══ [v13.2] 불러오지 않은 계좌의 장부는 덮지 않는다 ═══════════════════════════
+   acctSnap 은 지금 화면의 값(cash/holdings/tradeLog)을 활성 계좌 장부에 적는다.
+   그런데 계좌를 아직 acctLoad 로 펼치기 전에 저장이 돌면, 화면 값은 전부 0 인
+   상태라 멀쩡한 장부가 빈 값으로 덮인다. 계좌 하나가 통째로 사라지는 길이다.
+   [고침] acctLoad 로 실제 펼친 계좌만 기록한다. 펼치지 않았으면 그대로 둔다. */
+var _acctLoadedId=null;
 function acctSnap(){
   if(!acctActive)return;
+  /* 장부가 아직 없는 계좌라면 지금 화면 값이 그 계좌의 것이다 — 짝을 맞춘다 */
+  if(_acctLoadedId==null&&!acctBooks[acctActive])_acctLoadedId=acctActive;
+  if(_acctLoadedId!==acctActive){
+    try{ console.warn('[LIVE] 아직 펼치지 않은 계좌라 장부를 건너뜁니다:',acctActive); }catch(e){}
+    return;
+  }
   const prev=acctBooks[acctActive]||{};
   acctBooks[acctActive]={cash,usdCash,usdSettling:usdSettling.slice(),
     holdings:holdings.slice(),tradeLog:tradeLog.slice(),tradeArchive,ipoPlans:ipoPlans.slice(),
@@ -2246,6 +2258,7 @@ function acctLoad(id){
   ipoPlans=Array.isArray(bk.ipoPlans)?bk.ipoPlans.slice():[];
   fxLive=(bk.fx&&typeof bk.fx==='object')?bk.fx:{};                  // [v4.45]
   acctActive=id;
+  _acctLoadedId=id;                 /* [v13.2] 이 계좌는 펼쳤다 — 이제 기록해도 안전 */
   const a=acctCur(); acctType=(a&&ACCT_TYPES[a.type])?a.type:'general';
   if(a&&a.pw)acctPassHash=a.pw;                    // [v4.46] 활성 계좌의 비밀번호로 전환
 }
@@ -2459,7 +2472,24 @@ function acctCloseDo(id){
   delete acctBooks[id];
   /* 해지 이력은 남긴다 — 나중에 '어떤 계좌를 언제 닫았는지' 확인할 수 있게 */
   if(!Array.isArray(window._acctClosed))window._acctClosed=[];
-  if(id===acctActive){ const nx=acctList[0]; if(nx)acctLoad(nx.id); }
+  /* ══ [v13.7] 마지막 계좌를 해지했을 때 ═══════════════════════════════════════
+     예전에는 남은 계좌가 있을 때만 다음 계좌를 펼쳤다. 하나도 안 남으면
+     acctActive 가 방금 지운 계좌를 계속 가리키고, _acctLoadedId 도 같은 값이라
+     바로 뒤의 saveState 에서 acctSnap 이 그 계좌의 장부를 다시 만들어 버렸다.
+     목록에는 없는데 장부만 남는 유령 계좌가 생긴다. 확실히 비운다. */
+  if(id===acctActive){
+    const nx=acctList[0];
+    if(nx)acctLoad(nx.id);
+    else{
+      acctActive=''; _acctLoadedId=null;
+      cash=0; usdCash=0; usdSettling=[]; holdings=[]; tradeLog=[]; tradeArchive={}; ipoPlans=[];
+    }
+  }
+  /* 목록에 없는 장부는 남겨 두지 않는다 — 해지 때마다 정리한다 */
+  try{
+    const live=new Set(acctList.map(a=>a.id));
+    Object.keys(acctBooks).forEach(k=>{ if(!live.has(k))delete acctBooks[k]; });
+  }catch(e){}
   saveState();
   toast('warn','계좌 해지 완료',`${acctLabel(a)} (${a.no||''}) 계좌를 해지했습니다`);
   return true;
@@ -3652,10 +3682,57 @@ async function cloudCall(body){
 }
 function cloudSync(){
   if(!currentUser)return;const acc=accounts()[currentUser];if(!acc)return;
+  /* ══ [v13.2] 빈 상태는 아예 올리지 않는다 ═══════════════════════════════════
+     서버에도 방어를 뒀지만, 애초에 보내지 않는 것이 낫다. 화면이 어떤 이유로든
+     비어 있는 순간에 동기화가 돌면 멀쩡한 서버 사본이 위험해진다.
+     로컬에 내용이 있는데 지금 화면이 비었다면 그건 '아직 안 불러온 상태'다. */
+  try{
+    const _live={holdings,cash,usdCash,acctList,acctBooks,tradeLog,watchFolders};
+    if(!hasRealData(_live)){
+      const _saved=store.get('user:'+currentUser);
+      if(hasRealData(_saved)){
+        try{ console.warn('[LIVE] 화면이 비어 있어 동기화를 건너뜁니다'); }catch(e){}
+        return;
+      }
+    }
+  }catch(e){}
   clearTimeout(syncT);
-  syncT=setTimeout(()=>cloudCall({action:'sync',id:currentUser,pass:acc.pass,
+  syncT=setTimeout(()=>syncOnce(acc),_syncDelay());
+}
+/* ══ [v13.6] 서버 저장 실패를 알아챈다 ═══════════════════════════════════════
+   예전에는 sync 응답을 버렸다. 서버가 stored:"fail" 을 돌려줘도 화면은 아무 일
+   없다는 듯 넘어갔고, 사용자는 저장된 줄 알았다. 이 기기에는 남아 있으니 당장은
+   괜찮지만, 기기를 바꾸면 그 사이 거래가 통째로 없다.
+   실패하면 몇 초 뒤 다시 시도하고, 계속 실패하면 분명히 알린다. */
+var _syncFail=0, _syncWarnAt=0;
+function syncOnce(acc){
+  const _cur=currentUser;
+  cloudCall({action:'sync',id:_cur,pass:acc.pass,
     /* 폴더·종목메모·개인설정까지 자동 저장 — 기기를 바꿔 로그인해도 그대로 복원된다(수동 내보내기 불필요) */
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}),_syncDelay());
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()}})
+  .then(j=>{
+    if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept')){ _syncFail=0; return; }
+    if(j&&j.ok&&j.guarded){ _syncFail=0; return; }      // 서버가 지켜 준 경우 — 정상
+    syncRetry(acc,_cur);
+  })
+  .catch(()=>{ syncRetry(acc,_cur); });
+}
+/* 실패했을 때 — 짧게 세 번 다시 시도하고, 그 뒤에는 알린 다음 천천히 계속 시도한다.
+   포기하지 않는 것이 중요하다. 연결이 돌아오면 저절로 올라간다. */
+function syncRetry(acc,uid){
+  _syncFail++;
+  const wait = _syncFail<=3 ? 1500*_syncFail : 60000;   // 1.5초·3초·4.5초 → 이후 1분마다
+  if(_syncFail===4){
+    const now=Date.now();
+    if(now-_syncWarnAt>60000){
+      _syncWarnAt=now;
+      try{ toast('warn','서버에 저장하지 못했어요',
+        '이 기기에는 남아 있습니다. 연결이 돌아오면 자동으로 다시 저장돼요'); }catch(e){}
+    }
+  }
+  if(_syncFail>200)return;                              // 무한히 붙들지는 않는다
+  clearTimeout(syncT);
+  syncT=setTimeout(()=>{ try{ if(currentUser===uid)syncOnce(acc); }catch(e){} }, wait);
 }
 /* ══ [v9.73] 서버 저장 간격을 상황에 맞게 ══════════════════════════════════
    800ms 고정이라, 주문 화면에서 값을 조금씩 만지는 동안에도 계속 저장 요청이
@@ -3686,10 +3763,98 @@ try{
 function cloudSyncNow(){
   if(!currentUser)return; const acc=accounts()[currentUser]; if(!acc)return;
   try{ cloudCall({action:'sync',id:currentUser,pass:acc.pass,
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash}}); }catch(e){}
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()}}); }catch(e){}
 }
 function saveState(){ if(!currentUser)return; try{acctSnap();}catch(e){}   // [v4.40] 활성 계좌 장부 반영
-  store.set('user:'+currentUser,{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash}); cloudSync(); }
+  /* [v13.9] 저장 시각을 함께 남긴다 — 로컬과 서버 중 어느 쪽이 새것인지 가리는 근거 */
+  const _next={watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()};
+  /* ══ [v13.1] 3겹 — 갑자기 텅 비는 저장을 감지한다 ═══════════════════════════
+     계좌를 전부 해지하는 것처럼 정말 비우는 경우도 있으므로 막지는 않는다.
+     다만 '있던 것이 사라지는' 저장이라면 직전 상태를 스냅샷으로 반드시 남긴다.
+     그래야 무슨 일이 있어도 한 걸음 뒤로는 돌아갈 수 있다. */
+  /* ══ [v13.4] 있던 것이 사라지는 저장은 서버 사본으로 되살릴 수 있게 알린다 ══
+     로컬 스냅샷은 저장 공간을 잡아먹어 없앴다. 대신 서버(usr:<id>)가 백업이다.
+     서버는 빈 것으로 덮이지 않으므로, 로컬이 비어도 서버 사본은 남아 있다. */
+  try{
+    const _prev=store.get('user:'+currentUser)||null;
+    if(hasRealData(_prev)&&!hasRealData(_next)){
+      console.warn('[LIVE] 데이터가 비워지는 저장 — 서버 사본은 그대로 유지됩니다');
+    }
+  }catch(e){}
+  /* ══ [v13.3] 저장이 실패하면 반드시 알린다 ═══════════════════════════════════
+     store.set 은 예외를 try/catch 로 삼킨다. 저장 공간이 차면 저장이 안 되는데도
+     화면은 아무 일 없다는 듯 돌아가고, 새로고침하면 거래가 통째로 사라진다.
+     조용한 실패가 가장 위험하다 — 실패하면 공간을 만들어 다시 시도하고,
+     그래도 안 되면 사용자에게 분명히 알린다. */
+  if(!saveUserSafe(currentUser,_next))return;
+  cloudSync(); }
+/* 저장을 확실히 한다. 실패하면 스냅샷을 비워 공간을 만들고 다시 시도한다. */
+var _saveWarnAt=0;
+function saveUserSafe(u,d){
+  const key='user:'+u;
+  /* ══ [v13.5] 다른 탭이 더 새 판을 썼으면 덮지 않는다 ═══════════════════════ */
+  try{
+    const cur=revGet(u);
+    if(cur>_myRev){
+      _myRev=cur;
+      applyUser(u);                      // 저장소의 최신 내용으로 이 탭을 맞춘다
+      try{ renderAll&&renderAll(); }catch(e){}
+      const now=Date.now();
+      if(now-_staleWarnAt>15000){
+        _staleWarnAt=now;
+        try{ toast('warn','다른 탭에서 먼저 저장했어요','최신 내용으로 화면을 맞췄습니다'); }catch(e){}
+      }
+      return false;                      // 이번 저장은 건너뛴다 — 남의 거래를 지우지 않는다
+    }
+  }catch(e){}
+  let body;
+  /* ══ [v13.4] ① 만들 수 없는 데이터는 저장하지 않는다 ═══════════════════════
+     순환 참조나 이상한 값이 섞이면 JSON.stringify 가 예외를 던진다. 그대로
+     두면 저장이 안 되는데 아무도 모른다. 여기서 잡아 알린다. */
+  try{ body=JSON.stringify(d); }
+  catch(e){
+    try{ console.error('[LIVE] 저장할 데이터를 만들지 못했습니다:',e); }catch(e2){}
+    try{ toast('warn','저장하지 못했어요','새로고침 후 다시 시도해 주세요'); }catch(e2){}
+    return false;
+  }
+  if(!body||body.length<3){
+    try{ console.error('[LIVE] 저장할 내용이 비어 있어 건너뜁니다'); }catch(e){}
+    return false;
+  }
+  for(let tries=0;tries<6;tries++){
+    try{
+      localStorage.setItem(key,body);
+      /* ② 쓴 뒤 다시 읽어 확인한다 — 브라우저가 조용히 잘라 넣는 경우가 있다 */
+      const back=localStorage.getItem(key);
+      if(back===body){ _myRev=revGet(u)+1; revSet(u,_myRev); return true; }
+      try{ console.warn('[LIVE] 저장 결과가 다릅니다 — 다시 시도합니다'); }catch(e){}
+      throw new Error('verify-failed');
+    }
+    catch(e){
+      /* 공간 부족 — 다시 만들 수 있는 캐시부터 비운다 */
+      let freed=false;
+      ['stockAll','usPopCache','verLast','updSkip','usDyn1','tierCache'].forEach(k=>{
+        try{ if(localStorage.getItem(k)!=null){ localStorage.removeItem(k); freed=true; } }catch(e2){}
+      });
+      /* 깨진 데이터 보관본도 마지막에는 비운다 */
+      if(!freed){
+        try{ Object.keys(localStorage).filter(k=>k.startsWith('broken:')).forEach(k=>{ localStorage.removeItem(k); freed=true; }); }catch(e2){}
+      }
+      if(!freed)break;
+    }
+  }
+  /* 끝내 실패 — 조용히 넘어가지 않는다 */
+  try{
+    const now=Date.now();
+    if(now-_saveWarnAt>20000){
+      _saveWarnAt=now;
+      toast('warn','저장 공간이 부족해 저장하지 못했어요',
+        '브라우저 설정에서 이 사이트의 저장 공간을 확보하거나, 사용하지 않는 탭을 닫아 주세요');
+    }
+    console.error('[LIVE] 저장 실패 — 공간 부족');
+  }catch(e){}
+  return false;
+}
 /* [폴더] 관심종목 폴더 상태 */
 let watchFolders=[]; let watchTab='all';
 /* [v1.99] 관심종목 = 폴더 소속 종목. '전체' 가상 폴더 폐지.
@@ -3724,6 +3889,36 @@ let stockMemos={};          // [H2] 종목별 메모 — 계정 데이터로 클
 function applyUser(u){
   /* [v13.0] 로그인 직후에도 이용권 안내를 확인한다 — 세션 복원 경로와 별개다 */
   try{ setTimeout(()=>{ try{ checkTierInbox(); }catch(e){} }, 3000); }catch(e){}
+  /* ══ [v13.3] 저장된 데이터가 깨졌을 때 ═══════════════════════════════════════
+     store.get 은 JSON 해석에 실패하면 조용히 null 을 준다. 그러면 아래에서
+     전부 기본값이 되고, 곧이어 saveState 가 그 빈 상태로 덮어써 깨진 원본마저
+     사라진다. 깨졌다는 사실 자체를 알아채지 못하는 것이 문제다.
+     [고침] 글자는 있는데 해석이 안 되면 '깨졌다'고 판단해, 원본을 따로 보관하고
+     스냅샷에서 되살릴 것을 권한다. 원본을 지우지 않으므로 나중에 손으로도 살릴 수 있다. */
+  try{
+    const _raw=localStorage.getItem('user:'+u);
+    if(_raw&&_raw.length>2){
+      let _ok=true; try{ JSON.parse(_raw); }catch(e){ _ok=false; }
+      if(!_ok){
+        /* [v13.4] 시각을 붙이면 깨질 때마다 쌓여 공간을 먹는다 — 한 개만 둔다 */
+        try{ localStorage.setItem('broken:'+u, _raw); }catch(e){}
+        console.error('[LIVE] 저장된 데이터가 깨져 있습니다 — 원본을 broken: 키로 보관했습니다');
+        /* ══ [v13.4] 깨진 뒤에는 '비었다'고 표시해 둔다 ═══════════════════════════
+           깨진 직후 앱은 기본 계좌를 하나 만들어 저장한다. 그러면 잠시 뒤 서버에서
+           되찾으려 할 때 '로컬에도 데이터가 있다'고 판단해 되찾기를 건너뛴다.
+           실제로 그렇게 복구가 막혔다. 깨졌다는 사실을 따로 남겨, 되찾기가
+           로컬을 무시하고 서버 것을 가져오게 한다. */
+        _localBroken=true;
+        setTimeout(()=>{
+          try{
+            toast('warn','저장된 데이터를 읽지 못했어요','서버에 저장된 기록에서 되살립니다');
+            try{ pullFromServer(true); }catch(e){}
+          }catch(e){}
+        }, 2200);
+      }
+    }
+  }catch(e){}
+  try{ _myRev=revGet(u); }catch(e){}    /* [v13.5] 이 탭이 읽은 판번호 */
   const d=store.get('user:'+u)||{};
   bookOrders=Array.isArray(d.bookOrders)?d.bookOrders:[];
   priceAlerts=(d.priceAlerts&&typeof d.priceAlerts==='object')?d.priceAlerts:{};
@@ -3747,6 +3942,15 @@ function applyUser(u){
   if(acctOpened()&&acctActive)acctLoad(acctActive);
   else if(!hasNewFmt)acctMigrate();                      // 예전 사용자 → 계좌 하나로 이전
   else { cash=0; usdCash=0; usdSettling=[]; holdings=[]; }   // 미개설 → 빈 상태
+  /* ══ [v13.8] 화면 값과 활성 계좌가 짝이 맞음을 표시한다 ═══════════════════════
+     [무엇이 잘못됐나] acctSnap 은 '펼친 계좌만 기록한다'는 안전장치를 두었는데
+     (v13.2), 그 표시를 acctLoad 에서만 세웠다. 그런데 위 갈래에서 acctLoad 를
+     타지 않는 경우(계좌 이전·미개설 뒤 개설 등)에는 표시가 비어 있어,
+     그 뒤의 모든 저장이 장부를 건너뛰었다. 매수해도 장부에 남지 않는다.
+     실제로 계좌 A 에서 매수한 뒤 B 로 갔다 오면 A 의 거래가 전부 사라졌다.
+     [고침] applyUser 를 마친 시점의 화면 값은 정의상 활성 계좌의 값이다
+     (saveState 가 둘을 함께 저장하므로). 여기서 짝을 확정한다. */
+  try{ if(acctActive)_acctLoadedId=acctActive; }catch(e){}
   usdSettling=Array.isArray(d.usdSettling)?d.usdSettling:[];
   ipoPlans=d.ipoPlans||[];
   tradeLog=d.tradeLog||[]; tradeArchive=d.tradeArchive||{};
@@ -4181,7 +4385,13 @@ async function doGoogleSignupRun(){
       realName:suForm.realName,birth:suForm.birth,phone:suForm.phone,
       terms:{...suForm.terms,at:Date.now()}};
     store.set('accounts',accs);
-    if(j.user)store.set('user:'+j.id,j.user);
+    /* [v13.2] 로그인 경로와 같은 방어 — 빈 응답으로 기존 데이터를 덮지 않는다 */
+    try{
+      const _sv=j.user, _lo=store.get('user:'+j.id);
+      if(_sv&&(hasRealData(_sv)||!hasRealData(_lo))){
+        store.set('user:'+j.id,_sv);
+      }
+    }catch(e){}
     applyUser(j.id); unlockApp(); initApp();
     setTimeout(()=>{try{ welcomeBox({id:j.id,name:j.name,email:j.email,google:1}); }catch(e){}},700);
   }catch(e){
@@ -4223,6 +4433,159 @@ async function doSignupRun(){
    기기마다 대소문자가 달라 '같은 아이디인데 다른 계정'이 되던 문제의 절반이 여기 있었다. */
 function normId(v){return String(v==null?'':v).trim().toLowerCase();}
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v13.1] 데이터 유실 방지 — 네 겹
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇이 일어났나] 로그인할 때 서버 응답을 로컬에 그대로 덮어썼다.
+       if (j && j.user) store.set('user:'+id, j.user);
+   서버는 데이터를 못 찾으면 user:{} 를 보내는데, 자바스크립트에서 빈 객체는
+   참이라 이 조건을 통과한다. 그래서 서버가 한 번 삐끗하면
+     ① 로컬이 {} 로 덮여 쓰이고
+     ② applyUser 가 전부 기본값으로 되돌리고
+     ③ saveState 가 그 빈 상태를 저장하고
+     ④ cloudSync 가 서버로 밀어 올려 서버 사본까지 지운다
+   한 번의 순간 장애로 되돌릴 수 없는 전손이 났다.
+
+   [막는 방법]
+     1겹 — 내용이 없는 서버 응답으로는 덮어쓰지 않는다
+     2겹 — 저장할 때마다 직전 상태를 스냅샷으로 남긴다(5개 회전)
+     3겹 — 갑자기 텅 비는 저장은 스냅샷을 먼저 확보한 뒤에만 진행
+     4겹 — 서버도 내용 있는 기록을 빈 것으로 덮지 않는다(_worker.js)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* 이 데이터에 '지킬 만한 내용'이 있는가 */
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v13.4] 서버에서 되찾기 — 로컬 스냅샷을 대신한다
+   ─────────────────────────────────────────────────────────────────────────────
+   로컬에 사본을 여러 벌 두면 저장 공간(약 5MB)을 잡아먹어, 정작 본 데이터를
+   저장하지 못하는 더 큰 사고가 난다. 그래서 사본은 두지 않는다.
+   대신 서버(usr:<id>)를 백업으로 쓴다. 서버는 빈 것으로 덮이지 않게 막아 두었으므로
+   로컬이 비거나 깨져도 서버 사본은 남아 있다. 로컬과 서버가 서로의 백업이다.
+     · 로컬이 비었는데 서버에 있으면  → 서버에서 가져온다
+     · 서버가 비었는데 로컬에 있으면  → 로컬을 올린다
+     · 양쪽 다 있으면                → 건드리지 않는다(사용자 판단이 우선)
+   ══════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v13.5] 여러 탭에서 열었을 때 서로 덮어쓰는 것을 막는다
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇이 문제인가] 같은 브라우저에서 탭을 둘 열면 두 탭이 각자 데이터를 기억한다.
+   탭 A 에서 매수하면 저장소가 바뀌지만, 탭 B 는 옛 값을 그대로 들고 있다.
+   그 상태에서 탭 B 가 무엇이든 저장하면 탭 A 의 거래가 통째로 사라진다.
+   실제로 시험해 보니 예수금·보유·거래기록이 전부 옛 값으로 되돌아갔다.
+   [고침] 저장할 때마다 판번호를 하나씩 올린다. 저장 직전에 저장소의 판번호를
+   확인해, 내가 읽은 뒤 남이 더 새 판을 썼다면 덮어쓰지 않고 화면을 다시 읽는다.
+   먼저 쓴 사람이 이긴다 — 잃는 것은 '아직 반영되지 않은 이 탭의 조작'뿐이고,
+   이미 저장된 거래가 사라지는 일은 없다. */
+function revKey(u){ return 'rev:'+u; }
+function revGet(u){ try{ return +(localStorage.getItem(revKey(u))||0)||0; }catch(e){ return 0; } }
+function revSet(u,v){ try{ localStorage.setItem(revKey(u),String(v)); }catch(e){} }
+var _myRev=0;                 /* 이 탭이 마지막으로 읽거나 쓴 판번호 */
+var _staleWarnAt=0;
+/* 다른 탭이 저장하면 브라우저가 알려 준다 — 즉시 따라잡는다 */
+try{
+  window.addEventListener('storage',(e)=>{
+    try{
+      if(!currentUser||!e||!e.key)return;
+      if(e.key!==revKey(currentUser))return;
+      const now=+(e.newValue||0)||0;
+      if(now>_myRev){
+        _myRev=now;
+        applyUser(currentUser);
+        try{ renderAll&&renderAll(); }catch(x){}
+        try{ console.info('[LIVE] 다른 탭의 변경을 반영했습니다'); }catch(x){}
+      }
+    }catch(x){}
+  });
+}catch(e){}
+var _localBroken=false;
+async function pullFromServer(manual){
+  try{
+    if(!currentUser){ if(manual)toast('warn','로그인이 필요해요',''); return false; }
+    const acc=accounts()[currentUser];
+    if(!acc||!acc.pass){ if(manual)toast('warn','계정 정보를 찾지 못했어요',''); return false; }
+    if(manual)toast('ok','서버에서 확인하는 중…','');
+    const r=await fetch('/api/accounts',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({action:'login',id:currentUser,pass:acc.pass})});
+    const j=await r.json();
+    if(!j||!j.ok){ if(manual)toast('warn','서버에서 확인하지 못했어요','잠시 후 다시 시도해 주세요'); return false; }
+    const srv=(j.user&&typeof j.user==='object')?j.user:null;
+    /* 깨졌던 경우에는 지금 로컬(방금 만들어진 기본값)을 없는 것으로 본다 */
+    const loc=_localBroken?null:store.get('user:'+currentUser);
+    if(srv&&hasUserContent(srv)&&!hasUserContent(loc)){
+      _localBroken=false;
+      store.set('user:'+currentUser,srv);
+      toast('ok','서버에서 데이터를 되찾았어요','화면을 새로 불러옵니다');
+      setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 900);
+      return true;
+    }
+    if(srv&&hasUserContent(srv)&&hasUserContent(loc)){
+      if(manual)toast('ok','이 기기의 데이터가 최신입니다','되찾을 필요가 없어요');
+      return false;
+    }
+    if(hasRealData(loc)){
+      try{ cloudSync(); }catch(e){}
+      if(manual)toast('ok','이 기기의 데이터를 서버에 올렸어요','다른 기기에서도 쓰실 수 있습니다');
+      return false;
+    }
+    if(manual)toast('warn','서버에도 저장된 기록이 없어요','');
+    return false;
+  }catch(e){ if(manual)toast('warn','서버에 연결하지 못했어요',''); return false; }
+}
+/* ══ [v13.9] '사람이 실제로 만든 내용'이 있는가 ═══════════════════════════════
+   hasRealData 는 계좌 껍데기 하나만 있어도 참이다. 그런데 앱은 계좌가 없으면
+   기본 계좌를 자동으로 만든다. 그래서 기기를 바꿔 로컬이 비어 있어도 부팅 직후엔
+   '내용 있음'이 되어, 서버에서 되찾아 오는 길이 막혔다(실제로 잔고가 복구되지 않았다).
+   여기서는 돈·보유·거래·메모·둘 이상의 계좌만 내용으로 센다. */
+function hasUserContent(d){
+  try{
+    if(!d||typeof d!=='object')return false;
+    if(Array.isArray(d.holdings)&&d.holdings.length)return true;
+    if(Array.isArray(d.tradeLog)&&d.tradeLog.length)return true;
+    if(+d.cash>0||+d.usdCash>0)return true;
+    if(d.stockMemos&&Object.keys(d.stockMemos).length)return true;
+    if(Array.isArray(d.acctList)&&d.acctList.length>1)return true;
+    if(d.acctBooks&&Object.values(d.acctBooks).some(b=>b&&(+b.cash>0||(b.holdings||[]).length||(b.tradeLog||[]).length)))return true;
+    return false;
+  }catch(e){ return false; }
+}
+function hasRealData(d){
+  try{
+    if(!d||typeof d!=='object')return false;
+    if(Array.isArray(d.acctList)&&d.acctList.length)return true;
+    if(d.acctBooks&&Object.keys(d.acctBooks).length)return true;
+    if(Array.isArray(d.holdings)&&d.holdings.length)return true;
+    if(Array.isArray(d.tradeLog)&&d.tradeLog.length)return true;
+    if(+d.cash>0||+d.usdCash>0)return true;
+    if(Array.isArray(d.watchFolders)&&d.watchFolders.length)return true;
+    if(d.stockMemos&&Object.keys(d.stockMemos).length)return true;
+    return false;
+  }catch(e){ return false; }
+}
+/* 얼마나 들어 있는지 — 스냅샷 고를 때 쓴다 */
+function dataWeight(d){
+  try{
+    if(!d||typeof d!=='object')return 0;
+    return (Array.isArray(d.acctList)?d.acctList.length*10:0)
+      +(d.acctBooks?Object.keys(d.acctBooks).length*10:0)
+      +(Array.isArray(d.holdings)?d.holdings.length*5:0)
+      +(Array.isArray(d.tradeLog)?d.tradeLog.length:0)
+      +((+d.cash>0)?5:0)+((+d.usdCash>0)?5:0);
+  }catch(e){ return 0; }
+}
+/* ── 2겹: 스냅샷 ─────────────────────────────────────────────────────────
+   저장 직전의 상태를 최대 5개까지 돌려 가며 남긴다. 무슨 일이 있어도
+   바로 앞 상태로는 돌아갈 수 있게 하는 것이 목적이다. */
+/* ══ [v13.2] 스냅샷 — 시간 회전 4장 + '가장 알찬 것' 1장 ═══════════════════════
+   [앞 판의 결함] 새 스냅샷이 오래된 것을 순서대로 밀어내기만 했다. 그런데 데이터가
+   비워진 뒤에도 계좌 껍데기 하나는 남아 '내용 있음'으로 판정되므로, 그 빈 상태가
+   계속 쌓이면서 멀쩡한 스냅샷 5장을 전부 밀어냈다. 실제로 시험에서 그렇게 됐다.
+   [고침] 마지막 칸(4번)은 회전에서 빼고 '지금까지 본 것 중 가장 알찬 상태'를 지킨다.
+   이 칸은 더 알찬 것이 나타날 때만 바뀐다. 무슨 일이 있어도 최선의 상태 하나는
+   반드시 남는다. */
+
+
 $('doLogin').onclick=async()=>{
   const raw=$('liId').value.trim();
   const id=normId(raw),pw=$('liPw').value,m=$('liMsg');
@@ -4237,7 +4600,33 @@ $('doLogin').onclick=async()=>{
       acctPass:(j&&j.user&&j.user.acctPass)||(local&&local.acctPass)||legacyHash('0000'),
       created:(j&&j.created)||(local&&local.created)||Date.now()};
     store.set('accounts',accs);
-    if(j&&j.user)store.set('user:'+id,j.user);
+    /* ══ [v13.1] 1겹 — 내용 없는 서버 응답으로는 덮어쓰지 않는다 ═══════════
+       서버가 데이터를 못 찾으면 user:{} 를 보낸다. 빈 객체도 참이므로
+       예전 조건(j&&j.user)은 이것을 통과해 로컬을 통째로 지웠다. */
+    try{
+      const _srv=(j&&j.user&&typeof j.user==='object')?j.user:null;
+      const _loc=store.get('user:'+id)||null;
+      /* ══ [v13.9] 양쪽 다 내용이 있으면 '더 새것'을 지킨다 ═══════════════════════
+         [무엇이 위험했나] 서버에 내용이 있으면 무조건 로컬을 덮었다. 그런데
+         매수한 뒤 동기화(4초 지연)가 나가기 전에 로그아웃하면, 서버에는 매수 전
+         값이 남는다. 그 상태로 다시 로그인하면 서버의 옛 값이 이 기기의 새 거래를
+         덮어써 매수가 통째로 사라졌다. 실제로 재현됐다.
+         [고침] 저장 시각을 비교해 새것을 남긴다. 로컬이 새것이면 서버로 올린다. */
+      const _st=+(_srv&&_srv.savedAt)||0, _lt=+(_loc&&_loc.savedAt)||0;
+      if(_srv&&hasRealData(_srv)&&hasRealData(_loc)&&_lt>_st){
+        /* 이 기기가 더 새것 — 지키고 서버에 올린다 */
+        try{ setTimeout(()=>{ try{ cloudSyncNow&&cloudSyncNow(); }catch(e){} }, 1200); }catch(e){}
+        try{ toast('ok','이 기기의 최신 기록을 지켰어요','서버에 다시 올립니다'); }catch(e){}
+      }else if(_srv&&hasRealData(_srv)){
+        store.set('user:'+id,_srv);
+      }else if(_srv&&!hasRealData(_loc)){
+        store.set('user:'+id,_srv);              // 양쪽 다 비었으면 그냥 받는다
+      }else if(_srv&&hasRealData(_loc)){
+        /* 서버는 비었는데 로컬에는 있다 — 로컬을 지키고 서버에 다시 올린다 */
+        try{ setTimeout(()=>{ try{ cloudSync(); }catch(e){} }, 1500); }catch(e){}
+        try{ toast('warn','서버 기록을 찾지 못했어요','이 기기의 데이터를 그대로 씁니다'); }catch(e){}
+      }
+    }catch(e){}
     applyUser(id);unlockApp();initApp();
   };
   /* ══ [v4.24] 로그인 복구 경로 ══════════════════════════════════════════
@@ -5151,6 +5540,12 @@ function wireAdminPanel(){
   const sv=$('admSave'); if(sv)sv.onclick=saveAdminNotice;
   const ld=$('admLoad'); if(ld)ld.onclick=loadAdminCurrent;
 }
+/* [v13.1] 설정 > 데이터 복구 버튼 */
+try{
+  const _wireRec=()=>{ const b=document.getElementById('recOpen'); if(b&&!b._w){ b._w=1; b.onclick=()=>pullFromServer(true); } };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_wireRec,{once:true});
+  else _wireRec();
+}catch(e){}
 /* [v11.3] 쿠폰 관리 배선은 관리 패널이 열리는 경로와 별개로 걸어 둔다.
    wireAdminPanel 은 verRow(버전 줄) 가 있어야 실행되는데, 그 요소가 아직
    그려지기 전이면 통째로 건너뛴다. 쿠폰 버튼은 설정 창에 늘 있으므로
@@ -5430,7 +5825,13 @@ $('setColor').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;sett
 $('setReal').onclick=()=>{settings.realHours=!settings.realHours;saveSettings();renderSettingsUI();try{renderTradeGate();}catch(e){}};
 $('setOrderPass').onclick=()=>{settings.orderPass=!settings.orderPass;saveSettings();renderSettingsUI();};
 document.querySelectorAll('#pmTabs button').forEach(b=>b.onclick=()=>setPmTab(b.dataset.pm));
-$('pmLogout').onclick=()=>{store.del('session');requireAuth();location.reload();};   // [v4.1] 로그아웃 → 잠금
+/* [v13.9] 로그아웃 전에 밀린 저장을 먼저 보낸다.
+   4초 지연 중에 나가면 그 사이 거래가 서버에 안 올라가, 다음 로그인 때
+   서버의 옛 값이 내려와 거래가 사라진다. 나가기 전에 반드시 밀어 넣는다. */
+$('pmLogout').onclick=()=>{
+  try{ if(typeof syncT!=='undefined'&&syncT){ clearTimeout(syncT); syncT=null; } cloudSyncNow(); }catch(e){}
+  setTimeout(()=>{ try{ store.del('session'); requireAuth(); location.reload(); }catch(e){ location.reload(); } }, 700);
+};
 $('pmSaveProfile').onclick=async()=>{
   const name=$('pmNameIn').value.trim(),email=$('pmEmailIn').value.trim(),acc=accounts()[currentUser];if(!acc)return;
   try{userPrefs=userPrefs||{};userPrefs.bio=($('pmBioIn')?$('pmBioIn').value.trim():'').slice(0,40);savePrefs();}catch(e){}
@@ -16312,7 +16713,28 @@ function __bootMain(){
        [고침] 들어온 직후 한 번 물어 등급을 받아 둔다. 실패해도 앱은 그대로 돈다. */
     try{
       const _a=accounts()[sess];
-      if(_a&&_a.pass)cloudCall({action:'login',id:sess,pass:_a.pass}).catch(()=>{});
+      if(_a&&_a.pass){
+        cloudCall({action:'login',id:sess,pass:_a.pass}).then(j=>{
+          /* ══ [v13.2] 로컬이 비었는데 서버에 있으면 되찾아 온다 ═══════════════
+             예전에는 세션으로 들어오면 서버에서 아무것도 가져오지 않았다.
+             그래서 이 기기의 데이터가 어떤 이유로든 사라지면, 서버에 멀쩡한
+             사본이 있어도 영영 빈 화면만 보게 됐다(복구 경로가 아예 없었다).
+             로컬에 내용이 없고 서버에 있을 때만 되찾는다 —
+             반대 방향(서버가 로컬을 덮는 것)은 절대 하지 않는다. */
+          try{
+            if(!j||!j.ok)return;
+            const _srv=(j.user&&typeof j.user==='object')?j.user:null;
+            const _loc=store.get('user:'+sess);
+            if(_srv&&hasUserContent(_srv)&&!hasUserContent(_loc)){
+              store.set('user:'+sess,_srv);
+              applyUser(sess);
+              try{ renderAll&&renderAll(); }catch(e){}
+              try{ toast('ok','계정 데이터를 되찾았어요','서버에 저장된 기록을 불러왔습니다'); }catch(e){}
+              setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 1200);
+            }
+          }catch(e){}
+        }).catch(()=>{});
+      }
       /* [v13.0] 관리자가 보낸 이용권 안내가 있으면 띄운다 */
       setTimeout(()=>{ try{ checkTierInbox(); }catch(e){} }, 2500);
     }catch(e){}
@@ -21081,6 +21503,65 @@ try{
     inbox:()=>{ try{ return checkTierInbox(); }catch(e){} },
     gift:(m)=>{ try{ showTierGift(m); }catch(e){} },
     tier:()=>{ try{ return {..._tier}; }catch(e){ return null; } },
+    /* [v13.2] 데이터 보호 장치를 눈으로 확인하기 위한 통로 */
+    /* [v13.5] 실제 저장 경로로 값을 바꿔 보는 통로 */
+    /* [v13.9] 진짜 주문 함수를 그대로 태운다 — 인위적 조작이 아니라 실제 경로 */
+    realOrder:(code,side,qty,px)=>{ try{
+      selected=String(code); ordSide=side||'buy';
+      const el=(id,v)=>{ const e=$(id); if(e)e.value=String(v); };
+      el('qtyInput',qty); el('priceInput',px);
+      ordType='limit';
+      const before={cash,hold:holdings.length,tr:tradeLog.length};
+      executeOrder();
+      return {before, after:{cash,hold:holdings.length,tr:tradeLog.length}};
+    }catch(e){ return {err:String(e)}; } },
+    /* 관심종목·폴더·메모·알림·예약주문을 실제 경로로 */
+    addWatch:(code)=>{ try{
+      let f=watchFolders[0];
+      if(!f){ f={id:'f'+Date.now().toString(36),name:'관심',codes:[],icon:'',color:''}; watchFolders.push(f); }
+      if(!f.codes.includes(code))f.codes.push(code);
+      syncWatchUnion(); saveState();
+      return {watch:watchlist.length,folders:watchFolders.length};
+    }catch(e){ return String(e); } },
+    addMemo:(code,txt)=>{ try{ stockMemos[code]=txt; saveState(); return Object.keys(stockMemos).length; }catch(e){ return String(e); } },
+    addAlert:(code,up)=>{ try{ priceAlerts[code]={name:code,above:up}; saveState();
+      return Object.keys(priceAlerts).length; }catch(e){ return String(e); } },
+    addBook:(code,qty,px)=>{ try{ bookOrders.push({id:'b'+Date.now().toString(36),code,name:code,side:'buy',qty,price:px,createdAt:Date.now()});
+      saveState(); return bookOrders.length; }catch(e){ return String(e); } },
+    snapshot:()=>{ try{ return {cash,usdCash,hold:holdings.length,tr:tradeLog.length,
+      accts:acctList.length, books:Object.keys(acctBooks).length, active:acctActive,
+      watch:watchlist.length, folders:watchFolders.length, memos:Object.keys(stockMemos).length,
+      alerts:Object.keys(priceAlerts).length, books2:bookOrders.length}; }catch(e){ return String(e); } },
+    /* [v13.8] 실제 매매·전환 경로를 그대로 태워 보는 통로 */
+    buy:(code,qty,px)=>{ try{
+      const c=String(code), q=+qty||1, p=+px||10000;
+      const h=holdings.find(x=>x.code===c);
+      if(h){ const tot=h.qty*h.avg+q*p; h.qty+=q; h.avg=Math.round(tot/h.qty); }
+      else holdings.push({code:c,qty:q,avg:p});
+      cash=Math.max(0,cash-q*p);
+      tradeLog.push({code:c,side:'buy',qty:q,px:p,at:Date.now()});
+      saveState();
+      return {cash,hold:holdings.length,trades:tradeLog.length};
+    }catch(e){ return String(e); } },
+    switchAcct:(id)=>{ try{ acctSnap(); acctLoad(id); saveState();
+      return {active:acctActive,cash,hold:holdings.length}; }catch(e){ return String(e); } },
+    addAcct:(type)=>{ try{
+      const id='t'+Math.random().toString(36).slice(2,8);
+      acctList.push({id,type:type||'general',name:'테스트',no:acctNewNo(type||'general'),at:Date.now()});
+      acctBooks[id]={cash:0,usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]};
+      saveState(); return id;
+    }catch(e){ return String(e); } },
+    setCash:(v)=>{ try{ cash=+v||0; saveState(); return cash; }catch(e){ return String(e); } },
+    closeAcct:(id)=>{ try{ return acctCloseDo(id||acctActive); }catch(e){ return String(e); } },
+    acctState:()=>{ try{ return {active:acctActive, loaded:_acctLoadedId,
+      list:acctList.map(a=>a.id), books:Object.keys(acctBooks)}; }catch(e){ return null; } },
+    mutate:(c)=>{ try{ cash=+c||0; holdings=[{code:'005930',qty:10,avg:74000}];
+      tradeLog=[{buy:1}]; saveState(); return {cash,rev:revGet(currentUser)}; }catch(e){ return String(e); } },
+    rev:()=>{ try{ return {my:_myRev, store:revGet(currentUser)}; }catch(e){ return null; } },
+    pull:(f)=>{ try{ return pullFromServer(!!f); }catch(e){ return String(e); } },
+    setUser:(d)=>{ try{ store.set('user:'+currentUser,d); return true; }catch(e){ return false; } },
+    getUser:()=>{ try{ return store.get('user:'+currentUser); }catch(e){ return null; } },
+    save:()=>{ try{ saveState(); return true; }catch(e){ return String(e); } },
     ixView:()=>{ try{ return {...idxView, n:idxView.n, cs:ixCandles().length, detN:idxDetN}; }catch(e){ return {err:String(e)}; } },
     ixPan:(bars)=>{ try{ const cs=ixCandles(); idxView.follow=false;
       idxView.end=(idxView.end<0?cs.length-1:idxView.end)-bars; ixApply();

@@ -4789,7 +4789,32 @@ var accounts_default = async (req2) => {
       }
       if (v.upgraded || v.rehash) { await setPassword(acc, pass); await saveAcc(id); }   /* [v9.75] */
       clearTries(db, id); await saveAcc(id);          /* [v9.75] */
-      db.users[id] = body.user || db.users[id] || {};
+      /* ══ [v13.1] 4겹 — 내용 있는 기록을 빈 것으로 덮지 않는다 ═══════════════
+         화면이 어떤 이유로든 빈 상태를 보내오면(초기화 사고, 잘못된 복원 등)
+         서버 사본까지 함께 사라져 되돌릴 길이 없어진다. 서버는 마지막 방어선이므로,
+         "지금 저장된 것에는 내용이 있는데 새로 들어온 것은 비었다"면 저장하지 않는다.
+         계좌를 정말 다 해지한 경우에는 화면이 wipe:1 을 함께 보내 뜻을 밝힌다. */
+      {
+        const _inc = body.user || null;
+        const _cur = db.users[id] || null;
+        const _has = (d) => {
+          try{
+            if (!d || typeof d !== "object") return false;
+            if (Array.isArray(d.acctList) && d.acctList.length) return true;
+            if (d.acctBooks && Object.keys(d.acctBooks).length) return true;
+            if (Array.isArray(d.holdings) && d.holdings.length) return true;
+            if (Array.isArray(d.tradeLog) && d.tradeLog.length) return true;
+            if (+d.cash > 0 || +d.usdCash > 0) return true;
+            if (Array.isArray(d.watchFolders) && d.watchFolders.length) return true;
+            return false;
+          }catch(e){ return false; }
+        };
+        if (_inc && !_has(_inc) && _has(_cur) && !body.wipe) {
+          /* 지키고, 화면에 알린다 — 화면은 이 값을 보고 서버 것을 되받을 수 있다 */
+          return json({ ok: true, stored: "kept", guarded: true, ...tierPayload(acc) });
+        }
+        db.users[id] = _inc || _cur || {};
+      }
       /* ══ [v9.74] 여기가 핵심이다 ═══════════════════════════════════════════
          동기화는 앱에서 가장 자주 일어나는 쓰기다. 예전에는 이 한 줄이 전체 db 를
          다시 썼기 때문에, 비슷한 시각에 저장한 다른 사람의 변경이 통째로 날아갔다.
@@ -5968,8 +5993,37 @@ async function usrLoad(st, id, legacyDb) {
   return v;
 }
 var _usrSig = {};
-async function usrSave(st, id, val) {
+/* ══ [v13.3] 서버 최후 방어 — 내용 있는 기록을 빈 것으로 덮지 않는다 ═══════════
+   usrSave 는 여러 곳에서 불린다(sync·login·profile·ensure…). 그중 saveUser 헬퍼는
+   db.users[id] 가 없으면 {} 를 그대로 저장한다. usrLoad 가 순간 실패하면
+   db.users[id] 가 비어 있게 되므로, 멀쩡한 서버 기록이 {} 로 덮인다.
+   호출부마다 막으면 한 곳만 빠져도 뚫리므로 가장 아래에서 한 번에 막는다.
+   정말 비우려는 경우(계정 삭제)는 usrDelete 를 쓰므로 이 길과 무관하다. */
+function _usrHas(d) {
+  try {
+    if (!d || typeof d !== "object") return false;
+    if (Array.isArray(d.acctList) && d.acctList.length) return true;
+    if (d.acctBooks && Object.keys(d.acctBooks).length) return true;
+    if (Array.isArray(d.holdings) && d.holdings.length) return true;
+    if (Array.isArray(d.tradeLog) && d.tradeLog.length) return true;
+    if (+d.cash > 0 || +d.usdCash > 0) return true;
+    if (Array.isArray(d.watchFolders) && d.watchFolders.length) return true;
+    if (d.stockMemos && Object.keys(d.stockMemos).length) return true;
+    return false;
+  } catch (e) { return false; }
+}
+async function usrSave(st, id, val, force) {
   if (!id) return false;
+  if (!force && !_usrHas(val)) {
+    /* 새로 들어온 것이 비었다 — 지금 저장된 것에 내용이 있으면 지키다 */
+    let cur = null;
+    try { cur = _usrCache[id] ? _usrCache[id].v : null; } catch (e) { cur = null; }
+    if (cur == null) { try { cur = await st.get("usr:" + id, { type: "json" }); } catch (e) { cur = null; } }
+    if (_usrHas(cur)) {
+      try { console.warn("[LIVE] 빈 데이터로 덮어쓰기를 막았습니다:", id); } catch (e) {}
+      return true;                 // 저장한 것으로 취급 — 호출부 흐름을 깨지 않는다
+    }
+  }
   /* ══ [v9.97] 내용이 그대로면 쓰지 않는다 ═══════════════════════════════════
      동기화는 화면에서 값이 조금만 움직여도 불린다. 그런데 실제로 바뀐 것이
      없는 경우가 많다(주문 화면에서 수량만 만지작거리다 원래대로 돌린다든지).
@@ -5977,16 +6031,26 @@ async function usrSave(st, id, val) {
      막아도 실사용 인원이 몇 배로 늘어난다. 지문을 비교해 같으면 건너뛴다. */
   let sig = "";
   try { sig = JSON.stringify(val); } catch (e) { sig = ""; }
-  _usrCache[id] = { v: val, at: Date.now() };
   if (sig && _usrSig[id] === sig) return true;          // 이미 같은 내용이 저장돼 있다
+  /* ══ [v13.6] 캐시는 저장에 성공한 뒤에 채운다 ═══════════════════════════════
+     예전에는 KV 에 쓰기 '전에' 캐시를 채웠다. 그러면 쓰기가 실패해도 이후 읽기가
+     캐시에서 답을 주므로 아무 문제 없어 보인다. 그런데 그 값은 어디에도 저장되지
+     않았으므로, 워커가 새로 뜨거나 다른 지역에서 접속하면 그냥 사라진다.
+     '저장된 줄 알았는데 아니었다'가 가장 위험한 상태다 — 순서를 바꾼다. */
   try {
     await st.setJSON("usr:" + id, val);
+    _usrCache[id] = { v: val, at: Date.now() };         // 성공한 뒤에만
     if (sig) _usrSig[id] = sig;
     /* 지문이 무한히 쌓이지 않게 — 오래된 것부터 덜어낸다 */
     const ks = Object.keys(_usrSig);
     if (ks.length > 200) ks.slice(0, 100).forEach(k => delete _usrSig[k]);
     return true;
-  } catch (e) { return false; }
+  } catch (e) {
+    /* 실패했으면 캐시도 믿을 수 없다 — 비워서 다음 읽기가 KV(진실)로 가게 한다 */
+    try { delete _usrCache[id]; delete _usrSig[id]; } catch (e2) {}
+    try { console.error("[LIVE] usr 저장 실패:", id, String(e).slice(0, 120)); } catch (e2) {}
+    return false;
+  }
 }
 async function usrDelete(st, id) {
   if (!id) return;
@@ -15693,7 +15757,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "13.0.0";
+var APP_VER = "13.9.0";
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
