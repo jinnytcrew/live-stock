@@ -3839,9 +3839,17 @@ function renderConnPill(){
   }
   const dl=$('dLive');
   if(dl){
-    const open=($('mktPill')&&$('mktPill').textContent.includes('장중'));
-    dl.innerHTML=open
-      ? `<span class="dot on"></span>실시간 시세 · ${ts} 갱신`
+    /* ══ [v15.1] 정규장인데 "장마감·종가 기준"으로 뜨던 병 ═══════════════════
+       [무엇이 잘못됐나] 개장 판정을 mktPill 의 글자에서 '장중'을 찾는 문자열
+       매칭으로 했는데, 실제 개장 라벨은 'KRX 정규장'·'장 마감 동시호가'라
+       '장중'이라는 글자가 아예 없다 → 한낮 13:52 정규장에도 항상 장마감 표기
+       (사용자 실기 사진). 라벨이 아니라 세션 판정(tone)을 직접 본다. */
+    let tone='off',lab=''; try{ const ms=marketSession(); tone=ms.tone||'off'; lab=ms.label||''; }catch(e){}
+    if(tone==='off'&&/장 시작 전/.test(lab))tone='pre';   /* 개장 전 새벽은 '장마감'이 아니라 '장 시작 전' */
+    dl.innerHTML=
+      tone==='on' ? `<span class="dot on"></span>실시간 시세 · ${ts} 갱신`
+      :tone==='pre'? `<span class="dot idle"></span>장 시작 전 · 직전 종가 기준 · ${ts}`
+      :tone==='aft'? `<span class="dot idle"></span>시간외·NXT 진행 중 · 최근 체결 기준 · ${ts}`
       : `<span class="dot off"></span>장마감 · 종가 기준 · ${ts}`;
   }
 }
@@ -3849,6 +3857,8 @@ function renderConnPill(){
 try{renderConnPill();}catch(e){}
 try{renderMktPill();}catch(e){}
 if(!window._connClock)window._connClock=setInterval(()=>{try{renderConnPill();renderMktPill();}catch(e){}},1000);
+setTimeout(()=>{try{ bootAdmBanner(); }catch(e){}},0);   /* 선언(let)보다 위에서 실행되는 자리라 다음 틱으로 미룬다 */
+if(!window._admBnT)window._admBnT=setInterval(()=>{try{ loadAdmBanner().then(renderAdmBanner); }catch(e){}},10*60*1000);
 
 function accounts(){return store.get('accounts')||{};}
 /* ===== 클라우드(Cloudflare KV) 동기화 — 실패 시 로컬로 폴백 ===== */
@@ -10065,6 +10075,31 @@ function drawHeroEq(){ return; }
 function eqHasAccount(){ try{ return acctOpened(); }catch(e){ return false; } }
 let _hhTry=0;
 var homeHotMkt='kr';
+/* ══ [v15.1] 홈 공지 배너 — 관리자 화면에서 게시하면 모두의 홈 상단에 뜬다 ═══ */
+let _admBanner=null,_admBannerAt=0;
+async function loadAdmBanner(){
+  if(Date.now()-_admBannerAt<5*60*1000)return _admBanner;
+  _admBannerAt=Date.now();
+  try{fnBump();const r=await fetch('/api/banner',{cache:'default'});const j=await r.json();
+    _admBanner=j&&j.ok?{banner:j.banner,maint:j.maint}:null;}catch(e){_admBanner=null;}
+  return _admBanner;
+}
+function renderAdmBanner(){
+  const host=$('view-home'); if(!host)return;
+  let box=$('admBanner');
+  const data=_admBanner||{};
+  const dism=store.get('admBannerDismiss')||0;
+  const b=data.maint&&data.maint.on?{text:'🛠 '+data.maint.msg,tone:'warn',at:data.maint.at}
+        :(data.banner&&(!data.banner.until||Date.now()<data.banner.until)?data.banner:null);
+  if(!b||(b.at&&b.at<=dism)){ if(box)box.hidden=true; return; }
+  if(!box){ box=document.createElement('div'); box.id='admBanner'; box.className='adm-banner';
+    host.insertBefore(box,host.firstChild); }
+  box.hidden=false;
+  box.className='adm-banner '+(b.tone||'info');
+  box.innerHTML=`<span class="ab-t">${htmlEsc(b.text)}</span><button class="ab-x" aria-label="공지 닫기">✕</button>`;
+  box.querySelector('.ab-x').onclick=()=>{ store.set('admBannerDismiss',b.at||Date.now()); box.hidden=true; };
+}
+async function bootAdmBanner(){ await loadAdmBanner(); renderAdmBanner(); }
 async function renderHomeHot(){
   const el=$('homeHot'), wrap=$('homeHotWrap'); if(!el)return;
   /* [v4.41] 시장 탭 배선 — 한 번만 건다 */
@@ -10553,6 +10588,9 @@ async function loadRank(tab){
     const items=(j&&j.items)||[];
     /* [추가] 폴백 경로(JSON)는 시세·등락률까지 함께 준다. 받은 즉시 반영해
        '순위는 떴는데 값이 비어 보이는' 구간을 없앤다. */
+    items.forEach(it=>{ if(it&&it.code&&it.market){                 /* [v15.1] JSON 원천이 주는 시장 구분 */
+      try{ mktCache[String(it.code).toUpperCase()]=it.market; }catch(e){}
+    }});
     items.forEach(it=>{ if(it&&it.code&&it.price){
       const st=ensureStock(it.code,it.name||'','');
       if(st&&st.price==null){ st.price=it.price;
@@ -20394,13 +20432,190 @@ function renderAdmWork(){
     <div class="as-out" id="admMsg"></div>
   </div>
 
+  <div class="panel adm-sec">
+    <div class="as-h">회원 조회</div>
+    <div class="as-grid2">
+      <label>아이디<input id="auId" placeholder="정확한 아이디" autocomplete="off"></label>
+      <label>목록 검색<input id="auQ" placeholder="아이디 앞글자 (빈칸=전체)" autocomplete="off"></label>
+    </div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn primary" id="auOne" style="--nc:var(--brand)">1명 조회</button>
+      <button type="button" class="mc-btn" id="auList">회원 목록</button>
+      <button type="button" class="mc-btn" id="auStats">가입 통계</button>
+    </div>
+    <div class="as-out" id="auOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
+    <div class="as-h">쿠폰 회수</div>
+    <div class="as-d">잘못 나간 코드를 무효로 만듭니다. 이미 등록한 사람의 등급은 유지됩니다.</div>
+    <div class="as-grid2">
+      <label>코드<input id="rvCode" placeholder="LIVE-XXXXX-XXXXX-XXXXX-0" autocomplete="off"></label>
+    </div>
+    <div class="as-btns"><button type="button" class="mc-btn danger" id="rvGo">이 코드 회수</button></div>
+    <div class="as-out" id="rvOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
+    <div class="as-h">홈 공지 배너</div>
+    <div class="as-d">게시하면 모든 사용자의 홈 맨 위에 뜹니다. 점검 안내는 주황 경고로 표시됩니다.</div>
+    <input class="as-in" id="bnText" placeholder="공지 문구 (200자)" maxlength="200">
+    <div class="as-grid">
+      <label>색<select id="bnTone"><option value="info">파랑(안내)</option><option value="warn">주황(주의)</option><option value="danger">빨강(중요)</option></select></label>
+      <label>게시 시간<select id="bnHours"><option value="6">6시간</option><option value="24" selected>24시간</option><option value="72">3일</option><option value="168">7일</option></select></label>
+    </div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn primary" id="bnPost" style="--nc:var(--brand)">배너 게시</button>
+      <button type="button" class="mc-btn" id="bnClear">배너 내리기</button>
+      <button type="button" class="mc-btn" id="mtOn">점검 안내 켜기</button>
+      <button type="button" class="mc-btn" id="mtOff">점검 안내 끄기</button>
+    </div>
+    <div class="as-out" id="bnOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
+    <div class="as-h">시스템 진단·캐시 도구</div>
+    <div class="as-d">순위·추천주 서버 캐시 상태를 보고, 이상하면 그 자리에서 지워 다시 만들게 합니다.</div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn" id="dgRun">서버 상태 보기</button>
+      <button type="button" class="mc-btn" id="dgUs">해외 순위 원천 점검</button>
+      <button type="button" class="mc-btn" id="dgNxt">NXT 명단 상태</button>
+    </div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn" data-cdel="rank:rise:v2">국내 상승 캐시 삭제</button>
+      <button type="button" class="mc-btn" data-cdel="rank:fall:v2">국내 하락 캐시 삭제</button>
+      <button type="button" class="mc-btn" data-cdel="usrk:v1:up">해외 상승 캐시 삭제</button>
+      <button type="button" class="mc-btn" data-cdel="usrk:v1:down">해외 하락 캐시 삭제</button>
+      <button type="button" class="mc-btn" data-cdel="rank:composite">조회수 합성 캐시 삭제</button>
+    </div>
+    <div class="as-out" id="dgOut"></div>
+  </div>
+
   <div class="adm-out"><button type="button" id="admLogout">관리자 나가기</button></div>`;
   wireCouponAdmin();
   wireAdmNotify();
+  wireAdmTools();
   const sv=$('admSave'); if(sv)sv.onclick=saveAdminNotice;
   const ld=$('admLoad'); if(ld)ld.onclick=loadAdminCurrent;
   const lo=$('admLogout');
   if(lo)lo.onclick=()=>{ admTokSet(''); toast('ok','관리자에서 나왔습니다',''); renderAdminView(); };
+}
+/* ── [v15.1] 관리자 확장 도구 배선 ───────────────────────────────────────── */
+function wireAdmTools(){
+  const out=(id,html)=>{const e=$(id);if(e)e.innerHTML=html;};
+  const busy=(b,on,t)=>{if(!b)return;b.disabled=on;if(t)b.textContent=on?'처리 중…':t;};
+  const esc=htmlEsc;
+  const tierNm=(k)=>{const t=(TIERS||[]).find(x=>x.k===k);return t?t.n:k;};
+  const dts=(v)=>v?new Date(v).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+  const b1=$('auOne'); if(b1)b1.onclick=async()=>{
+    const id=($('auId').value||'').trim().toLowerCase();
+    if(!id){out('auOut','<b class="bad">아이디를 넣어 주세요</b>');return;}
+    busy(b1,true,'1명 조회');
+    try{const j=await admCall({act:'user',id});
+      if(j&&j.ok)out('auOut',`<div class="au-card"><b>${esc(j.id)}</b> · <i>${tierNm(j.tier)}</i>${j.until?` (만료 ${dts(j.until)})`:''}
+        <div class="au-sub">가입 ${dts(j.createdAt)} · 마지막 로그인 ${dts(j.lastLogin)}${j.google?' · 구글 연동':''}</div>
+        <div class="au-sub">클라우드 데이터 ${j.dataBytes?Math.round(j.dataBytes/1024)+'KB · 갱신 '+dts(j.dataAt):'없음'}</div></div>`);
+      else out('auOut','<b class="bad">'+(j&&j.err==='notfound'?'없는 아이디입니다':'조회하지 못했습니다')+'</b>');
+    }catch(e){out('auOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(b1,false,'1명 조회');}
+  };
+  const b2=$('auList'); if(b2)b2.onclick=async()=>{
+    busy(b2,true,'회원 목록');
+    try{const j=await admCall({act:'users',q:($('auQ').value||'').trim()});
+      if(j&&j.ok)out('auOut',(j.rows.length?`<table class="au-tbl"><tr><th>아이디</th><th>등급</th><th>만료</th></tr>`+
+        j.rows.map(r=>`<tr><td>${esc(r.id)}</td><td>${tierNm(r.tier)}</td><td>${r.until?dts(r.until):'—'}</td></tr>`).join('')+`</table>`
+        :'<span>해당하는 회원이 없습니다</span>')+(j.cursor?'<div class="au-sub">…더 있음(앞글자를 좁혀 보세요)</div>':''));
+      else out('auOut','<b class="bad">불러오지 못했습니다</b>');
+    }catch(e){out('auOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(b2,false,'회원 목록');}
+  };
+  const b3=$('auStats'); if(b3)b3.onclick=async()=>{
+    busy(b3,true,'가입 통계');
+    try{const j=await admCall({act:'stats'});
+      if(j&&j.ok)out('auOut',`<div class="au-card">계정 <b>${j.accounts.n}${j.accounts.more?'+':''}</b>
+        · 클라우드 데이터 <b>${j.userData.n}${j.userData.more?'+':''}</b>
+        · 발급 쿠폰 <b>${j.coupons.n}${j.coupons.more?'+':''}</b></div>`);
+      else out('auOut','<b class="bad">집계하지 못했습니다</b>');
+    }catch(e){out('auOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(b3,false,'가입 통계');}
+  };
+  const rv=$('rvGo'); if(rv)rv.onclick=async()=>{
+    const code=($('rvCode').value||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+    if(code.length!==20){out('rvOut','<b class="bad">코드 20자를 그대로 넣어 주세요</b>');return;}
+    if(!await askConfirm('쿠폰 회수','이 코드는 더 이상 등록할 수 없게 됩니다.',{okLabel:'회수',danger:true}))return;
+    busy(rv,true,'이 코드 회수');
+    try{const j=await admCall({act:'revoke',code});
+      out('rvOut',j&&j.ok?`<b>회수했습니다</b> · ${esc(j.code)}`:'<b class="bad">'+(j&&j.err==='notfound'?'없는 코드입니다':'회수하지 못했습니다')+'</b>');
+    }catch(e){out('rvOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(rv,false,'이 코드 회수');}
+  };
+  const bp=$('bnPost'); if(bp)bp.onclick=async()=>{
+    const text=($('bnText').value||'').trim();
+    if(!text){out('bnOut','<b class="bad">문구를 넣어 주세요</b>');return;}
+    busy(bp,true,'배너 게시');
+    try{const j=await admCall({act:'banner',text,tone:$('bnTone').value,hours:+$('bnHours').value});
+      out('bnOut',j&&j.ok?'<b>게시했습니다</b> · 사용자 홈 상단에 표시됩니다':'<b class="bad">게시하지 못했습니다</b>');
+      _admBannerAt=0; loadAdmBanner().then(renderAdmBanner);
+    }catch(e){out('bnOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(bp,false,'배너 게시');}
+  };
+  const bc=$('bnClear'); if(bc)bc.onclick=async()=>{
+    busy(bc,true,'배너 내리기');
+    try{const j=await admCall({act:'banner',clear:1});
+      out('bnOut',j&&j.ok?'<b>내렸습니다</b>':'<b class="bad">실패했습니다</b>');
+      _admBannerAt=0; loadAdmBanner().then(renderAdmBanner);
+    }catch(e){out('bnOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(bc,false,'배너 내리기');}
+  };
+  const mo=$('mtOn'); if(mo)mo.onclick=async()=>{
+    const msg=await askText('점검 안내 문구',{placeholder:'예: 20:00~20:30 서버 점검 예정입니다',maxLen:160});
+    if(msg==null)return;
+    try{const j=await admCall({act:'maint',on:1,msg});
+      out('bnOut',j&&j.ok?'<b>점검 안내를 켰습니다</b>':'<b class="bad">실패했습니다</b>');
+      _admBannerAt=0; loadAdmBanner().then(renderAdmBanner);
+    }catch(e){out('bnOut','<b class="bad">서버 연결 실패</b>');}
+  };
+  const mf=$('mtOff'); if(mf)mf.onclick=async()=>{
+    try{const j=await admCall({act:'maint',on:0});
+      out('bnOut',j&&j.ok?'<b>점검 안내를 껐습니다</b>':'<b class="bad">실패했습니다</b>');
+      _admBannerAt=0; loadAdmBanner().then(renderAdmBanner);
+    }catch(e){out('bnOut','<b class="bad">서버 연결 실패</b>');}
+  };
+  const dg=$('dgRun'); if(dg)dg.onclick=async()=>{
+    busy(dg,true,'서버 상태 보기');
+    try{const j=await admCall({act:'diag'});
+      if(j&&j.ok){
+        const f=(o,lab)=>o?`${lab} <b>${o.n}종</b>·${Math.round(o.ageSec/60)}분 전${o.src?'·'+o.src:''}`:`${lab} <i class="bad">비어 있음</i>`;
+        out('dgOut',`<div class="au-card">워커 v${esc(j.apvar)} · ${f(j.krRise,'국내상승')} · ${f(j.usUp,'해외상승')} · ${f(j.composite,'조회수합성')}
+          <div class="au-sub">배너 ${j.banner?'게시 중':'없음'} · 점검 ${j.maint?'ON':'OFF'}</div></div>`);
+      } else out('dgOut','<b class="bad">확인하지 못했습니다</b>');
+    }catch(e){out('dgOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(dg,false,'서버 상태 보기');}
+  };
+  const du=$('dgUs'); if(du)du.onclick=async()=>{
+    busy(du,true,'해외 순위 원천 점검');
+    try{fnBump();const r=await fetch('/api/usrankdiag?type=up');const j=await r.json();
+      out('dgOut',j&&j.ok?`<div class="au-card">해외 원천: ${(j.tried||[]).map(t=>`${esc(t.label)} <b>${t.parsed}</b>`).join(' · ')}
+        <div class="au-sub">사용 가능: ${(j.usable||[]).join(', ')||'없음'}</div></div>`:'<b class="bad">점검 실패</b>');
+    }catch(e){out('dgOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(du,false,'해외 순위 원천 점검');}
+  };
+  const dn2=$('dgNxt'); if(dn2)dn2.onclick=async()=>{
+    busy(dn2,true,'NXT 명단 상태');
+    try{fnBump();const r=await fetch('/api/nxtadmin');const j=await r.json();
+      out('dgOut',`<div class="au-card">NXT 명단: ${j&&j.count?`<b>${j.count}종</b> · 기준일 ${esc(j.baseDate||'?')}`:'상태 확인 불가'}${j&&j.src?' · '+esc(j.src):''}</div>`);
+    }catch(e){out('dgOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(dn2,false,'NXT 명단 상태');}
+  };
+  document.querySelectorAll('[data-cdel]').forEach(b=>b.onclick=async()=>{
+    const key=b.dataset.cdel;
+    if(!await askConfirm('캐시 삭제',key+' 를 지우고 다음 요청에서 새로 만들게 합니다.',{okLabel:'삭제'}))return;
+    b.disabled=true;
+    try{const j=await admCall({act:'cachedel',key});
+      out('dgOut',j&&j.ok?`<b>삭제했습니다</b> · ${esc(j.deleted)}`:'<b class="bad">'+(j&&j.err==='notallowed'?'허용되지 않은 키입니다':'삭제 실패')+'</b>');
+    }catch(e){out('dgOut','<b class="bad">서버 연결 실패</b>');}
+    finally{b.disabled=false;}
+  });
 }
 /* ── 발급 안내 보내기 ─────────────────────────────────────────────────── */
 function wireAdmNotify(){

@@ -5947,6 +5947,10 @@ async function accLoad(st, id, legacyDb) {
   if (c && Date.now() - c.at < ACC_CACHE_MS) return c.v;
   let v = null;
   try { v = await st.get(accKeyOf(key), { type: "json" }); } catch (e) { v = null; }
+  /* [v15.1] kvAdapter.get 은 {type:'json'} 옵션을 무시하고 문자열을 준다 —
+     그 문자열이 "객체인 척" 흘러가면 verifyPass·tier 읽기가 조용히 다 틀린다.
+     어댑터가 무엇이든 여기서 한 번 방어 파싱한다. */
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { v = null; } }
   if (v == null && legacyDb && legacyDb.accounts) {
     /* 옛 자리 — 정확한 키, 없으면 대소문자만 다른 키까지 훑는다(이전 대상 찾기) */
     let hit = legacyDb.accounts[key];
@@ -10746,6 +10750,19 @@ function cpnTierHint(code) {
   const n = Number(c.slice(19));
   return (n >= 1 && n < TIER_KEYS.length) ? TIER_KEYS[n] : null;
 }
+
+/* [v15.1] 홈 상단 공지 배너 — 관리자 게시분을 공개로 내려준다(60초 캐시 헤더) */
+var banner_default = async (req2) => {
+  const J = (o) => new Response(JSON.stringify(o), { status: 200,
+    headers: { "content-type": "application/json; charset=utf-8",
+      "cache-control": "public, max-age=60", "access-control-allow-origin": "*" } });
+  if (!KV) return J({ ok: true, banner: null, maint: null });
+  let banner = null, maint = null;
+  try { banner = await KV.get("adm:banner", "json"); } catch (e) {}
+  try { maint = await KV.get("adm:maint", "json"); } catch (e) {}
+  if (banner && banner.until && Date.now() > banner.until) banner = null;
+  return J({ ok: true, banner, maint });
+};
 var coupon_default = async (req2) => {
   const url = new URL(req2.url);
   const J = (o, st) => new Response(JSON.stringify(o), {
@@ -10783,6 +10800,8 @@ var coupon_default = async (req2) => {
     let cpn = null;
     try { cpn = await KV.get("cpn:" + code, "json"); } catch (e) { cpn = null; }
     if (!cpn) return J({ ok: false, err: "notfound", msg: "없는 코드입니다. 대소문자와 하이픈을 다시 확인해 주세요" });
+    if (cpn.disabled)
+      return J({ ok: false, err: "revoked", msg: "관리자가 회수한 코드입니다" });
     if (cpn.expireAt && Date.now() > cpn.expireAt)
       return J({ ok: false, err: "expired", msg: "사용 기간이 지난 코드입니다" });
     if ((cpn.usedBy || []).includes(id))
@@ -10933,6 +10952,92 @@ var coupon_default = async (req2) => {
     else tierGrant(acc, tier, Math.max(0, +body.days || 0), "관리자");
     await accSave(store, id, acc);
     return J({ ok: true, id, ...tierPayload(acc) });
+  }
+
+  /* ══ [v15.1] 관리자 도구 대확장 — 전부 NXT_ADMIN_TOKEN 뒤에 둔다 ═══════════ */
+  if (act === "revoke") {                              /* 쿠폰 회수 */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const code = cpnNorm(body.code);
+    let cpn = null; try { cpn = await KV.get("cpn:" + code, "json"); } catch (e) {}
+    if (!cpn) return J({ ok: false, err: "notfound" });
+    cpn.disabled = 1; cpn.revokedAt = Date.now();
+    await KV.put("cpn:" + code, JSON.stringify(cpn));
+    return J({ ok: true, code: cpnPretty(code) });
+  }
+  if (act === "user") {                                /* 회원 1명 조회 */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const id = String(body.id || "").trim().toLowerCase();
+    if (!id) return J({ ok: false, err: "form" });
+    const acc = await accLoad(store, id, legacyDb);
+    if (!acc) return J({ ok: false, err: "notfound" });
+    let dataAt = null, dataBytes = 0;
+    /* 클라우드 데이터는 kvAdapter("app") 를 거쳐 저장되므로 실제 키는 app:usr:<id> */
+    try { const raw = await KV.get("app:usr:" + id); if (raw) { dataBytes = raw.length;
+      try { const u = JSON.parse(raw); dataAt = u.updatedAt || u.at || null; } catch (e) {} } } catch (e) {}
+    return J({ ok: true, id, tier: acc.tier || "free", until: acc.tierUntil || null,
+      createdAt: acc.createdAt || null, lastLogin: acc.lastLogin || null,
+      dataBytes, dataAt, google: !!acc.google });
+  }
+  if (act === "users") {                               /* 회원 목록(최근 등록순 아님·키순) */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const cursor = body.cursor || undefined;
+    const q = String(body.q || "").trim().toLowerCase();
+    let res2 = { keys: [], list_complete: true };
+    try { res2 = await KV.list({ prefix: "app:acc:" + q, limit: 40, cursor }); } catch (e) {}
+    const rows = [];
+    for (const k of res2.keys) {
+      const id = k.name.slice(8);
+      let acc = null; try { acc = await KV.get(k.name, "json"); } catch (e) {}
+      rows.push({ id, tier: (acc && acc.tier) || "free", until: (acc && acc.tierUntil) || null });
+      if (rows.length >= 40) break;
+    }
+    return J({ ok: true, rows, cursor: res2.list_complete ? null : res2.cursor });
+  }
+  if (act === "stats") {                               /* 가입 규모 집계(최대 3천 키 표본) */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const cnt = async (prefix) => { let n = 0, cur; for (let i = 0; i < 3; i++) {
+      let r; try { r = await KV.list({ prefix, limit: 1000, cursor: cur }); } catch (e) { break; }
+      n += r.keys.length; if (r.list_complete) return { n, more: false }; cur = r.cursor; }
+      return { n, more: true }; };
+    const [acc, usr, cpn] = await Promise.all([cnt("app:acc:"), cnt("app:usr:"), cnt("cpn:")]);
+    return J({ ok: true, accounts: acc, userData: usr, coupons: cpn });
+  }
+  if (act === "banner") {                              /* 홈 상단 공지 배너 게시/해제 */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    if (body.clear) { try { await KV.delete("adm:banner"); } catch (e) {} return J({ ok: true, cleared: 1 }); }
+    const text = String(body.text || "").slice(0, 200);
+    if (!text) return J({ ok: false, err: "form" });
+    const tone = ["info", "warn", "danger"].includes(body.tone) ? body.tone : "info";
+    const hours = Math.max(1, Math.min(720, +body.hours || 24));
+    const b = { text, tone, until: Date.now() + hours * 3600e3, at: Date.now() };
+    await KV.put("adm:banner", JSON.stringify(b), { expirationTtl: hours * 3600 + 600 });
+    return J({ ok: true, banner: b });
+  }
+  if (act === "maint") {                               /* 점검 안내(차단 아님·경고 배너) */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    if (!body.on) { try { await KV.delete("adm:maint"); } catch (e) {} return J({ ok: true, off: 1 }); }
+    const m = { on: 1, msg: String(body.msg || "\uc810\uac80 \uc911\uc785\ub2c8\ub2e4").slice(0, 160), at: Date.now() };
+    await KV.put("adm:maint", JSON.stringify(m), { expirationTtl: 86400 });
+    return J({ ok: true, maint: m });
+  }
+  if (act === "cachedel") {                            /* 서버 캐시 강제 삭제(화이트리스트) */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const ALLOW = ["rank:composite", "rank:rise:v2", "rank:fall:v2",
+      "usrk:v1:up", "usrk:v1:down", "picks:today", "picks:cur"];
+    const key = String(body.key || "");
+    if (!ALLOW.includes(key)) return J({ ok: false, err: "notallowed", allow: ALLOW });
+    try { await KV.delete(key); } catch (e) {}
+    return J({ ok: true, deleted: key });
+  }
+  if (act === "diag") {                                /* 원천 상태 한 번에 — 프런트 진단판 */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const out = {};
+    try { const r = await KV.get("rank:rise:v2", "json"); out.krRise = r ? { n: r.items.length, ageSec: Math.round((Date.now() - r.at) / 1000) } : null; } catch (e) { out.krRise = null; }
+    try { const r = await KV.get("usrk:v1:up", "json"); out.usUp = r ? { n: (r.items || []).length, src: r.src, ageSec: Math.round((Date.now() - (r.madeAt || r.at || 0)) / 1000) } : null; } catch (e) { out.usUp = null; }
+    try { const r = await KV.get("rank:composite", "json"); out.composite = r ? { n: r.items.length, ageSec: Math.round((Date.now() - r.at) / 1000) } : null; } catch (e) { out.composite = null; }
+    try { const b = await KV.get("adm:banner", "json"); out.banner = b || null; } catch (e) { out.banner = null; }
+    try { const m = await KV.get("adm:maint", "json"); out.maint = m || null; } catch (e) { out.maint = null; }
+    return J({ ok: true, ...out, apvar: typeof APP_VER !== "undefined" ? APP_VER : "?" });
   }
 
   return J({ ok: false, err: "act" });
@@ -11944,21 +12049,90 @@ async function tryFetch(u) {
   }
   return { u, items: [] };
 }
+/* ══ [v15.1] 국내 상승률·하락률 — 코스닥이 통째로 밀려나던 병 ═══════════════
+   [무엇이 잘못됐나] HTML 순위 페이지를 코스피(sosok=0)→코스닥(sosok=1) 순서로
+   받아 "이어붙이기만" 했다. 등락률 재정렬이 없어서 화면 상단은 전부 코스피가
+   차지했고, 실제 시장 1~3위(아이윈·바이오니아·덱스터 — 코스닥)는 목록 저
+   아래로 밀렸다(사용자 실기 MTS 대조 사진으로 확인).
+   [해결] 등락률이 숫자로 오는 모바일 JSON API(up/down × KOSPI/KOSDAQ)를 먼저
+   쓰고, 받은 전 종목을 등락률로 한 번에 정렬한다. 시세·시장 구분도 함께
+   실어 화면이 즉시 그릴 수 있게 한다. JSON 이 죽으면 기존 HTML 경로로
+   폴백하되, 이때도 코스피·코스닥을 지그재그로 섞어 한쪽 독식을 막는다. */
+async function krRankJson(kind){
+  const dir=kind==="rise"?"up":"down";
+  const jobs=[];
+  for(const mk of ["KOSPI","KOSDAQ"]){
+    for(let page=1;page<=2;page++){
+      jobs.push((async()=>{
+        const c=new AbortController();const t=setTimeout(()=>c.abort(),4500);
+        try{
+          const r=await fetch(`https://m.stock.naver.com/api/stocks/${dir}/${mk}?page=${page}&pageSize=100`,
+            {headers:{ "User-Agent":UA24, Accept:"application/json", Referer:"https://m.stock.naver.com/" },signal:c.signal});
+          if(!r.ok)return [];
+          const j=await r.json();
+          const arr=(j&&(j.stocks||j.datas||(j.result&&j.result.stocks)))||[];
+          return arr.map(x=>({
+            code:String(x.itemCode||x.symbolCode||x.cd||"").trim(),
+            name:String(x.stockName||x.nm||"").trim(),
+            price:numOf(x.closePrice||x.nv),
+            rate:parseFloat(String(x.fluctuationsRatio!=null?x.fluctuationsRatio:x.cr||"0").replace(/,/g,""))||0,
+            vol:numOf(x.accumulatedTradingVolume||x.aq),
+            market:mk==="KOSPI"?"\uCF54\uC2A4\uD53C":"\uCF54\uC2A4\uB2E5"
+          })).filter(x=>/^[0-9][0-9A-Z]{5}$/.test(x.code)&&x.name);
+        }catch(e){return [];}
+        finally{clearTimeout(t);}
+      })());
+    }
+  }
+  const parts=await Promise.all(jobs);
+  const seen=new Set(); const all=[];
+  for(const arr of parts)for(const it of arr){ if(seen.has(it.code))continue; seen.add(it.code); all.push(it); }
+  if(all.length<40)return null;                       // 원천 이상 — 폴백으로
+  let list=all.filter(x=>kind==="rise"?x.rate>0:x.rate<0);
+  list.sort((a,b)=>{const d=kind==="rise"?b.rate-a.rate:a.rate-b.rate;   // ★ 시장 통합 재정렬
+    return d!==0?d:(b.vol-a.vol);});                                     // 동률이면 거래량 큰 쪽 먼저(실기 MTS와 동일)
+  return list.slice(0,200);
+}
 var popular_default = async (req2) => {
   const url = new URL(req2.url);
   const type = String(url.searchParams.get("type") || "search");
   const diag = [];
   try {
+    /* [v15.1] 상승·하락은 JSON 원천 우선 — 등락률 정렬·시장 혼합이 보장된다 */
+    if (type === "rise" || type === "fall") {
+      const CK = "rank:" + type + ":v2";
+      try {
+        const cached = KV ? await KV.get(CK, "json") : null;
+        if (cached && cached.at && Date.now() - cached.at < 90 * 1000 && Array.isArray(cached.items) && cached.items.length >= 40)
+          return json3({ ok: true, type, src: "json-cache", items: cached.items, diag: ["cache:" + cached.items.length] });
+      } catch (e) {}
+      let jr = null;
+      try { jr = await krRankJson(type); } catch (e) { diag.push("krj:" + String(e).slice(0, 20)); }
+      if (jr && jr.length >= 40) {
+        try { if (KV) await KV.put(CK, JSON.stringify({ at: Date.now(), items: jr }), { expirationTtl: 1800 }); } catch (e) {}
+        return json3({ ok: true, type, src: "json", items: jr, diag: ["json:" + jr.length] });
+      }
+      diag.push("json:miss");                        /* → 아래 HTML 폴백으로 계속 */
+    }
     const res = await Promise.all(variants(type).map(tryFetch));
     const seen = /* @__PURE__ */ new Set();
     let items = [];
     let src = "html";
-    for (const r of res) {
-      diag.push(r.u.replace("https://finance.naver.com/sise/", "") + ":" + r.items.length);
-      for (const it of r.items) {
-        if (seen.has(it.code)) continue;
-        seen.add(it.code);
-        items.push(it);
+    res.forEach(r => diag.push(r.u.replace("https://finance.naver.com/sise/", "") + ":" + r.items.length));
+    if (type === "rise" || type === "fall") {
+      /* [v15.1] 폴백에서도 코스피·코스닥을 번갈아 섞는다 — 등락률 값이 없어
+         완벽하진 않지만, 최소한 한 시장이 상단을 독식하지는 않는다 */
+      const a = (res[0] && res[0].items) || [], b = (res[1] && res[1].items) || [];
+      const n = Math.max(a.length, b.length);
+      for (let i = 0; i < n; i++) for (const it of [a[i], b[i]]) {
+        if (!it || seen.has(it.code)) continue; seen.add(it.code); items.push(it);
+      }
+      for (const r of res.slice(2)) for (const it of r.items) {
+        if (seen.has(it.code)) continue; seen.add(it.code); items.push(it);
+      }
+    } else {
+      for (const r of res) for (const it of r.items) {
+        if (seen.has(it.code)) continue; seen.add(it.code); items.push(it);
       }
     }
     /* ══ [v4.18] 조회수 100위 — 가볍고 죽지 않는 합성 ═══════════════════════
@@ -12934,7 +13108,8 @@ var ROUTES = {
   "market": market_default,
   "askprice": askprice_default,   /* [v9.81] 호가 */
   "srt": srt_default,             /* [v9.84] 공매도 잔고 */
-  "coupon": coupon_default,       /* [v11.0] 이용권 쿠폰 */
+  "coupon": coupon_default,
+  "banner": banner_default,       /* [v15.1] 공지 배너(공개) */       /* [v11.0] 이용권 쿠폰 */
   "push": push_default,          /* [v9.76] 웹 푸시 */
   "meta": meta_default,
   "news": news_default,
@@ -16176,7 +16351,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "15.0.1";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "15.1.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

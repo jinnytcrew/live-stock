@@ -6793,3 +6793,24 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   .d-name{font-size:19px}
   .d-price{font-size:27px}
 }
+
+/* ═══ [v15.1] 홈 공지 배너 + 관리자 확장 도구 ═══════════════════════════════ */
+.adm-banner{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:13px;
+  margin-bottom:14px;font-size:13px;font-weight:700;border:1px solid transparent}
+.adm-banner.info{background:#eef4ff;border-color:#c9dcff;color:#1d4ed8}
+.adm-banner.warn{background:#fff7e8;border-color:#fde2ad;color:#92400e}
+.adm-banner.danger{background:#fff1f1;border-color:#ffd0d0;color:#b42318}
+.adm-banner .ab-t{flex:1 1 auto;min-width:0;line-height:1.45;word-break:keep-all}
+.adm-banner .ab-x{flex:0 0 auto;border:0;background:transparent;color:inherit;opacity:.55;
+  font-size:13px;cursor:pointer;padding:4px 6px;border-radius:7px}
+.adm-banner .ab-x:hover{opacity:1;background:rgba(0,0,0,.06)}
+html.dark .adm-banner.info{background:#12233f;border-color:#1f3a63;color:#9cc0ff}
+html.dark .adm-banner.warn{background:#33240d;border-color:#5d4315;color:#ffd48a}
+html.dark .adm-banner.danger{background:#391416;border-color:#63262a;color:#ff9c9c}
+.au-card{padding:11px 13px;border:1px solid var(--border);border-radius:11px;font-size:13px;line-height:1.55}
+.au-sub{margin-top:4px;font-size:11.5px;color:var(--sub)}
+.au-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.au-tbl th,.au-tbl td{padding:7px 9px;border-bottom:1px solid var(--border-soft);text-align:left}
+.au-tbl th{font-size:11px;color:var(--sub)}
+.mc-btn.danger{border-color:#ffc9c9;color:#b42318;background:#fff5f5}
+html.dark .mc-btn.danger{border-color:#5d2a2a;background:#2a1516;color:#ff9c9c}
