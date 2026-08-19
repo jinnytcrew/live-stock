@@ -1364,7 +1364,7 @@ function paintPicks(j){
 /* [추가] 고급 서비스 '자동 실시간' 표시 — 마지막 자동 갱신 시각 배지 */
 function proLiveStamp(id){const el=$(id);if(!el)return;const t=new Date();
   el.innerHTML='<i class="dot on"></i>자동 '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');}
-let proTab='picks';
+let proTab='surge';   /* [v15.4] 추천주 코너 제거 — 기본 탭을 급등 예측으로 */
 /* ══ [v11.2] 고급 서비스 탭 잠금 ═══════════════════════════════════════════
    급등주 예측·매집 포착기는 일봉 수십 종을 분석하는 무거운 계산이다.
    서버 부담이 실제로 큰 기능이라 Pro 부터로 둔다. 다른 탭은 그대로 열려 있다. */
@@ -1406,7 +1406,7 @@ function setProTab(t){
   if(need&&!tierAllow(need)){
     proTab=t;
     document.querySelectorAll('#proTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pt===t));
-    ['picks','nxthist','surge','accum','screener','thermo','port','compare','bt','risk']
+    ['nxthist','surge','accum','screener','thermo','port','compare','bt','risk']
       .forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
     proLockShow(t,need);
     return;
@@ -1415,8 +1415,7 @@ function setProTab(t){
   if(PRO_NEED[t])proLockClear(t);
   proTab=t;
   document.querySelectorAll('#proTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pt===t));
-  ['picks','nxthist','surge','accum','screener','thermo','port','compare','bt','risk'].forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
-  if(t==='picks')renderPicks();
+  ['nxthist','surge','accum','screener','thermo','port','compare','bt','risk'].forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
   if(t==='accum')acInit();
   if(t==='nxthist')renderNxtHist();
   if(t==='thermo')renderThermo();
@@ -1425,7 +1424,6 @@ function setProTab(t){
   if(t==='surge')renderSurge();
   if(t==='bt'){renderBtOpts();renderBacktest();}
   /* [추가] 버튼을 누르지 않아도 열자마자 자동 분석 시작 */
-  if(t==='picks'&&!picksCache&&!picksBusy)loadPicks(false);
   if(t==='surge'&&!surgeBusy&&(!surgeRes||Date.now()-surgeAt>5*60e3))runSurge();
   if(t==='screener')runScreener();
 }
@@ -3846,6 +3844,17 @@ function renderConnPill(){
        (사용자 실기 사진). 라벨이 아니라 세션 판정(tone)을 직접 본다. */
     let tone='off',lab=''; try{ const ms=marketSession(); tone=ms.tone||'off'; lab=ms.label||''; }catch(e){}
     if(tone==='off'&&/장 시작 전/.test(lab))tone='pre';   /* 개장 전 새벽은 '장마감'이 아니라 '장 시작 전' */
+    /* ══ [v15.2.2] KRX 전용 종목이 저녁에 "시간외·NXT 진행 중"으로 뜨던 병 ═══════
+       [무엇이 잘못됐나] 세션 톤(aft)은 "시장에 NXT 애프터가 열려 있다"는 뜻이지
+       "이 종목이 지금 체결된다"는 뜻이 아니다. NXT 미취급(KRX 전용) 종목은
+       15:30 이후 체결이 없는데도 같은 문구를 달아, 가격 배지(장 종료)와 서로
+       모순되게 보였다(실기 사진 — HPSP 19:39).
+       [고침] 지금 보는 종목의 NXT 취급 여부를 함께 본다. 미취급이면 애프터/프리
+       시간이어도 '장마감·종가 기준'으로 말한다. 판별 전(cap===null)에는 시장
+       기준 문구를 잠시 쓰되, 판별되면 즉시 갱신된다. */
+    try{ if(tone==='aft'&&typeof nxtCapability==='function'&&typeof selected!=='undefined'&&selected){
+      if(nxtCapability(selected)===false)tone='off';        /* 아침(pre)은 KRX 전용도 '장 시작 전'이 자연스러우니 그대로 둔다 */
+    } }catch(e){}
     dl.innerHTML=
       tone==='on' ? `<span class="dot on"></span>실시간 시세 · ${ts} 갱신`
       :tone==='pre'? `<span class="dot idle"></span>장 시작 전 · 직전 종가 기준 · ${ts}`
@@ -3857,6 +3866,39 @@ function renderConnPill(){
 try{renderConnPill();}catch(e){}
 try{renderMktPill();}catch(e){}
 if(!window._connClock)window._connClock=setInterval(()=>{try{renderConnPill();renderMktPill();}catch(e){}},1000);
+/* ══ [v15.3] 장 상태 경계선 자동 반영 ═══════════════════════════════════════════
+   [무엇이 잘못됐나] 20:00(NXT 종료)·09:00(개장) 같은 경계 시각이 지나도, 목록의
+   NXT/장종료 가격 배지·검색 상단 안내문·홈 '오늘의 장'·상세 배지는 "그 화면을
+   다시 그릴 일"이 생겨야만 바뀌었다 — 새로고침 전까지 옛 상태가 남았다(실기
+   사진: 20:00:xx 인데 애프터마켓 안내·NXT 배지 그대로).
+   [고침] 1초 시계가 국내·해외 세션 서명(label|tone|usPhase)을 지켜보다가,
+   서명이 바뀌는 그 순간 세션 의존 화면 조각들을 한 번에 다시 그린다.
+   렌더러들은 모두 멱등이라 하루 몇 번의 경계에서만 도는 이 호출은 값싸다. */
+function sessSignature(){
+  let a='',b='';
+  try{const m=marketSession();a=(m.label||'')+'|'+(m.tone||'');}catch(e){}
+  try{const u=usSession();b=u?(u.phase||''):'';}catch(e){}
+  return a+'|'+b;
+}
+window.__sessRefreshN=0;
+function sessRefresh(){
+  window.__sessRefreshN++;
+  try{renderConnPill();renderMktPill();}catch(e){}
+  try{if(currentView==='search')renderSearch();}catch(e){}
+  try{if(currentView==='home'){renderHeroMarket();try{renderHomeHot();}catch(e2){}}}catch(e){}
+  try{if(currentView==='watch')renderWatch();}catch(e){}
+  try{if(currentView==='trade'&&typeof renderDetail==='function')renderDetail();}catch(e){}
+  try{if(currentView==='us'){renderUsBreadthChip&&renderUsBreadthChip();if(typeof usPane!=='undefined'&&usPane==='rank')renderUsRankBody();}}catch(e){}
+  try{if(currentView==='account')renderHoldings();}catch(e){}
+}
+window.__sessRefresh=sessRefresh;                       /* 검증용 노출 */
+if(!window._sessWatch){
+  window.__lastSess=sessSignature();
+  window._sessWatch=setInterval(()=>{try{
+    const s=sessSignature();
+    if(s&&s!==window.__lastSess){window.__lastSess=s;sessRefresh();}
+  }catch(e){}},1000);
+}
 setTimeout(()=>{try{ bootAdmBanner(); }catch(e){}},0);   /* 선언(let)보다 위에서 실행되는 자리라 다음 틱으로 미룬다 */
 if(!window._admBnT)window._admBnT=setInterval(()=>{try{ loadAdmBanner().then(renderAdmBanner); }catch(e){}},10*60*1000);
 
@@ -11854,7 +11896,6 @@ setInterval(()=>{try{
   }
   else if(proTab==='screener'&&Date.now()-scrAt>45e3)runScreener();
   else if(proTab==='thermo')renderThermo();
-  else if(proTab==='picks'&&!picksCache&&!picksBusy)loadPicks(false);
 }catch(e){}},30e3);
 {const ei=$('etfSearch');if(ei)ei.addEventListener('input',()=>{etfQuery=ei.value||'';etfLimit=30;renderEtfLounge();});}
 /* [수정] runEtfProbe 가 정의되어 있지 않아 이 줄에서 ReferenceError가 발생했고,
@@ -20509,6 +20550,37 @@ function renderAdmWork(){
     <div class="as-out" id="dgOut"></div>
   </div>
 
+  <div class="panel adm-sec">
+    <div class="as-h">쿠폰 상태 조회</div>
+    <div class="as-grid2"><label>코드<input id="ciCode" placeholder="LIVE-XXXXX-XXXXX-XXXXX-0" autocomplete="off"></label></div>
+    <div class="as-btns"><button type="button" class="mc-btn" id="ciGo">조회</button></div>
+    <div class="as-out" id="ciOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
+    <div class="as-h">서버 데이터 재생성</div>
+    <div class="as-d">캐시를 지우고 그 자리에서 새로 만들어 결과 개수까지 확인합니다.</div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn" data-regen="kr-rise">국내 상승 재생성</button>
+      <button type="button" class="mc-btn" data-regen="kr-fall">국내 하락 재생성</button>
+      <button type="button" class="mc-btn" data-regen="us-up">해외 상승 재생성</button>
+      <button type="button" class="mc-btn" data-regen="us-down">해외 하락 재생성</button>
+      <button type="button" class="mc-btn" id="nxtForce">NXT 명단 강제 갱신</button>
+    </div>
+    <div class="as-out" id="rgOut"></div>
+  </div>
+
+  <div class="panel adm-sec adm-danger">
+    <div class="as-h">위험 구역</div>
+    <div class="as-d">복구할 수 없는 작업입니다. 아이디를 정확히 입력해야 실행됩니다.</div>
+    <div class="as-grid2"><label>아이디<input id="dzId" placeholder="대상 아이디" autocomplete="off"></label></div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn" id="dzWipe">클라우드 데이터 초기화</button>
+      <button type="button" class="mc-btn danger" id="dzDel">계정 완전 삭제</button>
+    </div>
+    <div class="as-out" id="dzOut"></div>
+  </div>
+
   <div class="adm-out"><button type="button" id="admLogout">관리자 나가기</button></div>`;
   wireCouponAdmin();
   wireAdmNotify();
@@ -20624,6 +20696,65 @@ function wireAdmTools(){
       out('dgOut',`<div class="au-card">NXT 명단: ${j&&j.count?`<b>${j.count}종</b> · 기준일 ${esc(j.baseDate||'?')}`:'상태 확인 불가'}${j&&j.src?' · '+esc(j.src):''}</div>`);
     }catch(e){out('dgOut','<b class="bad">서버 연결 실패</b>');}
     finally{busy(dn2,false,'NXT 명단 상태');}
+  };
+  /* ── [v15.4] 2차 도구 배선 ── */
+  const ci=$('ciGo'); if(ci)ci.onclick=async()=>{
+    const code=($('ciCode').value||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+    if(code.length!==20){out('ciOut','<b class="bad">코드 20자를 그대로 넣어 주세요</b>');return;}
+    busy(ci,true,'조회');
+    try{const j=await admCall({act:'cpninfo',code});
+      if(j&&j.ok){const exp=j.expireAt?new Date(j.expireAt).toLocaleDateString('ko-KR'):'무기한';
+        out('ciOut',`<div class="au-card"><b>${esc(j.code)}</b> · ${tierNm(j.tier)}${j.days?` ${j.days}일`:''}
+          <div class="au-sub">사용 ${j.used}/${j.maxUse} · 만료 ${exp}${j.disabled?' · <b class="bad">회수됨</b>':''}</div>
+          ${j.usedBy&&j.usedBy.length?`<div class="au-sub">최근 사용: ${j.usedBy.map(esc).join(', ')}</div>`:''}</div>`);}
+      else out('ciOut','<b class="bad">'+(j&&j.err==='notfound'?'없는 코드입니다':'조회 실패')+'</b>');
+    }catch(e){out('ciOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(ci,false,'조회');}
+  };
+  const REGEN={'kr-rise':{del:'rank:rise:v2',url:'/api/popular?type=rise',pick:j=>j.items&&j.items.length,lab:'국내 상승'},
+               'kr-fall':{del:'rank:fall:v2',url:'/api/popular?type=fall',pick:j=>j.items&&j.items.length,lab:'국내 하락'},
+               'us-up':{del:'usrk:v1:up',url:'/api/usrank?type=up&fresh=1',pick:j=>j.items&&j.items.length,lab:'해외 상승'},
+               'us-down':{del:'usrk:v1:down',url:'/api/usrank?type=down&fresh=1',pick:j=>j.items&&j.items.length,lab:'해외 하락'}};
+  document.querySelectorAll('[data-regen]').forEach(b=>b.onclick=async()=>{
+    const R=REGEN[b.dataset.regen]; if(!R)return;
+    b.disabled=true; out('rgOut','재생성 중… (원천에 따라 몇 초 걸립니다)');
+    try{
+      await admCall({act:'cachedel',key:R.del});
+      fnBump(); const r=await fetch(R.url,{cache:'no-store'}); const j=await r.json();
+      const n=R.pick(j)||0;
+      out('rgOut',n?`<b>${R.lab}</b> 재생성 완료 · <b>${n}종</b> · 원천 ${esc(j.src||'-')}`
+                  :`<b class="bad">${R.lab} 재생성 실패</b> — 원천이 응답하지 않았습니다`);
+    }catch(e){out('rgOut','<b class="bad">서버 연결 실패</b>');}
+    finally{b.disabled=false;}
+  });
+  const nf=$('nxtForce'); if(nf)nf.onclick=async()=>{
+    busy(nf,true,'NXT 명단 강제 갱신');
+    try{fnBump();const r=await fetch('/api/nxtrefresh?run=1',{headers:{Authorization:'Bearer '+admTokGet()}});const j=await r.json();
+      out('rgOut',j&&j.ok?'<b>NXT 명단 갱신을 시작했습니다</b> · 1~2분 뒤 [NXT 명단 상태]로 확인하세요':'<b class="bad">시작 실패: '+esc(j&&j.err||'')+'</b>');
+    }catch(e){out('rgOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(nf,false,'NXT 명단 강제 갱신');}
+  };
+  const dw=$('dzWipe'); if(dw)dw.onclick=async()=>{
+    const id=($('dzId').value||'').trim().toLowerCase();
+    if(!id){out('dzOut','<b class="bad">아이디를 넣어 주세요</b>');return;}
+    if(!await askConfirm('클라우드 데이터 초기화',`'${id}' 의 서버 저장 데이터(관심·보유·설정)를 지웁니다. 기기에 남은 데이터가 다시 올라올 수 있습니다.`,{okLabel:'초기화',danger:true}))return;
+    busy(dw,true,'클라우드 데이터 초기화');
+    try{const j=await admCall({act:'wipedata',id});
+      out('dzOut',j&&j.ok?`<b>초기화 완료</b> · ${esc(j.id)}${j.wiped?'':' (지울 데이터가 없었습니다)'}`:'<b class="bad">'+(j&&j.err==='notfound'?'없는 아이디입니다':'실패')+'</b>');
+    }catch(e){out('dzOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(dw,false,'클라우드 데이터 초기화');}
+  };
+  const dd=$('dzDel'); if(dd)dd.onclick=async()=>{
+    const id=($('dzId').value||'').trim().toLowerCase();
+    if(!id){out('dzOut','<b class="bad">아이디를 넣어 주세요</b>');return;}
+    const typed=await askText('계정 완전 삭제 — 마지막 확인',{placeholder:`정확히 "${id}" 를 입력`,maxLen:60});
+    if(typed==null)return;
+    if(typed.trim().toLowerCase()!==id){out('dzOut','<b class="bad">확인 문자열이 아이디와 다릅니다 — 취소했습니다</b>');return;}
+    busy(dd,true,'계정 완전 삭제');
+    try{const j=await admCall({act:'deluser',id,confirm:typed.trim().toLowerCase()});
+      out('dzOut',j&&j.ok?`<b>삭제했습니다</b> · ${esc(j.id)} (계정·클라우드 데이터 모두 제거)`:'<b class="bad">'+(j&&j.err==='notfound'?'없는 아이디입니다':esc(j&&j.msg||'실패'))+'</b>');
+    }catch(e){out('dzOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(dd,false,'계정 완전 삭제');}
   };
   document.querySelectorAll('[data-cdel]').forEach(b=>b.onclick=async()=>{
     const key=b.dataset.cdel;

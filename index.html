@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=481">
+<link rel="stylesheet" href="/app.css?v=500">
 </head>
 <body>
 
@@ -230,7 +230,16 @@ body.needs-auth #authGate{z-index:2000001}
        단, 다음 단계 목표를 넘지는 않는다. */
     var creep = Math.min(target, shown + 0.06);
     var want  = Math.max(target === 100 ? target : creep, shown);
-    /* 최소 노출 전에는 99%를 넘지 않는다 */
+    /* ══ [v15.2.2] 시작하자마자 99%로 튀던 병 ═══════════════════════════════════
+       [무엇이 잘못됐나] 자동 로그인은 준비가 0.5초 만에 끝난다. 그러면 목표가
+       즉시 100이 되고, 막대는 1초 안에 99%까지 튄 뒤 남은 시간 내내 99%에서
+       멈춰 있었다(실기 사진) — 단계 연출이 통째로 죽는다.
+       [고침] "보여 주는 %"에 시간 램프 상한을 건다. 앱이 아무리 빨리 끝나도
+       막대는 최소 노출 시간에 걸쳐 0→99를 고르게 오르고, 그 %가 지나는 단계
+       문구(앱 준비→환경 확인→종목 정보→계정→시세 연결→화면 구성)를 차례로
+       읽게 된다. 실제 준비가 '느리면' 그쪽이 상한이 된다(과장 없음). */
+    var timeCap = (doneReq && el >= MIN) ? 100 : Math.min(99, el / MIN * 104);
+    want = Math.min(want, Math.max(timeCap, shown));
     if(!doneReq || el < MIN) want = Math.min(want, 99);
     /* [v10.6] 따라붙는 속도를 시간에 묶는다 — 앱이 아무리 빨리 끝나도 막대가
        0.7초 만에 90%로 튀지 않는다. 최소 노출(4.6초)에 걸쳐 고르게 차오른다. */
@@ -304,11 +313,10 @@ body.needs-auth #authGate{z-index:2000001}
       }catch(e){}
     },
     release: function(){
-      holdOpen = false;
-      try{ g.classList.remove('bg-auth'); }catch(e){}
+      /* [v15.2.2] 예전엔 여기서 close() 를 직접 불러 막대 연출을 건너뛰었다.
+         이제 done 과 같은 길로 보낸다 — tick 이 시간 램프를 다 채운 뒤 닫는다. */
+      holdOpen = false; try{ g.classList.remove('bg-auth'); }catch(e){}
       doneReq = true; stepIdx = STEPS.length-1; target = 100;
-      try{ shown = 100; draw(); }catch(e){}
-      try{ closed = false; close(); }catch(e){}   // 잠금을 풀고 정식으로 걷는다
     },
     replay: function(ms, cb){
       try{
@@ -1152,8 +1160,7 @@ body.needs-auth #authGate{z-index:2000001}
     <div class="page-title">고급 서비스 <span class="pro-chip">PRO</span></div>
     <div class="page-sub">실시간 시세를 조건식으로 분석하는 심화 도구입니다. 모든 결과는 참고용 추정이며 투자 판단의 근거가 될 수 없습니다.</div>
     <div class="sub-nav" id="proTabs">
-      <button data-pt="picks" class="on">내일 장 추천주<i class="lv">LIVE</i></button>
-      <button data-pt="nxthist">NXT 명단 이력</button>
+      <button data-pt="nxthist" class="on">NXT 명단 이력</button>
       <button data-pt="surge">급등주 예측<i class="lv">LIVE</i></button>
       <button data-pt="accum">매집 포착기<i class="lv">NEW</i></button>
       <button data-pt="screener">조건 검색기<i class="lv">LIVE</i></button>
@@ -1193,17 +1200,7 @@ body.needs-auth #authGate{z-index:2000001}
       </div>
     </div>
 
-    <div id="pro-picks">
-      <div class="panel pro-panel">
-        <div class="pro-head">
-          <div><b id="picksTitle">내일 장 추천주</b><span id="picksSub">다음 개장일 기준 · 유동성 상위 종목을 추세·모멘텀·수급으로 스코어링</span></div>
-          <div class="pro-head-r"><span class="pro-live" id="picksLive"></span><span class="pro-acc" id="picksAsOf"></span><button id="picksRun">새로 생성</button></div>
-        </div>
-        <div id="picksBody"><div class="empty">화면을 열면 자동으로 다음 개장일 추천주 분석이 시작됩니다… (처음 한 번은 30초가량)</div></div>
-        <div class="picks-disc">알고리즘이 공개 시세 데이터를 분석한 <b>참고용 결과</b>이며 투자 자문·수익 보장이 아닙니다. 최종 판단과 책임은 본인에게 있습니다.</div>
-      </div>
-    </div>
-
+    <!-- [v15.4] 내일 장 추천주 코너 제거 — 급등 예측·매집 포착기로 일원화 -->
     <div id="pro-nxthist" hidden>
       <div class="panel pro-panel">
         <div class="pro-head">
@@ -1612,6 +1609,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
   <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
-<script type="module" src="/app.js?v=481"></script>
+<script type="module" src="/app.js?v=500"></script>
 </body>
 </html>

@@ -11029,6 +11029,38 @@ var coupon_default = async (req2) => {
     try { await KV.delete(key); } catch (e) {}
     return J({ ok: true, deleted: key });
   }
+  if (act === "wipedata") {                            /* 회원 클라우드 데이터 초기화(계정은 유지) */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const id = String(body.id || "").trim().toLowerCase();
+    if (!id) return J({ ok: false, err: "form" });
+    const acc = await accLoad(store, id, legacyDb);
+    if (!acc) return J({ ok: false, err: "notfound" });
+    let had = false; try { had = !!(await KV.get("app:usr:" + id)); } catch (e) {}
+    try { await KV.delete("app:usr:" + id); } catch (e) {}
+    return J({ ok: true, id, wiped: had ? 1 : 0 });
+  }
+  if (act === "deluser") {                             /* 계정 완전 삭제 — 2중 확인(confirm 문자열 일치) */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const id = String(body.id || "").trim().toLowerCase();
+    if (!id) return J({ ok: false, err: "form" });
+    if (String(body.confirm || "") !== id) return J({ ok: false, err: "confirm", msg: "확인 문자열이 아이디와 다릅니다" });
+    const acc = await accLoad(store, id, legacyDb);
+    if (!acc) return J({ ok: false, err: "notfound" });
+    try { await KV.delete("app:acc:" + id); } catch (e) {}
+    try { await KV.delete("app:usr:" + id); } catch (e) {}
+    try { if (_accCache) delete _accCache[id]; } catch (e) {}
+    return J({ ok: true, id, deleted: 1 });
+  }
+  if (act === "cpninfo") {                             /* 쿠폰 코드 상태 조회 */
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const code = cpnNorm(body.code);
+    let cpn = null; try { cpn = await KV.get("cpn:" + code, "json"); } catch (e) {}
+    if (!cpn) return J({ ok: false, err: "notfound" });
+    return J({ ok: true, code: cpnPretty(code), tier: cpn.tier, days: cpn.days || null,
+      used: cpn.used || 0, maxUse: cpn.maxUse || 1, disabled: !!cpn.disabled,
+      expireAt: cpn.expireAt || null, madeAt: cpn.at || cpn.madeAt || null,
+      usedBy: Array.isArray(cpn.usedBy) ? cpn.usedBy.slice(-5) : null });
+  }
   if (act === "diag") {                                /* 원천 상태 한 번에 — 프런트 진단판 */
     if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
     const out = {};
@@ -16417,7 +16449,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "15.2.1";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "15.4.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -7010,3 +7010,99 @@ html.dark .cc-box,html.dark .sheet,html.dark .modal-box{box-shadow:0 24px 60px r
 @media (max-width:760px){
   .view>.panel:first-of-type{margin-top:2px}
 }
+
+/* ═══ [v15.2.2] 태블릿·데스크톱 종목 상세 — 왼쪽 카드의 죽은 공백 제거 ═══════
+   [무엇이 어색했나] 두 칸이 stretch 라 왼쪽 요약 카드가 오른쪽 주문 패널
+   높이만큼 늘어나며 카드 안에 텅 빈 흰 영역이 생겼다(실기 사진).
+   [고침] 카드는 내용만큼만 닫히게 하고(start), 대신 오른쪽 주문 패널을
+   sticky 로 붙여 스크롤을 내려도 주문이 따라오게 한다 — 공백이 '기능'이 된다. */
+@media (min-width:961px){
+  .trade-grid{align-items:start}
+  .trade-grid>.panel:last-child{position:sticky;top:78px}
+  /* 요약 카드 내부 리듬도 살짝 조인다(뱃지 ↔ 액션 ↔ 통계) */
+  .trade-grid .d-head{padding-bottom:16px}
+  .trade-grid .d-toolbar{margin-top:12px}
+}
+
+/* ═══ [v15.3] 프리미엄 마감 2차 — 크롬(헤더·탭바)·배지·입력·질감 통일 ═══════════
+   v15.2 가 '카드'를 올렸다면 이번엔 화면의 뼈대(크롬)와 잔 부품을 같은 결로. */
+
+/* 상단 헤더 — 유리질 + 금장 하단 라인 */
+header.topbar,.topbar{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid color-mix(in srgb,var(--brand-2,#f5a30d) 26%,transparent);
+  box-shadow:0 8px 24px rgba(8,14,28,.28)}
+.topbar .logo b,.brand b{letter-spacing:-.5px}
+
+/* 하단 탭바 — 유리질 + 활성 필 인디케이터 */
+.tabbar{backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  background:color-mix(in srgb,var(--panel) 86%,transparent);
+  border-top:1px solid color-mix(in srgb,var(--brand-2,#f5a30d) 18%,var(--border))}
+.tabbar button{position:relative}
+.tabbar button.on::before{content:'';position:absolute;top:4px;left:50%;transform:translateX(-50%);
+  width:26px;height:3px;border-radius:99px;
+  background:linear-gradient(90deg,var(--brand-2,#f5a30d),#ffd166);
+  box-shadow:0 2px 7px rgba(245,163,13,.5)}
+
+/* 홈 히어로(총자산) — 카드 광택·테두리 하이라이트 */
+.hero-assets{position:relative;overflow:hidden;
+  border:1px solid color-mix(in srgb,#ffd166 22%,transparent);
+  box-shadow:0 18px 44px rgba(10,18,38,.35),0 1px 0 rgba(255,255,255,.08) inset}
+.hero-assets::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 90% at 88% -10%,rgba(255,209,102,.14),transparent 55%)}
+.hero-assets>:not(.hero-go){position:relative;z-index:1}
+.hero-assets .hero-go{z-index:2}   /* 절대배치 버튼은 원래 좌표를 지킨다 */
+.hero-go{border-radius:12px;transition:box-shadow .16s,transform .12s}
+.hero-go:hover{box-shadow:0 6px 16px rgba(0,0,0,.3)}
+
+/* 세션·가격 배지 체계 통일 — 한 결의 필 */
+.mkt-tag,.px-src,.sess-tag{border-radius:8px;font-weight:900;letter-spacing:.2px}
+.rank-note{border-radius:14px;border:1px solid var(--border);
+  background:color-mix(in srgb,var(--panel) 75%,var(--border-soft))}
+.rank-note.nxt{border-color:color-mix(in srgb,#f0326e 30%,var(--border));
+  background:color-mix(in srgb,#f0326e 6%,var(--panel))}
+
+/* 입력·셀렉트 공통 — 라운드·포커스 링 통일 */
+input[type=text],input[type=search],input[type=number],input[type=password],select,textarea{
+  border-radius:12px;transition:border-color .16s,box-shadow .16s}
+input[type=text]:focus,input[type=search]:focus,input[type=number]:focus,
+input[type=password]:focus,select:focus,textarea:focus{
+  border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 55%,var(--border));
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-2,#f5a30d) 14%,transparent);outline:none}
+
+/* 표 머리 — 필형 헤더, 호버 행 */
+.table-wrap thead th{background:color-mix(in srgb,var(--panel) 60%,var(--border-soft))}
+.table-wrap tbody tr{transition:background .1s}
+.table-wrap tbody tr:hover{background:color-mix(in srgb,var(--brand-2,#f5a30d) 4%,var(--panel))}
+
+/* 슬림 스크롤바(웹킷) — 콘텐츠를 가리지 않게 */
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--sub-2) 45%,transparent);
+  border-radius:99px;border:2.5px solid transparent;background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--sub-2) 70%,transparent);
+  border:2.5px solid transparent;background-clip:padding-box}
+*::-webkit-scrollbar-track{background:transparent}
+
+/* 시트·드로어(메뉴) — 유리질 */
+#mainNav.open{backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+
+/* 빈 상태 일러스트 톤 */
+.empty{border:1px dashed color-mix(in srgb,var(--border) 80%,transparent);border-radius:14px}
+
+@media (prefers-reduced-motion:reduce){
+  .tabbar button.on::before{transition:none}
+}
+
+/* [v15.4] 관리자 위험 구역 — 실수로 누르지 않게 확실히 구분 */
+.adm-danger{border-color:color-mix(in srgb,#e5484d 34%,var(--border))}
+.adm-danger .as-h::before{background:linear-gradient(180deg,#ff8a8e,#e5484d)}
+
+/* [v15.4] 고급 서비스 헤더 — 좁은 화면에서 우측 묶음(자동시각·성적·다시 스캔)이
+   넘치던 것: 세로 스택 + 줄바꿈으로 전부 화면 안에 */
+@media (max-width:520px){
+  .pro-head{flex-direction:column;align-items:stretch;gap:9px}
+  .pro-head-r{display:flex;flex-wrap:wrap;gap:7px;justify-content:flex-start;max-width:100%}
+  .pro-head-r>*{max-width:100%}
+  .pro-head-r .mini-btn,.pro-head-r button{height:31px;padding:0 10px;font-size:11.5px;white-space:nowrap}
+  .pro-live{white-space:nowrap}
+  .pro-acc{white-space:normal;line-height:1.3}
+}
