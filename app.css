@@ -6674,3 +6674,122 @@ html{word-break:keep-all}
   #view-watch .td-t .nm{max-width:76px}
   #view-watch .lgo{width:26px;height:26px}
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v15.0.1] 실기기 모바일 대수술 — 에뮬은 멀쩡한데 실폰만 엉망이던 이유
+   ─────────────────────────────────────────────────────────────────────────────
+   [근본 원인 ①] text-size-adjust 미설정.
+     안드로이드 크롬·삼성인터넷·앱 속 웹뷰는 "글자 자동 확대(font boosting)"로
+     일부 텍스트 블록만 1.2~1.5배 키운다. px 로 짠 그리드·버튼·표가 그 글자를
+     담지 못해 곳곳에서 넘치고 잘렸다(첨부 1~7 전부의 공통 배경).
+     데스크톱·에뮬레이터(Playwright)에는 이 기능이 없어서 검증을 전부
+     통과했다 — '검증은 통과했는데 실폰은 엉망'이던 괴리의 정체.
+   [근본 원인 ②] 잘림을 '스크롤바 숨긴 가로 스크롤'로 때우는 패턴.
+     홈 점프바·상세 액션바·관심 표·등급표가 전부 overflow-x:auto +
+     스크롤바 숨김이라, 실폰에선 "잘렸는데 밀 수 있다는 단서도 없는" 화면이
+     됐다(첨부 1·2·3·6). 좁은 화면에서는 줄바꿈·열 축소로 '다 보이게' 바꾼다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+
+@media (max-width:760px){
+  /* ── ① 홈: 점프바(AI 브리핑~공모주+국내/해외 토글)가 양옆으로 잘림(첨부 2) ──
+     스크롤 한 줄 → 두 줄 줄바꿈. 토글까지 항상 화면 안에 있다. */
+  .home-strip{flex-direction:column;align-items:stretch;gap:6px}
+  .home-jump{flex-wrap:wrap;overflow:visible;justify-content:center;row-gap:8px}
+  .home-jump button{height:36px;padding:0 12px;font-size:12px}
+  .hh-mkt{display:inline-flex;align-items:center;gap:4px}
+  .home-hot{padding:4px 2px}
+
+  /* ── ② 종목 상세(첨부 1): 액션바 잘림 → 줄바꿈 · 통계표 2열 확장 ── */
+  .d-toolbar{flex-wrap:wrap;overflow:visible;row-gap:8px}
+  .d-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .st{padding:11px 13px}
+  .st .k{font-size:10.5px}
+  .st .v{font-size:13.5px;white-space:normal;word-break:keep-all;line-height:1.35}
+  .d-flags,.adv-flags{flex-wrap:wrap;row-gap:6px}
+
+  /* ── ③ 관심 표(첨부 3): 7열이 폰 폭을 넘어 오른쪽이 잘림 ──
+     전일대비(등락률과 중복)·거래량 열을 접어 '스크롤 없이 다 보이게'. */
+  #view-watch table th:nth-child(3),#view-watch table td:nth-child(3),
+  #view-watch table th:nth-child(6),#view-watch table td:nth-child(6){display:none}
+  #view-watch thead th,#view-watch tbody td{padding:11px 8px;font-size:13px}
+  #view-watch thead th:first-child,#view-watch tbody td:first-child{padding-left:12px}
+
+  /* ── ④ 검색(첨부 4): 칩 높이 들쭉날쭉 → 통일, 국내/해외는 컴팩트 세그먼트 ── */
+  .sh-chip{min-height:36px;padding:6px 12px;font-size:12.5px}
+  .sh-chips{gap:7px}
+  .mkt-tabs{gap:7px;margin-bottom:9px}
+  .mkt-tabs button{flex:0 1 auto;min-width:104px;padding:10px 14px;font-size:13.5px;border-radius:11px}
+
+  /* ── ⑤ 햄버거 메뉴(첨부 5): '친구' 아래가 잘림 ──
+     70vh 상한이 실폰(주소창·제스처 바)에선 더 작아졌다. 동적 뷰포트(dvh)로
+     계산하고, 하단 탭바·제스처 바만큼 여백을 준다. */
+  .main-nav{max-height:calc(100dvh - 132px);padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+
+  /* ── ⑦ 차트(첨부 7) ── */
+  .chart-box{height:clamp(400px,106vw,470px);padding:8px 4px 10px}
+  .chart-tools{padding:10px 8px;gap:5px}
+  /* 1분~년 탭: 두 줄로 꺾이던 것을 '한 줄 강제' — 10개 버튼이 360px 에도 들어가게 압축 */
+  .tf-seg{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%}
+  .tf-seg::-webkit-scrollbar{display:none}
+  .tf-seg button{flex:0 0 auto;padding:6px 7px;font-size:11.5px}
+  .chart-hint2{margin-top:8px}
+}
+
+@media (max-width:480px){
+  .home-jump button{padding:0 10px;font-size:11.5px}
+  /* 초소형: 목표가 알림 열까지 접는다(상세 화면에서 설정 가능) */
+  #view-watch table th:nth-child(7),#view-watch table td:nth-child(7){display:none}
+  .tf-seg button{padding:6px 6px;font-size:11px}
+  .mkt-tabs button{min-width:92px;padding:9px 10px;font-size:13px}
+}
+
+/* ── ⑥ 등급표(첨부 6): 가로 스크롤이 너무 김 ──
+   항목 열 154→104px, 등급 열 74→52px, 설명 소자(小字) 접기 → 전체 폭 절반.
+   '무제한'은 ∞ 로(JS), 열리면 현재 등급 열로 자동 스크롤(JS). */
+@media (max-width:560px){
+  .tt-row{grid-template-columns:104px repeat(var(--cols),minmax(52px,1fr))}
+  .tt-grid{min-width:440px}
+  .tt-c{padding:9px 3px;font-size:11px}
+  .tt-c0{padding:9px 8px}
+  .tt-c0 b{font-size:11.5px;white-space:normal;line-height:1.3}
+  .tt-c0 small{display:none}
+  .tt-head .tt-c{font-size:11px}
+  .tt-sec{padding:8px 8px;font-size:10.5px}
+}
+/* [v15.0.1 마감] 관심 표: 마지막 표시 열이 오른쪽 벽에 붙지 않게 숨쉴 여백 */
+@media (max-width:760px){
+  #view-watch thead th:last-child,#view-watch tbody td:last-child{padding-right:14px}
+  #view-watch table{table-layout:auto}
+}
+
+/* ═══ [v15.0.1-보강] 첨부 1·2 잔여 품질 ═══════════════════════════════════════
+   ① 상세 헤더(첨부 1): 배지가 한 줄에 하나씩 큼직하게 쌓여 화면 반을 먹었다.
+      칩을 한 단계 작게, 줄 간격을 조여 '표찰 무더기'가 아니라 '한 눈 요약'으로.
+   ② 홈 인기 줄(첨부 2): 잘렸는데 밀 수 있다는 단서가 없었다 — 오른쪽 페이드로
+      "더 있다"를 보여 주고, 칩을 조여 첫 화면에 더 많이 보이게 한다. */
+@media (max-width:760px){
+  .d-name{font-size:21px}
+  .d-code{font-size:12px}
+  .d-tags{margin-top:7px;gap:5px}
+  .d-tags .tag,.d-tags .mkt-tag{font-size:10.5px;padding:3px 8px}
+  .adv-flags{margin-top:6px;gap:5px}
+  .af{font-size:10.5px;padding:3px 8px}
+  .d-price{font-size:30px}
+  .d-change{font-size:13.5px;margin-top:6px}
+  .d-toolbar{margin-top:11px}
+  .d-toolbar .d-tool{height:34px;font-size:12px;padding:0 11px}
+  .d-head{padding-bottom:2px}
+  /* 인기 캐러셀: 끝이 있다는 단서(페이드) + 칩 압축 */
+  .home-hot-wrap{position:relative}
+  .home-hot-wrap::after{content:'';position:absolute;top:0;right:0;bottom:0;width:26px;
+    background:linear-gradient(to right,transparent,var(--bg) 82%);pointer-events:none}
+  .hh-c{height:31px;padding:0 9px;font-size:11.5px;gap:5px}
+  .hh-c .lgo{width:18px;height:18px}
+  .home-jump{justify-content:flex-start}
+  .home-jump .hh-mkt{margin-left:auto}
+}
+@media (max-width:400px){
+  .d-name{font-size:19px}
+  .d-price{font-size:27px}
+}

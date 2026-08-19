@@ -16017,7 +16017,9 @@ function drawChart(){
   const cs=curCandles;
   if(!cs.length){$('chartLegend').textContent=chartLoading?'차트 불러오는 중…':(isMinute(chartTf)?('분봉 데이터 없음 · 장중 실시간 누적 '+(minuteDiag||'')):'데이터를 불러오지 못했어요 · ⟳ 버튼으로 다시 시도');return;}
   const padR=58,padL=6,padT=10,plotW=W-padL-padR;
-  const priceH=(H-24)*0.66,volTop=priceH+padT+16,volH=(H-24)*0.22;
+  /* [v15.0.1] 거래량 영역이 전체의 22%뿐이라 실폰(높이 340px)에서는 40px 남짓 —
+     막대가 짜부라져 '이상한 그림'이 됐다(첨부 7). 가격 60% / 거래량 27%로 재배분. */
+  const priceH=(H-24)*0.60,volTop=priceH+padT+16,volH=(H-24)*0.27;
   const n=cs.length;
   let count=Math.max(8,Math.min(view.count,n));
   let end=view.follow?n-1:Math.min(view.end,n-1);if(end<0)end=n-1;
@@ -20750,7 +20752,7 @@ function renderTierTable(){
       <div class="tt-c0"><b>${nm}</b><small>${desc}</small></div>
       ${TIERS.map((t,i)=>{
         const v=arr[i];
-        const txt=(v===INF)?'무제한':(v==null?'—':KRW(v));
+        const txt=(v===INF)?(window.innerWidth<=560?'∞':'무제한'):(v==null?'—':KRW(v));
         return `<div class="tt-c${i===me?' now':''}">${txt}</div>`;
       }).join('')}
     </div>`;}).join('');
@@ -20789,8 +20791,7 @@ function renderTierTable(){
         sc.scrollTo({left:Math.max(0,want),behavior:'auto'});
       });
     }
-  }catch(e){}
-}
+  }catch(e){}}
 
 function renderTierCard(){
   const el=$('tierCard'); if(!el)return;
