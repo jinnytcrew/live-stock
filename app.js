@@ -14931,7 +14931,22 @@ function renderFinance(el){
 }
 
 /* 계좌 */
+/* [v15.2.1] 좁은 화면에서 보유 표 머리글이 '보유…'로 잘리던 것 —
+   짧은 우리말 라벨(data-s)로 치환한다. 넓어지면 원문(data-l)으로 되돌린다. */
+function holdHeadFit(){
+  try{
+    const ths=document.querySelectorAll('.hold-wrap th[data-s]');
+    const narrow=window.innerWidth<=560;
+    ths.forEach(th=>{
+      if(!th.dataset.l)th.dataset.l=th.textContent;
+      const want=narrow?th.dataset.s:th.dataset.l;
+      if(th.textContent!==want)th.textContent=want;
+    });
+  }catch(e){}
+}
+try{window.addEventListener('resize',()=>{clearTimeout(window._hhT);window._hhT=setTimeout(holdHeadFit,150);});}catch(e){}
 function renderHoldings(){
+  holdHeadFit();
   const totEval=holdings.reduce((a,h)=>a+hEvalKRW(h),0)||1;
   const hc=$('holdCount');if(hc)hc.textContent=holdings.length?`· ${holdings.length}종목 · 평가 ${KRW(totEval)}원`:'';
   $('holdBody').innerHTML=holdings.length? holdings.map(h=>{const s=byCode[h.code]||{name:h.code,price:null,prevClose:null,market:''},price=livePx(h.code,h.avg)??h.avg;
@@ -15562,7 +15577,10 @@ function renderPortfolioNumbers(){
       if(kv)kv.title=usTot>0?('≈ '+KRW(Math.round(usTot))+'원'):'';
       let sub=box.querySelector('.hm-usKrw');
       if(!sub&&kv){ sub=document.createElement('div'); sub.className='hm-s hm-usKrw'; kv.after(sub); }
-      if(sub)sub.innerHTML=usTot>0?`≈ <b class="num">${KRW(Math.round(usTot))}원</b>`:'&nbsp;';
+      /* [v15.2.1] 값이 없을 때 &nbsp; 로 자리를 잡던 것이 '유령 빈 줄'의 정체 —
+         빈 값이면 줄 자체를 접는다(자산 카드 두 개의 높이 리듬이 어긋나 보였다) */
+      if(sub){ if(usTot>0){ sub.hidden=false; sub.innerHTML=`≈ <b class="num">${KRW(Math.round(usTot))}원</b>`; }
+               else { sub.hidden=true; sub.textContent=''; } }
     }
   }catch(e){}
   /* ══ [v4.41] 홈 총자산을 국내·해외로 나눠 보여 준다 ═══════════════════════

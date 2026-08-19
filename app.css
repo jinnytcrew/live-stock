@@ -6814,3 +6814,199 @@ html.dark .adm-banner.danger{background:#391416;border-color:#63262a;color:#ff9c
 .au-tbl th{font-size:11px;color:var(--sub)}
 .mc-btn.danger{border-color:#ffc9c9;color:#b42318;background:#fff5f5}
 html.dark .mc-btn.danger{border-color:#5d2a2a;background:#2a1516;color:#ff9c9c}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v15.2] 전 화면 프리미엄 디자인 레이어 — 멤버십 카드의 언어를 사이트 전체로
+   ─────────────────────────────────────────────────────────────────────────────
+   원칙(멤버십 화면에서 그대로 가져옴):
+     · 대담함은 한 곳에만 — 화면마다 주인공 하나(검색창·가격·전략 카드)에만
+       색 띠와 빛을 주고, 나머지는 조용히 받친다.
+     · 새 색을 들이지 않는다 — 기존 토큰과 color-mix 만 쓴다.
+     · 레이아웃 속성(폭·그리드·배치)은 손대지 않는다 — 시각 계층만 올린다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 0) 공통 기본기 ─────────────────────────────────────────────────────── */
+:root{
+  --lift:0 1px 0 rgba(255,255,255,.55) inset, 0 10px 26px rgba(21,32,54,.07), 0 2px 8px rgba(21,32,54,.05);
+  --lift-hover:0 1px 0 rgba(255,255,255,.6) inset, 0 16px 34px rgba(21,32,54,.10), 0 3px 10px rgba(21,32,54,.06);
+}
+html.dark{
+  --lift:0 1px 0 rgba(255,255,255,.05) inset, 0 12px 28px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.3);
+  --lift-hover:0 1px 0 rgba(255,255,255,.07) inset, 0 18px 38px rgba(0,0,0,.5), 0 3px 10px rgba(0,0,0,.34);
+}
+.panel{border-radius:18px;box-shadow:var(--lift)}
+/* 페이지 제목 — 브랜드 색 띠 + 은은한 번짐. 모든 화면의 첫인상을 통일한다 */
+.page-title{position:relative;padding-left:14px;letter-spacing:-1px}
+.page-title::before{content:'';position:absolute;left:0;top:.14em;bottom:.14em;width:5px;
+  border-radius:99px;background:linear-gradient(180deg,var(--brand-2,#f5a30d),var(--brand,#12203a));
+  box-shadow:0 0 14px color-mix(in srgb,var(--brand-2,#f5a30d) 45%,transparent)}
+.page-sub{padding-left:14px}
+
+/* ── 1) 종목 검색 — 주인공은 검색창 ─────────────────────────────────────── */
+.search-box input{border-radius:18px;border:1px solid var(--border);
+  background:color-mix(in srgb,var(--panel) 88%,transparent);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:var(--lift);transition:box-shadow .18s,border-color .18s}
+.search-box input:focus{border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 55%,var(--border));
+  box-shadow:var(--lift),0 0 0 4px color-mix(in srgb,var(--brand-2,#f5a30d) 16%,transparent);outline:none}
+.sh-chip{border-radius:13px;box-shadow:var(--shadow);transition:transform .14s,box-shadow .18s,border-color .18s}
+.sh-chip:hover{transform:translateY(-1px);box-shadow:var(--lift-hover);
+  border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 35%,var(--border))}
+.mkt-tabs button{border-radius:13px;font-weight:900;letter-spacing:-.3px;transition:box-shadow .18s,transform .12s}
+.mkt-tabs button.on,.rank-tabs button.on{color:#fff;border-color:transparent;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--brand,#12203a) 88%,#2a3f66),var(--brand,#12203a));
+  box-shadow:0 6px 16px color-mix(in srgb,var(--brand,#12203a) 34%,transparent)}
+#searchResults .sr{border-radius:15px;transition:background .12s,box-shadow .16s,transform .12s}
+#searchResults .sr:hover{background:var(--panel);box-shadow:var(--lift-hover);transform:translateY(-1px)}
+/* 순위 뱃지 — 1·2·3위는 금·은·동, 멤버십 금장의 결로 */
+.rk{border-radius:9px;font-weight:900}
+.rk.top,.sgc-rk.top{color:#3a2600;border:0;
+  background:linear-gradient(135deg,#ffd166,#f5a30d);
+  box-shadow:0 3px 9px rgba(245,163,13,.4),0 1px 0 rgba(255,255,255,.5) inset}
+/* 등락 pill — 유리질 배경 + 색 번짐 */
+.sr .ch,.uz-rt{border-radius:9px}
+.us-rank-note,.uz-note{border-radius:13px;background:color-mix(in srgb,var(--panel) 70%,var(--border-soft));
+  border:1px dashed var(--border)}
+
+/* ── 2) 종목 상세 — 주인공은 가격 ───────────────────────────────────────── */
+.trade-grid>.panel:first-child{position:relative;overflow:hidden}
+.trade-grid>.panel:first-child::before{content:'';position:absolute;left:0;top:0;bottom:0;width:6px;
+  background:linear-gradient(180deg,var(--brand-2,#f5a30d),var(--brand,#12203a))}
+.trade-grid>.panel:first-child::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 80% at 0% 0%,
+    color-mix(in srgb,var(--brand-2,#f5a30d) 7%,transparent),transparent 58%)}
+.trade-grid>.panel:first-child>*{position:relative;z-index:1}
+.d-name{letter-spacing:-1.2px}
+.d-price{letter-spacing:-1.6px;text-shadow:0 1px 0 rgba(255,255,255,.4)}
+html.dark .d-price{text-shadow:none}
+.d-tool{border-radius:12px;box-shadow:var(--shadow);transition:transform .12s,box-shadow .16s,border-color .16s}
+.d-tool:hover{transform:translateY(-1px);box-shadow:var(--lift-hover);
+  border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 40%,var(--border))}
+.d-tool.star-tool.on,.d-tool.star-tool[aria-pressed="true"]{
+  border-color:transparent;color:#3a2600;
+  background:linear-gradient(135deg,#ffd166,#f5a30d);
+  box-shadow:0 5px 14px rgba(245,163,13,.35)}
+.d-stats .st{transition:background .12s}
+.d-stats .st:hover{background:color-mix(in srgb,var(--brand-2,#f5a30d) 5%,var(--panel))}
+/* 정보 탭 — 활성은 금장 그라데이션 밑줄 */
+.info-tabs button{position:relative;font-weight:800;letter-spacing:-.3px}
+.info-tabs button.on::after{content:'';position:absolute;left:10%;right:10%;bottom:-1px;height:3px;
+  border-radius:99px;background:linear-gradient(90deg,var(--brand-2,#f5a30d),#ffd166);
+  box-shadow:0 2px 8px rgba(245,163,13,.45)}
+.ord-tabs button.on{box-shadow:0 5px 14px color-mix(in srgb,currentColor 25%,transparent)}
+.submit{border-radius:14px;letter-spacing:-.3px;
+  box-shadow:0 8px 20px color-mix(in srgb,currentColor 26%,transparent);
+  transition:transform .12s,filter .16s}
+.submit:hover{filter:brightness(1.05)}.submit:active{transform:translateY(1px)}
+
+/* ── 3) 고급 서비스 — 주인공은 전략·추천 카드 ───────────────────────────── */
+#proTabs button{border-radius:13px;font-weight:900;letter-spacing:-.3px;
+  transition:box-shadow .18s,transform .12s}
+#proTabs button.on{color:#fff;border-color:transparent;
+  background:linear-gradient(135deg,#3a2a6e,#5b3fae);
+  box-shadow:0 7px 18px rgba(91,63,174,.36)}
+#proTabs button.on i.lv,#proTabs button.on .lv{filter:brightness(1.2)}
+.pro-panel,#view-pro .panel{border-radius:18px}
+/* 급등 전략 카드 — 보라 프리미엄 띠 + 빛 */
+.sgc{position:relative;overflow:hidden;border-radius:16px;border:1px solid var(--border);
+  box-shadow:var(--shadow);transition:transform .14s,box-shadow .18s}
+.sgc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;
+  background:linear-gradient(180deg,#8b6ff0,#5b3fae)}
+.sgc::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(110% 70% at 0% 0%,rgba(120,90,220,.08),transparent 55%)}
+.sgc>*{position:relative;z-index:1}
+.sgc:hover{transform:translateY(-2px);box-shadow:var(--lift-hover)}
+.sgc-rk{border-radius:9px;font-weight:900}
+.sgc-nm{letter-spacing:-.5px}
+/* 추천주·매집·백테스트 패널 카드 */
+#picksBody .pk-card,#picksBody .pick-card,.bt-card,.ac-card{
+  border-radius:16px;box-shadow:var(--shadow);transition:transform .14s,box-shadow .18s}
+#picksBody .pk-card:hover,#picksBody .pick-card:hover,.bt-card:hover{transform:translateY(-2px);box-shadow:var(--lift-hover)}
+.ac-bdg{border-radius:9px;font-weight:800;
+  background:color-mix(in srgb,#5b3fae 10%,var(--panel));
+  border:1px solid color-mix(in srgb,#5b3fae 24%,transparent);color:#5b3fae}
+html.dark .ac-bdg{color:#b9a4ff}
+.ac-bdg.spring{background:color-mix(in srgb,#0ea5e9 12%,var(--panel));
+  border-color:color-mix(in srgb,#0ea5e9 28%,transparent);color:#0284c7}
+html.dark .ac-bdg.spring{color:#7dd3fc}
+/* PRO 뱃지 — 금장 */
+.pro-badge,.pill.pro,.lv{letter-spacing:.3px}
+#view-pro .page-title::before{background:linear-gradient(180deg,#8b6ff0,#5b3fae);
+  box-shadow:0 0 14px rgba(120,90,220,.5)}
+
+/* ── 4) 홈·공통 코너들 — 한 톤 낮춰 받친다 ─────────────────────────────── */
+.home-jump button{box-shadow:var(--shadow);transition:transform .12s,box-shadow .16s,border-color .16s}
+.home-jump button:hover{box-shadow:var(--lift-hover);
+  border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 35%,var(--border))}
+.hero-assets,.hero-market{border-radius:20px}
+.idx-card,.thm-card,.etf-card{border-radius:16px}
+.tabbar{box-shadow:0 -8px 24px rgba(21,32,54,.08)}
+html.dark .tabbar{box-shadow:0 -8px 24px rgba(0,0,0,.4)}
+.tabbar button.on i{filter:drop-shadow(0 2px 5px rgba(245,163,13,.45))}
+table thead th{letter-spacing:-.2px}
+.table-wrap{border-radius:18px}
+/* 오버레이 시트·모달도 같은 결 */
+.cc-box,.sheet,.modal-box{border-radius:20px;box-shadow:0 24px 60px rgba(10,16,30,.25),var(--lift)}
+html.dark .cc-box,html.dark .sheet,html.dark .modal-box{box-shadow:0 24px 60px rgba(0,0,0,.6),var(--lift)}
+
+/* ── 5) 움직임 배려 ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion:reduce){
+  .sh-chip,.sr,.sgc,.d-tool,.home-jump button,.pk-card,.bt-card{transition:none}
+}
+
+/* ═══ [v15.2.1] 모바일 정밀 폴리시 — 412px 전 화면 실측 후 손질 ═══════════════
+   실측에서 나온 것들만 고친다:
+   ① 본문 섹션 제목이 화면마다 제각각(띠 있는 곳·없는 곳) → 한 문법으로 통일
+   ② 홈: 인사말·세션 배지 사이 과대 여백, 단축키 줄바꿈 랙, 자산 카드 높이 불일치
+   ③ 계좌 보유 표: 헤더가 '보유…' '평가…'로 말줄임 → 온전히 보이게
+   ④ 폴리오: 빈 상태 여백 과다 · 섹션 위계 약함
+   ⑤ 섹터: 정렬 칩 4개의 어정쩡한 줄바꿈 → 2×2 균등
+   레이아웃 골격(그리드 구조)은 그대로, 여백·타이포·정렬만 만진다. ═══════════ */
+
+/* ① 섹션 제목 통일 — 페이지 타이틀의 축소판(3px 미니 띠) */
+.sec-title,.fo-sec-h,.tt-h,.as-h,.uz-sec-h{position:relative;padding-left:11px}
+.sec-title::before,.fo-sec-h::before,.tt-h::before,.as-h::before,.uz-sec-h::before{
+  content:'';position:absolute;left:0;top:.18em;bottom:.18em;width:3.5px;border-radius:99px;
+  background:linear-gradient(180deg,var(--brand-2,#f5a30d),var(--brand,#12203a));opacity:.9}
+.fo-sec-h{margin:26px 2px 11px}
+.fo-sec-h span{padding-left:0}
+
+/* ② 홈 리듬 */
+@media (max-width:760px){
+  .home-head{gap:10px}
+  .home-head .page-sub{margin-bottom:6px}
+  .home-sess{margin-top:0}
+  /* 단축키 — 3열 균등 그리드처럼: 칩이 남는 공간을 나눠 갖는다 */
+  .home-jump{flex-wrap:wrap;overflow:visible;row-gap:9px}
+  .home-jump>button{flex:1 1 30%;min-width:104px;justify-content:center}
+  .home-jump .hh-mkt{flex:0 0 auto;margin-left:auto}
+  /* 자산 국내/해외 카드 — 두 상자의 첫 줄 기준선을 맞춘다(높이 들쭉 제거) */
+  .hm-split{align-items:stretch}
+  .hm-box{display:flex;flex-direction:column;justify-content:flex-start;gap:4px}
+  .hm-box .hm-v{margin-top:2px}
+}
+
+/* ③ 계좌 보유 표 — 헤더 말줄임 제거(좁을수록 조여서 다 보이게) */
+@media (max-width:560px){
+  .hold-wrap th{padding:9px 5px;font-size:10.5px;white-space:nowrap}
+  .hold-wrap td{padding:10px 5px;font-size:12.5px}
+}
+
+/* ④ 폴리오 — 빈 상태·위계 */
+.fo-sec .empty{padding:18px 12px}
+.fo-sec{margin-bottom:4px}
+
+/* ⑤ 섹터 정렬 칩 — 좁은 화면 2×2 균등 */
+@media (max-width:520px){
+  .thm-sorts,.sector-sorts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .thm-sorts button,.sector-sorts button{width:100%;justify-content:center;white-space:nowrap}
+}
+
+
+/* 해외 자산 카드의 원화 환산 줄 — 값이 없으면 자리도 차지하지 않는다(유령 공백 제거) */
+.hm-usKrw:empty{display:none}
+/* 공통 — 부제와 첫 패널 간 리듬 통일 */
+.page-sub{margin-bottom:16px}
+@media (max-width:760px){
+  .view>.panel:first-of-type{margin-top:2px}
+}

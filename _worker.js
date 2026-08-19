@@ -14799,6 +14799,41 @@ async function naverWorldPopular(diag,budget){
 /* 야후 화면(스크리너) — 한 번에 100종. 이름·거래소·시가총액까지 함께 준다
    [v14.5.1] 2023년부터 쿠키+crumb 없이는 401/403/429 를 자주 던진다 —
    인증 오류를 만나면 fc.yahoo.com 쿠키 → getcrumb 를 밟아 딱 한 번 재시도한다. */
+/* [v15.1.1] 페이지 지정 스크리너 — most_actives 2쪽(101~200위)을 이어 붙일 때 쓴다 */
+async function yahooScreenPage(scrId,count,start,diag,budget,_auth){
+  if(budget&&budget.left<=1)return null;
+  if(budget)budget.left--;
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),6000);
+    const hdr={ "User-Agent":UA20, Accept:"application/json" };
+    let qs="?scrIds="+encodeURIComponent(scrId)+"&count="+count+"&start="+start;
+    if(_auth&&_auth.crumb){ hdr.Cookie=_auth.cookie; qs+="&crumb="+encodeURIComponent(_auth.crumb); }
+    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"+qs,
+      {headers:hdr,signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok){ diag.push(scrId+":p2:"+r.status);
+      if(!_auth&&(r.status===401||r.status===403||r.status===429)){
+        const a=await yahooCrumbGet(diag);
+        if(a)return yahooScreenPage(scrId,count,start,diag,budget,a);
+      }
+      return null; }
+    const j=await r.json();
+    const q=(j&&j.finance&&j.finance.result&&j.finance.result[0]&&j.finance.result[0].quotes)||[];
+    const out=[];
+    for(const x of q){
+      const t2=String(x.symbol||"").toUpperCase();
+      if(!/^[A-Z][A-Z0-9]{0,5}([.\-][A-Z])?$/.test(t2))continue;
+      const nm0=String(x.longName||x.shortName||"").trim();
+      out.push({t:t2,sfx:({NMS:"O",NGM:"O",NCM:"O",NASDAQ:"O",NYQ:"N",NYSE:"N",ASE:"A",AMEX:"A",PCX:"A"})[String(x.exchange||"")]||null,
+        kr:"",en:(nm0&&nm0.toUpperCase()!==t2)?nm0:"",
+        px:+x.regularMarketPrice||0,rate:+x.regularMarketChangePercent||0,
+        vol:+x.regularMarketVolume||0,val:(+x.regularMarketPrice||0)*(+x.regularMarketVolume||0),
+        cap:+x.marketCap||0});
+    }
+    diag.push(scrId+":p2:"+out.length);
+    return out;
+  }catch(e){ diag.push(scrId+":p2err"); return null; }
+}
 async function yahooScreen(scrId,count,diag,budget,_auth){
   if(budget&&budget.left<=1)return null;
   if(budget)budget.left--;
@@ -14882,7 +14917,7 @@ function usMarketOpenish(){
   return mins >= 9 * 60 + 30 && mins <= 16 * 60;
 }
 async function uspopular_default(req2){
-  const diag = [], budget = { left: 20 };
+  const diag = [], budget = { left: 26 };
   const CK = "uspop:v3";
   const fresh = new URL(req2.url).searchParams.get("fresh") === "1";
   if (!fresh) {
@@ -14902,7 +14937,9 @@ async function uspopular_default(req2){
          [고침] 장이 닫혀 있으면 마지막 개장 시간대에 만든 순위를 그대로 고정한다.
          캐시를 하루로 늘리고, 응답에 '언제 기준인지'를 실어 화면에 밝힌다. */
       const TTL = usMarketOpenish() ? 10 * 60e3 : 26 * 3600e3;
-      if (c && c.at && Date.now() - c.at < TTL && Array.isArray(c.items) && c.items.length >= 60) {
+      const _bvOk = c && Array.isArray(c.byVal) && c.byVal.length >= 120;
+      const _ttlEff = _bvOk ? TTL : Math.min(TTL, 10 * 60e3);   /* [v15.1.1] 부실 byVal 캐시는 오래 못 산다 */
+      if (c && c.at && Date.now() - c.at < _ttlEff && Array.isArray(c.items) && c.items.length >= 60) {
         /* [v9.94] 캐시에서 내보낼 때도 거래대금 순위를 함께 — 빠뜨리면 캐시가
            살아 있는 동안 거래대금 탭이 비어 보인다 */
         return new Response(JSON.stringify({ ok: true, items: c.items, byVal: c.byVal || [], basis: c.basis, cached: 1 }),
@@ -14994,15 +15031,44 @@ async function uspopular_default(req2){
      순서가 흔들리는 것처럼 보였다. 실제 MTS 는 거래대금이 기본이다.
      yahoo-active 목록에 이미 가격·거래량이 들어 있으므로 추가 호출 없이 만든다.
      ETF·우선주도 그대로 둔다 — 실제 거래대금 상위에는 ETF 가 늘 섞여 있다. */
-  let byVal = [];
+  /* ══ [v15.1.1] 거래대금 200종이 38종으로 쪼그라들던 병 ═══════════════════════
+     [무엇이 잘못됐나] byVal 이 야후 most_actives "한 번" 호출에 전적으로 기댔다.
+     야후가 그날 인증(crumb) 문제나 축소 응답으로 30~40종만 주면, 그 부실 목록이
+     그대로 26~30시간 캐시에 굳어 다음 날까지 38위짜리 화면이 남았다(실기 사진).
+     [고침] ① 120종 미만이면 crumb 인증을 강제로 밟아 한 번 더,
+            ② 그래도 모자라면 두 번째 페이지(start=100)를 이어 붙이고,
+            ③ 최종적으로도 부실하면 "이전 캐시의 더 긴 byVal 을 보존"하고
+               캐시 수명을 10분으로 줄여 다음 요청이 곧장 재시도하게 한다. */
+  let byVal = [], byValShort = false;
   try {
-    const act = (lists.find(l => l.name === "yahoo-active") || {}).arr || [];
+    let act = (lists.find(l => l.name === "yahoo-active") || {}).arr || [];
+    if (act.length < 120 && budget.left > 2) {
+      diag.push("byval:thin" + act.length);
+      const a = await yahooCrumbGet(diag);
+      if (a) { const r2 = await yahooScreen("most_actives", 250, diag, budget, a);
+        if (r2 && r2.length > act.length) act = r2; }
+    }
+    if (act.length >= 60 && act.length < 120 && budget.left > 1) {
+      try { const p2 = await yahooScreenPage("most_actives", 100, 100, diag, budget);
+        if (p2 && p2.length) { const seen2 = new Set(act.map(x => x.t));
+          for (const x of p2) if (!seen2.has(x.t)) act.push(x); } } catch (e) {}
+    }
     byVal = act.filter(x => x && x.val > 0)
       .sort((a, b) => b.val - a.val)
       .slice(0, 200)
       .map(x => ({ t: x.t, sfx: x.sfx || usGuessSfx(x.t), kr: fixX(x.kr), en: fixX(x.en || artName(x.t)),
         val: x.val, vol: x.vol, px: x.px, rate: x.rate, cap: x.cap || 0 }));
-  } catch (e) { byVal = []; }
+    if (byVal.length < 120) {
+      byValShort = true;
+      try { const prev = KV ? await KV.get(CK, "json") : null;
+        if (prev && Array.isArray(prev.byVal) && prev.byVal.length > byVal.length) {
+          diag.push("byval:keepPrev" + prev.byVal.length);
+          byVal = prev.byVal;
+          byValShort = prev.byVal.length < 120;
+        } } catch (e) {}
+    }
+    diag.push("byval:" + byVal.length + (byValShort ? ":short" : ""));
+  } catch (e) { byVal = []; byValShort = true; }
   const basis = { n: items.length, src: lists.map(l => ({ k: l.name, n: l.arr.length })),
     attn: t1.length, attnEtc: t2.length, fill: t3.length + t4.length, fallback,
     app: vEntries.length, appTotal: Math.round(vt.total), wiki: wEnt.length, diag,
@@ -15011,7 +15077,7 @@ async function uspopular_default(req2){
   /* [v9.93] KV 보관도 함께 늘린다 — 900초로 두면 위에서 TTL 을 늘려도
      캐시가 먼저 사라져 결국 매번 다시 만들었다(순위가 계속 흔들린 또 하나의 이유). */
   try { if (KV && items.length) await KV.put(CK, JSON.stringify({ at: Date.now(), items, byVal, basis }),
-    { expirationTtl: _mktOpen ? 900 : 30 * 3600 }); } catch (e) { }
+    { expirationTtl: byValShort ? 600 : (_mktOpen ? 900 : 30 * 3600) }); } catch (e) { }
   await usvFlush(true);
   return new Response(JSON.stringify({ ok: items.length > 0, items, byVal, basis }),
     { headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" } });
@@ -16351,7 +16417,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "15.1.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "15.2.1";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

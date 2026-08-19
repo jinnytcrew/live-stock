@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=470">
+<link rel="stylesheet" href="/app.css?v=481">
 </head>
 <body>
 
@@ -246,14 +246,22 @@ body.needs-auth #authGate{z-index:2000001}
 
   function close(){
     if(closed) return; closed = true;
-    clearTimeout(hardT); cancelAnimationFrame(raf);
+    clearTimeout(hardT);
+    /* ══ [v15.1.1] 어떤 경로로 닫혀도 최소 노출을 지킨다 ═══════════════════════
+       [무엇이 잘못됐나] tick 의 자체 닫힘에만 el>=MIN 검사가 있었다. 그런데
+       자동 로그인(재방문) 흐름은 unlockApp → release() → close() 로 들어와
+       이 검사를 통째로 건너뛰었다 — "1초도 안 돼 끝나는" 입장 화면의 정체.
+       [고침] close 진입 시점에 남은 최소 노출 시간을 계산해 그만큼 기다렸다가
+       걷는다. 기다리는 동안 rAF 는 살려 두어 막대·문구 애니메이션이 이어진다. */
+    var wait = Math.max(0, MIN - (Date.now() - t0));
     setTimeout(function(){
+      cancelAnimationFrame(raf);
       g.classList.add('gone');
       setTimeout(function(){
         try{ g.style.display = 'none'; }catch(e){}
         try{ window.__bootGone = true; window.dispatchEvent(new Event('bootgone')); }catch(e){}
       }, 450);
-    }, 220);
+    }, 220 + wait);
   }
   hardT = setTimeout(function(){
     if(!closed && !holdOpen){ stepIdx = STEPS.length-1; target = 100; doneReq = true;
@@ -1518,7 +1526,7 @@ body.needs-auth #authGate{z-index:2000001}
       <div class="ag-left">
         <div class="sec-title">보유 종목 <span class="sec-sub" id="holdCount"></span></div>
         <div class="panel table-wrap hold-wrap">
-          <table><thead><tr><th>종목</th><th>보유수량</th><th>평균단가</th><th>현재가</th><th>평가금액</th><th>평가손익</th><th>수익률</th><th>비중</th><th class="cdl-th">봉</th></tr></thead>
+          <table><thead><tr><th>종목</th><th data-s="수량">보유수량</th><th data-s="평단">평균단가</th><th>현재가</th><th data-s="평가액">평가금액</th><th data-s="손익">평가손익</th><th>수익률</th><th>비중</th><th class="cdl-th">봉</th></tr></thead>
             <tbody id="holdBody"></tbody></table>
         </div>
         <div id="allocCard" hidden>
@@ -1604,6 +1612,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
   <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
-<script type="module" src="/app.js?v=470"></script>
+<script type="module" src="/app.js?v=481"></script>
 </body>
 </html>
