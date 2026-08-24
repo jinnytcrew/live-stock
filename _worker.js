@@ -12142,6 +12142,8 @@ var popular_default = async (req2) => {
       try { jr = await krRankJson(type); } catch (e) { diag.push("krj:" + String(e).slice(0, 20)); }
       if (jr && jr.length >= 40) {
         try { if (KV) await KV.put(CK, JSON.stringify({ at: Date.now(), items: jr }), { expirationTtl: 1800 }); } catch (e) {}
+        /* [v15.4.1] 마지막 거래일 스냅샷도 오래 보관 — 장전·휴장에 이걸로 버틴다 */
+        try { if (KV) await KV.put("rank:" + type + ":last", JSON.stringify({ at: Date.now(), items: jr }), { expirationTtl: 40 * 3600 }); } catch (e) {}
         return json3({ ok: true, type, src: "json", items: jr, diag: ["json:" + jr.length] });
       }
       diag.push("json:miss");                        /* → 아래 HTML 폴백으로 계속 */
@@ -12235,6 +12237,24 @@ var popular_default = async (req2) => {
       } catch (e) {
         diag.push("json:err " + String(e).slice(0, 40));
       }
+    }
+    /* ══ [v15.4.1] 장전·휴장의 빈손 대비 — 마지막 거래일 스냅샷으로 답한다 ═══════
+       [무엇이 잘못됐나] 새벽·프리마켓에는 네이버 상승/하락 목록(JSON·HTML 모두)이
+       비는데, 어제 결과 캐시는 30분 만에 만료돼 "불러오지 못했습니다"만 남았다
+       (실기 사진 — 08:23 상승/하락 둘 다 실패). 거래대금 탭은 자체 합성 캐시가
+       길어서 살아 있었고, 그 대비가 병을 도드라지게 했다.
+       [고침] 좋은 결과가 나올 때마다 40시간짜리 스냅샷(rank:*:last)을 따로 남기고,
+       원천이 전부 빈손이면 그 스냅샷을 stale 표시와 함께 내려준다 — 화면은
+       "마지막 거래일 기준"이라고 정직하게 밝힌다. */
+    if ((type === "rise" || type === "fall") && items.length < 5) {
+      try {
+        const last = KV ? await KV.get("rank:" + type + ":last", "json") : null;
+        if (last && Array.isArray(last.items) && last.items.length >= 40) {
+          diag.push("last:" + last.items.length);
+          return json3({ ok: true, type, src: "last-day", stale: 1, asOf: last.at,
+            items: last.items, diag });
+        }
+      } catch (e) {}
     }
     return new Response(
       JSON.stringify({ ok: items.length > 0, type, n: items.length, src, items: items.slice(0, 200), diag }),
@@ -16449,7 +16469,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "15.4.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "15.4.3";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

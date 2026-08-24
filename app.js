@@ -10581,6 +10581,7 @@ $('jGate').addEventListener('click',e=>{if(e.target===$('jGate'))$('jGate').hidd
 /* 검색 */
 let searchToken=0,searchTimer=null,searchRankTab='거래대금';const remoteCache={};   /* [v9.94] 기본을 거래대금으로 */
 let searchMkt='kr';   // [v4.38] 순위 시장 선택 (kr | us)
+let rankStale={};   /* [v15.4.1] 탭별: 마지막 거래일 기준 여부 */
 const rankCache={},rankError={},rankType={'조회수':'search','상승률':'rise','하락률':'fall'};
 let nxtBatchTimer=null,nxtBatchQ=new Set();
 async function primeQuotes(codes){
@@ -10628,6 +10629,7 @@ async function loadRank(tab){
   if(rankCache[tab]&&rankCache[tab].length)return rankCache[tab];
   try{const r=await fetch('/api/popular?type='+rankType[tab]   /* [v4.3] t=Date.now() 제거 — 매 요청이 서로 다른 주소가 돼 CDN 이 절대 캐시하지 못했다 */,{cache:'no-store'});const j=await r.json();
     const items=(j&&j.items)||[];
+    try{ rankStale[tab]=!!(j&&j.stale); }catch(e){}      /* [v15.4.1] 마지막 거래일 스냅샷 여부 */
     /* [추가] 폴백 경로(JSON)는 시세·등락률까지 함께 준다. 받은 즉시 반영해
        '순위는 떴는데 값이 비어 보이는' 구간을 없앤다. */
     items.forEach(it=>{ if(it&&it.code&&it.market){                 /* [v15.1] JSON 원천이 주는 시장 구분 */
@@ -10892,18 +10894,66 @@ function stockCacheTtl(){
    흔들렸는지가 한 칸에 담긴다.
    [자료] 시세에 이미 open·high·low 가 들어 있어 따로 받아올 필요가 없다.
    장이 바뀌면 그 값이 새로 오므로 다음 날 저절로 초기화된다. */
+/*QC-CORE-BEGIN*/
+/* ══ [v15.4.1] 오늘 봉의 범위 계산 — 세션을 알고 그린다 ═══════════════════════
+   [무엇이 잘못됐나] NXT 프리마켓(다음 날 아침)에는 시세의 open·high·low 가
+   아직 "어제 KRX 장"의 값인데 현재가만 NXT 실시간이었다. 그래서 몸통이
+   '어제 시가 → 오늘 프리마켓가'로 이어져 모든 종목이 칸을 가득 채운
+   풀바가 됐다(실기 사진 — 08:22, 전부 굵은 통봉).
+   [고침] 장 시작 전(pre)에는 어제 OHL 을 버리고 "전일 종가 → 현재가"만으로
+   작은 몸통을 그린다. 정규장·애프터에는 당일 OHL 이 유효하니 그대로 쓴다.
+   순수 함수로 분리해 하네스가 세션별 범위를 직접 검증한다. */
+function srCandleRange(st,px,prev,tone){
+  let o=+st.open||0, hi=+st.high||0, lo=+st.low||0;
+  if(tone==='pre'){
+    /* ══ [v15.4.2] 프리마켓 봉 — "전부 풀바"의 두 번째 원인까지 제거 ═══════════
+       [v15.4.1의 맹점] 어제 OHL 을 버리고 전일종가→현재가만 남겼더니, 그 둘이
+       곧 범위의 양 끝이라 몸통이 정의상 항상 칸 전체를 채웠다 — +0.5%든
+       +4%든 똑같은 통봉(실기 사진 2장 모두 이 상태).
+       [고침] 세로 축을 "전일종가 ±창(w)"의 고정 비율 창으로 잡는다.
+       w = max(3%, |등락률|×1.25) — 그러면 +0.5% 는 짧은 토막, +4% 는 긴
+       막대로 등락 크기가 비례해 보인다. 어제 고저는 쓰지 않으니 꼬리는
+       그리지 않고(wick:false), 전일종가 자리에 점선 기준선을 깐다(base). */
+    const p0=prev>0?prev:px;
+    const chg=p0>0?Math.abs(px/p0-1):0;
+    const w=Math.max(0.03,chg*1.25);
+    return {o:p0,hi:p0*(1+w),lo:p0*(1-w),wick:false,base:p0};
+  }
+  if(!(o>0))o=prev>0?prev:px;
+  if(!(hi>0))hi=Math.max(px,o);
+  if(!(lo>0))lo=Math.min(px,o);
+  hi=Math.max(hi,px,o); lo=Math.min(lo,px,o);
+  return {o,hi,lo,wick:true,base:(prev>0&&prev>=lo&&prev<=hi)?prev:null};
+}
+/*QC-CORE-END*/
 function srCandlePaint(code){
   const cv=$('srsp-'+code); if(!cv)return;
   const st=byCode[code]||{};
   const q=(typeof dispQuote==='function')?dispQuote(code):null;
   const px=(q&&q.price!=null)?q.price:st.price;
   const prev=(q&&q.prevClose)||st.prevClose;
-  let o=+st.open||0, hi=+st.high||0, lo=+st.low||0;
   if(!(px>0)){ cv.style.display='none'; return; }
-  if(!(o>0))o=prev>0?prev:px;
-  if(!(hi>0))hi=Math.max(px,o);
-  if(!(lo>0))lo=Math.min(px,o);
-  hi=Math.max(hi,px,o); lo=Math.min(lo,px,o);
+  /* ══ [v15.4.3] 종목의 '자기 시장' 세션으로 판정한다 ═══════════════════════════
+     [무엇이 잘못됐나] 봉의 세션 판정이 국내(marketSession)만 봤다. 해외 종목은
+     미국 세션을 봐야 하는데 한국 시계로 판정하니, 미국 프리마켓(한국 저녁)에
+     해외 봉이 옛 OHL+프리가로 뒤섞이는 같은 병이 남아 있었다. 또 한국 아침
+     (pre)에는 미국 장이 "끝난 뒤"라 당일 OHL 이 완성돼 있는데도 프리마켓
+     취급으로 꼬리를 지워 버렸다.
+     [고침] 해외 종목은 usSession().phase 로: pre→'pre'(프리 정규화 봉),
+     그 외(regular·after·closed)→'on'(완성/진행 중인 당일 OHL 그대로). */
+  let tone='on';
+  try{
+    if(typeof usMeta!=='undefined'&&usMeta[code]){
+      const ph=(usSession()||{}).phase||'closed';
+      tone=(ph==='pre')?'pre':'on';
+    }else{
+      const ms=marketSession(); tone=ms.tone;
+      if(tone==='off'&&/장 시작 전/.test(ms.label||''))tone='pre';
+    }
+  }catch(e){}
+  if(window.__sessToneOverride)tone=window.__sessToneOverride;   /* 하네스 전용 훅 */
+  const R=srCandleRange(st,px,prev,tone);
+  let {o,hi,lo}=R;
   /* [v9.3] 기준가가 바뀐 종목은 봉도 그리지 않는다 — 시가와 현재가가 30% 넘게
      벌어지면 그날의 실제 움직임이 아니라 분할·병합 때문이다. */
   /* [v9.4] 신규 상장주는 시가 대비 크게 움직여도 정상이다.
@@ -10936,9 +10986,16 @@ function srCandlePaint(code){
   const col=up?'#e5484d':'#3b82f6';
   const cx=Math.round(W/2)+0.5;
 
-  /* 꼬리 — 저가에서 고가까지 칸 전체 */
-  x.strokeStyle=col; x.lineWidth=1.2;
-  x.beginPath(); x.moveTo(cx,Y(hi)); x.lineTo(cx,Y(lo)); x.stroke();
+  /* 기준선 — 전일 종가 자리 점선(프리마켓·장중 공통, 범위 안일 때만) */
+  if(R.base!=null){
+    x.save(); x.strokeStyle='rgba(140,150,170,.55)'; x.lineWidth=1; x.setLineDash([2,2]);
+    const yb=Y(R.base); x.beginPath(); x.moveTo(1,yb); x.lineTo(W-1,yb); x.stroke(); x.restore();
+  }
+  /* 꼬리 — 당일 저가~고가가 실재할 때만(프리마켓엔 없다) */
+  if(R.wick!==false){
+    x.strokeStyle=col; x.lineWidth=1.2;
+    x.beginPath(); x.moveTo(cx,Y(hi)); x.lineTo(cx,Y(lo)); x.stroke();
+  }
 
   /* 몸통 — 시가~현재가. 폭은 꼬리보다 확실히 넓게 */
   const bw=Math.max(6,Math.min(10,Math.round(W*0.52)));
@@ -11584,7 +11641,7 @@ function rankSection(){
      국내는 내부적으로 '조회수' 경로를 쓰지만, 탭 이름이 '거래대금'인데
      목록 위에 '조회수 상위'라고 적히면 어느 쪽이 맞는지 알 수 없게 된다. */
   const shownTab=searchRankTab;
-  return nxtNote+`<div class="rank-note">${shownTab} 상위 <b>${items.length}</b>종목 · 네이버 금융 기준${fillNote}</div>`
+  return nxtNote+`<div class="rank-note">${shownTab} 상위 <b>${items.length}</b>종목 · 네이버 금융 기준${rankStale[tab]?' · <b>마지막 거래일 기준</b> (개장 후 자동 갱신)':''}${fillNote}</div>`
     +items.map((x,i)=>stockRow(x.code,x.name,(byCode[x.code]&&byCode[x.code].market)||'','',i+1)).join('');
 }
 function renderSearch(){
@@ -22286,6 +22343,17 @@ function renderUsMineSafe(){try{if(currentView==='us')renderUsMine();}catch(e){}
    꼭 필요한 것만 하나의 창구로 내보낸다 — 진단 전용이며 앱 동작에는 영향이 없다. */
 try{
   window.__diag={
+    /* [v15.4.2] 봉 렌더 하네스 통로 — 화면 데이터는 건드리지 않는다 */
+    paintCdl:(code,prev,px,opt)=>{ try{
+      opt=opt||{};
+      byCode[code]=Object.assign(byCode[code]||{},{price:px,prevClose:prev,
+        open:opt.open!=null?opt.open:prev*0.98,
+        high:opt.high!=null?opt.high:prev*1.05,
+        low:opt.low!=null?opt.low:prev*0.97});
+      const keep=window.__sessToneOverride;
+      if(opt.tone)window.__sessToneOverride=opt.tone;
+      try{ srCandlePaint(code); } finally { window.__sessToneOverride=keep; }
+      return true; }catch(e){ return String(e); } },
     showView:(v)=>showView(v),
     openTrade:(c)=>openTrade(c),
     openUS:(t)=>openUS(t),
