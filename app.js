@@ -5477,7 +5477,11 @@ function renderVerCard(){
        [v4.8 · 버그] 서버(/api/version)가 옛 버전 정보를 들고 있으면 '현재 버전 v4.7.0'
        옆에 'v4.6.0 업데이트 내용'이 나란히 표시됐다. 서버가 더 새 버전을 알릴 때만
        서버 노트를 쓰고, 그 외에는 번들에 동봉된 현재 버전의 노트를 보여 준다. */
-    const bundled={version:APP_VERSION,notes:(__BUNDLED_VER&&__BUNDLED_VER.notes)||[],releasedAt:(__BUNDLED_VER&&__BUNDLED_VER.releasedAt)||''};
+    /* [v15.4.4] 이번 업데이트 내용은 history[0] 이 유일한 출처 */
+    const _h0=(__BUNDLED_VER&&__BUNDLED_VER.history&&__BUNDLED_VER.history[0])||null;
+    const bundled={version:APP_VERSION,
+      notes:(_h0&&_h0.notes)||((__BUNDLED_VER&&__BUNDLED_VER.notes)||[]),
+      releasedAt:(_h0&&_h0.at)||((__BUNDLED_VER&&__BUNDLED_VER.releasedAt)||'')};
     /* ══ [v12.3] 서버 공지가 옛것이면 쓰지 않는다 ═══════════════════════════
        서버(/api/version)의 공지는 관리자가 손으로 올린다. 한동안 안 올리면
        옛 버전 내용이 남는데, 그것이 '이번 업데이트'로 나오면 지금 화면과
@@ -10582,7 +10586,16 @@ $('jGate').addEventListener('click',e=>{if(e.target===$('jGate'))$('jGate').hidd
 let searchToken=0,searchTimer=null,searchRankTab='거래대금';const remoteCache={};   /* [v9.94] 기본을 거래대금으로 */
 let searchMkt='kr';   // [v4.38] 순위 시장 선택 (kr | us)
 let rankStale={};   /* [v15.4.1] 탭별: 마지막 거래일 기준 여부 */
+
 const rankCache={},rankError={},rankType={'조회수':'search','상승률':'rise','하락률':'fall'};
+/* [v15.4.4] 목록 세션 캐시 — 재방문·탭 전환 시 fetch 왕복을 기다리지 않고
+   직전 목록을 즉시 그린다. ※ 반드시 rankCache 선언 "뒤"에서 복원해야 한다 —
+   앞에 두면 TDZ 로 조용히 실패해 복원이 무산된다(실측으로 확인한 함정). */
+try{ const c=sessionStorage.getItem('rankCacheV1');
+  if(c){ const j=JSON.parse(c); if(j&&j.at&&Date.now()-j.at<10*60e3&&j.data)
+    Object.assign(rankCache,j.data), Object.assign(rankStale,j.stale||{}); } }catch(e){}
+function rankCacheSave(){ try{ sessionStorage.setItem('rankCacheV1',
+  JSON.stringify({at:Date.now(),data:rankCache,stale:rankStale})); }catch(e){} }
 let nxtBatchTimer=null,nxtBatchQ=new Set();
 async function primeQuotes(codes){
   const uniq=[...new Set(codes.filter(Boolean))];
@@ -10625,23 +10638,29 @@ async function primeQuotes(codes){
   need.forEach(c=>{const st=byCode[c];if(!st)return; if(got.has(c))st._pxMiss=0; else st._pxMiss=(st._pxMiss||0)+1;});
 }
 // [수정] 실패 시 빈 배열이 캐시에 남아(빈 배열도 truthy) 해당 탭이 세션 내내 비어 보이던 버그 수정
+/* [v15.4.4] 순위 항목 → 시세 주입(공용) — 캐시 경로도 fetch 경로와 똑같이
+   byCode 를 채운다. 리로드 후 세션 캐시로 복원된 목록이 "행 렌더에 필요한
+   시세가 없어" 통째로 스킵돼 빈 화면이 되던 병의 수리. */
+function hydrateRankItems(items){
+  (items||[]).forEach(it=>{ if(it&&it.code&&it.market){
+    try{ mktCache[String(it.code).toUpperCase()]=it.market; }catch(e){}
+  }});
+  (items||[]).forEach(it=>{ if(it&&it.code&&it.price){
+    const st=ensureStock(it.code,it.name||'','');
+    if(st&&st.price==null){ st.price=it.price;
+      if(it.rate!=null&&it.rate!==0)st.prevClose=Math.round(it.price/(1+it.rate/100));
+      else if(st.prevClose==null)st.prevClose=it.price; }
+  }});
+}
 async function loadRank(tab){
-  if(rankCache[tab]&&rankCache[tab].length)return rankCache[tab];
+  if(rankCache[tab]&&rankCache[tab].length){ hydrateRankItems(rankCache[tab]); return rankCache[tab]; }
   try{const r=await fetch('/api/popular?type='+rankType[tab]   /* [v4.3] t=Date.now() 제거 — 매 요청이 서로 다른 주소가 돼 CDN 이 절대 캐시하지 못했다 */,{cache:'no-store'});const j=await r.json();
     const items=(j&&j.items)||[];
     try{ rankStale[tab]=!!(j&&j.stale); }catch(e){}      /* [v15.4.1] 마지막 거래일 스냅샷 여부 */
     /* [추가] 폴백 경로(JSON)는 시세·등락률까지 함께 준다. 받은 즉시 반영해
        '순위는 떴는데 값이 비어 보이는' 구간을 없앤다. */
-    items.forEach(it=>{ if(it&&it.code&&it.market){                 /* [v15.1] JSON 원천이 주는 시장 구분 */
-      try{ mktCache[String(it.code).toUpperCase()]=it.market; }catch(e){}
-    }});
-    items.forEach(it=>{ if(it&&it.code&&it.price){
-      const st=ensureStock(it.code,it.name||'','');
-      if(st&&st.price==null){ st.price=it.price;
-        if(it.rate!=null&&it.rate!==0)st.prevClose=Math.round(it.price/(1+it.rate/100));
-        else if(st.prevClose==null)st.prevClose=it.price; }
-    }});
-    if(items.length){rankCache[tab]=items;rankError[tab]=false;}
+    hydrateRankItems(items);
+    if(items.length){rankCache[tab]=items; rankCacheSave();rankError[tab]=false;}
     else{rankError[tab]=true;}
   }catch{rankError[tab]=true;}
   return rankCache[tab]||[];
@@ -22344,6 +22363,9 @@ function renderUsMineSafe(){try{if(currentView==='us')renderUsMine();}catch(e){}
 try{
   window.__diag={
     /* [v15.4.2] 봉 렌더 하네스 통로 — 화면 데이터는 건드리지 않는다 */
+    rankState:()=>{ try{ return {keys:Object.keys(rankCache),
+      n:{'조회수':(rankCache['조회수']||[]).length,'상승률':(rankCache['상승률']||[]).length,'하락률':(rankCache['하락률']||[]).length},
+      err:{...rankError}, stale:{...rankStale}}; }catch(e){ return String(e); } },
     paintCdl:(code,prev,px,opt)=>{ try{
       opt=opt||{};
       byCode[code]=Object.assign(byCode[code]||{},{price:px,prevClose:prev,

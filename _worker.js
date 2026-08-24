@@ -16402,13 +16402,32 @@ async function usrank_default(req2,ctx2){
      마지막 원천(야후)이 시도조차 못 했다(하네스 재현). 예산을 34로 올리고,
      야후 직전에 최소 4회를 보장한다(워커 한도 50회 대비 여유 충분). */
   const diag=[],budget={left:34};
-  /* 원천 사다리: 네이버(옛 주소틀) → 네이버 거래소별 병합 → TradingView → 야후 */
-  let src="naver", items=await naverWorldRank(kind,diag,budget);
-  if(!items||items.length<20){ src="naver"; items=await naverWorldRankExch(kind,diag,budget); }
-  if(!items||items.length<20){ src="tradingview"; items=await tradingviewUsRank(kind,diag,budget); }
-  if(!items||items.length<20){ src="yahoo"; if(budget.left<4)budget.left=4; items=await yahooUsRank(kind,diag,budget); }
-  if(!items||!items.length)return J({ok:false,type:kind,diag});
-  items=items.slice(0,100).map(x=>({ t:x.t, sfx:x.sfx||usGuessSfx(x.t), kr:x.kr||"", en:x.en||"",
+  /* ══ [v15.4.4] "사다리"에서 "병합"으로 — 누락·정렬 붕괴 동시 수리 ═══════════════
+     [무엇이 잘못됐나 — 실기 대조 사진 2장]
+     ① 누락: 첫 성공 소스(네이버)만 쓰고 멈췄다. 네이버 해외 순위에 없는
+        유형(레버리지 ETF: HOOZ·CRMU·CRMX 등)이 통째로 빠졌다.
+     ② 정렬 붕괴: 최종 정렬이 없어서 거래소별 병합 순서가 그대로 노출됐다 —
+        +33% 크노렉스가 +56% 사돗보다 위에 뜨는 화면.
+     [고침] 네이버 + 야후(gainers/losers·ETF 포함)를 "항상" 합치고, 티커로
+     중복 제거한 뒤 등락률로 최종 정렬한다(동률은 거래대금 큰 쪽 먼저).
+     상위 200종으로 확대. TradingView 는 두 원천이 함께 죽었을 때의 예비. */
+  let A=await naverWorldRank(kind,diag,budget);
+  if(!A||A.length<20)A=await naverWorldRankExch(kind,diag,budget);
+  let B=null;
+  try{ if(budget.left<4)budget.left=4; B=await yahooUsRank(kind,diag,budget); }catch(e){ diag.push("yh:"+String(e).slice(0,20)); }
+  let merged=[]; const seen=new Set();
+  for(const arr of [A,B]) if(Array.isArray(arr)) for(const x of arr){
+    const t=String(x.t||"").toUpperCase(); if(!t||seen.has(t))continue; seen.add(t); merged.push(x);
+  }
+  let src=(A&&A.length?"naver":"")+(B&&B.length?(A&&A.length?"+yahoo":"yahoo"):"");
+  if(merged.length<20){ src="tradingview"; const T=await tradingviewUsRank(kind,diag,budget);
+    if(Array.isArray(T))for(const x of T){const t=String(x.t||"").toUpperCase();if(!t||seen.has(t))continue;seen.add(t);merged.push(x);} }
+  let items=merged.filter(x=>x&&x.rate!=null&&(kind==="up"?x.rate>0:x.rate<0));
+  items.sort((a,b)=>{const d=kind==="up"?(b.rate-a.rate):(a.rate-b.rate);
+    return d!==0?d:((b.val||0)-(a.val||0));});                    // ★ 최종 정렬 보장
+  diag.push("merged:"+merged.length+" kept:"+items.length+" src:"+src);
+  if(!items.length)return J({ok:false,type:kind,diag});
+  items=items.slice(0,200).map(x=>({ t:x.t, sfx:x.sfx||usGuessSfx(x.t), kr:x.kr||"", en:x.en||"",
     px:(x.px!=null?x.px:null), rate:(x.rate!=null?x.rate:null), val:x.val||0, vol:x.vol||0, cap:x.cap||0 }));
   const payload={at:Date.now(),items,src,mktOpen:_open};
   try{ if(KV)await KV.put(CK,JSON.stringify(payload),{expirationTtl:_open?900:30*3600}); }catch(e){}
@@ -16469,7 +16488,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "15.4.3";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "15.4.4";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
