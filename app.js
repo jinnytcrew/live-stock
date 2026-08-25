@@ -10925,15 +10925,19 @@ function stockCacheTtl(){
 function srCandleRange(st,px,prev,tone){
   let o=+st.open||0, hi=+st.high||0, lo=+st.low||0;
   if(tone==='pre'){
-    /* ══ [v15.4.2] 프리마켓 봉 — "전부 풀바"의 두 번째 원인까지 제거 ═══════════
-       [v15.4.1의 맹점] 어제 OHL 을 버리고 전일종가→현재가만 남겼더니, 그 둘이
-       곧 범위의 양 끝이라 몸통이 정의상 항상 칸 전체를 채웠다 — +0.5%든
-       +4%든 똑같은 통봉(실기 사진 2장 모두 이 상태).
-       [고침] 세로 축을 "전일종가 ±창(w)"의 고정 비율 창으로 잡는다.
-       w = max(3%, |등락률|×1.25) — 그러면 +0.5% 는 짧은 토막, +4% 는 긴
-       막대로 등락 크기가 비례해 보인다. 어제 고저는 쓰지 않으니 꼬리는
-       그리지 않고(wick:false), 전일종가 자리에 점선 기준선을 깐다(base). */
+    /* ══ [v15.4.6] 프리마켓 봉 3차 — 실기 MTS 와 같은 "전일 확정 봉" ═══════════
+       [무엇이 어긋났나] v15.4.2 는 어제 고저를 통째로 버리고 전일종가→프리가
+       비례봉만 남겨, 고가·저가 꼬리가 사라졌다(사용자 지적). 실제 MTS 는
+       프리마켓에 "전일의 확정 봉(시·고·저·종)"을 보여 준다 — 그것이 확정된
+       사실이고 정보량도 가장 많다.
+       [고침] 시세가 전일 OHL 을 유효하게 들고 있으면 그대로 완성 봉을 그린다:
+       몸통 = 전일 시가→전일 종가, 꼬리 = 전일 고저. 오늘 프리 등락은 봉에
+       섞지 않는다(그것이 v15.4.1 원병이었다) — 등락 숫자와 점선 기준선이
+       담당한다. OHL 이 비어 있으면 v15.4.2 비례봉으로 폴백한다. */
     const p0=prev>0?prev:px;
+    if(o>0&&hi>0&&lo>0&&hi>=lo&&hi>=Math.max(o,p0)&&lo<=Math.min(o,p0)){
+      return {o,hi,lo,px:p0,wick:true,base:p0,prevBar:true};
+    }
     const chg=p0>0?Math.abs(px/p0-1):0;
     const w=Math.max(0.03,chg*1.25);
     return {o:p0,hi:p0*(1+w),lo:p0*(1-w),wick:false,base:p0};
@@ -10949,7 +10953,7 @@ function srCandlePaint(code){
   const cv=$('srsp-'+code); if(!cv)return;
   const st=byCode[code]||{};
   const q=(typeof dispQuote==='function')?dispQuote(code):null;
-  const px=(q&&q.price!=null)?q.price:st.price;
+  let px=(q&&q.price!=null)?q.price:st.price;   /* [v15.4.6] 전일 봉 모드에서 몸통 끝점 교체 가능해야 */
   const prev=(q&&q.prevClose)||st.prevClose;
   if(!(px>0)){ cv.style.display='none'; return; }
   /* ══ [v15.4.3] 종목의 '자기 시장' 세션으로 판정한다 ═══════════════════════════
@@ -10973,6 +10977,7 @@ function srCandlePaint(code){
   if(window.__sessToneOverride)tone=window.__sessToneOverride;   /* 하네스 전용 훅 */
   const R=srCandleRange(st,px,prev,tone);
   let {o,hi,lo}=R;
+  if(R.prevBar&&R.px>0)px=R.px;   /* [v15.4.6] 전일 확정 봉 — 몸통은 전일 종가까지 */
   /* [v9.3] 기준가가 바뀐 종목은 봉도 그리지 않는다 — 시가와 현재가가 30% 넘게
      벌어지면 그날의 실제 움직임이 아니라 분할·병합 때문이다. */
   /* [v9.4] 신규 상장주는 시가 대비 크게 움직여도 정상이다.
@@ -12872,11 +12877,53 @@ function renderInfo(){
 }
 const intFmt=(v)=>{const n=Number(v);if(isNaN(n))return v==null?'—':v;return(n>0?'+':'')+n.toLocaleString('ko-KR');};
 // ── 종목요약 ──
+/*DF-CORE-BEGIN*/
+/* ══ [v15.4.5] 일봉 캐시 신선도 — "며칠 묵은 어제 오전"이 진실 행세하던 병 ═════
+   [무엇이 잘못됐나 — 실기 사진 3장] candleCache/_sumDaily 는 한 번 받으면
+   세션이 사는 동안 영구였다. PWA 를 닫지 않으면 세션이 며칠을 산다.
+   어제 "오전 장중"에 받은 일봉(마지막 봉 = 미완성, 종가 90,300 시점값)이
+   그대로 굳어, 오늘 아침 차트·일자별 시세·전일종가·주문 기본가까지 전부
+   90,300 을 진실로 알았다 — 실제 어제 종가는 +12.5% 급등한 102,900.
+   실시간 시세(+14.62%)만 살아 있어 화면끼리 서로 모순돼 보였다.
+   [고침] 캐시에 "받은 시각"을 함께 적고, 쓰기 전에 세 가지를 검사한다.
+     ① 마지막 봉 날짜가 최근 거래일보다 오래됐다 → 무효(하루가 통째로 빠짐)
+     ② 마지막 봉이 '그날 장 마감 전'에 받은 것 → 무효(미완성 종가가 굳음)
+     ③ 오늘 봉을 장중에 받았고 10분 지남 → 무효(진행 중 봉은 짧게만 신뢰)
+   무효면 다시 받는다. 판정은 순수 함수라 하네스가 시각별로 직접 검증한다. */
+const _candleMeta={};                                 /* key → {at:수신시각} */
+function _kstParts(ts){ const d=new Date(ts+9*3600e3);
+  return {ymd:d.toISOString().slice(0,10).replace(/-/g,''),
+          hm:d.getUTCHours()*60+d.getUTCMinutes(), wd:d.getUTCDay()}; }
+function _lastTradingYmd(nowTs){ /* 주말만 건너뛴 근사 — 휴일은 ①이 과탐해도 재수신일 뿐 */
+  let t=nowTs; const p=_kstParts(t);
+  if(p.wd>=1&&p.wd<=5&&p.hm>=9*60)return p.ymd;      /* 평일 09시 이후면 오늘 */
+  do{ t-=86400e3; }while([0,6].includes(_kstParts(t).wd));
+  return _kstParts(t).ymd;
+}
+function dailyFresh(arr,meta,nowTs){
+  if(!arr||!arr.length)return false;
+  if(!meta||!meta.at)return false;                    /* 시각 모르는 옛 캐시는 불신 */
+  const last=String(arr[arr.length-1].d||'').replace(/-/g,'').slice(0,8);
+  if(!last)return false;
+  const now=nowTs==null?Date.now():nowTs;
+  const recv=_kstParts(meta.at), cur=_kstParts(now);
+  if(last<_lastTradingYmd(now))return false;                       /* ① */
+  if(recv.ymd===last&&recv.hm<15*60+40&&
+     !(cur.ymd===last))return false;                               /* ② 그날 장중 수신 + 날이 바뀜 */
+  if(recv.ymd===last&&recv.hm<15*60+40&&cur.ymd===last
+     &&now-meta.at>10*60e3)return false;                           /* ③ 오늘 진행 봉 10분 */
+  return true;
+}
+/*DF-CORE-END*/
 const _sumDaily={};
 async function ensureDailySummary(code){
-  if(_sumDaily[code])return _sumDaily[code];
-  if(candleCache[code+':D']&&candleCache[code+':D'].length){_sumDaily[code]=candleCache[code+':D'];return _sumDaily[code];}
-  try{const r=await fetch(`/api/chart?code=${code}&tf=D`,{cache:'default'});const j=await r.json();_sumDaily[code]=(j&&j.candles)||[];}catch{_sumDaily[code]=[];}
+  const K=code+':D';
+  if(_sumDaily[code]&&dailyFresh(_sumDaily[code],_candleMeta[K]))return _sumDaily[code];
+  if(candleCache[K]&&candleCache[K].length&&dailyFresh(candleCache[K],_candleMeta[K])){_sumDaily[code]=candleCache[K];return _sumDaily[code];}
+  try{const r=await fetch(`/api/chart?code=${code}&tf=D`,{cache:'no-store'});const j=await r.json();
+    _sumDaily[code]=(j&&j.candles)||[];
+    if(_sumDaily[code].length){candleCache[K]=_sumDaily[code];_candleMeta[K]={at:Date.now()};}
+  }catch{_sumDaily[code]=_sumDaily[code]||[];}
   return _sumDaily[code];
 }
 function sumStat(labels){const st=(curFund&&curFund.stats)||[];for(const L of labels){const hit=st.find(s=>s.label&&s.label.replace(/\s/g,'').includes(L));if(hit)return hit.value;}return null;}
@@ -13558,14 +13605,17 @@ var SB_TERMS=[
 var sbTerm='1y', sbAmt=1000000, sbMode='lump', sbData={}, sbBusy={};
 /* 기간에 맞는 봉을 고른다 — 2년 넘으면 주봉이라야 자료가 닿는다 */
 function sbNeedTf(days){ return days>700?'W':'D'; }
+const sbMeta={};
 function sbLoad(code,tf){
   const key=code+':'+tf;
-  if(sbData[key])return Promise.resolve(sbData[key]);
+  /* [v15.4.5] 영구 캐시였던 백테스트용 일봉에도 같은 신선도 게이트 */
+  const fresh=tf==='D'?dailyFresh(sbData[key],sbMeta[key]):!!sbData[key];
+  if(sbData[key]&&fresh)return Promise.resolve(sbData[key]);
   if(sbBusy[key])return Promise.resolve(null);
   sbBusy[key]=1;
   return fetch(`/api/chart?code=${encodeURIComponent(code)}&tf=${tf}`,{cache:'default'})
     .then(r=>r.json())
-    .then(j=>{ const c=(j&&j.candles)||[]; sbData[key]=c; return c; })
+    .then(j=>{ const c=(j&&j.candles)||[]; sbData[key]=c; sbMeta[key]={at:Date.now()}; return c; })
     .catch(()=>{ sbData[key]=[]; return []; })
     .finally(()=>{ sbBusy[key]=0; });
 }
@@ -14018,10 +14068,29 @@ function renderAsking(el){
     return;
   }
   if(!d||!d.ok){
+    /* ══ [v15.4.5] 정상 종목이 "호가 미제공 종목" 취급받던 병 ═══════════════════
+       [무엇이 잘못됐나] KRX 호가는 08:30 접수 시작이라 그 전(프리마켓)과 장
+       마감 후에는 "비어 있는 것이 정상"이다. 그런데 오류 문구가 세션을 보지
+       않고 "이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등)"라고 말해,
+       한전기술 같은 코스피200 종목까지 미제공 종목으로 보였다(실기 사진).
+       [고침] 지금이 호가가 존재할 수 없는 시간이면 그렇게 정확히 말하고,
+       재개 시각을 알려 준다. 진짜 미제공 종목 문구는 정규장 중 빈 응답에만. */
+    let why='잠시 후 다시 시도해 주세요.';
+    try{
+      const k=krSession();
+      const hm=(()=>{const n=nowTz();return n.hm;})();
+      if(!k.krx.open){
+        if(hm<8*60+30)why='아직 KRX 호가 접수 전입니다(08:30 시작). 접수가 시작되면 자동으로 표시됩니다.';
+        else if(hm>=15*60+30)why='KRX 장이 마감돼 호가가 없습니다. 다음 거래일 08:30부터 다시 표시됩니다.'
+          +(nxtCapability(code)===true?' NXT 체결가는 위 가격에 실시간 반영 중입니다.':'');
+        else why='지금은 호가가 제공되지 않는 시간입니다.';
+      } else if(d&&d.err==='empty'){
+        why='이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).';
+      }
+    }catch(e){ if(d&&d.err==='empty')why='이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).'; }
     el.innerHTML=`<div class="empty"><b>호가를 받지 못했습니다</b>
       <span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.6">
-      ${d&&d.err==='empty'?'이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).'
-        :'잠시 후 다시 시도해 주세요.'}<br>
+      ${why}<br>
       없는 값을 만들어 보여 드리지 않습니다.</span></div>`;
     return;
   }
@@ -15935,9 +16004,10 @@ async function loadCandles(retry){
     curCandles=minuteSeries(code,minutesOf(tf));resetView();drawChart();return;
   }
   const key=code+':'+tf;
-  if(candleCache[key]&&candleCache[key].length){curCandles=candleCache[key];resetView();drawChart();return;}
+  const _dGate=(tf==='D')?dailyFresh(candleCache[key],_candleMeta[key]):true;
+  if(candleCache[key]&&candleCache[key].length&&_dGate){curCandles=candleCache[key];resetView();drawChart();return;}
   chartLoading=true;$('chartTip').hidden=true;$('chartLegend').textContent='차트 불러오는 중…';drawChart();
-  try{const r=await fetch(`/api/chart?code=${code}&tf=${tf}`,{cache:'default'});const j=await r.json();curCandles=j.candles||[];if(curCandles.length)candleCache[key]=curCandles;}catch{curCandles=[];}
+  try{const r=await fetch(`/api/chart?code=${code}&tf=${tf}`,{cache:tf==='D'?'no-store':'default'});const j=await r.json();curCandles=j.candles||[];if(curCandles.length){candleCache[key]=curCandles;_candleMeta[key]={at:Date.now()};}}catch{curCandles=[];}
   chartLoading=false;
   if(selected!==code||chartTf!==tf)return; // 그 사이 종목/시간대 바뀌면 무시
   if(!curCandles.length&&!retry){setTimeout(()=>{if(selected===code&&chartTf===tf&&!(candleCache[key]&&candleCache[key].length))loadCandles(true);},1500);}
