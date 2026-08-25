@@ -6639,6 +6639,19 @@ function askMemo(title,opt={}){return _askShow({mode:'area',title,...opt}).then(
 function askConfirm(title,desc,opt={}){return _askShow({mode:'confirm',title,desc,okLabel:opt.okLabel||'확인',danger:opt.danger}).then(v=>v===true);}
 function askChoice(title,options,desc){return _askShow({mode:'choice',title,desc,options});}
 
+/* ══ [v15.4.8] 시세 위생(공용) — 원천이 모순 값을 줘도 화면 불변식은 지킨다 ═══
+   전수 감사기(dataAudit)가 실제로 잡아낸 것: 일부 원천 응답에서 고가<저가·
+   시가>고가가 그대로 흘러들었다(국내 HMM, 해외 SPY·QQQ 등). 봉·표·감사가
+   전부 그 모순을 물려받는다. 시가·고가·저가 셋의 순서만 바로잡는다 —
+   현재가는 섞지 않는다(프리마켓가를 어제 고저에 섞으면 v15.4.1 의 병이 된다). */
+function ohlSanitize(st){
+  try{
+    let o=+st.open||0,h=+st.high||0,l=+st.low||0;
+    if(h>0&&l>0&&h<l){const t2=h;h=l;l=t2;}
+    if(o>0){ if(h>0&&o>h)h=o; if(l>0&&o<l)l=o; }
+    st.open=o||st.open; st.high=h||st.high; st.low=l||st.low;
+  }catch(e){}
+}
 function applyQuote(q,isSnap){
   try{ if(q&&q.code&&byCode[q.code])byCode[q.code]._px_at=Date.now(); }catch(e){}   // [v3.4] 마지막 수신 시각
   try{ pxSnapPut(q); }catch(e){}                                                     // [v3.6] 마지막 시세 스냅샷
@@ -6649,6 +6662,7 @@ function applyQuote(q,isSnap){
   const prevP=st.price;
   st.price=q.price;
   st.prevClose=q.prevClose;st.open=q.open;st.high=q.high;st.low=q.low;st.volume=q.volume;st.value=q.value;
+  ohlSanitize(st);   /* [v15.4.8] 시세 위생 — 아래 공용 함수 참조 */
   try{swingWatch(q.code,st);}catch(e){}   // [S12] 보유종목 급변동 알림 (전 필드 갱신 후 판정)
   /* NXT 신호 두 종류를 구분해 저장한다.
        nxtExec  = 실제 NXT 체결가가 관측됨. NXT 회원만 체결될 수 있으므로 '회원 증거'다.
@@ -11028,12 +11042,25 @@ function srCandlePaint(code){
   x.fillStyle=col;
   x.fillRect(Math.round(cx-bw/2),yA,bw,bh);
 }
-/* 목록 안 캔들을 한 번에 다시 그린다 */
+/* 목록 안 캔들을 다시 그린다 — [v15.4.7] 화면 근처 행만.
+   예전엔 시세가 올 때마다 200행 전부의 캔버스를 메인 스레드에서 다시 칠했다.
+   스크롤·클릭과 그 작업이 겹치면 프레임이 통째로 밀려 백지가 번쩍였다.
+   이제 뷰포트 ±300px 안의 행만 칠한다 — 화면 밖 행은 스크롤로 들어오는 순간
+   quote 갱신 주기에 자연히 칠해지고, content-visibility 가 그 전까지 숨긴다. */
 function srCandlesPaint(root){
   try{
-    (root||document).querySelectorAll('.sr[data-code]').forEach(el=>{
-      srCandlePaint(el.dataset.code);
+    const H=window.innerHeight||800;
+    const els=(root||document).querySelectorAll('.sr[data-code]');
+    const near=[];
+    els.forEach(el=>{
+      const r=el.getBoundingClientRect();
+      if(r.bottom>-300&&r.top<H+300)near.push(el.dataset.code);
     });
+    let i=0;
+    const step=()=>{const end=Math.min(i+24,near.length);
+      for(;i<end;i++)srCandlePaint(near[i]);
+      if(i<near.length)requestAnimationFrame(step);};
+    step();
   }catch(e){}
 }
 function loadStockCache(){
@@ -14078,7 +14105,7 @@ function renderAsking(el){
     let why='잠시 후 다시 시도해 주세요.';
     try{
       const k=krSession();
-      const hm=(()=>{const n=nowTz();return n.hm;})();
+      const hm=nowTz('Asia/Seoul').hm;   /* [v15.4.8] tz 명시 — 인자 없이 부르면 기기 로컬로 판정되는 결함 */
       if(!k.krx.open){
         if(hm<8*60+30)why='아직 KRX 호가 접수 전입니다(08:30 시작). 접수가 시작되면 자동으로 표시됩니다.';
         else if(hm>=15*60+30)why='KRX 장이 마감돼 호가가 없습니다. 다음 거래일 08:30부터 다시 표시됩니다.'
@@ -14192,7 +14219,7 @@ function renderSise(el){
     const dl=el.querySelector('#siseCsv'); if(dl)dl.onclick=()=>siseCsv(code);
   };
   if(siseMode==='date'){
-    const d=_sumDaily[code];
+    const d=mergeTodayLive(_sumDaily[code],code);   /* [v15.4.7] 오늘 행도 실시간 */
     if(!d){el.innerHTML=seg+'<div class="empty">시세를 불러오는 중…</div>';bind();
       ensureDailySummary(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});return;}
     if(!d.length){el.innerHTML=seg+'<div class="empty">일자별 시세 데이터가 없습니다.<br><span style="font-size:11.5px;color:var(--sub-2)">상장한 지 얼마 안 된 종목일 수 있어요. 차트 탭을 먼저 열어 보세요.</span></div>';bind();return;}
@@ -16248,6 +16275,30 @@ function openChartCfg(){
   $('ccReset').onclick=()=>{chartCfg=JSON.parse(JSON.stringify(CC_DEF));try{[5,20,60,120].forEach(p=>maOn[p]=true);}catch(e){}ccSave();openChartCfg();safeRun('ccDraw',drawChart);};
 }
 
+/* ══ [v15.4.7] 오늘 진행 중인 일봉을 실시간 시세로 합성한다 ═══════════════════
+   [무엇이 어긋났나 — 실기 대조] 일봉은 10분 신뢰창으로 재수신하는데, 그 사이
+   장중 신고가·현재가가 차트에 늦게 반영됐다(실기: 고가 111,600·현재 110,200 vs
+   화면 110,800·109,800). 진행 중인 봉은 "받은 스냅샷"이 아니라 "지금 시세"가
+   진실이다.
+   [고침] 마지막 봉이 오늘이면 실시간 시세(현재가·당일 시고저)를 봉에 겹친다.
+   고가는 max, 저가는 min — 시세와 스냅샷 중 더 넓은 쪽이 사실이다. */
+function mergeTodayLive(bars,code){
+  try{
+    if(!bars||!bars.length)return bars;
+    const st=byCode[code]; if(!st||!(st.price>0))return bars;
+    const todayYmd=(()=>{const d=new Date(Date.now()+9*3600e3);return d.toISOString().slice(0,10).replace(/-/g,'');})();
+    const last=bars[bars.length-1];
+    const lastYmd=String(last.d||'').replace(/-/g,'').slice(0,8);
+    if(lastYmd!==todayYmd)return bars;
+    const m={...last};
+    m.c=st.price;
+    if(st.open>0)m.o=st.open;
+    m.h=Math.max(m.h||0,st.high||0,st.price,m.o||0);
+    m.l=Math.min(m.l||Infinity,(st.low>0?st.low:Infinity),st.price,(m.o||Infinity));
+    if(st.volume>0)m.v=Math.max(m.v||0,st.volume);
+    const out=bars.slice(0,-1); out.push(m); return out;
+  }catch(e){return bars;}
+}
 function drawChart(){
   /* [v4.57] 해외 거래 화면에서도 같은 엔진으로 그린다 — 아래 usChartMount() 가
      이 차트 카드를 해외 정보 패널로 옮겨 놓으므로, 화면 제약만 풀어 주면 된다. */
@@ -16257,6 +16308,7 @@ function drawChart(){
   if(box.width===0)return;
   canvas.width=box.width*dpr;canvas.height=box.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
   const W=box.width,H=box.height;ctx.clearRect(0,0,W,H);
+  if(chartTf==='D'&&currentView==='trade')curCandles=mergeTodayLive(curCandles,selected);   /* [v15.4.7] 진행 봉 라이브 */
   const cs=curCandles;
   if(!cs.length){$('chartLegend').textContent=chartLoading?'차트 불러오는 중…':(isMinute(chartTf)?('분봉 데이터 없음 · 장중 실시간 누적 '+(minuteDiag||'')):'데이터를 불러오지 못했어요 · ⟳ 버튼으로 다시 시도');return;}
   const padR=58,padL=6,padT=10,plotW=W-padL-padR;
@@ -18788,6 +18840,7 @@ function usApplyQuote(reu,q){
   byCode[t]={...b,code:t,name:usMeta[t].kr,us:1,price:usQ[t].price,prevClose:usQ[t].prev,
     open:usQ[t].open,high:usQ[t].high,low:usQ[t].low,vol:usQ[t].vol,cap:usQ[t].cap,
     w52h:usQ[t].w52h,w52l:usQ[t].w52l,ex:usMeta[t].sfx};
+  ohlSanitize(byCode[t]);   /* [v15.4.8] 해외 시세도 같은 위생 */
   return true;
 }
 /* [v4.62] cap 은 필요한 화면에서만 요청한다 — 목록에서는 시가총액을 쓰지 않으므로
@@ -22432,6 +22485,40 @@ function renderUsMineSafe(){try{if(currentView==='us')renderUsMine();}catch(e){}
    꼭 필요한 것만 하나의 창구로 내보낸다 — 진단 전용이며 앱 동작에는 영향이 없다. */
 try{
   window.__diag={
+    /* ══ [v15.4.8] 전 종목 데이터 정합 자체 감사 ═══════════════════════════════
+       실서비스에서 언제든 실행해 "지금 화면의 모든 숫자"가 서로 모순 없는지
+       검사한다. 반환: {checked, violations:[...]} — 위반 0이 정상. */
+    dataAudit:async(sampleDaily)=>{
+      const v=[];let n=0;
+      try{
+        for(const [c,st] of Object.entries(byCode)){
+          if(!(st&&st.price>0))continue; n++;
+          if(!(st.prevClose>0))v.push(c+':prevClose없음');
+          if(st.high>0&&st.low>0&&st.high<st.low)v.push(c+':고가<저가');
+          if(st.open>0&&st.high>0&&st.open>st.high*1.0001)v.push(c+':시가>고가');
+          if(st.open>0&&st.low>0&&st.open<st.low*0.9999)v.push(c+':시가<저가');
+          try{ const ms=marketSession();
+            if(ms.tone==='on'&&st.high>0&&st.price>st.high*1.02)v.push(c+':현재가>고가+2%');
+          }catch(e){}
+        }
+        const today=(()=>{const d=new Date(Date.now()+9*3600e3);return d.toISOString().slice(0,10).replace(/-/g,'');})();
+        for(const c of (sampleDaily||[])){
+          const bars=await ensureDailySummary(c);
+          if(!bars||!bars.length){v.push(c+':일봉없음');continue;}
+          let prevD='';
+          for(const x of bars){
+            const dd=String(x.d||'').replace(/-/g,'').slice(0,8);
+            if(!(x.h>=x.l&&x.h>=Math.max(x.o,x.c)*0.9999&&x.l<=Math.min(x.o,x.c)*1.0001)){v.push(c+':OHLC@'+dd);break;}
+            if(dd<=prevD){v.push(c+':날짜역전@'+dd);break;}
+            prevD=dd;
+          }
+          const m=mergeTodayLive(bars,c);const last=m[m.length-1];
+          if(String(last.d||'').replace(/-/g,'').slice(0,8)===today
+             &&byCode[c]&&byCode[c].price>0&&last.c!==byCode[c].price)v.push(c+':오늘봉 미합성');
+        }
+      }catch(e){v.push('audit-err:'+String(e).slice(0,40));}
+      return {checked:n,violations:v};
+    },
     /* [v15.4.2] 봉 렌더 하네스 통로 — 화면 데이터는 건드리지 않는다 */
     rankState:()=>{ try{ return {keys:Object.keys(rankCache),
       n:{'조회수':(rankCache['조회수']||[]).length,'상승률':(rankCache['상승률']||[]).length,'하락률':(rankCache['하락률']||[]).length},

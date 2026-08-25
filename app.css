@@ -1426,7 +1426,7 @@ html.reduce-motion{scroll-behavior:auto}
 /* ── 헤더: 스티키 + 블러 ── */
 .topbar{position:sticky;top:0;z-index:900}
 @supports (backdrop-filter:blur(10px)){
-  .topbar{backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  /* [v15.4.7] 제거 — 성능 */
 }
 
 /* ── 상호작용 피드백(호버 기기 전용 리프트 + 눌림) ── */
@@ -1447,7 +1447,7 @@ html.reduce-motion .skel-card,html.reduce-motion .skel-row{animation:none;backgr
 .tabbar{display:none}
 @media (max-width:768px){
   .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:920;display:flex;background:var(--panel);border-top:1px solid var(--border);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
-  @supports (backdrop-filter:blur(10px)){.tabbar{background:color-mix(in srgb,var(--panel) 86%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}}
+  /* [v15.4.7] tabbar blur 제거 — 성능 */
   .tabbar button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;color:var(--sub-2);font-weight:800;cursor:pointer;border-radius:10px}
   .tabbar button i{font-style:normal;font-size:19px;line-height:1}
   .tabbar button span{font-size:10.5px}
@@ -6844,8 +6844,7 @@ html.dark{
 
 /* ── 1) 종목 검색 — 주인공은 검색창 ─────────────────────────────────────── */
 .search-box input{border-radius:18px;border:1px solid var(--border);
-  background:color-mix(in srgb,var(--panel) 88%,transparent);
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  background:var(--panel);   /* [v15.4.7] 상시 blur 제거 — 스크롤·클릭 프레임 비용의 주범 */
   box-shadow:var(--lift);transition:box-shadow .18s,border-color .18s}
 .search-box input:focus{border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 55%,var(--border));
   box-shadow:var(--lift),0 0 0 4px color-mix(in srgb,var(--brand-2,#f5a30d) 16%,transparent);outline:none}
@@ -7028,14 +7027,17 @@ html.dark .cc-box,html.dark .sheet,html.dark .modal-box{box-shadow:0 24px 60px r
    v15.2 가 '카드'를 올렸다면 이번엔 화면의 뼈대(크롬)와 잔 부품을 같은 결로. */
 
 /* 상단 헤더 — 유리질 + 금장 하단 라인 */
-header.topbar,.topbar{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+/* [v15.4.7] 헤더·탭바의 상시 backdrop-filter 제거 — 태블릿 GPU 에서 매 프레임
+   배경 블러를 다시 계산해 빠른 스크롤 백지·클릭 버벅의 주범이었다.
+   반투명+블러 대신 거의 불투명한 단색으로 같은 인상을 낸다. */
+header.topbar,.topbar{
   border-bottom:1px solid color-mix(in srgb,var(--brand-2,#f5a30d) 26%,transparent);
   box-shadow:0 8px 24px rgba(8,14,28,.28)}
 .topbar .logo b,.brand b{letter-spacing:-.5px}
 
 /* 하단 탭바 — 유리질 + 활성 필 인디케이터 */
-.tabbar{backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  background:color-mix(in srgb,var(--panel) 86%,transparent);
+.tabbar{
+  background:color-mix(in srgb,var(--panel) 97%,transparent);
   border-top:1px solid color-mix(in srgb,var(--brand-2,#f5a30d) 18%,var(--border))}
 .tabbar button{position:relative}
 .tabbar button.on::before{content:'';position:absolute;top:4px;left:50%;transform:translateX(-50%);
@@ -7083,7 +7085,7 @@ input[type=password]:focus,select:focus,textarea:focus{
 *::-webkit-scrollbar-track{background:transparent}
 
 /* 시트·드로어(메뉴) — 유리질 */
-#mainNav.open{backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+/* [v15.4.7] 드로어 상시 blur 제거 */
 
 /* 빈 상태 일러스트 톤 */
 .empty{border:1px dashed color-mix(in srgb,var(--border) 80%,transparent);border-radius:14px}
@@ -7115,3 +7117,88 @@ input[type=password]:focus,select:focus,textarea:focus{
   content-visibility:auto;
   contain-intrinsic-size:auto 74px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v15.5] 프리미엄 마감 3차 — 멤버십의 언어를 "마지막 구석"까지
+   ─────────────────────────────────────────────────────────────────────────────
+   원칙은 그대로: 색 띠 + color-mix 번짐 빛 + 금장 포인트 + 강한 타이포.
+   성능 교훈 준수: backdrop-filter 금지 · 절대배치 자식에 position 강제 금지 ·
+   레이아웃 속성 불변. 화면마다 아직 조용하던 주인공에게만 힘을 싣는다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1) 주문 CTA — 이 앱에서 가장 눌리는 버튼을 가장 좋게 ─────────────────── */
+.submit{position:relative;overflow:hidden;letter-spacing:-.3px;
+  box-shadow:0 10px 24px color-mix(in srgb,currentColor 30%,transparent),
+             0 1px 0 rgba(255,255,255,.28) inset}
+.submit::after{content:'';position:absolute;inset:0 0 55% 0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.16),transparent)}
+.submit:active{transform:translateY(1px);filter:brightness(.97)}
+
+/* ── 2) 홈 '오늘의 장' — 브랜드 띠 + 코너 빛(멤버십 카드 문법) ─────────────── */
+.hero-market{position:relative;overflow:hidden;border-radius:18px;
+  border:1px solid color-mix(in srgb,var(--brand-2,#f5a30d) 20%,var(--border));
+  box-shadow:var(--lift)}
+.hero-market::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;
+  background:linear-gradient(180deg,var(--brand-2,#f5a30d),var(--brand,#12203a))}
+.hero-market::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(110% 75% at 0% 0%,
+    color-mix(in srgb,var(--brand-2,#f5a30d) 8%,transparent),transparent 55%)}
+.hero-market:hover{box-shadow:var(--lift-hover)}
+
+/* ── 3) 계좌 개설(첫 카드) — 여정의 시작을 금장으로 ───────────────────────── */
+.acct-empty,.ae-card{position:relative;overflow:hidden}
+.ae-t{letter-spacing:-.8px}
+.modal-btn#aeFirstOpen,#aeFirstOpen{
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#12203a));color:#fff;border:0;
+  box-shadow:0 10px 24px color-mix(in srgb,var(--brand,#12203a) 38%,transparent),
+             0 1px 0 rgba(255,255,255,.14) inset;
+  letter-spacing:-.3px;transition:transform .12s,filter .16s}
+#aeFirstOpen:hover{filter:brightness(1.06)}#aeFirstOpen:active{transform:translateY(1px)}
+
+/* ── 4) 다이얼로그(ask)·토스트 — 시트와 같은 결 ───────────────────────────── */
+.ask-modal{border-radius:20px;
+  box-shadow:0 26px 64px rgba(10,16,30,.30),0 1px 0 rgba(255,255,255,.5) inset}
+html.dark .ask-modal{box-shadow:0 26px 64px rgba(0,0,0,.62),0 1px 0 rgba(255,255,255,.05) inset}
+.ask-t{letter-spacing:-.6px;font-weight:900}
+.ask-ok{background:linear-gradient(135deg,color-mix(in srgb,var(--brand,#12203a) 86%,#2a3f66),var(--brand,#12203a));
+  color:#fff;border:0;border-radius:12px;
+  box-shadow:0 6px 16px color-mix(in srgb,var(--brand,#12203a) 32%,transparent)}
+.ask-modal.danger .ask-ok,.ask-ok.danger{
+  background:linear-gradient(135deg,#ff6b70,#e5484d);
+  box-shadow:0 6px 16px rgba(229,72,77,.4)}
+.ask-cancel{border-radius:12px}
+.toast{border-radius:15px;border:1px solid rgba(255,255,255,.09);
+  box-shadow:0 14px 38px rgba(8,13,26,.45),0 1px 0 rgba(255,255,255,.07) inset}
+.toast::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:99px;
+  background:linear-gradient(180deg,var(--brand-2,#f5a30d),#ffd166)}
+.toast{position:relative;padding-left:26px}
+
+/* ── 5) 구분선 체계 — 헤어라인 그라데이션(멤버십 tt 구분 결) ──────────────── */
+.d-head{border-bottom:0;position:relative}
+.d-head::after{content:'';position:absolute;left:14px;right:14px;bottom:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--border) 18%,var(--border) 82%,transparent)}
+.info-tabs{border-bottom:0;position:relative}
+.info-tabs::after{content:'';position:absolute;left:0;right:0;bottom:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--border) 12%,var(--border) 88%,transparent)}
+
+/* ── 6) 관심·ETF·해외 요약 헤더 카드 — 은은한 상단 광 ─────────────────────── */
+.watch-sum,.etf-hero,.uz-hero{position:relative;overflow:hidden}
+.watch-sum::after,.etf-hero::after,.uz-hero::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 70% at 50% -20%,
+    color-mix(in srgb,var(--brand-2,#f5a30d) 6%,transparent),transparent 60%)}
+
+/* ── 7) 숫자 타이포 — 큰 금액·가격의 존재감 ───────────────────────────────── */
+.d-price,.hm-v,.hero-assets .ha-total,.tt-price{font-variant-numeric:tabular-nums}
+.d-price{font-weight:900}
+
+/* ── 8) 배지 마감 — NXT·KRX·장전·장종료 필의 미세광 ──────────────────────── */
+.px-src,.mkt-tag{box-shadow:0 1px 0 rgba(255,255,255,.25) inset}
+html.dark .px-src,html.dark .mkt-tag{box-shadow:0 1px 0 rgba(255,255,255,.08) inset}
+
+/* ── 9) 빈 상태 — 점선 카드 중앙 은광 ─────────────────────────────────────── */
+.empty{position:relative}
+.empty::after{content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+  background:radial-gradient(80% 60% at 50% 0%,
+    color-mix(in srgb,var(--brand-2,#f5a30d) 4%,transparent),transparent 60%)}
+
+@media (prefers-reduced-motion:reduce){.submit,.hero-market,#aeFirstOpen{transition:none}}
