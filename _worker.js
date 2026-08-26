@@ -11019,6 +11019,15 @@ var coupon_default = async (req2) => {
       packName:(type==="watchpack")?String(body.packName||"").trim().slice(0,30):null,
       mission:String(body.mission||"").trim().slice(0,140)||null,
       askLabel:String(body.askLabel||"").trim().slice(0,40)||null,
+      /* [v16.3] 제출 요구를 여러 개로 — 각 항목은 유형을 갖는다.
+         text/long/number/url = 입력, image/file/video = 첨부(파일) */
+      askFields:(Array.isArray(body.askFields)?body.askFields:[]).slice(0,20).map((f,i)=>({
+        id:"f"+(i+1),
+        label:String(f&&f.label||"").trim().slice(0,40)||("항목 "+(i+1)),
+        kind:["text","long","number","url","image","file","video"].includes(String(f&&f.kind))?String(f.kind):"text",
+        required:!!(f&&f.required),
+        hint:String(f&&f.hint||"").trim().slice(0,80)||null
+      })),
       joinMode:(body.joinMode==="entry")?"entry":"instant",
       endAt:+body.endAt||0, maxJoin:Math.max(0,+body.maxJoin||0),
       joined:0, disabled:0, madeAt:Date.now() };
@@ -11052,6 +11061,14 @@ var coupon_default = async (req2) => {
     let subs=[]; try{ subs=(await KV.get("evt:subs:"+id,"json"))||[]; }catch(e){}
     return J({ ok:true, id, subs });
   }
+  if (act === "evtfile") {                             /* 첨부 본문(관리자) */
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    const key=String(body.key||"");
+    if(!/^evt:file:/.test(key)) return J({ ok:false, err:"badkey" });
+    let data=null; try{ data=await KV.get(key); }catch(e){}
+    if(!data) return J({ ok:false, err:"notfound" });
+    return J({ ok:true, key, data });
+  }
   if (act === "evtpub") {                              /* 사용자 목록(+내 참여 여부) */
     const uid=String(body.user||"").trim().toLowerCase();
     const list=(await evtLoad()).filter(x=>!x.disabled);
@@ -11078,12 +11095,47 @@ var coupon_default = async (req2) => {
     try{ if(await KV.get(jk)) return J({ ok:false, err:"dup", msg:"이미 참여한 이벤트입니다" }); }catch(e){}
     if(ev.maxJoin&&ev.joined>=ev.maxJoin) return J({ ok:false, err:"full", msg:"참여 인원이 가득 찼습니다" });
     const subTxt=String(body.answer||"").trim().slice(0,500);
-    if(ev.askLabel&&!subTxt) return J({ ok:false, err:"answer", msg:"참여 조건 입력이 필요합니다" });
-    try{ await KV.put(jk, JSON.stringify({ at:Date.now(), answer:subTxt||null }), { expirationTtl: 180*86400 }); }catch(e){}
-    if(subTxt){ try{
+    /* ══ [v16.3] 제출 항목 여러 개 + 파일 첨부 ═════════════════════════════════
+       answers:[{id,label,kind,value?,file?{name,type,size,data}}] 형태로 받는다.
+       파일은 항목당 3MB·건당 합계 8MB 를 넘기지 않는다(KV 값 상한 보호).
+       첨부 본문은 별도 키(evt:file:{id}:{uid}:{fid})에 두고 목록엔 메타만 남긴다. */
+    const fields=Array.isArray(ev.askFields)?ev.askFields:[];
+    const rawAns=Array.isArray(body.answers)?body.answers:[];
+    const byId={}; for(const a of rawAns){ if(a&&a.id)byId[String(a.id)]=a; }
+    const answers=[]; let totalBytes=0;
+    for(const f of fields){
+      const a=byId[f.id]||{};
+      const isFile=["image","file","video"].includes(f.kind);
+      if(isFile){
+        const fl=a.file&&typeof a.file==="object"?a.file:null;
+        const data=fl?String(fl.data||""):"";
+        if(!data){
+          if(f.required) return J({ ok:false, err:"answer", msg:f.label+" 첨부가 필요합니다" });
+          answers.push({ id:f.id, label:f.label, kind:f.kind, file:null });
+          continue;
+        }
+        const bytes=Math.floor(data.length*3/4);
+        if(bytes>3*1024*1024) return J({ ok:false, err:"toobig", msg:f.label+" 파일이 너무 큽니다(최대 3MB)" });
+        totalBytes+=bytes;
+        if(totalBytes>8*1024*1024) return J({ ok:false, err:"toobig", msg:"첨부 합계가 너무 큽니다(최대 8MB)" });
+        const fk="evt:file:"+ev.id+":"+uid+":"+f.id;
+        try{ await KV.put(fk, data, { expirationTtl: 180*86400 }); }catch(e){}
+        answers.push({ id:f.id, label:f.label, kind:f.kind,
+          file:{ name:String(fl.name||"첨부").slice(0,80), type:String(fl.type||"").slice(0,60), size:bytes, key:fk } });
+      }else{
+        const v=String(a.value==null?"":a.value).trim().slice(0,1000);
+        if(f.required&&!v) return J({ ok:false, err:"answer", msg:f.label+" 입력이 필요합니다" });
+        answers.push({ id:f.id, label:f.label, kind:f.kind, value:v||null });
+      }
+    }
+    /* 옛 단일 askLabel 이벤트는 그대로 동작(하위 호환) */
+    if(!fields.length&&ev.askLabel&&!subTxt) return J({ ok:false, err:"answer", msg:"참여 조건 입력이 필요합니다" });
+    const hasSub=!!subTxt||answers.length>0;
+    try{ await KV.put(jk, JSON.stringify({ at:Date.now(), answer:subTxt||null, answers:answers.length?answers:null }), { expirationTtl: 180*86400 }); }catch(e){}
+    if(hasSub){ try{
       const sk="evt:subs:"+ev.id;
       const subs=(await KV.get(sk,"json"))||[];
-      subs.push({ user:uid, at:Date.now(), answer:subTxt });
+      subs.push({ user:uid, at:Date.now(), answer:subTxt||null, answers:answers.length?answers:null });
       await KV.put(sk, JSON.stringify(subs.slice(-500)), { expirationTtl: 180*86400 });
     }catch(e){} }
     ev.joined=(ev.joined||0)+1; await evtSave(list);
@@ -11169,6 +11221,80 @@ var coupon_default = async (req2) => {
     return J({ ok: true, id, tier: acc.tier || "free", until: acc.tierUntil || null,
       createdAt: acc.createdAt || null, lastLogin: acc.lastLogin || null,
       dataBytes, dataAt, google: !!acc.google });
+  }
+  /* ══ [v16.6] 사용자 데이터 관리 — 예수금 등 계좌 값을 관리자가 직접 처리 ══════
+     사용자 화면에서 예수금 변경은 계좌당 1회로 잠갔다. 그 이후의 정당한 변경은
+     이 창구로 들어온다. 클라우드 데이터(app:usr:<id>)를 열어 계좌 장부를 고치고
+     처리 이력을 남긴다(usrlog:<id>, 최근 50건). */
+  if (act === "udata") {                               /* 사용자 데이터 상세 */
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    const id=String(body.id||"").trim().toLowerCase();
+    if(!id) return J({ ok:false, err:"form" });
+    const acc=await accLoad(store, id, legacyDb);
+    if(!acc) return J({ ok:false, err:"notfound" });
+    let u=null; try{ const raw=await KV.get("app:usr:"+id); if(raw)u=JSON.parse(raw); }catch(e){}
+    if(!u) return J({ ok:true, id, tier:acc.tier||"free", hasData:false, accts:[] });
+    const books=u.acctBooks||{};
+    const accts=(u.acctList||[]).map(a=>({
+      id:a.id, no:a.no||null, type:a.type||null, cashSet:a.cashSet?1:0,
+      cash:Math.floor(+(books[a.id]&&books[a.id].cash)||0),
+      usdCash:+(books[a.id]&&books[a.id].usdCash)||0,
+      holdings:((books[a.id]&&books[a.id].holdings)||[]).length,
+      active:a.id===u.acctActive
+    }));
+    let log=[]; try{ log=(await KV.get("app:usrlog:"+id,"json"))||[]; }catch(e){}
+    return J({ ok:true, id, tier:acc.tier||"free", hasData:true,
+      cash:Math.floor(+u.cash||0), usdCash:+u.usdCash||0,
+      holdings:(u.holdings||[]).length, watchlist:(u.watchlist||[]).length,
+      acctActive:u.acctActive||null, accts, savedAt:u.savedAt||null, log:log.slice(0,50) });
+  }
+  if (act === "usetcash") {                            /* 예수금 조정(관리자 처리) */
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    const id=String(body.id||"").trim().toLowerCase();
+    const acctId=String(body.acctId||"").trim();
+    const mode=body.mode==="add"?"add":"set";
+    const cur=body.cur==="usd"?"usd":"krw";
+    const amt=Math.floor(+body.amount||0);
+    const memo=String(body.memo||"").trim().slice(0,120);
+    if(!id||!acctId) return J({ ok:false, err:"form" });
+    if(mode==="set"&&amt<0) return J({ ok:false, err:"form", msg:"금액은 0 이상이어야 합니다" });
+    let raw=null; try{ raw=await KV.get("app:usr:"+id); }catch(e){}
+    if(!raw) return J({ ok:false, err:"nodata", msg:"클라우드 데이터가 없습니다" });
+    let u=null; try{ u=JSON.parse(raw); }catch(e){ return J({ ok:false, err:"broken" }); }
+    u.acctBooks=u.acctBooks||{};
+    const bk=u.acctBooks[acctId];
+    if(!bk) return J({ ok:false, err:"noacct", msg:"해당 계좌를 찾을 수 없습니다" });
+    const key=cur==="usd"?"usdCash":"cash";
+    const before=Math.floor(+bk[key]||0);
+    let after=mode==="add"?before+amt:amt;
+    if(after<0)after=0;
+    if(after>1e15)after=1e15;
+    bk[key]=after;
+    /* 활성 계좌라면 최상위 값도 함께 맞춘다(화면이 읽는 자리) */
+    if(u.acctActive===acctId)u[key]=after;
+    u.savedAt=Date.now();
+    try{ await KV.put("app:usr:"+id, JSON.stringify(u)); }catch(e){ return J({ ok:false, err:"savefail" }); }
+    let log=[]; try{ log=(await KV.get("app:usrlog:"+id,"json"))||[]; }catch(e){}
+    log.unshift({ at:Date.now(), kind:"cash", cur, acctId, mode, before, after, memo:memo||null });
+    try{ await KV.put("app:usrlog:"+id, JSON.stringify(log.slice(0,50))); }catch(e){}
+    return J({ ok:true, id, acctId, cur, before, after });
+  }
+  if (act === "ucashlock") {                           /* 최초 1회 권한 초기화/소진 */
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    const id=String(body.id||"").trim().toLowerCase();
+    const acctId=String(body.acctId||"").trim();
+    const on=!!body.on;                                /* on=true → 잠금(사용함), false → 1회 다시 허용 */
+    let raw=null; try{ raw=await KV.get("app:usr:"+id); }catch(e){}
+    if(!raw) return J({ ok:false, err:"nodata" });
+    let u=null; try{ u=JSON.parse(raw); }catch(e){ return J({ ok:false, err:"broken" }); }
+    const a=(u.acctList||[]).find(x=>x.id===acctId);
+    if(!a) return J({ ok:false, err:"noacct" });
+    a.cashSet=on?1:0; u.savedAt=Date.now();
+    try{ await KV.put("app:usr:"+id, JSON.stringify(u)); }catch(e){ return J({ ok:false, err:"savefail" }); }
+    let log=[]; try{ log=(await KV.get("app:usrlog:"+id,"json"))||[]; }catch(e){}
+    log.unshift({ at:Date.now(), kind:"lock", acctId, on:on?1:0 });
+    try{ await KV.put("app:usrlog:"+id, JSON.stringify(log.slice(0,50))); }catch(e){}
+    return J({ ok:true, id, acctId, cashSet:a.cashSet });
   }
   if (act === "users") {                               /* 회원 목록(최근 등록순 아님·키순) */
     if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
@@ -16680,7 +16806,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "16.2.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "16.6.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

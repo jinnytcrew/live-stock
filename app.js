@@ -2476,6 +2476,10 @@ function acctOpen(type,initCash,pwHashed){
   acctList.push({id,type:t,openedAt:Date.now(),pw:pwHashed||acctPassHash});
   try{ setTimeout(()=>xferRegister(true),300); }catch(e){}   // [v5.8] 새 계좌번호를 장부에 올린다
   acctBooks[id]={cash:intOf(initCash,0),usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]};
+  /* ══ [v16.6] 예수금 변경은 계좌당 최초 1회(개설) ═══════════════════════════
+     운영 정책상 개설 이후의 변경은 관리자 접수 절차를 거친다. 개설 때 예수금을
+     정했다면 그 1회를 여기서 소진한 것으로 본다. */
+  try{ const a=acctList.find(x=>x.id===id); if(a)a.cashSet=intOf(initCash,0)>0?1:0; }catch(e){}
   acctSnap(); acctLoad(id); saveState();
   return id;
 }
@@ -5416,10 +5420,11 @@ function renderSettingsExtra(){
     if(!await askConfirm('거래내역 초기화','모든 매매일지 기록이 삭제됩니다. 보유종목·예수금은 유지됩니다.',{okLabel:'초기화',danger:true}))return;
     tradeLog=[];tradeArchive={};saveState();toast('warn','거래내역 초기화 완료','');};
   const cr=$('setCashReset');if(cr)cr.onclick=async()=>{
-    if(!acctRequire('예수금 변경'))return;                       // [v5.00]
+    if(!await cashChangeAllowed())return;                       // [v16.6] 최초 1회 정책
     const v=await askText('예수금 리셋',{placeholder:'새 예수금(원) 예: 10000000',value:String(cash||0),maxLen:12});
     if(v===null)return;const nv=Math.max(0,Math.round(+String(v).replace(/[^0-9]/g,'')||0));
-    cash=nv;saveState();renderPortfolioNumbers&&renderPortfolioNumbers();toast('buy','예수금 변경',KRW(nv)+'원');};
+    cash=nv;cashSetMark();saveState();renderPortfolioNumbers&&renderPortfolioNumbers();
+    toast('buy','예수금 변경',KRW(nv)+'원 · 이후 변경은 관리자 접수 절차로 진행됩니다');};
   const hr=$('setHistClear');if(hr)hr.onclick=async()=>{
     if(!await askConfirm('검색·열람 기록 삭제','최근 검색어와 최근 본 종목 기록을 모두 지웁니다.'))return;
     srchHist=[];viewHist=[];saveHist();saveViewHist();renderHist();renderViewHist();toast('warn','기록 삭제 완료','');};
@@ -6474,6 +6479,7 @@ function _showView(name){
   if(name==='tier')_paint(()=>renderTierView());
   if(name==='event')_paint(()=>{_evtItems=null;renderEventView();});   /* [v16.2] 진입마다 신선 목록 */
   if(name==='mydata')_paint(()=>renderMyDataView());
+  if(name==='account')_paint(()=>{try{cashPolicyHintSync();}catch(e){}});
   if(name==='admin')_paint(()=>safeRun('admin',renderAdminView));      /* [v10.4] 지수 상세 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
@@ -6586,17 +6592,20 @@ function _askEl(){
     <input id="askInput" class="ask-in" hidden>
     <textarea id="askArea" class="ask-in ask-area" rows="4" hidden></textarea>
     <div class="ask-opts" id="askOpts" hidden></div>
+    <div class="ask-form" id="askForm" hidden></div>
     <div class="ask-btns"><button class="ask-cancel" id="askCancel">취소</button><button class="ask-ok" id="askOk">확인</button></div>
   </div>`;
   document.body.appendChild(ov);
   const done=(v)=>{ov.hidden=true;const r=_askRes;_askRes=null;if(r)r(v);};
-  $('askOk').onclick=()=>{const inp=$('askInput'),ta=$('askArea');
+  $('askOk').onclick=()=>{const inp=$('askInput'),ta=$('askArea'),fm=$('askForm');
+    if(fm&&!fm.hidden){ const v=_askFormCollect(fm); if(v===null)return; done(v); return; }
     done(!inp.hidden?inp.value:!ta.hidden?ta.value:true);};
   $('askCancel').onclick=()=>done(null);
   ov.addEventListener('click',e=>{if(e.target===ov)done(null);});
   ov.addEventListener('keydown',e=>{
     if(e.key==='Escape')done(null);
-    if(e.key==='Enter'&&!$('askArea').matches(':focus')){e.preventDefault();$('askOk').click();}
+    const fmOpen=$('askForm')&&!$('askForm').hidden;
+    if(e.key==='Enter'&&!fmOpen&&!$('askArea').matches(':focus')){e.preventDefault();$('askOk').click();}
   });
   return ov;
 }
@@ -6612,6 +6621,7 @@ function _askShow(cfg){
   const ta=$('askArea');ta.hidden=cfg.mode!=='area';
   if(cfg.mode==='area'){ta.value=cfg.value||'';ta.placeholder=cfg.placeholder||'';}
   const op=$('askOpts');op.hidden=cfg.mode!=='choice';op.innerHTML='';
+  const fm=$('askForm'); if(fm){ fm.hidden=cfg.mode!=='form'; if(cfg.mode==='form')_askFormBuild(fm,cfg.fields||[]); }
   $('askOk').textContent=cfg.okLabel||'확인';
   $('askOk').classList.toggle('danger',!!cfg.danger);
   $('askCancel').hidden=cfg.mode==='choice';
@@ -6631,9 +6641,90 @@ function _askShow(cfg){
     setTimeout(()=>{if(cfg.mode==='text')inp.focus();if(cfg.mode==='area')ta.focus();},30);
   });
 }
+/* ══ [v16.3] 제출 폼 — 여러 항목·다양한 형식(글·긴 글·숫자·링크·사진·파일·동영상) ══
+   관리자가 정의한 askFields 를 그대로 그려 준다. 파일류는 미리보기와 용량 검사까지
+   여기서 끝낸다(서버는 3MB/항목·8MB/건을 다시 확인한다). */
+const ASK_KIND={
+  text:{ic:'✏️',label:'짧은 글'}, long:{ic:'📝',label:'긴 글'}, number:{ic:'🔢',label:'숫자'},
+  url:{ic:'🔗',label:'링크'}, image:{ic:'🖼️',label:'사진'}, file:{ic:'📎',label:'파일'}, video:{ic:'🎬',label:'동영상'}
+};
+const ASK_ACCEPT={image:'image/*',video:'video/*',file:''};
+const ASK_MAX=3*1024*1024;
+function _askFormBuild(fm,fields){
+  fm.innerHTML=fields.map(f=>{
+    const k=ASK_KIND[f.kind]||ASK_KIND.text;
+    const req=f.required?'<b class="af-req">필수</b>':'<span class="af-opt">선택</span>';
+    const head=`<div class="af-h"><span class="af-ic">${k.ic}</span><b>${htmlEsc(f.label)}</b>${req}</div>`
+      +(f.hint?`<div class="af-hint">${htmlEsc(f.hint)}</div>`:'');
+    let body='';
+    if(f.kind==='long')body=`<textarea class="ask-in af-in" rows="3" data-fid="${f.id}" data-kind="long" maxlength="1000"></textarea>`;
+    else if(f.kind==='image'||f.kind==='file'||f.kind==='video'){
+      body=`<label class="af-file"><input type="file" data-fid="${f.id}" data-kind="${f.kind}" accept="${ASK_ACCEPT[f.kind]}" hidden>
+        <span class="af-btn">${k.ic} ${k.label} 선택</span><span class="af-name" data-name="${f.id}">선택된 ${k.label}이 없습니다</span></label>
+        <div class="af-prev" data-prev="${f.id}" hidden></div>`;
+    }else{
+      const t=f.kind==='number'?'number':f.kind==='url'?'url':'text';
+      const ph=f.kind==='url'?'https://…':'';
+      body=`<input class="ask-in af-in" type="${t}" data-fid="${f.id}" data-kind="${f.kind}" placeholder="${ph}" maxlength="1000">`;
+    }
+    return `<div class="af-row" data-row="${f.id}">${head}${body}<div class="af-err" data-err="${f.id}" hidden></div></div>`;
+  }).join('');
+  fm.querySelectorAll('input[type=file]').forEach(inp=>{
+    inp.onchange=async()=>{
+      const fid=inp.dataset.fid, kind=inp.dataset.kind;
+      const nm=fm.querySelector(`[data-name="${fid}"]`), pv=fm.querySelector(`[data-prev="${fid}"]`);
+      const er=fm.querySelector(`[data-err="${fid}"]`);
+      er.hidden=true; pv.hidden=true; pv.innerHTML='';
+      const f=inp.files&&inp.files[0];
+      if(!f){nm.textContent='선택된 파일이 없습니다';inp._data=null;return;}
+      if(f.size>ASK_MAX){
+        er.textContent=`파일이 너무 큽니다 — ${(f.size/1048576).toFixed(1)}MB (최대 3MB)`;er.hidden=false;
+        inp.value='';inp._data=null;nm.textContent='선택된 파일이 없습니다';return;
+      }
+      nm.textContent=f.name+' · '+(f.size/1024).toFixed(0)+'KB';
+      try{
+        const b64=await new Promise((res,rej)=>{const r=new FileReader();
+          r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=()=>rej(new Error('read'));r.readAsDataURL(f);});
+        inp._data={name:f.name,type:f.type||'',size:f.size,data:b64};
+        if(kind==='image'){pv.innerHTML=`<img src="data:${f.type};base64,${b64}" alt="">`;pv.hidden=false;}
+        else if(kind==='video'){pv.innerHTML=`<video src="data:${f.type};base64,${b64}" controls></video>`;pv.hidden=false;}
+      }catch(e){er.textContent='파일을 읽지 못했습니다';er.hidden=false;inp._data=null;}
+    };
+  });
+}
+function _askFormCollect(fm){
+  const out=[];let bad=null,total=0;
+  fm.querySelectorAll('.af-row').forEach(row=>{
+    const fid=row.dataset.row;
+    const er=fm.querySelector(`[data-err="${fid}"]`); if(er&&!/너무 큽니다/.test(er.textContent))er.hidden=true;
+    const fi=row.querySelector('input[type=file]');
+    const req=!!row.querySelector('.af-req');
+    if(fi){
+      const d=fi._data||null;
+      if(req&&!d){ if(er){er.textContent='이 항목은 필수입니다';er.hidden=false;} bad=bad||fid; }
+      if(d)total+=d.size;
+      out.push({id:fid,file:d});
+    }else{
+      const el=row.querySelector('[data-fid]');
+      const v=String(el.value||'').trim();
+      if(req&&!v){ if(er){er.textContent='이 항목은 필수입니다';er.hidden=false;} bad=bad||fid; }
+      if(v&&el.dataset.kind==='url'&&!/^https?:\/\//i.test(v)){
+        if(er){er.textContent='http:// 또는 https:// 로 시작하는 링크를 넣어 주세요';er.hidden=false;} bad=bad||fid;
+      }
+      out.push({id:fid,value:v});
+    }
+  });
+  if(total>8*1024*1024){ toast('warn','첨부 용량 초과','첨부 합계는 8MB까지 가능합니다'); return null; }
+  if(bad){ const r=fm.querySelector(`[data-row="${bad}"]`); if(r)r.scrollIntoView({block:'center',behavior:'smooth'}); return null; }
+  return out;
+}
+function askForm(title,fields,opt={}){ return _askShow({mode:'form',title,fields,...opt}); }
+
 function askText(title,opt={}){return _askShow({mode:'text',title,...opt}).then(v=>v==null?null:String(v).trim());}
 function askMemo(title,opt={}){return _askShow({mode:'area',title,...opt}).then(v=>v==null?null:String(v));}
-function askConfirm(title,desc,opt={}){return _askShow({mode:'confirm',title,desc,okLabel:opt.okLabel||'확인',danger:opt.danger}).then(v=>v===true);}
+/* [v16.6] html 옵션이 _askShow 까지 가지 못하고 여기서 버려지고 있었다 —
+   서식 있는 안내(예수금 정책 등)가 태그째 글자로 보이던 원인. 그대로 넘긴다. */
+function askConfirm(title,desc,opt={}){return _askShow({mode:'confirm',title,desc,html:!!opt.html,okLabel:opt.okLabel||'확인',danger:opt.danger}).then(v=>v===true);}
 function askChoice(title,options,desc){return _askShow({mode:'choice',title,desc,options});}
 
 /* ══ [v15.4.8] 시세 위생(공용) — 원천이 모순 값을 줘도 화면 불변식은 지킨다 ═══
@@ -15838,6 +15929,74 @@ function renderPortfolioNumbers(){
 
   set('acctAssets',KRW(assets)+'원');set('acctPnl',signed(pnl),dir);set('acctRate',pctS(rate),dir);set('acctCash',KRW(cash)+'원'+(usdCash>0?' + $'+USD2(usdCash):''));
 }
+/* ══ [v16.6] 예수금 변경 정책 게이트 ═══════════════════════════════════════════
+   최초 1회(계좌 개설)만 즉시 반영하고, 그 뒤에는 관리자 접수 절차로 보낸다.
+   판정 근거는 계좌 레코드의 cashSet 플래그다(계좌별로 따로 센다). */
+/* 연락처는 이용권 문의와 같은 창구를 쓴다 — 한 곳만 고치면 되도록 지연 참조 */
+const CASH_CONTACT={
+  get mail(){ try{ return CONTACT.mail; }catch(e){ return '2026livestock@gmail.com'; } },
+  get open(){ try{ return CONTACT.chat; }catch(e){ return 'https://open.kakao.com/o/svGdDhJi'; } }
+};
+const CASH_POLICY_TXT='저희 LIVE 증권은 사이트 이용 안정성과 악용으로 인한 서비스 악화 방지를 위해 사이트 운영 정책에 따라 예수금 변경 기능은 최초 1회(계좌 개설)에만 바로 적용됩니다. 다음 절차에 따라 관리자 메일 또는 카카오톡 오픈 채팅방을 통하여 예수금 변경 요청을 접수하여 주십시오.';
+function cashPolicyHintSync(){
+  const el=$('cashPolicyHint'); if(!el)return;
+  if(cashSetUsed()){
+    el.classList.add('used');
+    el.innerHTML='🔒 이 계좌는 <b>최초 1회 변경을 사용</b>했습니다. 변경이 필요하면 <button type="button" class="cp-link" id="cashPolicyOpen">접수 절차 보기</button>';
+    const b=$('cashPolicyOpen'); if(b)b.onclick=()=>cashPolicyNotice();
+  }else{
+    el.classList.remove('used');
+    el.innerHTML='🔓 예수금 변경은 <b>최초 1회(계좌 개설)</b>에만 즉시 적용됩니다. 이후에는 관리자 접수 절차로 진행됩니다.';
+  }
+}
+function cashSetUsed(){
+  try{ const a=(acctList||[]).find(x=>x.id===acctActive); return !!(a&&a.cashSet); }catch(e){ return false; }
+}
+function cashSetMark(){
+  /* 표시 갱신까지 여기서 끝낸다 — setCash 안의 동기화보다 늦게 찍히던 순서 문제 */
+  try{ const a=(acctList||[]).find(x=>x.id===acctActive); if(a){a.cashSet=1;saveState();} }catch(e){}
+  try{ cashPolicyHintSync(); }catch(e){}
+}
+/* 정책 안내 — 절차와 연락처를 한 화면에 */
+async function cashPolicyNotice(){
+  const acct=(acctList||[]).find(x=>x.id===acctActive)||{};
+  const html=`<div class="cp-warn">${htmlEsc(CASH_POLICY_TXT)}</div>
+    <div class="cp-steps">
+      <div class="cp-s"><i>1</i><div><b>요청 양식 작성</b><p>아이디 · 계좌번호 · 현재 예수금 · 변경 희망 금액 · 사유를 적어 주세요.</p></div></div>
+      <div class="cp-s"><i>2</i><div><b>메일 또는 오픈채팅으로 접수</b><p>아래 버튼으로 바로 이동할 수 있습니다.</p></div></div>
+      <div class="cp-s"><i>3</i><div><b>관리자 확인 후 반영</b><p>정책 위반·악용 정황이 없으면 순차 처리됩니다.</p></div></div>
+    </div>
+    <div class="cp-info">
+      <div><span>아이디</span><b>${htmlEsc(String(typeof currentUser!=='undefined'&&currentUser||'—'))}</b></div>
+      <div><span>계좌</span><b>${htmlEsc(String(acct.no||acct.id||'—'))}</b></div>
+      <div><span>현재 예수금</span><b class="num">${KRW(intOf(cash,0))}원</b></div>
+    </div>
+    <div class="cp-acts">
+      <button type="button" class="cp-btn mail" id="cpMail">✉️ 관리자 메일로 접수</button>
+      <button type="button" class="cp-btn kko" id="cpKko">💬 오픈채팅으로 접수</button>
+      <button type="button" class="cp-btn ghost" id="cpCopy">📋 요청 양식 복사</button>
+    </div>`;
+  setTimeout(()=>{
+    const form=`[LIVE증권 예수금 변경 요청]\n아이디: ${(typeof currentUser!=='undefined'&&currentUser)||''}\n계좌번호: ${acct.no||acct.id||''}\n현재 예수금: ${KRW(intOf(cash,0))}원\n변경 희망 금액: \n사유: `;
+    const m=$('cpMail'); if(m)m.onclick=()=>{
+      const url='mailto:'+CASH_CONTACT.mail+'?subject='+encodeURIComponent('[LIVE증권] 예수금 변경 요청')+'&body='+encodeURIComponent(form);
+      try{window.open(url,'_blank');}catch(e){location.href=url;}
+    };
+    const k=$('cpKko'); if(k)k.onclick=()=>{ try{window.open(CASH_CONTACT.open,'_blank','noopener');}catch(e){} };
+    const c=$('cpCopy'); if(c)c.onclick=()=>{
+      try{navigator.clipboard&&navigator.clipboard.writeText(form).catch(()=>{});}catch(e){}
+      toast('ok','요청 양식을 복사했습니다','메일·오픈채팅에 붙여 넣어 보내 주세요');
+    };
+  },40);
+  await askConfirm('예수금 변경 안내',html,{html:true,okLabel:'확인'});
+}
+/* 예수금 변경 시도의 단일 관문 — 허용이면 true */
+async function cashChangeAllowed(){
+  if(!acctRequire('예수금 변경'))return false;
+  if(cashSetUsed()){ await cashPolicyNotice(); return false; }
+  return true;
+}
+
 /* 예수금 설정 */
 /* [v4.5] 예수금 직접 설정도 정수·비음수·상한으로 묶는다(깨진 값이 총자산을 오염시키던 통로) */
 const CASH_MAX=1e15;
@@ -15849,9 +16008,17 @@ function setCash(v){
   if(!acctRequire('예수금 설정'))return;
   cash=Math.min(CASH_MAX,Math.max(0,intOf(v,0)));saveState();
   if($('cashInput'))$('cashInput').value=KRW(cash);
+  try{cashPolicyHintSync();}catch(e){}
   renderPortfolioNumbers();renderHoldings();syncMaxQty();}
-$('cashSet').onclick=()=>{const v=parseInt(($('cashInput').value||'0').replace(/[^0-9]/g,''))||0;setCash(v);toast('buy','예수금 설정',KRW(cash)+'원');};
-$('cashAdd').onclick=()=>{setCash(cash+1000000);};
+$('cashSet').onclick=async()=>{
+  if(!await cashChangeAllowed())return;
+  const v=parseInt(($('cashInput').value||'0').replace(/[^0-9]/g,''))||0;
+  setCash(v); cashSetMark();
+  toast('buy','예수금 설정',KRW(cash)+'원 · 이후 변경은 관리자 접수 절차로 진행됩니다');};
+$('cashAdd').onclick=async()=>{
+  if(!await cashChangeAllowed())return;
+  setCash(cash+1000000); cashSetMark();
+  toast('buy','예수금 설정',KRW(cash)+'원 · 이후 변경은 관리자 접수 절차로 진행됩니다');};
 $('cashInput').addEventListener('input',e=>{e.target.value=e.target.value.replace(/[^0-9,]/g,'');});
 
 /* 공모주 플래너 */
@@ -20857,6 +21024,14 @@ async function renderEventView(){
       tabs.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
       renderEventView();});}
   const _all=_evtItems;
+  /* [v16.5] 히어로 요약 — 진행 중 수·누적 참여·내 참여 */
+  if(Array.isArray(_all)){
+    const live=_all.filter(e=>!(e.endAt&&Date.now()>e.endAt));
+    const set=(id,v)=>{const el=$(id); if(el)el.textContent=v;};
+    set('ehOn',live.length.toLocaleString());
+    set('ehJoin',_all.reduce((a,e)=>a+(+e.joined||0),0).toLocaleString());
+    set('ehMine',_all.filter(e=>e.mine).length.toLocaleString());
+  }
   const items=_all===null?null:_all.filter(ev=>{
     const ended=ev.endAt&&Date.now()>ev.endAt;
     return _evtTab==='end'?ended:!ended;
@@ -20884,6 +21059,7 @@ async function renderEventView(){
       +(ev.desc?'<div class="evt-d">'+htmlEsc(ev.desc)+'</div>':'')
       +'<div class="evt-ben"><i>'+ben.ic+'</i><b>'+ben.txt+'</b><span>'+(ev.joinMode==='entry'?'응모 후 추첨':'즉시 지급')+'</span></div>'
       +(ev.mission?'<div class="evt-msn"><i>🎯</i><div><b>참여 조건</b><p>'+htmlEsc(ev.mission)+'</p></div></div>':'')
+      +((ev.askFields&&ev.askFields.length)?'<div class="evt-req">'+ev.askFields.map(f=>'<span>'+((ASK_KIND[f.kind]||ASK_KIND.text).ic)+' '+htmlEsc(f.label)+(f.required?' *':'')+'</span>').join('')+'</div>':'')
       +'<div class="evt-meta">'
       +(ev.endAt?'<span>~ '+new Date(ev.endAt).toLocaleDateString('ko-KR',{month:'long',day:'numeric'})+'</span>':'<span>상시</span>')
       +'<span>·</span><span class="num">'+(ev.joined||0).toLocaleString()+'명 참여'
@@ -20902,8 +21078,14 @@ async function evtJoin(id){
   if(!await askConfirm(isEntry?'이벤트 응모':'이벤트 참여',
     "'"+ev.title+"' — 혜택: "+ben.txt+(isEntry?' (응모 후 추첨)':' (즉시 지급)')+(ev.mission?'\n참여 조건: '+ev.mission:''),
     {okLabel:isEntry?'응모하기':'참여하기'}))return;
-  let answer='';
-  if(ev.askLabel){
+  let answer='',answers=null;
+  const flds=Array.isArray(ev.askFields)?ev.askFields:[];
+  if(flds.length){
+    /* [v16.3] 여러 항목 제출 — 사진·파일·동영상 첨부까지 한 화면에서 */
+    answers=await askForm(ev.askLabel||'참여 정보 제출',flds,
+      {desc:ev.mission||'아래 항목을 채워 주세요',okLabel:isEntry?'응모하기':'제출하고 받기'});
+    if(answers==null)return;
+  }else if(ev.askLabel){
     answer=await askText(ev.askLabel,{desc:ev.mission||'참여 조건을 입력해 주세요'});
     if(answer==null)return;
     answer=String(answer).trim();
@@ -20912,7 +21094,7 @@ async function evtJoin(id){
   try{
     fnBump();
     const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({act:'evtjoin',id,user:currentUser,answer})});
+      body:JSON.stringify({act:'evtjoin',id,user:currentUser,answer,answers})});
     const j=await r.json();
     if(!j||!j.ok){toast('warn','참여하지 못했습니다',(j&&j.msg)||'잠시 후 다시 시도해 주세요');
       if(j&&(j.err==='dup'||j.err==='ended'||j.err==='full')){_evtItems=null;renderEventView();}
@@ -21104,6 +21286,16 @@ function renderAdmWork(){
   </div>
 
   <div class="panel adm-sec">
+    <div class="as-h">사용자 데이터 관리</div>
+    <div class="as-d">예수금 변경 요청을 처리합니다. 사용자 화면의 예수금 변경은 계좌당 최초 1회로 제한되며, 그 이후의 조정은 이곳에서 이루어집니다.</div>
+    <div class="as-grid2">
+      <label>아이디<input id="udId" maxlength="30" placeholder="회원 아이디"></label>
+      <label>&nbsp;<button type="button" class="mc-btn" id="udGo" style="width:100%">데이터 불러오기</button></label>
+    </div>
+    <div class="as-out" id="udOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
     <div class="as-h">이벤트 관리</div>
     <div class="as-d">참여 즉시 혜택이 지급되는 이벤트를 만듭니다. 이용권은 서버가 등급을 바로 부여하고, 예수금은 참여자 활성 계좌에 입금됩니다.</div>
     <div class="as-grid2">
@@ -21143,7 +21335,13 @@ function renderAdmWork(){
         <option value="instant">즉시 지급</option>
         <option value="entry">응모 접수(추첨·수동 지급)</option></select></label>
       <label>미션·참여 조건(선택)<input id="evMission" maxlength="140" placeholder="예: 앱 스토어 리뷰 남기고 닉네임 적기"></label>
-      <label>제출 입력 요구(선택)<input id="evAsk" maxlength="40" placeholder="예: 리뷰 닉네임 / 응모 한마디 — 비우면 입력 없음"></label>
+      <label>제출 창 제목(선택)<input id="evAsk" maxlength="40" placeholder="예: 리뷰 인증 제출 — 비우면 기본 제목"></label>
+      <label class="as-wide">제출 요구 항목(제한 없음)
+        <div class="af-builder" id="evFields"></div>
+        <div class="as-btns" style="margin-top:6px">
+          <button type="button" class="mc-btn" id="evFldAdd">+ 항목 추가</button>
+          <button type="button" class="mc-btn" id="evFldClear">전체 비우기</button>
+        </div></label>
       <label>종료일(선택)<input id="evEnd" type="date"></label>
       <label>최대 인원(0=무제한)<input id="evMax" type="number" min="0" value="0"></label>
     </div>
@@ -21300,6 +21498,80 @@ function wireAdmTools(){
     finally{busy(dn2,false,'NXT 명단 상태');}
   };
   /* ── [v15.4] 2차 도구 배선 ── */
+  /* ══ [v16.6] 사용자 데이터 관리 배선 ══════════════════════════════════════ */
+  const udRender=(j)=>{
+    if(!j||!j.ok){out('udOut','<b class="bad">'+esc((j&&j.msg)||'회원을 찾을 수 없습니다')+'</b>');return;}
+    if(!j.hasData){out('udOut',`<div class="ud-head"><b>${esc(j.id)}</b><span class="ud-tier">${esc(j.tier)}</span></div>
+      <div class="ms-none">이 회원의 클라우드 데이터가 아직 없습니다</div>`);return;}
+    const accts=(j.accts||[]).map(a=>`<div class="ud-acct${a.active?' on':''}" data-acct="${esc(a.id)}">
+        <div class="ud-a-top"><b>${esc(a.no||a.id)}</b>
+          ${a.active?'<span class="ud-pill on">활성</span>':''}
+          <span class="ud-pill ${a.cashSet?'used':'free'}">${a.cashSet?'1회 사용됨':'1회 가능'}</span></div>
+        <div class="ud-a-nums"><span>원화 <b class="num">${KRW(a.cash)}원</b></span>
+          <span>달러 <b class="num">$${(a.usdCash||0).toLocaleString()}</b></span>
+          <span>보유 <b class="num">${a.holdings}</b>종목</span></div>
+        <div class="ud-a-acts">
+          <select class="ud-cur"><option value="krw">원화</option><option value="usd">달러</option></select>
+          <select class="ud-mode"><option value="set">지정</option><option value="add">증감</option></select>
+          <input class="ud-amt num" inputmode="numeric" placeholder="금액">
+          <input class="ud-memo" maxlength="120" placeholder="처리 사유(선택)">
+          <button type="button" class="mc-btn ud-apply">적용</button>
+          <button type="button" class="mc-btn ud-lock">${a.cashSet?'1회 권한 복구':'1회 권한 소진'}</button>
+        </div></div>`).join('');
+    const log=(j.log||[]).map(x=>x.kind==='cash'
+      ? `<div class="ud-log"><span class="num">${new Date(x.at).toLocaleString('ko-KR')}</span>
+          <b>${x.cur==='usd'?'달러':'원화'} ${x.mode==='add'?'증감':'지정'}</b>
+          <i class="num">${x.cur==='usd'?'$':''}${(x.before||0).toLocaleString()} → ${x.cur==='usd'?'$':''}${(x.after||0).toLocaleString()}</i>
+          ${x.memo?`<span class="ud-memo-t">${esc(x.memo)}</span>`:''}</div>`
+      : `<div class="ud-log"><span class="num">${new Date(x.at).toLocaleString('ko-KR')}</span>
+          <b>1회 권한 ${x.on?'소진':'복구'}</b></div>`).join('');
+    out('udOut',`<div class="ud-head"><b>${esc(j.id)}</b><span class="ud-tier">${esc(j.tier)}</span>
+        <span class="ud-saved num">${j.savedAt?('최근 저장 '+new Date(j.savedAt).toLocaleString('ko-KR')):'—'}</span></div>
+      <div class="ud-sum"><span>총 예수금 <b class="num">${KRW(j.cash||0)}원</b></span>
+        <span>달러 <b class="num">$${(j.usdCash||0).toLocaleString()}</b></span>
+        <span>보유 <b class="num">${j.holdings}</b>종목</span>
+        <span>관심 <b class="num">${j.watchlist}</b>종목</span></div>
+      <div class="ud-accts">${accts||'<div class="ms-none">계좌가 없습니다</div>'}</div>
+      ${log?`<div class="ud-logs"><div class="ms-h"><b>처리 이력</b><span>최근 ${(j.log||[]).length}건</span></div>${log}</div>`:''}`);
+    /* 계좌별 액션 배선 */
+    document.querySelectorAll('#udOut .ud-acct').forEach(box=>{
+      const acctId=box.dataset.acct;
+      const ap=box.querySelector('.ud-apply');
+      ap.onclick=async()=>{
+        const cur=box.querySelector('.ud-cur').value, mode=box.querySelector('.ud-mode').value;
+        const raw=(box.querySelector('.ud-amt').value||'').replace(/[^0-9-]/g,'');
+        const amount=parseInt(raw,10);
+        if(!raw||isNaN(amount)){toast('warn','금액을 넣어 주세요','');return;}
+        const memo=(box.querySelector('.ud-memo').value||'').trim();
+        const lbl=(mode==='add'?'증감':'지정')+' '+(cur==='usd'?'$':'')+amount.toLocaleString();
+        if(!await askConfirm('예수금 처리',`${$('udId').value} · ${acctId}\n${lbl}${memo?'\n사유: '+memo:''}`,{okLabel:'적용'}))return;
+        busy(ap,true,'적용');
+        try{const j2=await admCall({act:'usetcash',id:($('udId').value||'').trim(),acctId,mode,cur,amount,memo});
+          if(j2&&j2.ok){toast('ok','예수금 처리 완료',(cur==='usd'?'$':'')+(j2.before||0).toLocaleString()+' → '+(cur==='usd'?'$':'')+(j2.after||0).toLocaleString());
+            udGo.click();}
+          else toast('warn','처리하지 못했습니다',(j2&&j2.msg)||(j2&&j2.err)||'');
+        }catch(e){toast('warn','서버 연결 실패','');}
+        finally{busy(ap,false,'적용');}
+      };
+      const lk=box.querySelector('.ud-lock');
+      lk.onclick=async()=>{
+        const now=/복구/.test(lk.textContent);      /* 복구 = 다시 1회 허용 */
+        if(!await askConfirm('1회 변경 권한',now?'이 계좌에 예수금 즉시 변경 1회를 다시 허용합니다.':'이 계좌의 1회 권한을 사용한 것으로 표시합니다.',{okLabel:'적용'}))return;
+        const j2=await admCall({act:'ucashlock',id:($('udId').value||'').trim(),acctId,on:!now});
+        if(j2&&j2.ok){toast('ok','권한이 변경되었습니다','');udGo.click();}
+        else toast('warn','변경하지 못했습니다','');
+      };
+    });
+  };
+  const udGo=$('udGo'); if(udGo)udGo.onclick=async()=>{
+    const id=($('udId').value||'').trim();
+    if(!id){out('udOut','<b class="bad">아이디를 넣어 주세요</b>');return;}
+    busy(udGo,true,'데이터 불러오기');
+    try{ udRender(await admCall({act:'udata',id})); }
+    catch(e){ out('udOut','<b class="bad">서버 연결 실패</b>'); }
+    finally{ busy(udGo,false,'데이터 불러오기'); }
+  };
+
   /* ── [v15.7] 이벤트 관리 배선 ── */
   const evType=$('evType');
   const _evSync=()=>{const t=evType.value;
@@ -21400,6 +21672,30 @@ function wireAdmTools(){
   }
   let _evBundle=null,_evPack=null;   /* 카탈로그 전용 payload 보관 */
   if(evType)evType.onchange=_evSync;
+  /* ══ [v16.3] 제출 요구 항목 빌더 — 개수 제한 없이 추가·삭제·순서 유지 ══ */
+  const FLD_KINDS=[['text','✏️ 짧은 글'],['long','📝 긴 글'],['number','🔢 숫자'],['url','🔗 링크'],
+                   ['image','🖼️ 사진 첨부'],['file','📎 파일 첨부'],['video','🎬 동영상 첨부']];
+  const evFlds=$('evFields');
+  const _fldRow=(v={})=>{
+    const row=document.createElement('div');row.className='afb-row';
+    row.innerHTML=`<select class="afb-k">${FLD_KINDS.map(([k,l])=>`<option value="${k}"${v.kind===k?' selected':''}>${l}</option>`).join('')}</select>
+      <input class="afb-l" maxlength="40" placeholder="항목 이름 (예: 리뷰 스크린샷)" value="${htmlEsc(v.label||'')}">
+      <input class="afb-h" maxlength="80" placeholder="설명(선택)" value="${htmlEsc(v.hint||'')}">
+      <label class="afb-r"><input type="checkbox"${v.required!==false?' checked':''}> 필수</label>
+      <button type="button" class="afb-x" title="삭제">✕</button>`;
+    row.querySelector('.afb-x').onclick=()=>row.remove();
+    return row;
+  };
+  if(evFlds&&!evFlds._wired){evFlds._wired=true;
+    $('evFldAdd').onclick=()=>evFlds.appendChild(_fldRow());
+    $('evFldClear').onclick=()=>{evFlds.innerHTML='';};
+  }
+  const _fldsRead=()=>[...(evFlds?evFlds.querySelectorAll('.afb-row'):[])].map(r=>({
+    kind:r.querySelector('.afb-k').value,
+    label:(r.querySelector('.afb-l').value||'').trim(),
+    hint:(r.querySelector('.afb-h').value||'').trim(),
+    required:r.querySelector('.afb-r input').checked
+  })).filter(f=>f.label);
   /* 카탈로그 114종 — 그룹 optgroup 으로 채우고, 고르면 폼 자동 완성 */
   const evPick=$('evPick');
   if(evPick&&evPick.options.length<=1){
@@ -21431,7 +21727,7 @@ function wireAdmTools(){
       cur:$('evCur').value,min:+$('evMin').value||0,max:+$('evLMax').value||0,
       items:_evBundle||undefined,codes:_evPack?_evPack.codes:undefined,packName:_evPack?_evPack.packName:undefined,
       endAt:$('evEnd').value?new Date($('evEnd').value+'T23:59:59+09:00').getTime():0,
-      mission:($('evMission').value||'').trim(),askLabel:($('evAsk').value||'').trim(),
+      mission:($('evMission').value||'').trim(),askLabel:($('evAsk').value||'').trim(),askFields:_fldsRead(),
       joinMode:$('evMode').value,
       maxJoin:+$('evMax').value||0};
     if(!payload.title){out('evOut','<b class="bad">제목을 넣어 주세요</b>');return;}
@@ -21444,7 +21740,7 @@ function wireAdmTools(){
     try{const j=await admCall(payload);
       out('evOut',j&&j.ok?`<b>이벤트를 만들었습니다</b> · ${esc(j.ev.title)} <span class="au-sub">(id ${esc(j.ev.id)})</span>`
                         :'<b class="bad">실패: '+esc(j&&j.err||'')+'</b>');
-      if(j&&j.ok){$('evTitle').value='';$('evDesc').value='';$('evMission').value='';$('evAsk').value='';try{_evtItems=null;}catch(e){}}
+      if(j&&j.ok){$('evTitle').value='';$('evDesc').value='';$('evMission').value='';$('evAsk').value='';if(evFlds)evFlds.innerHTML='';try{_evtItems=null;}catch(e){}}
     }catch(e){out('evOut','<b class="bad">서버 연결 실패</b>');}
     finally{busy(evC,false,'이벤트 만들기');}
   };
@@ -21453,23 +21749,76 @@ function wireAdmTools(){
     try{const j=await admCall({act:'evtadmin'});
       if(j&&j.ok){
         out('evOut',j.items.length?j.items.map(ev=>{
+          /* ══ [v16.4] 관리자 이벤트 카드 — 혜택 색 띠·상태 필·집계 스탯·진행률 ══ */
           const ben=EVT_BEN(ev); const benTxt=ben.ic+' '+ben.txt;
-          return `<div class="au-card"><b>${esc(ev.title)}</b> · ${benTxt}${ev.disabled?' · <b class="bad">중지됨</b>':''}
-            <div class="au-sub num">${(ev.joined||0)}명 참여${ev.maxJoin?` / ${ev.maxJoin}명`:''} · ${ev.endAt?('~'+new Date(ev.endAt).toLocaleDateString('ko-KR')):'상시'}</div>
-            <div class="as-btns" style="margin-top:7px">
-              <button type="button" class="mc-btn" data-evstop="${esc(ev.id)}">${ev.disabled?'재개':'중지'}</button>
-              ${(ev.joinMode==='entry'||ev.askLabel)?`<button type="button" class="mc-btn" data-evsubs="${esc(ev.id)}">응모·제출 보기</button>`:''}
-              <button type="button" class="mc-btn danger" data-evdel="${esc(ev.id)}">삭제</button></div>
-            <div class="au-sub" data-subsout="${esc(ev.id)}"></div></div>`;
-        }).join(''):'<div class="au-sub">만든 이벤트가 없습니다</div>');
+          const ended=ev.endAt&&Date.now()>ev.endAt;
+          const st=ev.disabled?['중지됨','off']:ended?['종료','end']:['진행 중','live'];
+          const prog=ev.maxJoin?Math.min(100,Math.round((ev.joined||0)/ev.maxJoin*100)):null;
+          const hasSub=ev.joinMode==='entry'||ev.askLabel||(ev.askFields&&ev.askFields.length);
+          const flds=(ev.askFields||[]).map(f=>`<span class="ae-chip">${(ASK_KIND[f.kind]||ASK_KIND.text).ic} ${esc(f.label)}${f.required?' *':''}</span>`).join('');
+          return `<div class="ae-card ${ben.cls}${ev.disabled?' off':''}">
+            <div class="ae-top">
+              <span class="ae-st ${st[1]}">${st[0]}</span>
+              ${ev.joinMode==='entry'?'<span class="ae-mode">응모 접수</span>':'<span class="ae-mode instant">즉시 지급</span>'}
+              <span class="ae-id num">${esc(ev.id)}</span>
+            </div>
+            <div class="ae-tt">${esc(ev.title)}</div>
+            <div class="ae-ben"><i>${ben.ic}</i><b>${esc(ben.txt)}</b></div>
+            ${ev.mission?`<div class="ae-msn">🎯 ${esc(ev.mission)}</div>`:''}
+            ${flds?`<div class="ae-chips">${flds}</div>`:''}
+            <div class="ae-stats">
+              <div class="ae-stat"><b class="num">${(ev.joined||0).toLocaleString()}</b><span>참여${ev.maxJoin?` / ${ev.maxJoin.toLocaleString()}`:''}</span></div>
+              <div class="ae-stat"><b>${ev.endAt?new Date(ev.endAt).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}):'상시'}</b><span>${ended?'종료됨':'종료일'}</span></div>
+              <div class="ae-stat"><b>${new Date(ev.madeAt||Date.now()).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})}</b><span>생성</span></div>
+            </div>
+            ${prog!=null?`<div class="ae-prog"><i style="width:${prog}%"></i></div>`:''}
+            <div class="ae-acts">
+              <button type="button" class="ae-btn" data-evstop="${esc(ev.id)}">${ev.disabled?'▶ 재개':'⏸ 중지'}</button>
+              ${hasSub?`<button type="button" class="ae-btn primary" data-evsubs="${esc(ev.id)}">📋 제출 보기</button>`:''}
+              <button type="button" class="ae-btn danger" data-evdel="${esc(ev.id)}">🗑 삭제</button></div>
+            <div class="ae-subs" data-subsout="${esc(ev.id)}"></div></div>`;
+        }).join(''):'<div class="ae-empty"><i>📭</i><b>만든 이벤트가 없습니다</b><span>위에서 첫 이벤트를 만들어 보세요.</span></div>');
         document.querySelectorAll('[data-evstop]').forEach(b=>b.onclick=async()=>{
           const j2=await admCall({act:'evtstop',id:b.dataset.evstop}); if(j2&&j2.ok){try{_evtItems=null;}catch(e){} evL.click();}});
         document.querySelectorAll('[data-evsubs]').forEach(b=>b.onclick=async()=>{
           const j2=await admCall({act:'evtsubs',id:b.dataset.evsubs});
           const box=document.querySelector(`[data-subsout="${b.dataset.evsubs}"]`);
+          /* ══ [v16.4] 제출자 카드 — 아바타·번호·항목 표·첨부 타일 ══ */
           if(box)box.innerHTML=(j2&&j2.ok&&j2.subs.length)
-            ?j2.subs.map(x=>`<div class="md-sub"><b>${esc(x.user)}</b> · ${new Date(x.at).toLocaleString('ko-KR')}<br>${esc(x.answer||'')}</div>`).join('')
-            :'제출 내역이 없습니다';});
+            ?`<div class="ms-h"><b>제출 ${j2.subs.length.toLocaleString()}건</b><span>최신순</span></div>`
+             +`<div class="ms-list">`+j2.subs.slice().reverse().map((x,i)=>{
+              const n=j2.subs.length-i;
+              const rows=(x.answers||[]).map(a=>{
+                const ic=(ASK_KIND[a.kind]||ASK_KIND.text).ic;
+                if(a.file)return `<div class="ms-row file"><span class="ms-k">${ic} ${esc(a.label)}</span>
+                  <span class="ms-v"><button type="button" class="ms-open" data-fkey="${esc(a.file.key)}" data-ft="${esc(a.file.type||'')}" data-fn="${esc(a.file.name||'첨부')}">
+                    <b>${esc(a.file.name||'첨부')}</b><i class="num">${Math.round((a.file.size||0)/1024)}KB · 열기</i></button></span></div>`;
+                const v=a.value||'';
+                const isUrl=/^https?:\/\//i.test(v);
+                return `<div class="ms-row"><span class="ms-k">${ic} ${esc(a.label)}</span>
+                  <span class="ms-v${v?'':' empty'}">${v?(isUrl?`<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`:esc(v)):'미입력'}</span></div>`;
+              }).join('');
+              return `<div class="ms-card">
+                <div class="ms-top"><span class="ms-av">${esc(String(x.user||'?').slice(0,1))}</span>
+                  <div class="ms-who"><b>${esc(x.user)}</b><span class="num">${new Date(x.at).toLocaleString('ko-KR')}</span></div>
+                  <span class="ms-no num">#${n}</span></div>
+                ${x.answer?`<div class="ms-row"><span class="ms-k">✏️ 제출</span><span class="ms-v">${esc(x.answer)}</span></div>`:''}
+                ${rows}</div>`;}).join('')+`</div>`
+            :'<div class="ms-none">아직 제출 내역이 없습니다</div>';
+          if(box)box.querySelectorAll('.ms-open').forEach(ob=>ob.onclick=async()=>{
+            const _html=ob.innerHTML; ob.disabled=true; ob.innerHTML='<b>여는 중…</b>';
+            try{const jf=await admCall({act:'evtfile',key:ob.dataset.fkey});
+              if(jf&&jf.ok&&jf.data){
+                const t=ob.dataset.ft||'application/octet-stream';
+                const w=window.open('','_blank');
+                if(w){ const src='data:'+t+';base64,'+jf.data;
+                  w.document.write(/^image\//.test(t)?`<img src="${src}" style="max-width:100%">`
+                    :/^video\//.test(t)?`<video src="${src}" controls style="max-width:100%"></video>`
+                    :`<a href="${src}" download="${ob.dataset.fn}">${ob.dataset.fn} 내려받기</a>`); }
+              }else toast('warn','첨부를 불러오지 못했습니다','');
+            }catch(e){toast('warn','서버 연결 실패','');}
+            finally{ob.disabled=false; ob.innerHTML=_html;}
+          });});
         document.querySelectorAll('[data-evdel]').forEach(b=>b.onclick=async()=>{
           if(!await askConfirm('이벤트 삭제','참여 기록 집계도 함께 사라집니다.',{okLabel:'삭제',danger:true}))return;
           const j2=await admCall({act:'evtdel',id:b.dataset.evdel}); if(j2&&j2.ok){try{_evtItems=null;}catch(e){} evL.click();}});
@@ -23099,6 +23448,7 @@ try{
       }catch(e){v.push('audit-err:'+String(e).slice(0,40));}
       return {checked:n,violations:v};
     },
+    cashContact:()=>{ try{ return {m:CASH_CONTACT.mail,k:CASH_CONTACT.open,rm:CONTACT.mail,rk:CONTACT.chat}; }catch(e){ return {err:String(e)}; } },
     applyBenefit:async(b)=>{ try{ await evtApplyBenefit(b,null); return true; }catch(e){ return String(e); } },
     showUpdGate:()=>{ try{ sessionStorage.removeItem('updGateSkip'); showUpdateGate('test'); return true; }catch(e){ return String(e); } },
     /* [v15.4.2] 봉 렌더 하네스 통로 — 화면 데이터는 건드리지 않는다 */
