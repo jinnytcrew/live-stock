@@ -9742,7 +9742,10 @@ function openLiteGate(title,html){
     g.addEventListener('click',e=>{if(e.target===g)closeLiteGate();});}
   $('liteTitle').textContent=title;$('liteBody').innerHTML=html;g.hidden=false;
 }
-function closeLiteGate(){const g=$('liteGate');if(g)g.hidden=true;}
+/* [v16.7] 닫을 때 본문을 비운다 — 예전엔 hidden 만 걸어 두어, 닫힌 뒤에도
+   giftGo 같은 죽은 버튼 id 가 문서에 남아 다음 화면의 조회를 오염시켰다. */
+function closeLiteGate(){const g=$('liteGate');if(!g)return;g.hidden=true;
+  try{const b=$('liteBody');if(b)b.innerHTML='';}catch(e){}}
 /* 가격 알림 모달 */
 function openAlertGate(){
   const code=selected,st=byCode[code]||{},cur=priceAlerts[code]||{};
@@ -15960,24 +15963,27 @@ function cashSetMark(){
 /* 정책 안내 — 절차와 연락처를 한 화면에 */
 async function cashPolicyNotice(){
   const acct=(acctList||[]).find(x=>x.id===acctActive)||{};
-  const html=`<div class="cp-warn">${htmlEsc(CASH_POLICY_TXT)}</div>
-    <div class="cp-steps">
-      <div class="cp-s"><i>1</i><div><b>요청 양식 작성</b><p>아이디 · 계좌번호 · 현재 예수금 · 변경 희망 금액 · 사유를 적어 주세요.</p></div></div>
-      <div class="cp-s"><i>2</i><div><b>메일 또는 오픈채팅으로 접수</b><p>아래 버튼으로 바로 이동할 수 있습니다.</p></div></div>
-      <div class="cp-s"><i>3</i><div><b>관리자 확인 후 반영</b><p>정책 위반·악용 정황이 없으면 순차 처리됩니다.</p></div></div>
-    </div>
-    <div class="cp-info">
+  const form=`[LIVE증권 예수금 변경 요청]\n아이디: ${(typeof currentUser!=='undefined'&&currentUser)||''}\n계좌번호: ${acct.no||acct.id||''}\n현재 예수금: ${KRW(intOf(cash,0))}원\n변경 희망 금액: \n사유: `;
+  /* ══ [v16.7] 계좌 개설 창처럼 단계로 나눈다 — 한 화면에 다 쌓아 세로로
+     길어지던 문제(실기 사진)를 없애고, 1단계 안내 → 2단계 접수로 끊는다. */
+  const step1=`<div class="cpw-warn">${htmlEsc(CASH_POLICY_TXT)}</div>
+    <div class="cpw-info">
       <div><span>아이디</span><b>${htmlEsc(String(typeof currentUser!=='undefined'&&currentUser||'—'))}</b></div>
       <div><span>계좌</span><b>${htmlEsc(String(acct.no||acct.id||'—'))}</b></div>
       <div><span>현재 예수금</span><b class="num">${KRW(intOf(cash,0))}원</b></div>
+    </div>`;
+  if(!await askConfirm('예수금 변경 안내',step1,{html:true,okLabel:'접수 방법 보기'}))return;
+  const step2=`<div class="cpw-steps">
+      <div class="cpw-s"><i>1</i><div><b>요청 양식 작성</b><p>아이디·계좌번호·현재 예수금·변경 희망 금액·사유</p></div></div>
+      <div class="cpw-s"><i>2</i><div><b>메일 또는 오픈채팅 접수</b><p>아래 버튼으로 바로 이동</p></div></div>
+      <div class="cpw-s"><i>3</i><div><b>관리자 확인 후 반영</b><p>정책 위반·악용이 없으면 순차 처리</p></div></div>
     </div>
-    <div class="cp-acts">
+    <div class="cpw-acts">
       <button type="button" class="cp-btn mail" id="cpMail">✉️ 관리자 메일로 접수</button>
-      <button type="button" class="cp-btn kko" id="cpKko">💬 오픈채팅으로 접수</button>
+      <button type="button" class="cp-btn kko" id="cpKko"><span class="kko-ic" aria-hidden="true"></span>카카오톡 오픈 채팅으로 접수</button>
       <button type="button" class="cp-btn ghost" id="cpCopy">📋 요청 양식 복사</button>
     </div>`;
   setTimeout(()=>{
-    const form=`[LIVE증권 예수금 변경 요청]\n아이디: ${(typeof currentUser!=='undefined'&&currentUser)||''}\n계좌번호: ${acct.no||acct.id||''}\n현재 예수금: ${KRW(intOf(cash,0))}원\n변경 희망 금액: \n사유: `;
     const m=$('cpMail'); if(m)m.onclick=()=>{
       const url='mailto:'+CASH_CONTACT.mail+'?subject='+encodeURIComponent('[LIVE증권] 예수금 변경 요청')+'&body='+encodeURIComponent(form);
       try{window.open(url,'_blank');}catch(e){location.href=url;}
@@ -15988,7 +15994,7 @@ async function cashPolicyNotice(){
       toast('ok','요청 양식을 복사했습니다','메일·오픈채팅에 붙여 넣어 보내 주세요');
     };
   },40);
-  await askConfirm('예수금 변경 안내',html,{html:true,okLabel:'확인'});
+  await askConfirm('예수금 변경 접수',step2,{html:true,okLabel:'닫기'});
 }
 /* 예수금 변경 시도의 단일 관문 — 허용이면 true */
 async function cashChangeAllowed(){
@@ -20742,6 +20748,15 @@ async function checkTierInbox(){
     showTierGift(j.msg);
   }catch(e){}
 }
+/* [v16.7] 등급이 바뀐 뒤 화면을 실제로 다시 그린다 — 멤버십 화면에서 코드를
+   등록해도 카드가 그대로였던 원인(뷰 렌더러를 부르지 않았다). */
+function tierRefreshUI(){
+  try{ if(typeof renderTierCard==='function')renderTierCard(); }catch(e){}
+  try{ if(currentView==='tier'&&typeof renderTierView==='function')renderTierView(); }catch(e){}
+  try{ if(typeof renderMyDataView==='function'&&currentView==='mydata')renderMyDataView(); }catch(e){}
+  try{ if(typeof paintTierBadge==='function')paintTierBadge(); }catch(e){}
+  try{ if(typeof renderHeaderTier==='function')renderHeaderTier(); }catch(e){}
+}
 function showTierGift(m){
   const t=TIERS.find(x=>x.k===m.tier)||TIERS[0];
   const dur=m.days>0?`${m.days}일`:'기간 제한 없음';
@@ -20773,6 +20788,8 @@ function showTierGift(m){
       if(j&&j.ok){
         tierSet(j); closeLiteGate();
         toast('ok',j.msg||'등급이 바뀌었습니다',TIERS[tierLv()].d);
+        tierRefreshUI();
+        try{ rewardLogMarkUsed(String(m.code).replace(/[^A-Za-z0-9]/g,'')); }catch(e){}
       }else{
         toast('warn','등록하지 못했어요',(j&&j.msg)||'멤버십 화면에서 다시 시도해 주세요');
       }
@@ -20928,9 +20945,14 @@ const EVT_BEN=(ev)=>{
 /* [v16.0] 혜택 집행기(클라이언트 몫) — bundle 이 항목별로 재사용한다 */
 async function evtApplyBenefit(b2,ben){
   if(b2.type==='tier'){
-    tierSet(b2);
-    toast('ok','🎟 이용권이 발급되었습니다',(ben?ben.txt:'')+' — 지금부터 바로 적용돼요');
-    try{if(typeof showTierGift==='function')showTierGift({tier:b2.tier,days:b2.days,from:'이벤트'});}catch(e){}
+    /* [v16.7] 자동 등급 부여 폐지 — 코드를 주고 등록은 사용자가 직접 */
+    if(b2.code){
+      try{showTierGift({tier:b2.tier,days:b2.days,code:b2.code,memo:'이벤트 참여 혜택'});}catch(e){}
+      toast('ok','🎟 이용권 코드가 발급되었습니다','등록하면 등급이 적용돼요 · MY 데이터에 보관됩니다');
+    }else{
+      tierSet(b2);
+      toast('ok','🎟 이용권이 적용되었습니다',(ben?ben.txt:''));
+    }
   }else if(b2.type==='stock'){
     const ex=holdings.find(h=>h.code===b2.code&&!h.us);
     if(ex){ ex.avg=Math.round((ex.avg*ex.qty)/(ex.qty+b2.qty)); ex.qty+=b2.qty; }
@@ -20975,6 +20997,61 @@ function rewardLogAdd(rec){
     localStorage.setItem(rewardLogKey(), JSON.stringify(l.slice(0,200)));
   }catch(e){}
 }
+/* [v16.7] 등록을 마친 코드는 기록에도 '사용함'으로 남긴다 */
+function rewardLogMarkUsed(codeRaw){
+  const norm=(v)=>String(v||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  const key=norm(codeRaw); if(!key)return;
+  try{
+    const l=rewardLogGet();
+    let hit=false;
+    l.forEach(r=>{ if(r.code&&norm(r.code)===key){ r.used=1; r.usedAt=Date.now(); hit=true; } });
+    if(hit)localStorage.setItem(rewardLogKey(),JSON.stringify(l));
+  }catch(e){}
+  try{ if(currentView==='mydata')renderMyDataView(); }catch(e){}
+}
+/* 기록 하나를 눌렀을 때 — 코드·발급 시점·사용 여부·바로 등록까지 */
+async function myDataDetail(i){
+  const l=rewardLogGet(); const r=l[i]; if(!r)return;
+  const NM={tier:'이용권',coupon:'쿠폰 코드',cash:'원화 예수금',usd:'달러 예수금',
+    stock:'국내 주식',usstock:'해외 주식',watchpack:'관심종목 팩',entry:'응모 접수',bundle:'패키지'};
+  const when=new Date(r.at).toLocaleString('ko-KR');
+  const rows=[
+    ['상품',r.label||'—'],
+    ['종류',NM[r.kind]||r.kind||'—'],
+    ['획득 경로',r.src||'—'],
+    ['획득 시각',when]
+  ];
+  if(r.amount)rows.push(['금액',(r.kind==='usd'?'$':'')+Number(r.amount).toLocaleString()+(r.kind==='usd'?'':'원')]);
+  if(r.code)rows.push(['상태',r.used?('사용 완료 · '+new Date(r.usedAt||r.at).toLocaleDateString('ko-KR')):'미사용']);
+  const html=`<div class="mdd-rows">${rows.map(([k,v])=>
+      `<div class="mdd-r"><span>${htmlEsc(k)}</span><b>${htmlEsc(String(v))}</b></div>`).join('')}</div>
+    ${r.code?`<div class="mdd-code"><span>코드</span><b class="num" id="mddCode">${htmlEsc(r.code)}</b></div>
+      <div class="mdd-acts">
+        ${r.used?'':'<button type="button" class="cp-btn mail" id="mddGo">지금 등록하기</button>'}
+        <button type="button" class="cp-btn ghost" id="mddCopy">📋 코드 복사</button>
+      </div>`:''}`;
+  setTimeout(()=>{
+    const c=$('mddCopy'); if(c)c.onclick=()=>{
+      try{navigator.clipboard&&navigator.clipboard.writeText(r.code).catch(()=>{});}catch(e){}
+      toast('ok','코드를 복사했습니다','멤버십 → 쿠폰 코드 입력에서 쓸 수 있어요');
+    };
+    const g=$('mddGo'); if(g)g.onclick=async()=>{
+      const acc=accounts()[currentUser]; if(!acc){toast('warn','로그인이 필요합니다','');return;}
+      g.disabled=true; g.textContent='등록 중…';
+      try{
+        const rr=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({act:'redeem',id:currentUser,pass:acc.pass,code:String(r.code).replace(/[^A-Za-z0-9]/g,'')})});
+        const j=await rr.json();
+        if(j&&j.ok){ tierSet(j); tierRefreshUI(); rewardLogMarkUsed(r.code);
+          toast('ok',j.msg||'등급이 적용되었습니다',''); try{closeAsk&&closeAsk();}catch(e){}
+          try{$('askOk')&&$('askOk').click();}catch(e){}
+        } else toast('warn','등록하지 못했습니다',(j&&j.msg)||'');
+      }catch(e){ toast('warn','서버 연결 실패',''); }
+      finally{ const b=$('mddGo'); if(b){b.disabled=false;b.textContent='지금 등록하기';} }
+    };
+  },40);
+  await askConfirm('획득 내역 상세',html,{html:true,okLabel:'닫기'});
+}
 function renderMyDataView(){
   const el=$('myDataBody'); if(!el)return;
   const l=rewardLogGet();
@@ -20988,15 +21065,20 @@ function renderMyDataView(){
     const when=d.toLocaleDateString('ko-KR',{month:'long',day:'numeric'})+' '+d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     const code=r.code?`<div class="md-code"><span class="num">${htmlEsc(r.code)}</span>
       <button type="button" class="md-copy" data-code="${htmlEsc(r.code)}">복사</button></div>`:'';
-    return `<div class="md-row">
+    return `<div class="md-row" data-md="${i}" role="button" tabindex="0">
       <div class="md-ic">${IC[r.kind]||'🎁'}</div>
       <div class="md-b">
         <div class="md-t">${htmlEsc(r.label||'')}</div>
-        <div class="md-s">${htmlEsc(r.src||'')} · ${when}${r.kind==='entry'?' · <b class="md-entry">응모 완료</b>':''}</div>
+        <div class="md-s">${htmlEsc(r.src||'')} · ${when}${r.kind==='entry'?' · <b class="md-entry">응모 완료</b>':''}${r.code?(r.used?' · <b class="md-used">사용 완료</b>':' · <b class="md-new">미사용</b>'):''}</div>
         ${code}
-      </div></div>`;
+      </div><div class="md-arrow">›</div></div>`;
   }).join('')+'</div>';
-  el.querySelectorAll('.md-copy').forEach(b=>b.onclick=()=>{
+  el.querySelectorAll('.md-row[data-md]').forEach(row=>{
+    row.onclick=(e)=>{ if(e.target.closest('.md-copy'))return; myDataDetail(+row.dataset.md); };
+    row.onkeydown=(e)=>{ if(e.key==='Enter')myDataDetail(+row.dataset.md); };
+  });
+  el.querySelectorAll('.md-copy').forEach(b=>b.onclick=(e)=>{
+    e.stopPropagation();
     try{navigator.clipboard&&navigator.clipboard.writeText(b.dataset.code).catch(()=>{});}catch(e){}
     toast('ok','복사되었습니다','멤버십 화면의 쿠폰 등록에서 사용할 수 있어요');
   });
@@ -22432,7 +22514,8 @@ function openCouponGate(){
         tierSet(j);
         closeLiteGate();
         toast('ok',j.msg||'등급이 바뀌었습니다',TIERS[tierLv()].d);
-        try{ renderTierCard(); }catch(e){}
+        tierRefreshUI();
+        try{ rewardLogMarkUsed(code); }catch(e){}
       }else{
         toast('warn','등록하지 못했어요',(j&&j.msg)||'잠시 후 다시 시도해 주세요');
       }

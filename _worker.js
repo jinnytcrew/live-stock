@@ -86,6 +86,17 @@ function kvAdapter(kv, prefix) {
     }
   };
 }
+/* ══ [v16.7] 사용자 데이터 키 — 원인 규명 ════════════════════════════════════
+   저장은 openStore()=kvAdapter(KV,"live-accounts") 를 거치므로 실제 KV 키는
+   live-accounts:usr:<id> 다. 관리자 조회가 app:usr:<id> 를 보고 있어서 데이터가
+   있는데도 "없습니다"가 떴다. 두 자리를 모두 확인하고, 쓸 때는 읽은 자리에 쓴다. */
+const USR_KEYS=(id)=>["live-accounts:usr:"+id,"app:usr:"+id];
+async function usrRawRead(KV,id){
+  for(const k of USR_KEYS(id)){
+    try{ const raw=await KV.get(k); if(raw) return { key:k, raw }; }catch(e){}
+  }
+  return null;
+}
 function blobAdapter(st) {
   return {
     kind: "blobs",
@@ -11149,8 +11160,15 @@ var coupon_default = async (req2) => {
     const execOne=async(it)=>{
       const t2=String(it.type||"");
       if(t2==="tier"&&TIER_KEYS.includes(it.tier)){
-        tierGrant(acc, it.tier, Math.max(1,+it.days||7), "이벤트");
-        return { type:"tier", tier:it.tier, days:+it.days||7, ...tierPayload(acc) };
+        /* ══ [v16.7] 이용권도 "코드 발급"으로 ══════════════════════════════════
+           예전에는 참여 즉시 서버가 등급을 올려 버렸다. 사용자가 코드를 등록하지
+           않았는데 등급이 바뀌어 있어 앞뒤가 맞지 않았다. 이제 쿠폰과 같은 실코드를
+           만들어 주고, 등록은 사용자가 직접 한다(등급은 그때 올라간다). */
+        const code=cpnMake(it.tier);
+        const rec={ tier:it.tier, days:Math.max(1,+it.days||7), maxUse:1, used:0, usedBy:[],
+          memo:"이벤트:"+ev.title.slice(0,30), at:Date.now(), expireAt:Date.now()+90*864e5 };
+        try{ await KV.put("cpn:"+code, JSON.stringify(rec)); }catch(e){}
+        return { type:"tier", tier:it.tier, days:+it.days||7, code:cpnPretty(code), needRedeem:true };
       }
       if(t2==="coupon"&&TIER_KEYS.includes(it.tier)){
         const code=cpnMake(it.tier);
@@ -11180,9 +11198,7 @@ var coupon_default = async (req2) => {
       benefit=await execOne(ev)||benefit;
       if(ev.type!=="lucky")benefit=benefit; /* lucky 는 서버 추첨 확정값 */
     } else if(ev.type==="tier"){
-      tierGrant(acc, ev.tier, ev.days, "이벤트");
-      await accSave(store, uid, acc);
-      benefit={ type:"tier", tier:ev.tier, days:ev.days, ...tierPayload(acc) };
+      benefit=await execOne(ev)||benefit;          /* [v16.7] 코드 발급 경로로 일원화 */
     } else if(ev.type==="coupon"){
       /* 쿠폰 발급형 — 관리자 발급과 같은 기록으로 진짜 코드 하나를 만든다.
          선물하거나 아껴 뒀다 원하는 때 등록할 수 있다(1회용·유효 90일). */
@@ -11215,8 +11231,8 @@ var coupon_default = async (req2) => {
     const acc = await accLoad(store, id, legacyDb);
     if (!acc) return J({ ok: false, err: "notfound" });
     let dataAt = null, dataBytes = 0;
-    /* 클라우드 데이터는 kvAdapter("app") 를 거쳐 저장되므로 실제 키는 app:usr:<id> */
-    try { const raw = await KV.get("app:usr:" + id); if (raw) { dataBytes = raw.length;
+    /* [v16.7] 저장 자리는 live-accounts:usr:<id> — 두 자리를 모두 확인한다 */
+    try { const h2 = await usrRawRead(KV, id); const raw = h2 && h2.raw; if (raw) { dataBytes = raw.length;
       try { const u = JSON.parse(raw); dataAt = u.updatedAt || u.at || null; } catch (e) {} } } catch (e) {}
     return J({ ok: true, id, tier: acc.tier || "free", until: acc.tierUntil || null,
       createdAt: acc.createdAt || null, lastLogin: acc.lastLogin || null,
@@ -11232,7 +11248,8 @@ var coupon_default = async (req2) => {
     if(!id) return J({ ok:false, err:"form" });
     const acc=await accLoad(store, id, legacyDb);
     if(!acc) return J({ ok:false, err:"notfound" });
-    let u=null; try{ const raw=await KV.get("app:usr:"+id); if(raw)u=JSON.parse(raw); }catch(e){}
+    const hit=await usrRawRead(KV,id);
+    let u=null; try{ if(hit)u=JSON.parse(hit.raw); }catch(e){}
     if(!u) return J({ ok:true, id, tier:acc.tier||"free", hasData:false, accts:[] });
     const books=u.acctBooks||{};
     const accts=(u.acctList||[]).map(a=>({
@@ -11258,9 +11275,9 @@ var coupon_default = async (req2) => {
     const memo=String(body.memo||"").trim().slice(0,120);
     if(!id||!acctId) return J({ ok:false, err:"form" });
     if(mode==="set"&&amt<0) return J({ ok:false, err:"form", msg:"금액은 0 이상이어야 합니다" });
-    let raw=null; try{ raw=await KV.get("app:usr:"+id); }catch(e){}
-    if(!raw) return J({ ok:false, err:"nodata", msg:"클라우드 데이터가 없습니다" });
-    let u=null; try{ u=JSON.parse(raw); }catch(e){ return J({ ok:false, err:"broken" }); }
+    const hit=await usrRawRead(KV,id);
+    if(!hit) return J({ ok:false, err:"nodata", msg:"클라우드 데이터가 없습니다" });
+    let u=null; try{ u=JSON.parse(hit.raw); }catch(e){ return J({ ok:false, err:"broken" }); }
     u.acctBooks=u.acctBooks||{};
     const bk=u.acctBooks[acctId];
     if(!bk) return J({ ok:false, err:"noacct", msg:"해당 계좌를 찾을 수 없습니다" });
@@ -11273,7 +11290,7 @@ var coupon_default = async (req2) => {
     /* 활성 계좌라면 최상위 값도 함께 맞춘다(화면이 읽는 자리) */
     if(u.acctActive===acctId)u[key]=after;
     u.savedAt=Date.now();
-    try{ await KV.put("app:usr:"+id, JSON.stringify(u)); }catch(e){ return J({ ok:false, err:"savefail" }); }
+    try{ await KV.put(hit.key, JSON.stringify(u)); }catch(e){ return J({ ok:false, err:"savefail" }); }
     let log=[]; try{ log=(await KV.get("app:usrlog:"+id,"json"))||[]; }catch(e){}
     log.unshift({ at:Date.now(), kind:"cash", cur, acctId, mode, before, after, memo:memo||null });
     try{ await KV.put("app:usrlog:"+id, JSON.stringify(log.slice(0,50))); }catch(e){}
@@ -11284,13 +11301,13 @@ var coupon_default = async (req2) => {
     const id=String(body.id||"").trim().toLowerCase();
     const acctId=String(body.acctId||"").trim();
     const on=!!body.on;                                /* on=true → 잠금(사용함), false → 1회 다시 허용 */
-    let raw=null; try{ raw=await KV.get("app:usr:"+id); }catch(e){}
-    if(!raw) return J({ ok:false, err:"nodata" });
-    let u=null; try{ u=JSON.parse(raw); }catch(e){ return J({ ok:false, err:"broken" }); }
+    const hit=await usrRawRead(KV,id);
+    if(!hit) return J({ ok:false, err:"nodata" });
+    let u=null; try{ u=JSON.parse(hit.raw); }catch(e){ return J({ ok:false, err:"broken" }); }
     const a=(u.acctList||[]).find(x=>x.id===acctId);
     if(!a) return J({ ok:false, err:"noacct" });
     a.cashSet=on?1:0; u.savedAt=Date.now();
-    try{ await KV.put("app:usr:"+id, JSON.stringify(u)); }catch(e){ return J({ ok:false, err:"savefail" }); }
+    try{ await KV.put(hit.key, JSON.stringify(u)); }catch(e){ return J({ ok:false, err:"savefail" }); }
     let log=[]; try{ log=(await KV.get("app:usrlog:"+id,"json"))||[]; }catch(e){}
     log.unshift({ at:Date.now(), kind:"lock", acctId, on:on?1:0 });
     try{ await KV.put("app:usrlog:"+id, JSON.stringify(log.slice(0,50))); }catch(e){}
@@ -11353,8 +11370,8 @@ var coupon_default = async (req2) => {
     if (!id) return J({ ok: false, err: "form" });
     const acc = await accLoad(store, id, legacyDb);
     if (!acc) return J({ ok: false, err: "notfound" });
-    let had = false; try { had = !!(await KV.get("app:usr:" + id)); } catch (e) {}
-    try { await KV.delete("app:usr:" + id); } catch (e) {}
+    let had = false; try { had = !!(await usrRawRead(KV, id)); } catch (e) {}
+    for (const k of USR_KEYS(id)) { try { await KV.delete(k); } catch (e) {} }
     return J({ ok: true, id, wiped: had ? 1 : 0 });
   }
   if (act === "deluser") {                             /* 계정 완전 삭제 — 2중 확인(confirm 문자열 일치) */
@@ -11365,7 +11382,7 @@ var coupon_default = async (req2) => {
     const acc = await accLoad(store, id, legacyDb);
     if (!acc) return J({ ok: false, err: "notfound" });
     try { await KV.delete("app:acc:" + id); } catch (e) {}
-    try { await KV.delete("app:usr:" + id); } catch (e) {}
+    for (const k of USR_KEYS(id)) { try { await KV.delete(k); } catch (e) {} }
     try { if (_accCache) delete _accCache[id]; } catch (e) {}
     return J({ ok: true, id, deleted: 1 });
   }
@@ -16806,7 +16823,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "16.6.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "16.7.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
