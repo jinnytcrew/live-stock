@@ -54,6 +54,24 @@ function kvAdapter(kv, prefix) {
     async get(key) {
       return await kv.get(k(key));
     },
+    /* ══ [v15.7] 잠복 버그 수리 — 이 어댑터엔 setJSON/getJSON 이 없어서
+       accSave(st.setJSON 호출)가 쿠폰 라우트에서 "조용히" 실패했다.
+       관리자 등급 지정·이벤트 이용권처럼 이 라우트로 계정을 저장하는
+       모든 기능이 실제로는 저장되지 않는 구조였다. blobsLike 와 같은
+       시그니처로 채워 일괄 회복한다. */
+    async getJSON(key) {
+      const v = await kv.get(k(key));
+      if (v == null) return null;
+      try { return JSON.parse(v); } catch (e) { return null; }
+    },
+    async setJSON(key, val, opts) {
+      const o = {};
+      if (opts && opts.ttl) o.expirationTtl = Math.max(60, opts.ttl);
+      return await kv.put(k(key), JSON.stringify(val), o);
+    },
+    async delete(key) {
+      return await kv.delete(k(key));
+    },
     async set(key, val, opts) {
       const o = {};
       if (opts && opts.ttl) o.expirationTtl = Math.max(60, opts.ttl);
@@ -9117,7 +9135,11 @@ function parseSchedule(html) {
     const fixed = (cells[2] || "").replace(/[^0-9,]/g, "");
     const band = (cells[3] || "").replace(/[^0-9,~\-]/g, "");
     const brokers = (cells[5] || cells[4] || "").split(/[,/·]|외/).map((s) => s.trim()).filter((s) => s && /증권|투자|뱅크|은행/.test(s)).slice(0, 4);
-    items.push({ name, subStart: range.start, subEnd: range.end, refund: addBusinessDays(range.end, 2), listing: "", priceBand: fixed || band || "", brokers, sector: "", product: "", demand: 0 });
+    items.push({ name, subStart: range.start, subEnd: range.end, refund: addBusinessDays(range.end, 2), listing: "", priceBand: fixed || band || "", brokers, sector: "", product: "",
+      /* [v15.6] demand:0 초기화가 병의 뿌리였다 — 0 은 "값"이라 결과 수집이
+         (null 만 채우는 규칙 때문에) 영원히 덮지 못했고, 화면은 전 종목
+         "수요예측 0:1" 을 진실처럼 보여 줬다. 모름은 null 로 둔다. */
+      demand: null, subRate: null, lockup: null });
   }
   return items;
 }
@@ -9147,7 +9169,9 @@ async function ipoAttachRates(items){
   };
   /* '1,247.51:1' → 1247.51 ( ':1' 을 떼지 않으면 뒤의 1이 붙어 값이 틀어진다 ) */
   const num=(v)=>{
-    const t=String(v||"").split(/[:：]/)[0];
+    const raw=String(v||"").trim();
+    if(!raw||/^[-–—―ㅡ.\s]+$/.test(raw))return null;   /* [v15.6] '-' 류는 값이 아니다 */
+    const t=raw.split(/[:：]/)[0];
     const n=Number(t.replace(/[^0-9.]/g,""));
     return isFinite(n)?n:null;
   };
@@ -9187,8 +9211,9 @@ async function ipoAttachRates(items){
       return hit;
     }catch(e){ return 0; }
   };
+  let _hits=0;
   /* ① 수요예측 결과 — 기관 경쟁률 · 의무보유 확약 */
-  await pull("https://www.38.co.kr/html/fund/index.htm?o=r1",
+  _hits+=await pull("https://www.38.co.kr/html/fund/index.htm?o=r1",
     { demand:[/기관경쟁률/,/경쟁률/], lockup:[/의무보유/,/확약/] },
     (t,r,m)=>{
       let done=false;
@@ -9198,12 +9223,13 @@ async function ipoAttachRates(items){
       return done;
     });
   /* ② 청약 경쟁률 */
-  await pull("https://www.38.co.kr/html/fund/index.htm?o=r",
+  _hits+=await pull("https://www.38.co.kr/html/fund/index.htm?o=r",
     { subRate:[/청약경쟁률/,/경쟁률/] },
     (t,r,m)=>{
       if(m.subRate>=0&&t.subRate==null){ const v=num(r[m.subRate]); if(v!=null&&v>0){t.subRate=v;return true;} }
       return false;
     });
+  return _hits;
 }
 var ipo_default = async (req2, context) => {
   /* [v4.8] 실패 원인: http 고정 단일 주소. Cloudflare\ud658경\uc5d0\uc11c 38\ucee4\ubba4\ub2c8\ucf00\uc774\uc158 http \uc811\uc18d\uc774 \ub9c9\ud788\uba74
@@ -9233,13 +9259,17 @@ var ipo_default = async (req2, context) => {
          공모주에서 가장 먼저 보는 숫자가 경쟁률이다. 수요예측 경쟁률은
          기관이 얼마나 원했는지, 청약 경쟁률은 개인이 얼마나 몰렸는지를 말한다.
          38커뮤니케이션이 두 값을 따로 표에 싣고 있어 함께 읽어 온다. */
-      try { await ipoAttachRates(items); } catch (e) {}
-      return new Response(JSON.stringify({ ok: true, items }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } });
+      items.forEach(x=>{ if(x.demand===0)x.demand=null; });   /* [v15.6] 구버전 캐시·초기화 잔재 정화 */
+      let ratesHit=0;
+      try { ratesHit=await ipoAttachRates(items)||0; } catch (e) {}
+      const withRate=items.filter(x=>x.demand!=null||x.subRate!=null||x.lockup!=null).length;
+      return new Response(JSON.stringify({ ok: true, items, rates:{hit:ratesHit,withRate} }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } });
     }
     /* \uc218\uc9d1 \uc2e4\ud328 \u2014 \ub9c8\uc9c0\ub9c9 \uc131\uacf5\ubcf8(3\uc77c \uc774\ub0b4)\uc774 \uc788\uc73c\uba74 \uc608\uc2dc \ub300\uc2e0 \uadf8\uac78 \uc900\ub2e4 */
     try { if (KV) { const c = await KV.get("ipo:last", "json");
       if (c && c.items && c.items.length && Date.now() - (c.at || 0) < 3 * 864e5)
-        return new Response(JSON.stringify({ ok: true, stale: true, at: c.at || 0, items: c.items }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+        { c.items.forEach(x=>{ if(x.demand===0)x.demand=null; });
+        return new Response(JSON.stringify({ ok: true, stale: true, at: c.at || 0, items: c.items }), { headers: { "content-type": "application/json", "cache-control": "no-store" } }); }
     } } catch {}
     return new Response(JSON.stringify({ ok: false, items: [] }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   } catch (e) {
@@ -10954,6 +10984,147 @@ var coupon_default = async (req2) => {
     return J({ ok: true, id, ...tierPayload(acc) });
   }
 
+  /* ══ [v15.7] 이벤트 시스템 ═══════════════════════════════════════════════════
+     관리자가 만들고(evtcreate) 사용자가 참여한다(evtjoin). 혜택 두 갈래:
+     · tier — 이용권: 서버가 그 자리에서 등급을 부여한다(tierGrant 재사용).
+     · cash/usd — 예수금: 서버는 "지급 확정"만 기록하고 금액을 응답에 실어
+       주면, 클라이언트가 활성 계좌에 입금한다(잔고는 로컬+클라우드 소유).
+     참여 기록은 evt:join:{id}:{user} 키 — 같은 사람이 두 번 못 받는다. */
+  const EVT_KEY="evt:list";
+  const evtLoad=async()=>{ try{ return (await KV.get(EVT_KEY,"json"))||[]; }catch(e){ return []; } };
+  const evtSave=async(list)=>{ try{ await KV.put(EVT_KEY,JSON.stringify(list)); }catch(e){} };
+  if (act === "evtcreate") {
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    const title=String(body.title||"").trim().slice(0,60);
+    const desc=String(body.desc||"").trim().slice(0,200);
+    const type=String(body.type||"");
+    /* [v15.8] 상품 계열 확장 — tier(등급 직부여)·cash/usd(예수금)·
+       stock(주식 지급)·coupon(쿠폰 코드 발급) 5계열 */
+    if(!title||!["tier","cash","usd","stock","coupon","usstock","lucky","bundle","watchpack"].includes(type)) return J({ ok:false, err:"form" });
+    const ev={ id:Date.now().toString(36), title, desc, type,
+      tier:((type==="tier"||type==="coupon")&&TIER_KEYS.includes(String(body.tier||"")))?String(body.tier):null,
+      days:(type==="tier"||type==="coupon")?Math.max(1,Math.min(365,+body.days||7)):0,
+      amount:(type==="cash"||type==="usd")?Math.max(0,Math.floor(+body.amount||0)):0,
+      code:(type==="stock")?String(body.code||"").trim().slice(0,10):null,
+      stockName:(type==="stock")?String(body.stockName||"").trim().slice(0,30):null,
+      qty:(type==="stock")?Math.max(1,Math.min(1000,+body.qty||1)):0,
+      ticker:(type==="usstock")?String(body.ticker||"").trim().toUpperCase().slice(0,8):null,
+      usName:(type==="usstock")?String(body.usName||"").trim().slice(0,30):null,
+      usQty:(type==="usstock")?Math.max(1,Math.min(1000,+body.usQty||1)):0,
+      cur:(type==="lucky")?(body.cur==="usd"?"usd":"krw"):null,
+      min:(type==="lucky")?Math.max(1,Math.floor(+body.min||0)):0,
+      max:(type==="lucky")?Math.max(1,Math.floor(+body.max||0)):0,
+      items:(type==="bundle"&&Array.isArray(body.items))?body.items.slice(0,6):null,
+      codes:(type==="watchpack"&&Array.isArray(body.codes))?body.codes.slice(0,20).map(x=>String(x).slice(0,10)):null,
+      packName:(type==="watchpack")?String(body.packName||"").trim().slice(0,30):null,
+      endAt:+body.endAt||0, maxJoin:Math.max(0,+body.maxJoin||0),
+      joined:0, disabled:0, madeAt:Date.now() };
+    if((ev.type==="tier"||ev.type==="coupon")&&!ev.tier) return J({ ok:false, err:"form" });
+    if((ev.type==="cash"||ev.type==="usd")&&!(ev.amount>0)) return J({ ok:false, err:"form" });
+    if(ev.type==="stock"&&(!ev.code||!ev.stockName)) return J({ ok:false, err:"form" });
+    if(ev.type==="usstock"&&(!ev.ticker||!ev.usName)) return J({ ok:false, err:"form" });
+    if(ev.type==="lucky"&&!(ev.max>=ev.min&&ev.min>0)) return J({ ok:false, err:"form" });
+    if(ev.type==="bundle"&&!(ev.items&&ev.items.length)) return J({ ok:false, err:"form" });
+    if(ev.type==="watchpack"&&!(ev.codes&&ev.codes.length)) return J({ ok:false, err:"form" });
+    const list=await evtLoad(); list.unshift(ev); await evtSave(list.slice(0,40));
+    return J({ ok:true, ev });
+  }
+  if (act === "evtadmin") {                            /* 관리자 전체 목록 */
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    return J({ ok:true, items: await evtLoad() });
+  }
+  if (act === "evtstop" || act === "evtdel") {
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    let list=await evtLoad();
+    const ev=list.find(x=>x.id===String(body.id||""));
+    if(!ev) return J({ ok:false, err:"notfound" });
+    if(act==="evtdel") list=list.filter(x=>x.id!==ev.id);
+    else ev.disabled=ev.disabled?0:1;
+    await evtSave(list);
+    return J({ ok:true, id:ev.id, disabled:ev.disabled?1:0, deleted:act==="evtdel"?1:0 });
+  }
+  if (act === "evtpub") {                              /* 사용자 목록(+내 참여 여부) */
+    const uid=String(body.user||"").trim().toLowerCase();
+    const list=(await evtLoad()).filter(x=>!x.disabled);
+    const out=[];
+    for(const ev of list){
+      let mine=false;
+      if(uid){ try{ mine=!!(await KV.get("evt:join:"+ev.id+":"+uid)); }catch(e){} }
+      out.push({ ...ev, mine });
+    }
+    return J({ ok:true, items:out, now:Date.now() });
+  }
+  if (act === "evtjoin") {
+    const uid=String(body.user||"").trim().toLowerCase();
+    if(!uid) return J({ ok:false, err:"login", msg:"로그인이 필요합니다" });
+    const acc=await accLoad(store, uid, legacyDb);
+    if(!acc) return J({ ok:false, err:"nouser" });
+    const list=await evtLoad();
+    const ev=list.find(x=>x.id===String(body.id||""));
+    if(!ev||ev.disabled) return J({ ok:false, err:"notfound", msg:"종료되었거나 없는 이벤트입니다" });
+    if(ev.endAt&&Date.now()>ev.endAt) return J({ ok:false, err:"ended", msg:"이벤트 기간이 끝났습니다" });
+    /* [v16.0.1] dup 을 full 보다 먼저 — 정원이 찬 이벤트에 "이미 받은" 사람이
+       다시 누르면 "정원 마감"이 아니라 "이미 참여"가 맞는 답이다(심층 감사 적발) */
+    const jk="evt:join:"+ev.id+":"+uid;
+    try{ if(await KV.get(jk)) return J({ ok:false, err:"dup", msg:"이미 참여한 이벤트입니다" }); }catch(e){}
+    if(ev.maxJoin&&ev.joined>=ev.maxJoin) return J({ ok:false, err:"full", msg:"참여 인원이 가득 찼습니다" });
+    try{ await KV.put(jk, JSON.stringify({ at:Date.now() }), { expirationTtl: 180*86400 }); }catch(e){}
+    ev.joined=(ev.joined||0)+1; await evtSave(list);
+    /* [v16.0] 혜택 실행기 — bundle 이 재사용할 수 있게 한 곳에 모은다.
+       서버가 직접 집행하는 것: tier(등급 부여)·coupon(코드 발급)·lucky(추첨 확정).
+       클라이언트가 집행하는 것(금액·수량만 확정해 전달): cash/usd/stock/usstock/watchpack. */
+    const execOne=async(it)=>{
+      const t2=String(it.type||"");
+      if(t2==="tier"&&TIER_KEYS.includes(it.tier)){
+        tierGrant(acc, it.tier, Math.max(1,+it.days||7), "이벤트");
+        return { type:"tier", tier:it.tier, days:+it.days||7, ...tierPayload(acc) };
+      }
+      if(t2==="coupon"&&TIER_KEYS.includes(it.tier)){
+        const code=cpnMake(it.tier);
+        const rec={ tier:it.tier, days:Math.max(1,+it.days||7), maxUse:1, used:0, usedBy:[],
+          memo:"이벤트:"+ev.title.slice(0,30), at:Date.now(), expireAt:Date.now()+90*864e5 };
+        try{ await KV.put("cpn:"+code, JSON.stringify(rec)); }catch(e){}
+        return { type:"coupon", code:cpnPretty(code), tier:it.tier, days:+it.days||7 };
+      }
+      if(t2==="lucky"){
+        const lo=Math.max(1,Math.floor(+it.min||1)), hi=Math.max(lo,Math.floor(+it.max||lo));
+        const amt=lo+Math.floor(Math.random()*(hi-lo+1));
+        return { type:(it.cur==="usd"?"usd":"cash"), amount:amt, lucky:true, range:[lo,hi] };
+      }
+      if(t2==="cash"||t2==="usd")return { type:t2, amount:Math.max(0,Math.floor(+it.amount||0)) };
+      if(t2==="stock")return { type:"stock", code:it.code, name:it.stockName||it.name, qty:Math.max(1,+it.qty||1) };
+      if(t2==="usstock")return { type:"usstock", ticker:it.ticker, name:it.usName||it.name, qty:Math.max(1,+it.qty||+it.usQty||1) };
+      if(t2==="watchpack")return { type:"watchpack", name:it.packName||it.name||"관심종목 팩", codes:(it.codes||[]).slice(0,20) };
+      return null;
+    };
+    let benefit={ type:ev.type };
+    if(ev.type==="bundle"){
+      const done=[];
+      for(const it of ev.items){ const b=await execOne(it); if(b)done.push(b); }
+      await accSave(store, uid, acc);
+      benefit={ type:"bundle", items:done };
+    } else if(ev.type==="lucky"||ev.type==="usstock"||ev.type==="watchpack"){
+      benefit=await execOne(ev)||benefit;
+      if(ev.type!=="lucky")benefit=benefit; /* lucky 는 서버 추첨 확정값 */
+    } else if(ev.type==="tier"){
+      tierGrant(acc, ev.tier, ev.days, "이벤트");
+      await accSave(store, uid, acc);
+      benefit={ type:"tier", tier:ev.tier, days:ev.days, ...tierPayload(acc) };
+    } else if(ev.type==="coupon"){
+      /* 쿠폰 발급형 — 관리자 발급과 같은 기록으로 진짜 코드 하나를 만든다.
+         선물하거나 아껴 뒀다 원하는 때 등록할 수 있다(1회용·유효 90일). */
+      const code=cpnMake(ev.tier);
+      const rec={ tier:ev.tier, days:ev.days, maxUse:1, used:0, usedBy:[],
+        memo:"이벤트:"+ev.title.slice(0,30), at:Date.now(), expireAt:Date.now()+90*864e5 };
+      try{ await KV.put("cpn:"+code, JSON.stringify(rec)); }catch(e){}
+      benefit={ type:"coupon", code:cpnPretty(code), tier:ev.tier, days:ev.days };
+    } else if(ev.type==="stock"){
+      benefit={ type:"stock", code:ev.code, name:ev.stockName, qty:ev.qty };
+    } else {
+      benefit={ type:ev.type, amount:ev.amount };
+    }
+    return J({ ok:true, id:ev.id, joined:ev.joined, benefit });
+  }
   /* ══ [v15.1] 관리자 도구 대확장 — 전부 NXT_ADMIN_TOKEN 뒤에 둔다 ═══════════ */
   if (act === "revoke") {                              /* 쿠폰 회수 */
     if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
@@ -16488,7 +16659,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "15.5.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "16.0.1";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

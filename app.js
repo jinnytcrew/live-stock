@@ -3887,7 +3887,7 @@ function sessRefresh(){
   try{if(currentView==='search')renderSearch();}catch(e){}
   try{if(currentView==='home'){renderHeroMarket();try{renderHomeHot();}catch(e2){}}}catch(e){}
   try{if(currentView==='watch')renderWatch();}catch(e){}
-  try{if(currentView==='trade'&&typeof renderDetail==='function')renderDetail();}catch(e){}
+  try{if(currentView==='trade'&&typeof renderDetail==='function'){renderDetail();renderGlance();}}catch(e){}
   try{if(currentView==='us'){renderUsBreadthChip&&renderUsBreadthChip();if(typeof usPane!=='undefined'&&usPane==='rank')renderUsRankBody();}}catch(e){}
   try{if(currentView==='account')renderHoldings();}catch(e){}
 }
@@ -5689,7 +5689,11 @@ function showUpdateGate(prevKey){
   if(document.getElementById('updGate'))return;
   try{if(sessionStorage.getItem('updGateSkip')===RUN_KEY)return;}catch(e){}
   const bv=(typeof __BUNDLED_VER!=='undefined')?__BUNDLED_VER:{};
-  const notes=Array.isArray(bv.notes)?bv.notes:[];      // [v2.5.1] 전문 표시 — 더 이상 자르지 않는다
+  /* [v15.6] 노트 출처 단일화 — 설정 화면과 동일하게 history[0] 이 유일한 출처.
+     (v15.4.4 에서 최상위 notes 사본을 없앤 뒤 이 창만 옛 필드를 읽어 비어 있었다) */
+  const _h0=(bv.history&&bv.history[0])||null;
+  const notes=(_h0&&Array.isArray(_h0.notes)&&_h0.notes.length)?_h0.notes
+             :(Array.isArray(bv.notes)?bv.notes:[]);
   const g=document.createElement('div');
   g.id='updGate';g.className='upd-overlay';
   g.innerHTML=`<div class="upd-box gate">
@@ -6050,18 +6054,8 @@ function maybeOnboard(){
 
 /* ===== [H5] 검색 바로가기 ===== */
 function renderSearchShortcuts(){
-  const el=$('srchShort'); if(!el)return;
-  el.innerHTML=`<div class="sh-chips">
-    <span class="sh-chip sc" data-go="rise">🔥 급등 순위</span>
-    <span class="sh-chip sc" data-go="pop">👀 인기 검색</span>
-    <span class="sh-chip sc" data-go="theme">🧩 업종·테마</span></div>`;
-  el.querySelectorAll('.sc').forEach(c=>c.onclick=()=>{
-    const g=c.dataset.go;
-    if(g==='theme'){showView('sector');return;}
-    searchRankTab=g==='rise'?'상승률':'거래대금';   /* [v9.95] 관심도 탭 제거 */
-    const inp=$('searchInput'); if(inp)inp.value='';
-    srchPage=1;renderSearch();renderHist();
-  });
+  /* [v15.6] 급등 순위·인기 검색·업종·테마 바로가기 제거 — 순위 탭·주도 섹터와 중복(사용자 요청) */
+  const el=$('srchShort'); if(el)el.innerHTML='';
 }
 function refreshColors(){ // 색상 변경 시 캔버스류 다시 그림(CSS는 변수로 자동 반영)
   if(currentView==='home')renderMarket();
@@ -6478,6 +6472,7 @@ function _showView(name){
   if(name==='folio')_paint(()=>safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); }));
   if(name==='index')_paint(()=>safeRun('ixDetail',renderIdxDetail));
   if(name==='tier')_paint(()=>renderTierView());
+  if(name==='event')_paint(()=>renderEventView());
   if(name==='admin')_paint(()=>safeRun('admin',renderAdminView));      /* [v10.4] 지수 상세 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
@@ -6543,6 +6538,7 @@ function openTrade(code){
   safeRun('openTrade:exch',()=>configOrderExchanges());
   safeRun('openTrade:price',()=>syncPriceField(true));
   safeRun('openTrade:candles',()=>loadCandles());
+  safeRun('openTrade:glance',()=>renderGlance());
   safeRun('openTrade:fund',()=>loadFundamentals(code));
   safeRun('openTrade:etftab',()=>syncEtfTab(code));
   safeRun('openTrade:gate',()=>renderTradeGate());   // [v4.5] 세션 배너
@@ -12407,6 +12403,39 @@ function updateStar(){
 }
 
 /* 종목 상세 */
+/* ══ [v15.6] 상세 왼쪽 '한눈 요약' 코너 — 주문 패널 옆 빈 공간을 정보로 채운다 ═══
+   52주 고저 밴드에서 현재가 위치, 오늘 변동폭, 거래량이 평소(20일 평균)의
+   몇 배인지 — 실기 MTS 들이 요약 탭에 두는 3가지를 한 카드로. */
+async function renderGlance(){
+  const el=$('dGlance'), body=$('dGlanceBody');
+  if(!el||!body)return;
+  const wide=window.innerWidth>=961;
+  if(!wide||currentView!=='trade'||!selected||usMeta[selected]){ el.hidden=true; return; }
+  el.hidden=false;
+  try{
+    const code=selected;
+    const bars=await ensureDailySummary(code);
+    if(currentView!=='trade'||selected!==code)return;
+    const st=byCode[code]||{};
+    if(!bars||!bars.length||!(st.price>0)){ body.innerHTML='<div class="empty">데이터를 모으는 중…</div>'; return; }
+    const m=mergeTodayLive(bars,code);
+    const yr=m.slice(-252);
+    const hi52=Math.max(...yr.map(x=>x.h)), lo52=Math.min(...yr.map(x=>x.l));
+    const pos=hi52>lo52?Math.round((st.price-lo52)/(hi52-lo52)*100):50;
+    const today=m[m.length-1];
+    const rangePct=today.l>0?((today.h-today.l)/today.l*100):0;
+    const v20=m.slice(-21,-1).reduce((a,x)=>a+(x.v||0),0)/Math.max(1,Math.min(20,m.length-1));
+    const vx=v20>0?(today.v||0)/v20:0;
+    body.innerHTML=`
+      <div class="dg-row"><span class="dg-k">52주 밴드</span>
+        <span class="dg-band"><i style="left:${Math.max(2,Math.min(98,pos))}%"></i></span>
+        <span class="dg-v num">${pos}<small>%</small></span></div>
+      <div class="dg-sub num">${KRW(lo52)} ~ ${KRW(hi52)}</div>
+      <div class="dg-row"><span class="dg-k">오늘 변동폭</span><span class="dg-v num">${rangePct.toFixed(1)}%</span></div>
+      <div class="dg-row"><span class="dg-k">거래량 배율</span><span class="dg-v num ${vx>=2?'hot':''}">${vx?vx.toFixed(1):'—'}<small>×</small></span>
+        <span class="dg-hint">20일 평균 대비</span></div>`;
+  }catch(e){ body.innerHTML='<div class="empty">요약을 만들지 못했습니다</div>'; }
+}
 function renderDetail(){
   const s=byCode[selected]||{};   /* [v10.6] 종목이 아직 없을 수 있다 */
   const _dq=dispQuote(selected)||{};
@@ -16311,7 +16340,7 @@ function drawChart(){
   if(chartTf==='D'&&currentView==='trade')curCandles=mergeTodayLive(curCandles,selected);   /* [v15.4.7] 진행 봉 라이브 */
   const cs=curCandles;
   if(!cs.length){$('chartLegend').textContent=chartLoading?'차트 불러오는 중…':(isMinute(chartTf)?('분봉 데이터 없음 · 장중 실시간 누적 '+(minuteDiag||'')):'데이터를 불러오지 못했어요 · ⟳ 버튼으로 다시 시도');return;}
-  const padR=58,padL=6,padT=10,plotW=W-padL-padR;
+  const padR=58,padL=6,padT=18,plotW=W-padL-padR;   /* [v15.6] 상단 숨통 — 라벨·봉 충돌 방지 */
   /* [v15.0.1] 거래량 영역이 전체의 22%뿐이라 실폰(높이 340px)에서는 40px 남짓 —
      막대가 짜부라져 '이상한 그림'이 됐다(첨부 7). 가격 60% / 거래량 27%로 재배분. */
   const priceH=(H-24)*0.60,volTop=priceH+padT+16,volH=(H-24)*0.27;
@@ -16338,10 +16367,10 @@ function drawChart(){
   const thmDark=document.documentElement.getAttribute('data-theme')==='dark';
   const PAL=thmDark
     ?{grid:'rgba(148,163,184,.14)',gridV:'rgba(148,163,184,.09)',label:'#94a3b8',
-      vpBase:'rgba(100,116,139,.16)',vpPoc:'rgba(245,158,11,.35)',vpCur:'rgba(59,130,246,.30)',
+      vpBase:'rgba(100,116,139,.26)',vpPoc:'rgba(245,158,11,.50)',vpCur:'rgba(59,130,246,.45)',
       vpPocT:'#fbbf24',vpCurT:'#93c5fd',vpT:'#8b95a5',pcLine:'rgba(148,163,184,.55)',pcText:'#94a3b8'}
     :{grid:'#eef1f6',gridV:'#f3f5f9',label:'#8b97a7',
-      vpBase:'rgba(100,116,139,.10)',vpPoc:'rgba(245,158,11,.30)',vpCur:'rgba(59,130,246,.26)',
+      vpBase:'rgba(100,116,139,.20)',vpPoc:'rgba(245,158,11,.45)',vpCur:'rgba(59,130,246,.40)',
       vpPocT:'#b45309',vpCurT:'#2563eb',vpT:'#94a0af',pcLine:'rgba(100,116,139,.5)',pcText:'#64748b'};
   /* 둥근 사각형 채우기 (구형 브라우저 폴백 포함) */
   const rr=(x,y,w,h,r)=>{r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);
@@ -16466,11 +16495,11 @@ function drawChart(){
   if(_totRaw>0){   /* 거래량이 전혀 없는 종목(일부 해외)에는 그리지 않는다 — 빈 막대는 거짓 정보다 */
   const maxB=binVol.indexOf(bmax);
   let curB=Math.floor(((cs[end].c)-lo)/(hi-lo)*bins);curB=clamp(curB,0,bins-1);
-  const vpMaxW=plotW*0.14,vpR=padL+plotW;
+  const vpMaxW=plotW*0.20,vpR=padL+plotW;   /* [v15.6] 매물대 폭 확대(실기 MTS 수준) */
   for(let b=0;b<bins;b++){
     if(!binVol[b])continue;
     const w=Math.max(2,binVol[b]/bmax*vpMaxW);
-    const bh=binH*0.58,y=padT+priceH-(b+1)*binH+(binH-bh)/2;
+    const bh=binH*0.74,y=padT+priceH-(b+1)*binH+(binH-bh)/2;
     ctx.fillStyle=(b===curB)?PAL.vpCur:(b===maxB)?PAL.vpPoc:PAL.vpBase;
     rr(vpR-w,y,w,bh,2);
     if(b===curB||b===maxB){
@@ -20586,6 +20615,340 @@ function showTierGift(m){
 
 function admTokGet(){ try{ return sessionStorage.getItem('admtok')||''; }catch(e){ return ''; } }
 function admTokSet(v){ try{ v?sessionStorage.setItem('admtok',v):sessionStorage.removeItem('admtok'); }catch(e){} }
+/* ══ [v15.7] 이벤트 — 참여만 해도 혜택이 바로 지급되는 페이지 ═══════════════════
+   실서비스 이벤트 페이지 문법(토스·증권사 공통): 상태 필(진행중 D-n/마감),
+   혜택 배지, 기간, 참여 진행률, 큼직한 참여 버튼, 참여 완료 상태. */
+/* ══ [v15.9] 이벤트 상품 카탈로그 200종 ═══════════════════════════════════════
+   계열 5가지: 이용권 30 · 원화 예수금 21 · 달러 예수금 15 · 주식 지급 60 · 쿠폰 24.
+   지급 방법(계열별):
+   · tier   — 참여 순간 서버가 계정 등급을 직접 부여(쿠폰 등록과 동일 엔진)
+   · cash   — 서버 확정 → 활성 계좌 원화 예수금에 즉시 입금·저장
+   · usd    — 서버 확정 → 활성 계좌 달러 예수금에 즉시 입금·저장
+   · stock  — 서버 확정 → 보유종목에 해당 수량을 평단 0원(증여)으로 추가
+   · coupon — 서버가 1회용 쿠폰 코드를 실제 발급(유효 90일) → 표시·복사·선물 */
+const EVT_CATALOG=[
+ {g:'이용권',t:'Basic 1일',p:{type:"tier",tier:"basic",days:1}},
+ {g:'이용권',t:'Basic 3일',p:{type:"tier",tier:"basic",days:3}},
+ {g:'이용권',t:'Basic 7일',p:{type:"tier",tier:"basic",days:7}},
+ {g:'이용권',t:'Basic 14일',p:{type:"tier",tier:"basic",days:14}},
+ {g:'이용권',t:'Basic 30일',p:{type:"tier",tier:"basic",days:30}},
+ {g:'이용권',t:'Basic 90일',p:{type:"tier",tier:"basic",days:90}},
+ {g:'이용권',t:'Plus 1일',p:{type:"tier",tier:"plus",days:1}},
+ {g:'이용권',t:'Plus 3일',p:{type:"tier",tier:"plus",days:3}},
+ {g:'이용권',t:'Plus 7일',p:{type:"tier",tier:"plus",days:7}},
+ {g:'이용권',t:'Plus 14일',p:{type:"tier",tier:"plus",days:14}},
+ {g:'이용권',t:'Plus 30일',p:{type:"tier",tier:"plus",days:30}},
+ {g:'이용권',t:'Plus 60일',p:{type:"tier",tier:"plus",days:60}},
+ {g:'이용권',t:'Plus 90일',p:{type:"tier",tier:"plus",days:90}},
+ {g:'이용권',t:'Pro 1일',p:{type:"tier",tier:"pro",days:1}},
+ {g:'이용권',t:'Pro 3일',p:{type:"tier",tier:"pro",days:3}},
+ {g:'이용권',t:'Pro 5일',p:{type:"tier",tier:"pro",days:5}},
+ {g:'이용권',t:'Pro 7일',p:{type:"tier",tier:"pro",days:7}},
+ {g:'이용권',t:'Pro 14일',p:{type:"tier",tier:"pro",days:14}},
+ {g:'이용권',t:'Pro 21일',p:{type:"tier",tier:"pro",days:21}},
+ {g:'이용권',t:'Pro 30일',p:{type:"tier",tier:"pro",days:30}},
+ {g:'이용권',t:'Pro 60일',p:{type:"tier",tier:"pro",days:60}},
+ {g:'이용권',t:'Pro 90일',p:{type:"tier",tier:"pro",days:90}},
+ {g:'이용권',t:'Pro 180일',p:{type:"tier",tier:"pro",days:180}},
+ {g:'이용권',t:'Pro 365일',p:{type:"tier",tier:"pro",days:365}},
+ {g:'이용권',t:'Max 1일',p:{type:"tier",tier:"max",days:1}},
+ {g:'이용권',t:'Max 3일',p:{type:"tier",tier:"max",days:3}},
+ {g:'이용권',t:'Max 5일',p:{type:"tier",tier:"max",days:5}},
+ {g:'이용권',t:'Max 7일',p:{type:"tier",tier:"max",days:7}},
+ {g:'이용권',t:'Max 14일',p:{type:"tier",tier:"max",days:14}},
+ {g:'이용권',t:'Max 30일',p:{type:"tier",tier:"max",days:30}},
+ {g:'원화 예수금',t:'5만원',p:{type:"cash",amount:50000}},
+ {g:'원화 예수금',t:'10만원',p:{type:"cash",amount:100000}},
+ {g:'원화 예수금',t:'20만원',p:{type:"cash",amount:200000}},
+ {g:'원화 예수금',t:'30만원',p:{type:"cash",amount:300000}},
+ {g:'원화 예수금',t:'50만원',p:{type:"cash",amount:500000}},
+ {g:'원화 예수금',t:'70만원',p:{type:"cash",amount:700000}},
+ {g:'원화 예수금',t:'100만원',p:{type:"cash",amount:1000000}},
+ {g:'원화 예수금',t:'200만원',p:{type:"cash",amount:2000000}},
+ {g:'원화 예수금',t:'300만원',p:{type:"cash",amount:3000000}},
+ {g:'원화 예수금',t:'500만원',p:{type:"cash",amount:5000000}},
+ {g:'원화 예수금',t:'700만원',p:{type:"cash",amount:7000000}},
+ {g:'원화 예수금',t:'1,000만원',p:{type:"cash",amount:10000000}},
+ {g:'원화 예수금',t:'2,000만원',p:{type:"cash",amount:20000000}},
+ {g:'원화 예수금',t:'3,000만원',p:{type:"cash",amount:30000000}},
+ {g:'원화 예수금',t:'5,000만원',p:{type:"cash",amount:50000000}},
+ {g:'원화 예수금',t:'7,000만원',p:{type:"cash",amount:70000000}},
+ {g:'원화 예수금',t:'1억원',p:{type:"cash",amount:100000000}},
+ {g:'원화 예수금',t:'2억원',p:{type:"cash",amount:200000000}},
+ {g:'원화 예수금',t:'3억원',p:{type:"cash",amount:300000000}},
+ {g:'원화 예수금',t:'5억원',p:{type:"cash",amount:500000000}},
+ {g:'원화 예수금',t:'10억원',p:{type:"cash",amount:1000000000}},
+ {g:'달러 예수금',t:'$50',p:{type:"usd",amount:50}},
+ {g:'달러 예수금',t:'$100',p:{type:"usd",amount:100}},
+ {g:'달러 예수금',t:'$200',p:{type:"usd",amount:200}},
+ {g:'달러 예수금',t:'$300',p:{type:"usd",amount:300}},
+ {g:'달러 예수금',t:'$500',p:{type:"usd",amount:500}},
+ {g:'달러 예수금',t:'$700',p:{type:"usd",amount:700}},
+ {g:'달러 예수금',t:'$1,000',p:{type:"usd",amount:1000}},
+ {g:'달러 예수금',t:'$2,000',p:{type:"usd",amount:2000}},
+ {g:'달러 예수금',t:'$3,000',p:{type:"usd",amount:3000}},
+ {g:'달러 예수금',t:'$5,000',p:{type:"usd",amount:5000}},
+ {g:'달러 예수금',t:'$10,000',p:{type:"usd",amount:10000}},
+ {g:'달러 예수금',t:'$20,000',p:{type:"usd",amount:20000}},
+ {g:'달러 예수금',t:'$30,000',p:{type:"usd",amount:30000}},
+ {g:'달러 예수금',t:'$50,000',p:{type:"usd",amount:50000}},
+ {g:'달러 예수금',t:'$100,000',p:{type:"usd",amount:100000}},
+ {g:'주식 지급',t:'삼성전자 1주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:1}},
+ {g:'주식 지급',t:'삼성전자 5주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:5}},
+ {g:'주식 지급',t:'삼성전자 10주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:10}},
+ {g:'주식 지급',t:'삼성전자 50주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:50}},
+ {g:'주식 지급',t:'SK하이닉스 1주',p:{type:"stock",code:"000660",stockName:"SK하이닉스",qty:1}},
+ {g:'주식 지급',t:'SK하이닉스 5주',p:{type:"stock",code:"000660",stockName:"SK하이닉스",qty:5}},
+ {g:'주식 지급',t:'NAVER 1주',p:{type:"stock",code:"035420",stockName:"NAVER",qty:1}},
+ {g:'주식 지급',t:'NAVER 5주',p:{type:"stock",code:"035420",stockName:"NAVER",qty:5}},
+ {g:'주식 지급',t:'카카오 5주',p:{type:"stock",code:"035720",stockName:"카카오",qty:5}},
+ {g:'주식 지급',t:'카카오 20주',p:{type:"stock",code:"035720",stockName:"카카오",qty:20}},
+ {g:'주식 지급',t:'현대차 1주',p:{type:"stock",code:"005380",stockName:"현대차",qty:1}},
+ {g:'주식 지급',t:'기아 1주',p:{type:"stock",code:"000270",stockName:"기아",qty:1}},
+ {g:'주식 지급',t:'셀트리온 1주',p:{type:"stock",code:"068270",stockName:"셀트리온",qty:1}},
+ {g:'주식 지급',t:'두산에너빌리티 3주',p:{type:"stock",code:"034020",stockName:"두산에너빌리티",qty:3}},
+ {g:'주식 지급',t:'삼성SDI 1주',p:{type:"stock",code:"006400",stockName:"삼성SDI",qty:1}},
+ {g:'주식 지급',t:'LG전자 2주',p:{type:"stock",code:"066570",stockName:"LG전자",qty:2}},
+ {g:'주식 지급',t:'LG화학 1주',p:{type:"stock",code:"051910",stockName:"LG화학",qty:1}},
+ {g:'주식 지급',t:'POSCO홀딩스 1주',p:{type:"stock",code:"005490",stockName:"POSCO홀딩스",qty:1}},
+ {g:'주식 지급',t:'포스코퓨처엠 1주',p:{type:"stock",code:"003670",stockName:"포스코퓨처엠",qty:1}},
+ {g:'주식 지급',t:'KB금융 2주',p:{type:"stock",code:"105560",stockName:"KB금융",qty:2}},
+ {g:'주식 지급',t:'신한지주 2주',p:{type:"stock",code:"055550",stockName:"신한지주",qty:2}},
+ {g:'주식 지급',t:'하나금융지주 2주',p:{type:"stock",code:"086790",stockName:"하나금융지주",qty:2}},
+ {g:'주식 지급',t:'한국전력 5주',p:{type:"stock",code:"015760",stockName:"한국전력",qty:5}},
+ {g:'주식 지급',t:'한전기술 2주',p:{type:"stock",code:"052690",stockName:"한전기술",qty:2}},
+ {g:'주식 지급',t:'한화오션 3주',p:{type:"stock",code:"042660",stockName:"한화오션",qty:3}},
+ {g:'주식 지급',t:'한화에어로스페이스 1주',p:{type:"stock",code:"012450",stockName:"한화에어로스페이스",qty:1}},
+ {g:'주식 지급',t:'한국항공우주 2주',p:{type:"stock",code:"047810",stockName:"한국항공우주",qty:2}},
+ {g:'주식 지급',t:'삼성물산 1주',p:{type:"stock",code:"028260",stockName:"삼성물산",qty:1}},
+ {g:'주식 지급',t:'SK텔레콤 2주',p:{type:"stock",code:"017670",stockName:"SK텔레콤",qty:2}},
+ {g:'주식 지급',t:'KT 3주',p:{type:"stock",code:"030200",stockName:"KT",qty:3}},
+ {g:'주식 지급',t:'KT&G 1주',p:{type:"stock",code:"033780",stockName:"KT&G",qty:1}},
+ {g:'주식 지급',t:'아모레퍼시픽 1주',p:{type:"stock",code:"090430",stockName:"아모레퍼시픽",qty:1}},
+ {g:'주식 지급',t:'CJ제일제당 1주',p:{type:"stock",code:"097950",stockName:"CJ제일제당",qty:1}},
+ {g:'주식 지급',t:'이마트 1주',p:{type:"stock",code:"139480",stockName:"이마트",qty:1}},
+ {g:'주식 지급',t:'농심 1주',p:{type:"stock",code:"004370",stockName:"농심",qty:1}},
+ {g:'주식 지급',t:'오리온 1주',p:{type:"stock",code:"271560",stockName:"오리온",qty:1}},
+ {g:'주식 지급',t:'NH투자증권 5주',p:{type:"stock",code:"005940",stockName:"NH투자증권",qty:5}},
+ {g:'주식 지급',t:'키움증권 1주',p:{type:"stock",code:"039490",stockName:"키움증권",qty:1}},
+ {g:'주식 지급',t:'미래에셋증권 10주',p:{type:"stock",code:"006800",stockName:"미래에셋증권",qty:10}},
+ {g:'주식 지급',t:'카카오뱅크 5주',p:{type:"stock",code:"323410",stockName:"카카오뱅크",qty:5}},
+ {g:'주식 지급',t:'카카오페이 3주',p:{type:"stock",code:"377300",stockName:"카카오페이",qty:3}},
+ {g:'주식 지급',t:'크래프톤 1주',p:{type:"stock",code:"259960",stockName:"크래프톤",qty:1}},
+ {g:'주식 지급',t:'엔씨소프트 1주',p:{type:"stock",code:"036570",stockName:"엔씨소프트",qty:1}},
+ {g:'주식 지급',t:'넷마블 2주',p:{type:"stock",code:"251270",stockName:"넷마블",qty:2}},
+ {g:'주식 지급',t:'하이브 1주',p:{type:"stock",code:"352820",stockName:"하이브",qty:1}},
+ {g:'주식 지급',t:'LG에너지솔루션 1주',p:{type:"stock",code:"373220",stockName:"LG에너지솔루션",qty:1}},
+ {g:'주식 지급',t:'삼성바이오로직스 1주',p:{type:"stock",code:"207940",stockName:"삼성바이오로직스",qty:1}},
+ {g:'주식 지급',t:'SK바이오팜 2주',p:{type:"stock",code:"326030",stockName:"SK바이오팜",qty:2}},
+ {g:'주식 지급',t:'유한양행 1주',p:{type:"stock",code:"000100",stockName:"유한양행",qty:1}},
+ {g:'주식 지급',t:'한미약품 1주',p:{type:"stock",code:"128940",stockName:"한미약품",qty:1}},
+ {g:'주식 지급',t:'HMM 5주',p:{type:"stock",code:"011200",stockName:"HMM",qty:5}},
+ {g:'주식 지급',t:'대한항공 5주',p:{type:"stock",code:"003490",stockName:"대한항공",qty:5}},
+ {g:'주식 지급',t:'SK 1주',p:{type:"stock",code:"034730",stockName:"SK",qty:1}},
+ {g:'주식 지급',t:'LG 2주',p:{type:"stock",code:"003550",stockName:"LG",qty:2}},
+ {g:'주식 지급',t:'삼성전자우 2주',p:{type:"stock",code:"005935",stockName:"삼성전자우",qty:2}},
+ {g:'주식 지급',t:'삼성전기 1주',p:{type:"stock",code:"009150",stockName:"삼성전기",qty:1}},
+ {g:'주식 지급',t:'삼성에스디에스 1주',p:{type:"stock",code:"018260",stockName:"삼성에스디에스",qty:1}},
+ {g:'주식 지급',t:'삼성생명 2주',p:{type:"stock",code:"032830",stockName:"삼성생명",qty:2}},
+ {g:'주식 지급',t:'삼성화재 1주',p:{type:"stock",code:"000810",stockName:"삼성화재",qty:1}},
+ {g:'주식 지급',t:'고려아연 1주',p:{type:"stock",code:"010130",stockName:"고려아연",qty:1}},
+ {g:'쿠폰 코드',t:'Basic 3일 쿠폰',p:{type:"coupon",tier:"basic",days:3}},
+ {g:'쿠폰 코드',t:'Basic 7일 쿠폰',p:{type:"coupon",tier:"basic",days:7}},
+ {g:'쿠폰 코드',t:'Basic 14일 쿠폰',p:{type:"coupon",tier:"basic",days:14}},
+ {g:'쿠폰 코드',t:'Basic 30일 쿠폰',p:{type:"coupon",tier:"basic",days:30}},
+ {g:'쿠폰 코드',t:'Plus 3일 쿠폰',p:{type:"coupon",tier:"plus",days:3}},
+ {g:'쿠폰 코드',t:'Plus 7일 쿠폰',p:{type:"coupon",tier:"plus",days:7}},
+ {g:'쿠폰 코드',t:'Plus 14일 쿠폰',p:{type:"coupon",tier:"plus",days:14}},
+ {g:'쿠폰 코드',t:'Plus 30일 쿠폰',p:{type:"coupon",tier:"plus",days:30}},
+ {g:'쿠폰 코드',t:'Plus 60일 쿠폰',p:{type:"coupon",tier:"plus",days:60}},
+ {g:'쿠폰 코드',t:'Plus 90일 쿠폰',p:{type:"coupon",tier:"plus",days:90}},
+ {g:'쿠폰 코드',t:'Pro 1일 쿠폰',p:{type:"coupon",tier:"pro",days:1}},
+ {g:'쿠폰 코드',t:'Pro 3일 쿠폰',p:{type:"coupon",tier:"pro",days:3}},
+ {g:'쿠폰 코드',t:'Pro 7일 쿠폰',p:{type:"coupon",tier:"pro",days:7}},
+ {g:'쿠폰 코드',t:'Pro 14일 쿠폰',p:{type:"coupon",tier:"pro",days:14}},
+ {g:'쿠폰 코드',t:'Pro 30일 쿠폰',p:{type:"coupon",tier:"pro",days:30}},
+ {g:'쿠폰 코드',t:'Pro 60일 쿠폰',p:{type:"coupon",tier:"pro",days:60}},
+ {g:'쿠폰 코드',t:'Pro 90일 쿠폰',p:{type:"coupon",tier:"pro",days:90}},
+ {g:'쿠폰 코드',t:'Max 1일 쿠폰',p:{type:"coupon",tier:"max",days:1}},
+ {g:'쿠폰 코드',t:'Max 3일 쿠폰',p:{type:"coupon",tier:"max",days:3}},
+ {g:'쿠폰 코드',t:'Max 7일 쿠폰',p:{type:"coupon",tier:"max",days:7}},
+ {g:'쿠폰 코드',t:'Max 14일 쿠폰',p:{type:"coupon",tier:"max",days:14}},
+ {g:'쿠폰 코드',t:'Max 30일 쿠폰',p:{type:"coupon",tier:"max",days:30}},
+ {g:'쿠폰 코드',t:'Max 60일 쿠폰',p:{type:"coupon",tier:"max",days:60}},
+ {g:'쿠폰 코드',t:'Max 90일 쿠폰',p:{type:"coupon",tier:"max",days:90}},
+ {g:'미국 주식',t:'애플 1주',p:{type:"usstock",ticker:"AAPL",usName:"애플",qty:1}},
+ {g:'미국 주식',t:'애플 3주',p:{type:"usstock",ticker:"AAPL",usName:"애플",qty:3}},
+ {g:'미국 주식',t:'마이크로소프트 1주',p:{type:"usstock",ticker:"MSFT",usName:"마이크로소프트",qty:1}},
+ {g:'미국 주식',t:'엔비디아 1주',p:{type:"usstock",ticker:"NVDA",usName:"엔비디아",qty:1}},
+ {g:'미국 주식',t:'엔비디아 3주',p:{type:"usstock",ticker:"NVDA",usName:"엔비디아",qty:3}},
+ {g:'미국 주식',t:'테슬라 1주',p:{type:"usstock",ticker:"TSLA",usName:"테슬라",qty:1}},
+ {g:'미국 주식',t:'테슬라 3주',p:{type:"usstock",ticker:"TSLA",usName:"테슬라",qty:3}},
+ {g:'미국 주식',t:'알파벳 A 1주',p:{type:"usstock",ticker:"GOOGL",usName:"알파벳 A",qty:1}},
+ {g:'미국 주식',t:'아마존 1주',p:{type:"usstock",ticker:"AMZN",usName:"아마존",qty:1}},
+ {g:'미국 주식',t:'메타 1주',p:{type:"usstock",ticker:"META",usName:"메타",qty:1}},
+ {g:'미국 주식',t:'AMD 2주',p:{type:"usstock",ticker:"AMD",usName:"AMD",qty:2}},
+ {g:'미국 주식',t:'넷플릭스 1주',p:{type:"usstock",ticker:"NFLX",usName:"넷플릭스",qty:1}},
+ {g:'미국 주식',t:'인텔 5주',p:{type:"usstock",ticker:"INTC",usName:"인텔",qty:5}},
+ {g:'미국 주식',t:'코카콜라 3주',p:{type:"usstock",ticker:"KO",usName:"코카콜라",qty:3}},
+ {g:'미국 주식',t:'맥도날드 1주',p:{type:"usstock",ticker:"MCD",usName:"맥도날드",qty:1}},
+ {g:'미국 주식',t:'디즈니 2주',p:{type:"usstock",ticker:"DIS",usName:"디즈니",qty:2}},
+ {g:'미국 주식',t:'JP모건 1주',p:{type:"usstock",ticker:"JPM",usName:"JP모건",qty:1}},
+ {g:'미국 주식',t:'비자 1주',p:{type:"usstock",ticker:"V",usName:"비자",qty:1}},
+ {g:'ETF 지급',t:'KODEX 200 5주',p:{type:"stock",code:"069500",stockName:"KODEX 200",qty:5}},
+ {g:'ETF 지급',t:'KODEX 레버리지 3주',p:{type:"stock",code:"122630",stockName:"KODEX 레버리지",qty:3}},
+ {g:'ETF 지급',t:'KODEX 코스닥150 5주',p:{type:"stock",code:"229200",stockName:"KODEX 코스닥150",qty:5}},
+ {g:'ETF 지급',t:'TIGER 미국S&P500 5주',p:{type:"stock",code:"360750",stockName:"TIGER 미국S&P500",qty:5}},
+ {g:'ETF 지급',t:'TIGER 미국나스닥100 3주',p:{type:"stock",code:"133690",stockName:"TIGER 미국나스닥100",qty:3}},
+ {g:'ETF 지급',t:'TIGER 2차전지테마 3주',p:{type:"stock",code:"305540",stockName:"TIGER 2차전지테마",qty:3}},
+ {g:'ETF 지급',t:'KODEX 반도체 3주',p:{type:"stock",code:"091160",stockName:"KODEX 반도체",qty:3}},
+ {g:'ETF 지급',t:'TIGER 200 5주',p:{type:"stock",code:"102110",stockName:"TIGER 200",qty:5}},
+ {g:'랜덤 박스',t:'소형 랜덤 박스(1만~100만원)',p:{type:"lucky",cur:"krw",min:10000,max:1000000}},
+ {g:'랜덤 박스',t:'중형 랜덤 박스(10만~1,000만원)',p:{type:"lucky",cur:"krw",min:100000,max:10000000}},
+ {g:'랜덤 박스',t:'대형 랜덤 박스(100만~1억원)',p:{type:"lucky",cur:"krw",min:1000000,max:100000000}},
+ {g:'랜덤 박스',t:'초대형 랜덤 박스(1,000만~10억원)',p:{type:"lucky",cur:"krw",min:10000000,max:1000000000}},
+ {g:'랜덤 박스',t:'달러 랜덤 S($10~$1,000)',p:{type:"lucky",cur:"usd",min:10,max:1000}},
+ {g:'랜덤 박스',t:'달러 랜덤 M($100~$10,000)',p:{type:"lucky",cur:"usd",min:100,max:10000}},
+ {g:'랜덤 박스',t:'달러 랜덤 L($1,000~$100,000)',p:{type:"lucky",cur:"usd",min:1000,max:100000}},
+ {g:'랜덤 박스',t:'반반 랜덤(50만~500만원)',p:{type:"lucky",cur:"krw",min:500000,max:5000000}},
+ {g:'종합 패키지',t:'스타터 팩(Basic 7일+50만원)',p:{type:"bundle",items:[{"type": "tier", "tier": "basic", "days": 7}, {"type": "cash", "amount": 500000}]}},
+ {g:'종합 패키지',t:'입문 팩(Plus 7일+100만원)',p:{type:"bundle",items:[{"type": "tier", "tier": "plus", "days": 7}, {"type": "cash", "amount": 1000000}]}},
+ {g:'종합 패키지',t:'성장 팩(Pro 7일+300만원)',p:{type:"bundle",items:[{"type": "tier", "tier": "pro", "days": 7}, {"type": "cash", "amount": 3000000}]}},
+ {g:'종합 패키지',t:'프로 팩(Pro 30일+500만원+$500)',p:{type:"bundle",items:[{"type": "tier", "tier": "pro", "days": 30}, {"type": "cash", "amount": 5000000}, {"type": "usd", "amount": 500}]}},
+ {g:'종합 패키지',t:'맥스 팩(Max 7일+1,000만원)',p:{type:"bundle",items:[{"type": "tier", "tier": "max", "days": 7}, {"type": "cash", "amount": 10000000}]}},
+ {g:'종합 패키지',t:'국민주 팩(삼성전자 1주+10만원)',p:{type:"bundle",items:[{"type": "stock", "code": "005930", "stockName": "삼성전자", "qty": 1}, {"type": "cash", "amount": 100000}]}},
+ {g:'종합 패키지',t:'반도체 팩(SK하이닉스 1주+Pro 3일)',p:{type:"bundle",items:[{"type": "stock", "code": "000660", "stockName": "SK하이닉스", "qty": 1}, {"type": "tier", "tier": "pro", "days": 3}]}},
+ {g:'종합 패키지',t:'미국 입문 팩(애플 1주+$300)',p:{type:"bundle",items:[{"type": "usstock", "ticker": "AAPL", "usName": "애플", "qty": 1}, {"type": "usd", "amount": 300}]}},
+ {g:'종합 패키지',t:'선물 팩(Pro 7일 쿠폰+100만원)',p:{type:"bundle",items:[{"type": "coupon", "tier": "pro", "days": 7}, {"type": "cash", "amount": 1000000}]}},
+ {g:'종합 패키지',t:'올인원 팩(Pro 7일+삼성전자 1주+$100)',p:{type:"bundle",items:[{"type": "tier", "tier": "pro", "days": 7}, {"type": "stock", "code": "005930", "stockName": "삼성전자", "qty": 1}, {"type": "usd", "amount": 100}]}},
+ {g:'관심종목 팩',t:'AI 반도체 5선',p:{type:"watchpack",packName:"AI 반도체 5선",codes:["005930", "000660", "042700", "403870", "098460"]}},
+ {g:'관심종목 팩',t:'2차전지 5선',p:{type:"watchpack",packName:"2차전지 5선",codes:["373220", "006400", "051910", "247540", "086520"]}},
+ {g:'관심종목 팩',t:'바이오 5선',p:{type:"watchpack",packName:"바이오 5선",codes:["207940", "068270", "326030", "000100", "128940"]}},
+ {g:'관심종목 팩',t:'금융 고배당 5선',p:{type:"watchpack",packName:"금융 고배당 5선",codes:["105560", "055550", "086790", "032830", "000810"]}},
+ {g:'관심종목 팩',t:'방산 5선',p:{type:"watchpack",packName:"방산 5선",codes:["012450", "047810", "042660", "064350", "272210"]}},
+ {g:'관심종목 팩',t:'엔터·게임 5선',p:{type:"watchpack",packName:"엔터·게임 5선",codes:["352820", "035900", "041510", "259960", "036570"]}},
+];
+
+let _evtItems=null,_evtBusy=false;
+const EVT_BEN=(ev)=>{
+  const nm={basic:'Basic',plus:'Plus',pro:'Pro',max:'Max'}[ev.tier]||ev.tier;
+  if(ev.type==='tier')return {ic:'🎟',txt:nm+' 이용권 '+ev.days+'일',cls:'tier'};
+  if(ev.type==='coupon')return {ic:'🎫',txt:nm+' '+ev.days+'일 쿠폰 코드',cls:'coupon'};
+  if(ev.type==='stock')return {ic:'📈',txt:(ev.stockName||ev.code)+' '+ev.qty+'주',cls:'stock'};
+  if(ev.type==='usstock')return {ic:'🇺🇸',txt:(ev.usName||ev.name||ev.ticker)+' '+(ev.usQty||ev.qty)+'주',cls:'usstock'};
+  if(ev.type==='lucky')return {ic:'🎰',txt:(ev.cur==='usd'?('$'+Number(ev.min).toLocaleString()+'~$'+Number(ev.max).toLocaleString()):(Number(ev.min).toLocaleString()+'~'+Number(ev.max).toLocaleString()+'원'))+' 랜덤',cls:'lucky'};
+  if(ev.type==='bundle')return {ic:'🎁',txt:'종합 패키지 '+((ev.items||[]).length)+'종',cls:'bundle'};
+  if(ev.type==='watchpack')return {ic:'📋',txt:(ev.packName||'관심종목 팩')+' '+((ev.codes||[]).length)+'선',cls:'watchpack'};
+  if(ev.type==='usd')return {ic:'💵',txt:'$'+Number(ev.amount).toLocaleString()+' 달러 예수금',cls:'usd'};
+  return {ic:'💰',txt:Number(ev.amount).toLocaleString()+'원 예수금',cls:'cash'};
+};
+/* [v16.0] 혜택 집행기(클라이언트 몫) — bundle 이 항목별로 재사용한다 */
+async function evtApplyBenefit(b2,ben){
+  if(b2.type==='tier'){
+    tierSet(b2);
+    toast('ok','🎟 이용권이 발급되었습니다',(ben?ben.txt:'')+' — 지금부터 바로 적용돼요');
+    try{if(typeof showTierGift==='function')showTierGift({tier:b2.tier,days:b2.days,from:'이벤트'});}catch(e){}
+  }else if(b2.type==='stock'){
+    const ex=holdings.find(h=>h.code===b2.code&&!h.us);
+    if(ex){ ex.avg=Math.round((ex.avg*ex.qty)/(ex.qty+b2.qty)); ex.qty+=b2.qty; }
+    else holdings.push({code:b2.code,qty:b2.qty,avg:0});
+    try{ensureStock(b2.code,b2.name||'','');}catch(e){}
+    saveState();
+    toast('ok','📈 주식이 지급되었습니다',(b2.name||b2.code)+' '+b2.qty+'주 — 내 계좌 보유종목에서 확인하세요');
+  }else if(b2.type==='usstock'){
+    const tk=String(b2.ticker||'').toUpperCase();
+    const ex=holdings.find(h=>h.code===tk&&h.us);
+    if(ex){ ex.avg=+( (ex.avg*ex.qty)/(ex.qty+b2.qty) ).toFixed(2); ex.qty+=b2.qty; }
+    else holdings.push({code:tk,qty:b2.qty,avg:0,us:1,fxAvg:0});
+    saveState();
+    toast('ok','🇺🇸 미국 주식이 지급되었습니다',(b2.name||tk)+' '+b2.qty+'주 — 해외 보유종목에서 확인하세요');
+  }else if(b2.type==='coupon'){
+    try{navigator.clipboard&&navigator.clipboard.writeText(b2.code).catch(()=>{});}catch(e){}
+    await askConfirm('🎫 쿠폰 코드가 발급되었습니다',
+      b2.code+'\n\n'+({basic:'Basic',plus:'Plus',pro:'Pro',max:'Max'}[b2.tier]||b2.tier)+' '+b2.days+'일 이용권 쿠폰 · 유효 90일\n지금 등록하거나, 복사해 두었다가 선물할 수 있어요. (자동 복사됨)',
+      {okLabel:'확인'});
+    toast('ok','🎫 쿠폰 발급 완료','멤버십 화면의 쿠폰 등록에서 사용할 수 있습니다');
+  }else if(b2.type==='usd'){
+    usdCash=+(usdCash||0)+(+b2.amount||0); saveState();
+    toast('ok',b2.lucky?'🎰 랜덤 박스 당첨!':'💵 달러 예수금 지급 완료','$'+Number(b2.amount).toLocaleString()+' 이 활성 계좌에 입금되었습니다');
+  }else if(b2.type==='watchpack'){
+    let added=0;
+    (b2.codes||[]).forEach(c=>{ if(!watchlist.includes(c)){watchlist.push(c);added++;} try{ensureStock(c,'','');}catch(e){} });
+    saveState();
+    toast('ok','📋 관심종목 팩 담기 완료',(b2.name||'팩')+' — '+added+'종목이 관심종목에 추가되었습니다');
+  }else if(b2.type==='cash'){
+    cash=Math.floor(+cash||0)+Math.floor(+b2.amount||0); saveState();
+    toast('ok',b2.lucky?'🎰 랜덤 박스 당첨!':'💰 예수금 지급 완료',Number(b2.amount).toLocaleString()+'원이 활성 계좌에 입금되었습니다');
+  }
+}
+async function renderEventView(){
+  const el=$('eventList'); if(!el)return;
+  if(!_evtItems&&!_evtBusy){
+    _evtBusy=true;
+    try{
+      fnBump();
+      const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({act:'evtpub',user:(typeof currentUser!=='undefined'&&currentUser)||''})});
+      const j=await r.json();
+      _evtItems=(j&&j.ok&&Array.isArray(j.items))?j.items:[];
+    }catch(e){_evtItems=null;}
+    finally{_evtBusy=false;}
+    if(currentView==='event')renderEventView();
+    return;
+  }
+  const items=_evtItems;
+  if(items===null){el.innerHTML='<div class="empty">이벤트를 불러오지 못했습니다.<br><button class="etf-more" id="evtRetry">다시 시도</button></div>';
+    const b=$('evtRetry'); if(b)b.onclick=()=>{_evtItems=null;renderEventView();}; return;}
+  if(!items.length){el.innerHTML='<div class="empty">지금 진행 중인 이벤트가 없습니다.<br>새 이벤트가 열리면 이곳에서 알려 드릴게요.</div>';return;}
+  const now=Date.now();
+  el.innerHTML=items.map(ev=>{
+    const ben=EVT_BEN(ev);
+    const ended=ev.endAt&&now>ev.endAt;
+    const full=ev.maxJoin&&ev.joined>=ev.maxJoin;
+    const dLeft=ev.endAt?Math.ceil((ev.endAt-now)/86400e3):null;
+    const st=ended?['마감','end']:full?['정원 마감','end']:(dLeft!=null&&dLeft<=3)?['D-'+Math.max(0,dLeft),'hot']:['진행 중','on'];
+    const prog=ev.maxJoin?Math.min(100,Math.round(ev.joined/ev.maxJoin*100)):null;
+    const canJoin=!ended&&!full&&!ev.mine;
+    return '<div class="evt-card '+ben.cls+(ev.mine?' joined':'')+'">'
+      +'<div class="evt-top"><span class="evt-st '+st[1]+'">'+st[0]+'</span>'
+      +(ev.mine?'<span class="evt-mine">✓ 참여 완료</span>':'')+'</div>'
+      +'<div class="evt-tt">'+htmlEsc(ev.title)+'</div>'
+      +(ev.desc?'<div class="evt-d">'+htmlEsc(ev.desc)+'</div>':'')
+      +'<div class="evt-ben"><i>'+ben.ic+'</i><b>'+ben.txt+'</b><span>즉시 지급</span></div>'
+      +'<div class="evt-meta">'
+      +(ev.endAt?'<span>~ '+new Date(ev.endAt).toLocaleDateString('ko-KR',{month:'long',day:'numeric'})+'</span>':'<span>상시</span>')
+      +'<span>·</span><span class="num">'+(ev.joined||0).toLocaleString()+'명 참여'
+      +(ev.maxJoin?' / '+ev.maxJoin.toLocaleString()+'명 한정':'')+'</span></div>'
+      +(prog!=null?'<div class="evt-prog"><i style="width:'+prog+'%"></i></div>':'')
+      +'<button class="evt-go" data-evt="'+ev.id+'"'+(canJoin?'':' disabled')+'>'
+      +(ev.mine?'참여 완료':ended?'마감된 이벤트':full?'정원 마감':'지금 참여하고 받기')+'</button></div>';
+  }).join('');
+  el.querySelectorAll('.evt-go[data-evt]:not([disabled])').forEach(b=>b.onclick=()=>evtJoin(b.dataset.evt));
+}
+async function evtJoin(id){
+  if(typeof currentUser==='undefined'||!currentUser){toast('warn','로그인이 필요합니다','이벤트는 로그인 후 참여할 수 있어요');return;}
+  const ev=(_evtItems||[]).find(x=>x.id===id); if(!ev)return;
+  const ben=EVT_BEN(ev);
+  if(!await askConfirm('이벤트 참여',"'"+ev.title+"' — 혜택: "+ben.txt+" (즉시 지급)",{okLabel:'참여하기'}))return;
+  try{
+    fnBump();
+    const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({act:'evtjoin',id,user:currentUser})});
+    const j=await r.json();
+    if(!j||!j.ok){toast('warn','참여하지 못했습니다',(j&&j.msg)||'잠시 후 다시 시도해 주세요');
+      if(j&&(j.err==='dup'||j.err==='ended'||j.err==='full')){_evtItems=null;renderEventView();}
+      return;}
+    const b2=j.benefit||{};
+    if(b2.type==='bundle'){
+      for(const it of (b2.items||[]))await evtApplyBenefit(it,EVT_BEN(it));
+      toast('ok','🎁 패키지 지급 완료',(b2.items||[]).length+'가지 혜택이 모두 지급되었습니다');
+    }else{
+      await evtApplyBenefit(b2,ben);
+    }
+    _evtItems=null; renderEventView();
+  }catch(e){toast('warn','서버 연결 실패','잠시 후 다시 시도해 주세요');}
+}
+
 async function admCall(body){
   const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({...body,token:admTokGet()})});
@@ -20750,6 +21113,52 @@ function renderAdmWork(){
   </div>
 
   <div class="panel adm-sec">
+    <div class="as-h">이벤트 관리</div>
+    <div class="as-d">참여 즉시 혜택이 지급되는 이벤트를 만듭니다. 이용권은 서버가 등급을 바로 부여하고, 예수금은 참여자 활성 계좌에 입금됩니다.</div>
+    <div class="as-grid2">
+      <label>상품 카탈로그(200종)<select id="evPick"><option value="">— 직접 입력 —</option></select></label>
+      <label>제목<input id="evTitle" maxlength="60" placeholder="예: 가을맞이 Pro 7일 무료"></label>
+      <label>설명(선택)<input id="evDesc" maxlength="200" placeholder="한 줄 소개"></label>
+      <label>혜택 유형<select id="evType">
+        <option value="tier">이용권(등급 직부여)</option>
+        <option value="cash">원화 예수금</option>
+        <option value="usd">달러 예수금</option>
+        <option value="stock">주식 지급</option>
+        <option value="usstock">미국 주식 지급</option>
+        <option value="coupon">쿠폰 코드 발급</option>
+        <option value="lucky">랜덤 박스</option>
+        <option value="bundle">종합 패키지(카탈로그 전용)</option>
+        <option value="watchpack">관심종목 팩(카탈로그 전용)</option></select></label>
+      <label id="evTierWrap">등급·기간<span style="display:flex;gap:6px">
+        <select id="evTier"><option value="basic">Basic</option><option value="plus">Plus</option>
+          <option value="pro" selected>Pro</option><option value="max">Max</option></select>
+        <input id="evDays" type="number" min="1" max="365" value="7" style="width:70px"> 일</span></label>
+      <label id="evAmtWrap" hidden>지급 금액<input id="evAmt" type="number" min="1" placeholder="예: 5000000"></label>
+      <label id="evStockWrap" hidden>종목·수량
+        <span style="display:flex;gap:6px;position:relative">
+          <input id="evStockQ" placeholder="종목명·코드 검색 (예: 삼성)" style="flex:1" autocomplete="off">
+          <input id="evQty" type="number" min="1" max="1000" value="1" style="width:64px"> 주
+          <div id="evStockList" class="ev-sr" hidden></div></span>
+        <span style="display:flex;gap:6px;margin-top:5px">
+          <input id="evCode" maxlength="10" placeholder="종목코드" style="width:90px">
+          <input id="evSname" maxlength="30" placeholder="종목명" style="flex:1"></span></label>
+      <label id="evUsWrap" hidden>미국 종목·수량<span style="display:flex;gap:6px">
+        <input id="evTicker" maxlength="8" placeholder="티커(예: AAPL)" style="width:110px">
+        <input id="evUsName" maxlength="30" placeholder="종목명" style="flex:1">
+        <input id="evUsQty" type="number" min="1" max="1000" value="1" style="width:64px"> 주</span></label>
+      <label id="evLuckyWrap" hidden>랜덤 범위<span style="display:flex;gap:6px;align-items:center">
+        <select id="evCur" style="width:84px"><option value="krw">원화</option><option value="usd">달러</option></select>
+        <input id="evMin" type="number" min="1" placeholder="최소" style="flex:1"> ~
+        <input id="evLMax" type="number" min="1" placeholder="최대" style="flex:1"></span></label>
+      <label>종료일(선택)<input id="evEnd" type="date"></label>
+      <label>최대 인원(0=무제한)<input id="evMax" type="number" min="0" value="0"></label>
+    </div>
+    <div class="as-btns"><button type="button" class="mc-btn" id="evCreate">이벤트 만들기</button>
+      <button type="button" class="mc-btn" id="evList">이벤트 목록</button></div>
+    <div class="as-out" id="evOut"></div>
+  </div>
+
+  <div class="panel adm-sec">
     <div class="as-h">쿠폰 상태 조회</div>
     <div class="as-grid2"><label>코드<input id="ciCode" placeholder="LIVE-XXXXX-XXXXX-XXXXX-0" autocomplete="off"></label></div>
     <div class="as-btns"><button type="button" class="mc-btn" id="ciGo">조회</button></div>
@@ -20897,6 +21306,113 @@ function wireAdmTools(){
     finally{busy(dn2,false,'NXT 명단 상태');}
   };
   /* ── [v15.4] 2차 도구 배선 ── */
+  /* ── [v15.7] 이벤트 관리 배선 ── */
+  const evType=$('evType');
+  const _evSync=()=>{const t=evType.value;
+    $('evTierWrap').hidden=!(t==='tier'||t==='coupon');
+    $('evAmtWrap').hidden=!(t==='cash'||t==='usd');
+    $('evStockWrap').hidden=t!=='stock';
+    $('evUsWrap').hidden=t!=='usstock';
+    $('evLuckyWrap').hidden=t!=='lucky';};
+  /* [v16.0] 종목 수동 검색 선택기 — 전 상장 종목에서 이름·코드로 찾아 채운다 */
+  const evQ=$('evStockQ'), evSL=$('evStockList');
+  if(evQ&&evSL){
+    evQ.oninput=()=>{
+      const q=evQ.value.trim().toLowerCase();
+      if(q.length<1){evSL.hidden=true;return;}
+      /* stockAll 이 아직 안 실렸으면(검색 뷰 미방문) 캐시 → 없으면 전체 목록을
+         비동기로 불러오고, 도착하면 지금 입력으로 다시 검색해 준다 */
+      if(!(stockAll&&stockAll.length)){
+        try{loadStockCache();}catch(e){}
+        if(!(stockAll&&stockAll.length)&&!evQ._loading){
+          evQ._loading=true;
+          evSL.innerHTML='<button type="button" disabled>전체 종목 목록을 불러오는 중…</button>';
+          evSL.hidden=false;
+          Promise.resolve().then(()=>loadStockAll()).then(()=>{evQ._loading=false;
+            if(document.activeElement===evQ||evQ.value)evQ.oninput();}).catch(()=>{evQ._loading=false;});
+          return;
+        }
+      }
+      const src=(stockAll&&stockAll.length)?stockAll
+        :Object.values(byCode).filter(x=>x&&x.name&&!x.us&&/^\d{6}$/.test(String(x.code||'')));
+      const hits=src.filter(x=>(x.name||'').toLowerCase().includes(q)||String(x.code||'').startsWith(q)).slice(0,8);
+      if(!hits.length){evSL.hidden=true;return;}
+      evSL.innerHTML=hits.map(x=>`<button type="button" data-c="${x.code}" data-n="${htmlEsc(x.name)}"><b>${htmlEsc(x.name)}</b><span class="num">${x.code}</span></button>`).join('');
+      evSL.hidden=false;
+      evSL.querySelectorAll('button').forEach(b2=>b2.onclick=()=>{
+        $('evCode').value=b2.dataset.c; $('evSname').value=b2.dataset.n;
+        evQ.value=b2.dataset.n; evSL.hidden=true;});
+    };
+    evQ.onblur=()=>setTimeout(()=>{evSL.hidden=true;},250);
+  }
+  let _evBundle=null,_evPack=null;   /* 카탈로그 전용 payload 보관 */
+  if(evType)evType.onchange=_evSync;
+  /* 카탈로그 50종 — 그룹 optgroup 으로 채우고, 고르면 폼 자동 완성 */
+  const evPick=$('evPick');
+  if(evPick&&evPick.options.length<=1){
+    let g=null,og=null;
+    EVT_CATALOG.forEach((it,i)=>{
+      if(it.g!==g){g=it.g;og=document.createElement('optgroup');og.label=g;evPick.appendChild(og);}
+      const o=document.createElement('option');o.value=String(i);o.textContent=it.t;og.appendChild(o);});
+    evPick.onchange=()=>{
+      const it=EVT_CATALOG[+evPick.value]; if(!it)return;
+      const p=it.p; evType.value=p.type; _evSync();
+      if(p.tier)$('evTier').value=p.tier;
+      if(p.days)$('evDays').value=p.days;
+      if(p.amount)$('evAmt').value=p.amount;
+      if(p.code){$('evCode').value=p.code;$('evSname').value=p.stockName;$('evQty').value=p.qty;$('evStockQ').value=p.stockName;}
+      if(p.ticker){$('evTicker').value=p.ticker;$('evUsName').value=p.usName;$('evUsQty').value=p.qty||1;}
+      if(p.type==='lucky'){$('evCur').value=p.cur||'krw';$('evMin').value=p.min;$('evLMax').value=p.max;}
+      _evBundle=(p.type==='bundle')?p.items:null;
+      _evPack=(p.type==='watchpack')?{codes:p.codes,packName:p.packName}:null;
+      if(!$('evTitle').value)$('evTitle').value=it.g+' — '+it.t;
+    };
+  }
+  const evC=$('evCreate'); if(evC)evC.onclick=async()=>{
+    const t=$('evType').value;
+    const payload={act:'evtcreate',title:($('evTitle').value||'').trim(),desc:($('evDesc').value||'').trim(),type:t,
+      tier:$('evTier').value,days:+$('evDays').value||7,amount:+$('evAmt').value||0,
+      code:($('evCode').value||'').trim(),stockName:($('evSname').value||'').trim(),qty:+$('evQty').value||1,
+      ticker:($('evTicker').value||'').trim(),usName:($('evUsName').value||'').trim(),usQty:+$('evUsQty').value||1,
+      cur:$('evCur').value,min:+$('evMin').value||0,max:+$('evLMax').value||0,
+      items:_evBundle||undefined,codes:_evPack?_evPack.codes:undefined,packName:_evPack?_evPack.packName:undefined,
+      endAt:$('evEnd').value?new Date($('evEnd').value+'T23:59:59+09:00').getTime():0,
+      maxJoin:+$('evMax').value||0};
+    if(!payload.title){out('evOut','<b class="bad">제목을 넣어 주세요</b>');return;}
+    if((t==='cash'||t==='usd')&&!(payload.amount>0)){out('evOut','<b class="bad">지급 금액을 넣어 주세요</b>');return;}
+    if(t==='stock'&&(!payload.code||!payload.stockName)){out('evOut','<b class="bad">종목을 검색해 선택해 주세요</b>');return;}
+    if(t==='usstock'&&(!payload.ticker||!payload.usName)){out('evOut','<b class="bad">티커·종목명을 넣어 주세요</b>');return;}
+    if(t==='lucky'&&!(payload.max>=payload.min&&payload.min>0)){out('evOut','<b class="bad">랜덤 범위(최소≤최대)를 넣어 주세요</b>');return;}
+    if((t==='bundle'&&!payload.items)||(t==='watchpack'&&!payload.codes)){out('evOut','<b class="bad">이 유형은 카탈로그에서 골라 만들 수 있습니다</b>');return;}
+    busy(evC,true,'이벤트 만들기');
+    try{const j=await admCall(payload);
+      out('evOut',j&&j.ok?`<b>이벤트를 만들었습니다</b> · ${esc(j.ev.title)} <span class="au-sub">(id ${esc(j.ev.id)})</span>`
+                        :'<b class="bad">실패: '+esc(j&&j.err||'')+'</b>');
+      if(j&&j.ok){$('evTitle').value='';$('evDesc').value='';}
+    }catch(e){out('evOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(evC,false,'이벤트 만들기');}
+  };
+  const evL=$('evList'); if(evL)evL.onclick=async()=>{
+    busy(evL,true,'이벤트 목록');
+    try{const j=await admCall({act:'evtadmin'});
+      if(j&&j.ok){
+        out('evOut',j.items.length?j.items.map(ev=>{
+          const ben=EVT_BEN(ev); const benTxt=ben.ic+' '+ben.txt;
+          return `<div class="au-card"><b>${esc(ev.title)}</b> · ${benTxt}${ev.disabled?' · <b class="bad">중지됨</b>':''}
+            <div class="au-sub num">${(ev.joined||0)}명 참여${ev.maxJoin?` / ${ev.maxJoin}명`:''} · ${ev.endAt?('~'+new Date(ev.endAt).toLocaleDateString('ko-KR')):'상시'}</div>
+            <div class="as-btns" style="margin-top:7px">
+              <button type="button" class="mc-btn" data-evstop="${esc(ev.id)}">${ev.disabled?'재개':'중지'}</button>
+              <button type="button" class="mc-btn danger" data-evdel="${esc(ev.id)}">삭제</button></div></div>`;
+        }).join(''):'<div class="au-sub">만든 이벤트가 없습니다</div>');
+        document.querySelectorAll('[data-evstop]').forEach(b=>b.onclick=async()=>{
+          const j2=await admCall({act:'evtstop',id:b.dataset.evstop}); if(j2&&j2.ok)evL.click();});
+        document.querySelectorAll('[data-evdel]').forEach(b=>b.onclick=async()=>{
+          if(!await askConfirm('이벤트 삭제','참여 기록 집계도 함께 사라집니다.',{okLabel:'삭제',danger:true}))return;
+          const j2=await admCall({act:'evtdel',id:b.dataset.evdel}); if(j2&&j2.ok)evL.click();});
+      } else out('evOut','<b class="bad">불러오지 못했습니다</b>');
+    }catch(e){out('evOut','<b class="bad">서버 연결 실패</b>');}
+    finally{busy(evL,false,'이벤트 목록');}
+  };
   const ci=$('ciGo'); if(ci)ci.onclick=async()=>{
     const code=($('ciCode').value||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
     if(code.length!==20){out('ciOut','<b class="bad">코드 20자를 그대로 넣어 주세요</b>');return;}
@@ -22519,6 +23035,8 @@ try{
       }catch(e){v.push('audit-err:'+String(e).slice(0,40));}
       return {checked:n,violations:v};
     },
+    applyBenefit:async(b)=>{ try{ await evtApplyBenefit(b,null); return true; }catch(e){ return String(e); } },
+    showUpdGate:()=>{ try{ sessionStorage.removeItem('updGateSkip'); showUpdateGate('test'); return true; }catch(e){ return String(e); } },
     /* [v15.4.2] 봉 렌더 하네스 통로 — 화면 데이터는 건드리지 않는다 */
     rankState:()=>{ try{ return {keys:Object.keys(rankCache),
       n:{'조회수':(rankCache['조회수']||[]).length,'상승률':(rankCache['상승률']||[]).length,'하락률':(rankCache['하락률']||[]).length},

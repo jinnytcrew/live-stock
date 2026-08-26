@@ -5947,8 +5947,19 @@ html:not([data-theme="dark"]) .hm-x{border-top-color:rgba(120,105,70,.16)}
   .chart-labels .chart-ma{font-size:10.5px;gap:3px 10px}
   .chart-labels .chart-vplg{display:inline-flex}
 }
-/* 넓은 화면에서는 껍데기가 없는 것처럼 — 라벨이 예전처럼 차트 위에 겹쳐 뜬다 */
-.chart-labels{display:contents}
+/* ══ [v15.6] 차트 라벨 밴드 — 전 폭 공통 ═══════════════════════════════════════
+   [무엇이 문제였나] 넓은 화면에서는 라벨(봉 종류·MA·매물대 범례)이 캔버스 위
+   오버레이로 돌아가, 왼쪽 위 봉·오른쪽 가격축과 정면 충돌했다(실기 사진).
+   실제 MTS(미래에셋·KB·토스·한투)는 모두 라벨을 차트 "밖" 전용 줄에 둔다.
+   [고침] 모든 폭에서 캔버스 위 별도 밴드로 — 겹침이 구조적으로 불가능하다. */
+.chart-labels{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;
+  padding:4px 6px 8px;position:relative}
+.chart-labels::after{content:'';position:absolute;left:2px;right:2px;bottom:2px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--border) 15%,var(--border) 85%,transparent)}
+.chart-labels .chart-legend,.chart-labels .chart-ma,.chart-labels .chart-vplg{
+  position:static;left:auto;top:auto;right:auto;bottom:auto;margin:0}
+.chart-labels .chart-vplg{display:inline-flex;margin-left:auto;background:none;border:0;box-shadow:none;padding:0}
+.chart-labels .chart-ma{font-size:10.5px}
 
 /* ══ [v10.5] 지수 시세 목록 ═══════════════════════════════════════════════ */
 .ix-sise{border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:12px}
@@ -7017,7 +7028,7 @@ html.dark .cc-box,html.dark .sheet,html.dark .modal-box{box-shadow:0 24px 60px r
    sticky 로 붙여 스크롤을 내려도 주문이 따라오게 한다 — 공백이 '기능'이 된다. */
 @media (min-width:961px){
   .trade-grid{align-items:start}
-  .trade-grid>.panel:last-child{position:sticky;top:78px}
+  .trade-grid>.panel:nth-child(2){position:sticky;top:78px}   /* [v15.6] 주문 패널 고정 — 요약 코너가 뒤에 와도 안전 */
   /* 요약 카드 내부 리듬도 살짝 조인다(뱃지 ↔ 액션 ↔ 통계) */
   .trade-grid .d-head{padding-bottom:16px}
   .trade-grid .d-toolbar{margin-top:12px}
@@ -7202,3 +7213,150 @@ html.dark .px-src,html.dark .mkt-tag{box-shadow:0 1px 0 rgba(255,255,255,.08) in
     color-mix(in srgb,var(--brand-2,#f5a30d) 4%,transparent),transparent 60%)}
 
 @media (prefers-reduced-motion:reduce){.submit,.hero-market,#aeFirstOpen{transition:none}}
+
+/* [v15.6] 계좌 개설 — '계좌 종류' 셀렉트가 …로 잘리던 것: 종류 칸을 넓게 */
+.ae-pick{grid-template-columns:minmax(96px,0.6fr) minmax(200px,1.4fr)}
+.ae-fld select{text-overflow:ellipsis}
+@media (max-width:480px){ .ae-pick{grid-template-columns:1fr} }
+/* [v15.6] 개설 모달 셀렉트 방어 — 어떤 조상 레이아웃에서도 칸을 꽉 채운다 */
+.ae-pick{width:100%}
+.ae-fld select{min-width:100%;box-sizing:border-box}
+/* [v15.6] 한눈 요약 카드 — 넓은 화면에서 왼쪽 2행(주문 패널 옆 공백)을 채운다 */
+.d-glance{padding:16px 18px}
+.dg-h{font-size:13.5px;font-weight:900;letter-spacing:-.4px;margin-bottom:11px;position:relative;padding-left:11px}
+.dg-h::before{content:'';position:absolute;left:0;top:.16em;bottom:.16em;width:3.5px;border-radius:99px;
+  background:linear-gradient(180deg,var(--brand-2,#f5a30d),var(--brand,#12203a))}
+.dg-row{display:flex;align-items:center;gap:10px;margin:9px 0}
+.dg-k{font-size:12px;font-weight:800;color:var(--sub);flex:0 0 84px}
+.dg-v{font-size:15px;font-weight:900;letter-spacing:-.3px}
+.dg-v small{font-size:11px;font-weight:800;color:var(--sub-2);margin-left:1px}
+.dg-v.hot{color:#e5484d}
+.dg-hint{font-size:11px;color:var(--sub-2)}
+.dg-sub{font-size:11.5px;color:var(--sub-2);margin:-4px 0 8px 94px}
+.dg-band{position:relative;flex:1;height:8px;border-radius:99px;
+  background:linear-gradient(90deg,#93c5fd,#e7ebf3 45%,#fca5a5)}
+.dg-band i{position:absolute;top:50%;transform:translate(-50%,-50%);width:13px;height:13px;border-radius:50%;
+  background:#fff;border:3px solid var(--brand-2,#f5a30d);box-shadow:0 1px 5px rgba(0,0,0,.25)}
+@media (max-width:960px){ .d-glance{display:none} }
+
+/* ═══ [v15.6] 업데이트 안내창 리뉴얼 — 멤버십의 결(네이비×금장) ═══════════════ */
+.upd-box.gate{max-width:430px;padding:0;text-align:left;overflow:hidden;border-radius:22px;
+  border:1px solid color-mix(in srgb,#ffd166 26%,transparent);
+  box-shadow:0 30px 70px rgba(8,13,28,.45),0 1px 0 rgba(255,255,255,.35) inset}
+.upd-box.gate .ug-top{position:relative;padding:26px 26px 20px;text-align:left;
+  background:
+    radial-gradient(120% 90% at 88% -10%,rgba(255,209,102,.20),transparent 55%),
+    linear-gradient(135deg,#16233f,var(--brand,#0f1b33));color:#fff}
+.upd-box.gate .ug-top::after{content:'';position:absolute;left:0;right:0;bottom:0;height:3px;
+  background:linear-gradient(90deg,var(--brand-2,#f5a30d),#ffd166,var(--brand-2,#f5a30d))}
+.upd-box.gate .ug-badge{width:52px;height:52px;border-radius:15px;display:flex;align-items:center;justify-content:center;
+  font-size:26px;background:rgba(255,255,255,.10);border:1px solid rgba(255,209,102,.35);
+  box-shadow:0 8px 20px rgba(0,0,0,.3);margin:0 0 12px}
+.upd-box.gate .ug-h{font-size:19px;font-weight:900;letter-spacing:-.7px;margin:0}
+.upd-box.gate .ug-meta{display:flex;align-items:center;gap:9px;margin-top:9px}
+.upd-box.gate .ug-pill{font-size:11.5px;font-weight:900;letter-spacing:.2px;padding:4px 11px;border-radius:99px;
+  color:#3a2600;background:linear-gradient(135deg,#ffd166,#f5a30d);
+  box-shadow:0 3px 9px rgba(245,163,13,.4)}
+.upd-box.gate .ug-date{font-size:11.5px;font-weight:700;color:rgba(255,255,255,.72)}
+.upd-box.gate .ug-body{padding:18px 26px 4px}
+.upd-box.gate .ug-nt{font-size:11.5px;font-weight:900;letter-spacing:.4px;color:var(--sub-2);
+  text-transform:uppercase;margin-bottom:9px;position:relative;padding-left:10px}
+.upd-box.gate .ug-nt::before{content:'';position:absolute;left:0;top:.2em;bottom:.2em;width:3px;border-radius:99px;
+  background:linear-gradient(180deg,var(--brand-2,#f5a30d),#ffd166)}
+.upd-box.gate .ug-notes{list-style:none;margin:0;padding:0;text-align:left}
+.upd-box.gate .ug-notes li{position:relative;padding:7px 0 7px 20px;font-size:12.8px;line-height:1.55;
+  font-weight:700;color:var(--tx)}
+.upd-box.gate .ug-notes li::before{content:'';position:absolute;left:2px;top:13px;width:7px;height:7px;border-radius:50%;
+  background:linear-gradient(135deg,#ffd166,var(--brand-2,#f5a30d));box-shadow:0 0 7px rgba(245,163,13,.5)}
+.upd-box.gate .ug-notes li+li{border-top:1px dashed color-mix(in srgb,var(--border) 75%,transparent)}
+.upd-box.gate .ug-foot{padding:14px 26px 22px}
+.upd-box.gate .ug-d{font-size:11.8px;line-height:1.6;color:var(--sub);margin:0 0 14px;text-align:left}
+.upd-box.gate .ug-go{width:100%;padding:15px;border:0;border-radius:14px;font-size:15px;font-weight:900;
+  letter-spacing:-.3px;color:#fff;cursor:pointer;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33));
+  box-shadow:0 10px 24px color-mix(in srgb,var(--brand,#12203a) 40%,transparent),0 1px 0 rgba(255,255,255,.16) inset;
+  transition:transform .12s,filter .16s}
+.upd-box.gate .ug-go::after{content:'';position:absolute;inset:0 0 55% 0;background:linear-gradient(180deg,rgba(255,255,255,.14),transparent)}
+.upd-box.gate .ug-go:active{transform:translateY(1px)}
+.upd-box.gate .ug-skip{width:100%;margin-top:9px;padding:11px;border:0;background:none;color:var(--sub-2);
+  font-size:12.5px;font-weight:800;cursor:pointer}
+html.dark .upd-box.gate{border-color:rgba(255,209,102,.2)}
+/* [v15.6] 차트 상자 — 라벨 밴드+캔버스가 정확히 상자를 나눠 갖는다(넘침 불가) */
+.chart-box{display:flex;flex-direction:column}
+.chart-labels{flex:0 0 auto}
+#chart{flex:1 1 auto;height:auto;min-height:0}
+/* [v15.6] 한눈 요약 — grid 좌표 명시: 좌측 2행, 주문 패널은 우측 1~2행 통행 */
+@media (min-width:961px){
+  .trade-grid>#dGlance{grid-column:1;grid-row:2;align-self:start}
+  .trade-grid>.panel:nth-child(2){grid-column:2;grid-row:1/span 2}
+}
+
+/* ═══ [v15.7] 이벤트 페이지 — 멤버십의 결(혜택별 색 띠 + 번짐 빛) ═══════════════ */
+#eventList{display:grid;gap:14px;grid-template-columns:1fr}
+@media (min-width:761px){#eventList{grid-template-columns:1fr 1fr}}
+.evt-card{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--border);
+  border-radius:18px;padding:20px 20px 18px;box-shadow:var(--lift);transition:box-shadow .18s,transform .14s}
+.evt-card:hover{box-shadow:var(--lift-hover);transform:translateY(-2px)}
+.evt-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px}
+.evt-card::after{content:'';position:absolute;inset:0;pointer-events:none}
+.evt-card.tier::before{background:linear-gradient(180deg,#a78bfa,#7c3aed)}
+.evt-card.tier::after{background:radial-gradient(110% 70% at 0% 0%,rgba(124,58,237,.08),transparent 55%)}
+.evt-card.cash::before{background:linear-gradient(180deg,#ffd166,#f5a30d)}
+.evt-card.cash::after{background:radial-gradient(110% 70% at 0% 0%,rgba(245,163,13,.10),transparent 55%)}
+.evt-card.usd::before{background:linear-gradient(180deg,#4ade80,#16a34a)}
+.evt-card.usd::after{background:radial-gradient(110% 70% at 0% 0%,rgba(22,163,74,.08),transparent 55%)}
+.evt-card>*{position:relative;z-index:1}
+.evt-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.evt-st{font-size:11px;font-weight:900;letter-spacing:.2px;padding:4px 11px;border-radius:99px}
+.evt-st.on{color:#065f46;background:#d1fae5}
+.evt-st.hot{color:#fff;background:linear-gradient(135deg,#ff6b70,#e5484d);box-shadow:0 3px 9px rgba(229,72,77,.35)}
+.evt-st.end{color:var(--sub-2);background:var(--border-soft)}
+.evt-mine{margin-left:auto;font-size:11.5px;font-weight:900;color:#16a34a}
+.evt-tt{font-size:17px;font-weight:900;letter-spacing:-.6px;line-height:1.3}
+.evt-d{font-size:12.5px;color:var(--sub);margin-top:5px;line-height:1.5}
+.evt-ben{display:flex;align-items:center;gap:9px;margin:13px 0 10px;padding:11px 14px;border-radius:13px;
+  background:color-mix(in srgb,var(--panel) 55%,var(--border-soft));
+  border:1px solid color-mix(in srgb,var(--border) 80%,transparent)}
+.evt-ben i{font-size:19px}
+.evt-ben b{font-size:14px;font-weight:900;letter-spacing:-.3px}
+.evt-ben span{margin-left:auto;font-size:10.5px;font-weight:900;color:#3a2600;padding:3px 9px;border-radius:99px;
+  background:linear-gradient(135deg,#ffd166,#f5a30d);box-shadow:0 2px 7px rgba(245,163,13,.35)}
+.evt-meta{display:flex;gap:6px;font-size:11.8px;color:var(--sub-2);font-weight:700}
+.evt-prog{height:7px;border-radius:99px;background:var(--border-soft);margin-top:9px;overflow:hidden}
+.evt-prog i{display:block;height:100%;border-radius:99px;
+  background:linear-gradient(90deg,var(--brand-2,#f5a30d),#ffd166)}
+.evt-go{width:100%;margin-top:13px;padding:13px;border:0;border-radius:13px;font-size:14.5px;font-weight:900;
+  letter-spacing:-.3px;color:#fff;cursor:pointer;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33));
+  box-shadow:0 8px 20px color-mix(in srgb,var(--brand,#12203a) 34%,transparent),0 1px 0 rgba(255,255,255,.14) inset;
+  transition:transform .12s,filter .16s}
+.evt-go:not([disabled]):hover{filter:brightness(1.07)}
+.evt-go:not([disabled]):active{transform:translateY(1px)}
+.evt-go[disabled]{background:var(--border-soft);color:var(--sub-2);box-shadow:none;cursor:default}
+.evt-card.joined .evt-go{background:#eaf7ef;color:#16a34a}
+html.dark .evt-card.joined .evt-go{background:rgba(22,163,74,.15)}
+html.dark .evt-st.on{color:#6ee7b7;background:rgba(16,185,129,.15)}
+
+/* [v15.8] 이벤트 신규 계열 색 — 주식(파랑)·쿠폰(로즈) */
+.evt-card.stock::before{background:linear-gradient(180deg,#60a5fa,#2563eb)}
+.evt-card.stock::after{background:radial-gradient(110% 70% at 0% 0%,rgba(37,99,235,.08),transparent 55%)}
+.evt-card.coupon::before{background:linear-gradient(180deg,#fb7185,#e11d48)}
+.evt-card.coupon::after{background:radial-gradient(110% 70% at 0% 0%,rgba(225,29,72,.07),transparent 55%)}
+
+/* [v16.0] 이벤트 신규 계열 색 — 미국주식(청록)·랜덤(주황)·패키지(금)·관심팩(슬레이트) */
+.evt-card.usstock::before{background:linear-gradient(180deg,#2dd4bf,#0d9488)}
+.evt-card.usstock::after{background:radial-gradient(110% 70% at 0% 0%,rgba(13,148,136,.08),transparent 55%)}
+.evt-card.lucky::before{background:linear-gradient(180deg,#fdba74,#ea580c)}
+.evt-card.lucky::after{background:radial-gradient(110% 70% at 0% 0%,rgba(234,88,12,.09),transparent 55%)}
+.evt-card.bundle::before{background:linear-gradient(180deg,#ffd166,#b8860b)}
+.evt-card.bundle::after{background:radial-gradient(110% 70% at 0% 0%,rgba(184,134,11,.10),transparent 55%)}
+.evt-card.watchpack::before{background:linear-gradient(180deg,#94a3b8,#475569)}
+.evt-card.watchpack::after{background:radial-gradient(110% 70% at 0% 0%,rgba(71,85,105,.07),transparent 55%)}
+/* 관리자 종목 검색 드롭다운 */
+.ev-sr{position:absolute;left:0;right:74px;top:calc(100% + 4px);z-index:40;background:var(--panel);
+  border:1px solid var(--border);border-radius:12px;box-shadow:var(--lift-hover);overflow:hidden}
+.ev-sr button{display:flex;justify-content:space-between;gap:10px;width:100%;padding:9px 13px;border:0;
+  background:none;cursor:pointer;font-size:12.5px;text-align:left}
+.ev-sr button:hover{background:var(--border-soft)}
+.ev-sr button b{font-weight:800}
+.ev-sr button span{color:var(--sub-2)}
