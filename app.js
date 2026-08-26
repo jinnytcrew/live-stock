@@ -20771,6 +20771,16 @@ function tierRefreshUI(){
 function showTierGift(m){
   const t=TIERS.find(x=>x.k===m.tier)||TIERS[0];
   const dur=m.days>0?`${m.days}일`:'기간 제한 없음';
+  /* ══ [v17.0] 여기로 들어온 이용권도 MY 데이터에 남긴다 ═════════════════════
+     이벤트 참여 경로에만 기록을 남기고 있어서, 문의·관리자 발급으로 받은
+     이용권은 상세를 열어도 코드가 없었다(실기 사진). 코드 원문까지 보관한다. */
+  try{
+    if(m&&m.code&&typeof rewardLogAdd==='function'){
+      const dup=(rewardLogGet()||[]).some(x=>x.code&&String(x.code)===String(m.code));
+      if(!dup)rewardLogAdd({ kind:'tier', label:t.n+' 이용권 '+dur,
+        src:m.from||m.memo||'관리자 발급', code:m.code||null });
+    }
+  }catch(e){}
   openLiteGate('이용권이 도착했어요',`
     <div class="gift" style="--tc:${t.c}">
       <div class="gift-badge">${t.n}</div>
@@ -21033,14 +21043,38 @@ async function myDataDetail(i){
     ['획득 시각',when]
   ];
   if(r.amount)rows.push(['금액',(r.kind==='usd'?'$':'')+Number(r.amount).toLocaleString()+(r.kind==='usd'?'':'원')]);
-  if(r.code)rows.push(['상태',r.used?('사용 완료 · '+new Date(r.usedAt||r.at).toLocaleDateString('ko-KR')):'미사용']);
-  const html=`<div class="mdd-rows">${rows.map(([k,v])=>
-      `<div class="mdd-r"><span>${htmlEsc(k)}</span><b>${htmlEsc(String(v))}</b></div>`).join('')}</div>
-    ${r.code?`<div class="mdd-code"><span>코드</span><b class="num" id="mddCode">${htmlEsc(r.code)}</b></div>
+  /* ══ [v17.0] 상세창 재구성 ══════════════════════════════════════════════════
+     · 코드가 있으면 큰 코드 박스 + 상태 배지 + 등록/복사
+     · 코드가 없는 유형(예수금·주식·응모)은 "코드 없는 상품"임을 분명히 알린다
+     · 옛 기록(코드를 안 남기던 시절)은 어디서 찾는지 안내한다 */
+  const IC={tier:'🎟',coupon:'🎫',cash:'💰',usd:'💵',stock:'📈',usstock:'🇺🇸',watchpack:'📋',entry:'📮',bundle:'🎁'};
+  const CODELESS=['cash','usd','stock','usstock','watchpack','entry','bundle'];
+  const head=`<div class="mdd-head">
+      <div class="mdd-ic">${IC[r.kind]||'🎁'}</div>
+      <div class="mdd-t"><b>${htmlEsc(r.label||'—')}</b>
+        <span>${htmlEsc(NM[r.kind]||r.kind||'')}</span></div>
+      ${r.code?`<span class="mdd-st ${r.used?'used':'new'}">${r.used?'사용 완료':'미사용'}</span>`:''}
+    </div>`;
+  let codeBox='';
+  if(r.code){
+    codeBox=`<div class="mdd-codebox">
+        <span class="mdd-ck">이용권 코드</span>
+        <b class="num" id="mddCode">${htmlEsc(r.code)}</b>
+        <i>${r.used?'이미 등록에 사용한 코드입니다':'멤버십 → 이용권 코드 입력에서 등록하세요'}</i>
+      </div>
       <div class="mdd-acts">
-        ${r.used?'':'<button type="button" class="cp-btn mail" id="mddGo">지금 등록하기</button>'}
-        <button type="button" class="cp-btn ghost" id="mddCopy">📋 코드 복사</button>
-      </div>`:''}`;
+        ${r.used?'':'<button type="button" class="tqx-btn primary" id="mddGo">지금 등록하기</button>'}
+        <button type="button" class="tqx-btn" id="mddCopy">📋 코드 복사</button>
+      </div>`;
+  }else if(CODELESS.includes(r.kind)){
+    codeBox=`<div class="mdd-note">이 상품은 <b>코드 없이 바로 지급</b>되는 유형입니다. 계좌·보유종목·관심종목에서 확인하실 수 있어요.</div>`;
+  }else{
+    codeBox=`<div class="mdd-note warn">이 기록에는 코드가 저장되어 있지 않습니다. 발급 안내창이나 메일·오픈채팅 대화에서 코드를 확인해 주세요.</div>`;
+  }
+  const html=head
+    +`<div class="mdd-rows">${rows.map(([k,v])=>
+      `<div class="mdd-r"><span>${htmlEsc(k)}</span><b>${htmlEsc(String(v))}</b></div>`).join('')}</div>`
+    +codeBox;
   setTimeout(()=>{
     const c=$('mddCopy'); if(c)c.onclick=()=>{
       try{navigator.clipboard&&navigator.clipboard.writeText(r.code).catch(()=>{});}catch(e){}

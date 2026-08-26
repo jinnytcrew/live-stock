@@ -7949,3 +7949,51 @@ html.dark .adm-tabs{background:rgba(255,255,255,.05)}
 .tqx-fall{font-size:11.8px;line-height:1.55;color:var(--sub);padding:10px 13px;border-radius:11px;
   background:var(--border-soft);word-break:break-all}
 html.dark .tqx-sel select,html.dark .tqx-f textarea{background:rgba(255,255,255,.04)}
+
+/* ═══ [v17.0] 체결 흐름 코너 — 주문 패널 끝선에 정확히 맞춘다 ═══════════════════
+   내용이 커지면서 코너가 주문 패널보다 길어져 오른쪽 아래에 빈 공간이 생겼다.
+   좌열을 세로 그리드로 잡아 코너가 "남는 높이만" 채우게 하고, 내부는
+   남는 공간을 고르게 나눠 아래쪽 여백이 남지 않도록 한다. */
+@media (min-width:961px){
+  /* 좌열 전체를 우측 주문 패널 높이에 맞추고(stretch), 코너가 남는 높이를
+     전부 차지하게 해 오른쪽 아래 빈 공간을 없앤다. */
+  /* 좌열(정보 패널 + 코너)을 2행으로 두고, 코너 행이 남는 높이를 전부 먹는다.
+     오른쪽 주문 패널은 1열 2행에 걸쳐 세워 두 열의 끝선을 일치시킨다. */
+  /* [v17.0] 기존 설계(주문 패널 sticky, 카드는 내용만큼)를 유지한 채
+     코너 자체의 군살만 덜어 낸다 — 늘려서 맞추면 sticky 가 깨진다. */
+  .d-glance{display:flex;flex-direction:column;min-height:0;padding:13px 16px}
+  .d-glance .dg-h{margin-bottom:8px;flex:none}
+  .d-glance #dGlanceBody{display:flex;flex-direction:column;gap:1px}
+  .d-glance .dg-lean{margin-bottom:6px}
+  .d-glance .dg-bar{flex:none}
+  .d-glance .dg-row{margin:0;padding:4px 0}
+}
+/* 값 크기를 살짝 낮춰 세로 길이를 줄인다(정보량은 그대로) */
+.d-glance .dg-lean b{font-size:15px}
+.d-glance .dg-v{font-size:14px}
+.d-glance .dg-k{flex-basis:76px;font-size:11.5px}
+
+/* [v17.0] MY 데이터 상세 — 코드 박스·상태 배지 */
+.mdd-head{display:flex;align-items:center;gap:12px;margin-bottom:13px;text-align:left}
+.mdd-ic{flex:none;width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;
+  font-size:22px;background:color-mix(in srgb,var(--brand-2,#f5a30d) 10%,var(--panel));
+  border:1px solid color-mix(in srgb,var(--brand-2,#f5a30d) 26%,var(--border))}
+.mdd-t{flex:1;min-width:0}
+.mdd-t b{display:block;font-size:15.5px;font-weight:900;letter-spacing:-.5px;line-height:1.3}
+.mdd-t span{font-size:11.5px;color:var(--sub-2);font-weight:800}
+.mdd-st{flex:none;font-size:10.5px;font-weight:900;padding:4px 11px;border-radius:99px}
+.mdd-st.new{color:#0b5cad;background:#e2f0ff}
+.mdd-st.used{color:var(--sub-2);background:var(--border-soft)}
+html.dark .mdd-st.new{color:#7dabff;background:rgba(37,99,235,.16)}
+.mdd-codebox{margin-top:13px;padding:14px 16px;border-radius:14px;text-align:left;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--brand,#12203a) 6%,var(--panel)),var(--panel));
+  border:1px dashed color-mix(in srgb,var(--brand,#12203a) 34%,var(--border))}
+.mdd-ck{display:block;font-size:10.5px;font-weight:900;letter-spacing:.6px;color:var(--sub-2)}
+.mdd-codebox b{display:block;margin:6px 0 5px;font-size:16.5px;font-weight:900;letter-spacing:.6px;word-break:break-all}
+.mdd-codebox i{font-style:normal;font-size:11.5px;color:var(--sub);font-weight:700}
+.mdd-note{margin-top:13px;padding:12px 14px;border-radius:12px;text-align:left;font-size:12.3px;
+  line-height:1.55;font-weight:700;color:var(--sub);background:var(--border-soft)}
+.mdd-note.warn{color:#8a6100;background:color-mix(in srgb,#f5a30d 9%,var(--panel));
+  border:1px solid color-mix(in srgb,#f5a30d 36%,var(--border))}
+html.dark .mdd-note.warn{color:#ffd166}
+.mdd-acts{display:flex;gap:8px;margin-top:11px}
