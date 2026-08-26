@@ -20618,8 +20618,9 @@ function admTokSet(v){ try{ v?sessionStorage.setItem('admtok',v):sessionStorage.
 /* ══ [v15.7] 이벤트 — 참여만 해도 혜택이 바로 지급되는 페이지 ═══════════════════
    실서비스 이벤트 페이지 문법(토스·증권사 공통): 상태 필(진행중 D-n/마감),
    혜택 배지, 기간, 참여 진행률, 큼직한 참여 버튼, 참여 완료 상태. */
-/* ══ [v15.9] 이벤트 상품 카탈로그 200종 ═══════════════════════════════════════
-   계열 5가지: 이용권 30 · 원화 예수금 21 · 달러 예수금 15 · 주식 지급 60 · 쿠폰 24.
+/* ══ [v15.9] 이벤트 상품 카탈로그 114종 ═══════════════════════════════════════
+   [v16.1] 주식 프리셋(국내·미국·ETF)은 카탈로그에서 뺐다 — 주식 지급은 아래
+   수동 선택기(국내·해외 전 종목 검색 + 수량 자유 입력)가 유일한 길이다.
    지급 방법(계열별):
    · tier   — 참여 순간 서버가 계정 등급을 직접 부여(쿠폰 등록과 동일 엔진)
    · cash   — 서버 확정 → 활성 계좌 원화 예수금에 즉시 입금·저장
@@ -20693,66 +20694,6 @@ const EVT_CATALOG=[
  {g:'달러 예수금',t:'$30,000',p:{type:"usd",amount:30000}},
  {g:'달러 예수금',t:'$50,000',p:{type:"usd",amount:50000}},
  {g:'달러 예수금',t:'$100,000',p:{type:"usd",amount:100000}},
- {g:'주식 지급',t:'삼성전자 1주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:1}},
- {g:'주식 지급',t:'삼성전자 5주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:5}},
- {g:'주식 지급',t:'삼성전자 10주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:10}},
- {g:'주식 지급',t:'삼성전자 50주',p:{type:"stock",code:"005930",stockName:"삼성전자",qty:50}},
- {g:'주식 지급',t:'SK하이닉스 1주',p:{type:"stock",code:"000660",stockName:"SK하이닉스",qty:1}},
- {g:'주식 지급',t:'SK하이닉스 5주',p:{type:"stock",code:"000660",stockName:"SK하이닉스",qty:5}},
- {g:'주식 지급',t:'NAVER 1주',p:{type:"stock",code:"035420",stockName:"NAVER",qty:1}},
- {g:'주식 지급',t:'NAVER 5주',p:{type:"stock",code:"035420",stockName:"NAVER",qty:5}},
- {g:'주식 지급',t:'카카오 5주',p:{type:"stock",code:"035720",stockName:"카카오",qty:5}},
- {g:'주식 지급',t:'카카오 20주',p:{type:"stock",code:"035720",stockName:"카카오",qty:20}},
- {g:'주식 지급',t:'현대차 1주',p:{type:"stock",code:"005380",stockName:"현대차",qty:1}},
- {g:'주식 지급',t:'기아 1주',p:{type:"stock",code:"000270",stockName:"기아",qty:1}},
- {g:'주식 지급',t:'셀트리온 1주',p:{type:"stock",code:"068270",stockName:"셀트리온",qty:1}},
- {g:'주식 지급',t:'두산에너빌리티 3주',p:{type:"stock",code:"034020",stockName:"두산에너빌리티",qty:3}},
- {g:'주식 지급',t:'삼성SDI 1주',p:{type:"stock",code:"006400",stockName:"삼성SDI",qty:1}},
- {g:'주식 지급',t:'LG전자 2주',p:{type:"stock",code:"066570",stockName:"LG전자",qty:2}},
- {g:'주식 지급',t:'LG화학 1주',p:{type:"stock",code:"051910",stockName:"LG화학",qty:1}},
- {g:'주식 지급',t:'POSCO홀딩스 1주',p:{type:"stock",code:"005490",stockName:"POSCO홀딩스",qty:1}},
- {g:'주식 지급',t:'포스코퓨처엠 1주',p:{type:"stock",code:"003670",stockName:"포스코퓨처엠",qty:1}},
- {g:'주식 지급',t:'KB금융 2주',p:{type:"stock",code:"105560",stockName:"KB금융",qty:2}},
- {g:'주식 지급',t:'신한지주 2주',p:{type:"stock",code:"055550",stockName:"신한지주",qty:2}},
- {g:'주식 지급',t:'하나금융지주 2주',p:{type:"stock",code:"086790",stockName:"하나금융지주",qty:2}},
- {g:'주식 지급',t:'한국전력 5주',p:{type:"stock",code:"015760",stockName:"한국전력",qty:5}},
- {g:'주식 지급',t:'한전기술 2주',p:{type:"stock",code:"052690",stockName:"한전기술",qty:2}},
- {g:'주식 지급',t:'한화오션 3주',p:{type:"stock",code:"042660",stockName:"한화오션",qty:3}},
- {g:'주식 지급',t:'한화에어로스페이스 1주',p:{type:"stock",code:"012450",stockName:"한화에어로스페이스",qty:1}},
- {g:'주식 지급',t:'한국항공우주 2주',p:{type:"stock",code:"047810",stockName:"한국항공우주",qty:2}},
- {g:'주식 지급',t:'삼성물산 1주',p:{type:"stock",code:"028260",stockName:"삼성물산",qty:1}},
- {g:'주식 지급',t:'SK텔레콤 2주',p:{type:"stock",code:"017670",stockName:"SK텔레콤",qty:2}},
- {g:'주식 지급',t:'KT 3주',p:{type:"stock",code:"030200",stockName:"KT",qty:3}},
- {g:'주식 지급',t:'KT&G 1주',p:{type:"stock",code:"033780",stockName:"KT&G",qty:1}},
- {g:'주식 지급',t:'아모레퍼시픽 1주',p:{type:"stock",code:"090430",stockName:"아모레퍼시픽",qty:1}},
- {g:'주식 지급',t:'CJ제일제당 1주',p:{type:"stock",code:"097950",stockName:"CJ제일제당",qty:1}},
- {g:'주식 지급',t:'이마트 1주',p:{type:"stock",code:"139480",stockName:"이마트",qty:1}},
- {g:'주식 지급',t:'농심 1주',p:{type:"stock",code:"004370",stockName:"농심",qty:1}},
- {g:'주식 지급',t:'오리온 1주',p:{type:"stock",code:"271560",stockName:"오리온",qty:1}},
- {g:'주식 지급',t:'NH투자증권 5주',p:{type:"stock",code:"005940",stockName:"NH투자증권",qty:5}},
- {g:'주식 지급',t:'키움증권 1주',p:{type:"stock",code:"039490",stockName:"키움증권",qty:1}},
- {g:'주식 지급',t:'미래에셋증권 10주',p:{type:"stock",code:"006800",stockName:"미래에셋증권",qty:10}},
- {g:'주식 지급',t:'카카오뱅크 5주',p:{type:"stock",code:"323410",stockName:"카카오뱅크",qty:5}},
- {g:'주식 지급',t:'카카오페이 3주',p:{type:"stock",code:"377300",stockName:"카카오페이",qty:3}},
- {g:'주식 지급',t:'크래프톤 1주',p:{type:"stock",code:"259960",stockName:"크래프톤",qty:1}},
- {g:'주식 지급',t:'엔씨소프트 1주',p:{type:"stock",code:"036570",stockName:"엔씨소프트",qty:1}},
- {g:'주식 지급',t:'넷마블 2주',p:{type:"stock",code:"251270",stockName:"넷마블",qty:2}},
- {g:'주식 지급',t:'하이브 1주',p:{type:"stock",code:"352820",stockName:"하이브",qty:1}},
- {g:'주식 지급',t:'LG에너지솔루션 1주',p:{type:"stock",code:"373220",stockName:"LG에너지솔루션",qty:1}},
- {g:'주식 지급',t:'삼성바이오로직스 1주',p:{type:"stock",code:"207940",stockName:"삼성바이오로직스",qty:1}},
- {g:'주식 지급',t:'SK바이오팜 2주',p:{type:"stock",code:"326030",stockName:"SK바이오팜",qty:2}},
- {g:'주식 지급',t:'유한양행 1주',p:{type:"stock",code:"000100",stockName:"유한양행",qty:1}},
- {g:'주식 지급',t:'한미약품 1주',p:{type:"stock",code:"128940",stockName:"한미약품",qty:1}},
- {g:'주식 지급',t:'HMM 5주',p:{type:"stock",code:"011200",stockName:"HMM",qty:5}},
- {g:'주식 지급',t:'대한항공 5주',p:{type:"stock",code:"003490",stockName:"대한항공",qty:5}},
- {g:'주식 지급',t:'SK 1주',p:{type:"stock",code:"034730",stockName:"SK",qty:1}},
- {g:'주식 지급',t:'LG 2주',p:{type:"stock",code:"003550",stockName:"LG",qty:2}},
- {g:'주식 지급',t:'삼성전자우 2주',p:{type:"stock",code:"005935",stockName:"삼성전자우",qty:2}},
- {g:'주식 지급',t:'삼성전기 1주',p:{type:"stock",code:"009150",stockName:"삼성전기",qty:1}},
- {g:'주식 지급',t:'삼성에스디에스 1주',p:{type:"stock",code:"018260",stockName:"삼성에스디에스",qty:1}},
- {g:'주식 지급',t:'삼성생명 2주',p:{type:"stock",code:"032830",stockName:"삼성생명",qty:2}},
- {g:'주식 지급',t:'삼성화재 1주',p:{type:"stock",code:"000810",stockName:"삼성화재",qty:1}},
- {g:'주식 지급',t:'고려아연 1주',p:{type:"stock",code:"010130",stockName:"고려아연",qty:1}},
  {g:'쿠폰 코드',t:'Basic 3일 쿠폰',p:{type:"coupon",tier:"basic",days:3}},
  {g:'쿠폰 코드',t:'Basic 7일 쿠폰',p:{type:"coupon",tier:"basic",days:7}},
  {g:'쿠폰 코드',t:'Basic 14일 쿠폰',p:{type:"coupon",tier:"basic",days:14}},
@@ -20777,32 +20718,6 @@ const EVT_CATALOG=[
  {g:'쿠폰 코드',t:'Max 30일 쿠폰',p:{type:"coupon",tier:"max",days:30}},
  {g:'쿠폰 코드',t:'Max 60일 쿠폰',p:{type:"coupon",tier:"max",days:60}},
  {g:'쿠폰 코드',t:'Max 90일 쿠폰',p:{type:"coupon",tier:"max",days:90}},
- {g:'미국 주식',t:'애플 1주',p:{type:"usstock",ticker:"AAPL",usName:"애플",qty:1}},
- {g:'미국 주식',t:'애플 3주',p:{type:"usstock",ticker:"AAPL",usName:"애플",qty:3}},
- {g:'미국 주식',t:'마이크로소프트 1주',p:{type:"usstock",ticker:"MSFT",usName:"마이크로소프트",qty:1}},
- {g:'미국 주식',t:'엔비디아 1주',p:{type:"usstock",ticker:"NVDA",usName:"엔비디아",qty:1}},
- {g:'미국 주식',t:'엔비디아 3주',p:{type:"usstock",ticker:"NVDA",usName:"엔비디아",qty:3}},
- {g:'미국 주식',t:'테슬라 1주',p:{type:"usstock",ticker:"TSLA",usName:"테슬라",qty:1}},
- {g:'미국 주식',t:'테슬라 3주',p:{type:"usstock",ticker:"TSLA",usName:"테슬라",qty:3}},
- {g:'미국 주식',t:'알파벳 A 1주',p:{type:"usstock",ticker:"GOOGL",usName:"알파벳 A",qty:1}},
- {g:'미국 주식',t:'아마존 1주',p:{type:"usstock",ticker:"AMZN",usName:"아마존",qty:1}},
- {g:'미국 주식',t:'메타 1주',p:{type:"usstock",ticker:"META",usName:"메타",qty:1}},
- {g:'미국 주식',t:'AMD 2주',p:{type:"usstock",ticker:"AMD",usName:"AMD",qty:2}},
- {g:'미국 주식',t:'넷플릭스 1주',p:{type:"usstock",ticker:"NFLX",usName:"넷플릭스",qty:1}},
- {g:'미국 주식',t:'인텔 5주',p:{type:"usstock",ticker:"INTC",usName:"인텔",qty:5}},
- {g:'미국 주식',t:'코카콜라 3주',p:{type:"usstock",ticker:"KO",usName:"코카콜라",qty:3}},
- {g:'미국 주식',t:'맥도날드 1주',p:{type:"usstock",ticker:"MCD",usName:"맥도날드",qty:1}},
- {g:'미국 주식',t:'디즈니 2주',p:{type:"usstock",ticker:"DIS",usName:"디즈니",qty:2}},
- {g:'미국 주식',t:'JP모건 1주',p:{type:"usstock",ticker:"JPM",usName:"JP모건",qty:1}},
- {g:'미국 주식',t:'비자 1주',p:{type:"usstock",ticker:"V",usName:"비자",qty:1}},
- {g:'ETF 지급',t:'KODEX 200 5주',p:{type:"stock",code:"069500",stockName:"KODEX 200",qty:5}},
- {g:'ETF 지급',t:'KODEX 레버리지 3주',p:{type:"stock",code:"122630",stockName:"KODEX 레버리지",qty:3}},
- {g:'ETF 지급',t:'KODEX 코스닥150 5주',p:{type:"stock",code:"229200",stockName:"KODEX 코스닥150",qty:5}},
- {g:'ETF 지급',t:'TIGER 미국S&P500 5주',p:{type:"stock",code:"360750",stockName:"TIGER 미국S&P500",qty:5}},
- {g:'ETF 지급',t:'TIGER 미국나스닥100 3주',p:{type:"stock",code:"133690",stockName:"TIGER 미국나스닥100",qty:3}},
- {g:'ETF 지급',t:'TIGER 2차전지테마 3주',p:{type:"stock",code:"305540",stockName:"TIGER 2차전지테마",qty:3}},
- {g:'ETF 지급',t:'KODEX 반도체 3주',p:{type:"stock",code:"091160",stockName:"KODEX 반도체",qty:3}},
- {g:'ETF 지급',t:'TIGER 200 5주',p:{type:"stock",code:"102110",stockName:"TIGER 200",qty:5}},
  {g:'랜덤 박스',t:'소형 랜덤 박스(1만~100만원)',p:{type:"lucky",cur:"krw",min:10000,max:1000000}},
  {g:'랜덤 박스',t:'중형 랜덤 박스(10만~1,000만원)',p:{type:"lucky",cur:"krw",min:100000,max:10000000}},
  {g:'랜덤 박스',t:'대형 랜덤 박스(100만~1억원)',p:{type:"lucky",cur:"krw",min:1000000,max:100000000}},
@@ -21116,15 +21031,14 @@ function renderAdmWork(){
     <div class="as-h">이벤트 관리</div>
     <div class="as-d">참여 즉시 혜택이 지급되는 이벤트를 만듭니다. 이용권은 서버가 등급을 바로 부여하고, 예수금은 참여자 활성 계좌에 입금됩니다.</div>
     <div class="as-grid2">
-      <label>상품 카탈로그(200종)<select id="evPick"><option value="">— 직접 입력 —</option></select></label>
+      <label>상품 카탈로그(114종)<select id="evPick"><option value="">— 직접 입력 —</option></select></label>
       <label>제목<input id="evTitle" maxlength="60" placeholder="예: 가을맞이 Pro 7일 무료"></label>
       <label>설명(선택)<input id="evDesc" maxlength="200" placeholder="한 줄 소개"></label>
       <label>혜택 유형<select id="evType">
         <option value="tier">이용권(등급 직부여)</option>
         <option value="cash">원화 예수금</option>
         <option value="usd">달러 예수금</option>
-        <option value="stock">주식 지급</option>
-        <option value="usstock">미국 주식 지급</option>
+        <option value="stock">주식 지급(국내·해외)</option>
         <option value="coupon">쿠폰 코드 발급</option>
         <option value="lucky">랜덤 박스</option>
         <option value="bundle">종합 패키지(카탈로그 전용)</option>
@@ -21134,18 +21048,17 @@ function renderAdmWork(){
           <option value="pro" selected>Pro</option><option value="max">Max</option></select>
         <input id="evDays" type="number" min="1" max="365" value="7" style="width:70px"> 일</span></label>
       <label id="evAmtWrap" hidden>지급 금액<input id="evAmt" type="number" min="1" placeholder="예: 5000000"></label>
-      <label id="evStockWrap" hidden>종목·수량
-        <span style="display:flex;gap:6px;position:relative">
-          <input id="evStockQ" placeholder="종목명·코드 검색 (예: 삼성)" style="flex:1" autocomplete="off">
+      <label id="evStockWrap" hidden>종목 선택·수량
+        <span class="ev-mkt" role="tablist">
+          <button type="button" id="evMkKr" class="on">🇰🇷 국내</button>
+          <button type="button" id="evMkUs">🇺🇸 해외</button></span>
+        <span style="display:flex;gap:6px;position:relative;margin-top:6px">
+          <input id="evStockQ" placeholder="국내 전 종목 검색 — 이름·코드 (예: 삼성)" style="flex:1" autocomplete="off">
           <input id="evQty" type="number" min="1" max="1000" value="1" style="width:64px"> 주
           <div id="evStockList" class="ev-sr" hidden></div></span>
-        <span style="display:flex;gap:6px;margin-top:5px">
-          <input id="evCode" maxlength="10" placeholder="종목코드" style="width:90px">
-          <input id="evSname" maxlength="30" placeholder="종목명" style="flex:1"></span></label>
-      <label id="evUsWrap" hidden>미국 종목·수량<span style="display:flex;gap:6px">
-        <input id="evTicker" maxlength="8" placeholder="티커(예: AAPL)" style="width:110px">
-        <input id="evUsName" maxlength="30" placeholder="종목명" style="flex:1">
-        <input id="evUsQty" type="number" min="1" max="1000" value="1" style="width:64px"> 주</span></label>
+        <span id="evPicked" class="ev-picked" hidden></span>
+        <input id="evCode" type="hidden"><input id="evSname" type="hidden">
+        <input id="evTicker" type="hidden"><input id="evUsName" type="hidden"></label>
       <label id="evLuckyWrap" hidden>랜덤 범위<span style="display:flex;gap:6px;align-items:center">
         <select id="evCur" style="width:84px"><option value="krw">원화</option><option value="usd">달러</option></select>
         <input id="evMin" type="number" min="1" placeholder="최소" style="flex:1"> ~
@@ -21312,42 +21225,65 @@ function wireAdmTools(){
     $('evTierWrap').hidden=!(t==='tier'||t==='coupon');
     $('evAmtWrap').hidden=!(t==='cash'||t==='usd');
     $('evStockWrap').hidden=t!=='stock';
-    $('evUsWrap').hidden=t!=='usstock';
     $('evLuckyWrap').hidden=t!=='lucky';};
-  /* [v16.0] 종목 수동 검색 선택기 — 전 상장 종목에서 이름·코드로 찾아 채운다 */
-  const evQ=$('evStockQ'), evSL=$('evStockList');
+  /* ══ [v16.1] 종목 선택기 통합 — 국내(전 상장)·해외(내장 유니버스) 토글 검색.
+     프리셋 없이 "아무 종목이나 골라 몇 주든" 지급한다. 국내는 stock,
+     해외는 usstock 으로 서버 타입이 자동 결정된다. */
+  let evMkt='kr';
+  const evQ=$('evStockQ'), evSL=$('evStockList'), evPicked=$('evPicked');
+  const _mkSync=()=>{
+    $('evMkKr').classList.toggle('on',evMkt==='kr');
+    $('evMkUs').classList.toggle('on',evMkt==='us');
+    evQ.placeholder=evMkt==='kr'?'국내 전 종목 검색 — 이름·코드 (예: 삼성)'
+                                :'해외 종목 검색 — 티커·이름 (예: AAPL, 애플)';
+    evQ.value=''; evSL.hidden=true; evPicked.hidden=true;
+    $('evCode').value='';$('evSname').value='';$('evTicker').value='';$('evUsName').value='';
+  };
+  if($('evMkKr')){$('evMkKr').onclick=()=>{evMkt='kr';_mkSync();};$('evMkUs').onclick=()=>{evMkt='us';_mkSync();};}
+  const _showPick=(nm,sub)=>{evPicked.hidden=false;
+    evPicked.innerHTML=`선택됨: <b>${htmlEsc(nm)}</b> <span class="num">${htmlEsc(sub)}</span>`;};
   if(evQ&&evSL){
     evQ.oninput=()=>{
       const q=evQ.value.trim().toLowerCase();
       if(q.length<1){evSL.hidden=true;return;}
-      /* stockAll 이 아직 안 실렸으면(검색 뷰 미방문) 캐시 → 없으면 전체 목록을
-         비동기로 불러오고, 도착하면 지금 입력으로 다시 검색해 준다 */
-      if(!(stockAll&&stockAll.length)){
-        try{loadStockCache();}catch(e){}
-        if(!(stockAll&&stockAll.length)&&!evQ._loading){
-          evQ._loading=true;
-          evSL.innerHTML='<button type="button" disabled>전체 종목 목록을 불러오는 중…</button>';
-          evSL.hidden=false;
-          Promise.resolve().then(()=>loadStockAll()).then(()=>{evQ._loading=false;
-            if(document.activeElement===evQ||evQ.value)evQ.oninput();}).catch(()=>{evQ._loading=false;});
-          return;
+      let hits=[];
+      if(evMkt==='us'){
+        hits=Object.values(usMeta)
+          .filter(x=>String(x.t).toLowerCase().startsWith(q)||(x.kr||'').toLowerCase().includes(q)||(x.en||'').toLowerCase().includes(q))
+          .slice(0,8).map(x=>({code:x.t,name:x.kr||x.en||x.t,sub:x.t}));
+      }else{
+        if(!(stockAll&&stockAll.length)){
+          try{loadStockCache();}catch(e){}
+          if(!(stockAll&&stockAll.length)&&!evQ._loading){
+            evQ._loading=true;
+            evSL.innerHTML='<button type="button" disabled>전체 종목 목록을 불러오는 중…</button>';
+            evSL.hidden=false;
+            Promise.resolve().then(()=>loadStockAll()).then(()=>{evQ._loading=false;
+              if(document.activeElement===evQ||evQ.value)evQ.oninput();}).catch(()=>{evQ._loading=false;});
+            return;
+          }
         }
+        const src=(stockAll&&stockAll.length)?stockAll
+          :Object.values(byCode).filter(x=>x&&x.name&&!x.us&&/^\d{6}$/.test(String(x.code||'')));
+        hits=src.filter(x=>(x.name||'').toLowerCase().includes(q)||String(x.code||'').startsWith(q))
+          .slice(0,8).map(x=>({code:x.code,name:x.name,sub:x.code}));
       }
-      const src=(stockAll&&stockAll.length)?stockAll
-        :Object.values(byCode).filter(x=>x&&x.name&&!x.us&&/^\d{6}$/.test(String(x.code||'')));
-      const hits=src.filter(x=>(x.name||'').toLowerCase().includes(q)||String(x.code||'').startsWith(q)).slice(0,8);
       if(!hits.length){evSL.hidden=true;return;}
-      evSL.innerHTML=hits.map(x=>`<button type="button" data-c="${x.code}" data-n="${htmlEsc(x.name)}"><b>${htmlEsc(x.name)}</b><span class="num">${x.code}</span></button>`).join('');
+      evSL.innerHTML=hits.map(x=>`<button type="button" data-c="${htmlEsc(x.code)}" data-n="${htmlEsc(x.name)}"><b>${htmlEsc(x.name)}</b><span class="num">${htmlEsc(x.sub)}</span></button>`).join('');
       evSL.hidden=false;
       evSL.querySelectorAll('button').forEach(b2=>b2.onclick=()=>{
-        $('evCode').value=b2.dataset.c; $('evSname').value=b2.dataset.n;
-        evQ.value=b2.dataset.n; evSL.hidden=true;});
+        if(evMkt==='us'){ $('evTicker').value=b2.dataset.c; $('evUsName').value=b2.dataset.n;
+          $('evCode').value='';$('evSname').value=''; }
+        else{ $('evCode').value=b2.dataset.c; $('evSname').value=b2.dataset.n;
+          $('evTicker').value='';$('evUsName').value=''; }
+        evQ.value=b2.dataset.n; evSL.hidden=true;
+        _showPick(b2.dataset.n,b2.dataset.c);});
     };
     evQ.onblur=()=>setTimeout(()=>{evSL.hidden=true;},250);
   }
   let _evBundle=null,_evPack=null;   /* 카탈로그 전용 payload 보관 */
   if(evType)evType.onchange=_evSync;
-  /* 카탈로그 50종 — 그룹 optgroup 으로 채우고, 고르면 폼 자동 완성 */
+  /* 카탈로그 114종 — 그룹 optgroup 으로 채우고, 고르면 폼 자동 완성 */
   const evPick=$('evPick');
   if(evPick&&evPick.options.length<=1){
     let g=null,og=null;
@@ -21361,7 +21297,7 @@ function wireAdmTools(){
       if(p.days)$('evDays').value=p.days;
       if(p.amount)$('evAmt').value=p.amount;
       if(p.code){$('evCode').value=p.code;$('evSname').value=p.stockName;$('evQty').value=p.qty;$('evStockQ').value=p.stockName;}
-      if(p.ticker){$('evTicker').value=p.ticker;$('evUsName').value=p.usName;$('evUsQty').value=p.qty||1;}
+      if(p.ticker){$('evTicker').value=p.ticker;$('evUsName').value=p.usName;$('evQty').value=p.qty||1;}
       if(p.type==='lucky'){$('evCur').value=p.cur||'krw';$('evMin').value=p.min;$('evLMax').value=p.max;}
       _evBundle=(p.type==='bundle')?p.items:null;
       _evPack=(p.type==='watchpack')?{codes:p.codes,packName:p.packName}:null;
@@ -21369,11 +21305,12 @@ function wireAdmTools(){
     };
   }
   const evC=$('evCreate'); if(evC)evC.onclick=async()=>{
-    const t=$('evType').value;
+    let t=$('evType').value;
+    if(t==='stock'&&$('evTicker').value)t='usstock';   /* [v16.1] 해외 선택 시 서버 타입 자동 전환 */
     const payload={act:'evtcreate',title:($('evTitle').value||'').trim(),desc:($('evDesc').value||'').trim(),type:t,
       tier:$('evTier').value,days:+$('evDays').value||7,amount:+$('evAmt').value||0,
       code:($('evCode').value||'').trim(),stockName:($('evSname').value||'').trim(),qty:+$('evQty').value||1,
-      ticker:($('evTicker').value||'').trim(),usName:($('evUsName').value||'').trim(),usQty:+$('evUsQty').value||1,
+      ticker:($('evTicker').value||'').trim(),usName:($('evUsName').value||'').trim(),usQty:+$('evQty').value||1,
       cur:$('evCur').value,min:+$('evMin').value||0,max:+$('evLMax').value||0,
       items:_evBundle||undefined,codes:_evPack?_evPack.codes:undefined,packName:_evPack?_evPack.packName:undefined,
       endAt:$('evEnd').value?new Date($('evEnd').value+'T23:59:59+09:00').getTime():0,
@@ -21381,7 +21318,7 @@ function wireAdmTools(){
     if(!payload.title){out('evOut','<b class="bad">제목을 넣어 주세요</b>');return;}
     if((t==='cash'||t==='usd')&&!(payload.amount>0)){out('evOut','<b class="bad">지급 금액을 넣어 주세요</b>');return;}
     if(t==='stock'&&(!payload.code||!payload.stockName)){out('evOut','<b class="bad">종목을 검색해 선택해 주세요</b>');return;}
-    if(t==='usstock'&&(!payload.ticker||!payload.usName)){out('evOut','<b class="bad">티커·종목명을 넣어 주세요</b>');return;}
+    if(t==='usstock'&&(!payload.ticker||!payload.usName)){out('evOut','<b class="bad">해외 종목을 검색해 선택해 주세요</b>');return;}
     if(t==='lucky'&&!(payload.max>=payload.min&&payload.min>0)){out('evOut','<b class="bad">랜덤 범위(최소≤최대)를 넣어 주세요</b>');return;}
     if((t==='bundle'&&!payload.items)||(t==='watchpack'&&!payload.codes)){out('evOut','<b class="bad">이 유형은 카탈로그에서 골라 만들 수 있습니다</b>');return;}
     busy(evC,true,'이벤트 만들기');

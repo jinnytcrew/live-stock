@@ -7360,3 +7360,45 @@ html.dark .evt-st.on{color:#6ee7b7;background:rgba(16,185,129,.15)}
 .ev-sr button:hover{background:var(--border-soft)}
 .ev-sr button b{font-weight:800}
 .ev-sr button span{color:var(--sub-2)}
+
+/* ═══ [v16.1] 관리자 프리미엄 — 멤버십의 결로 격상 ═══════════════════════════════ */
+.adm-sec{position:relative;overflow:hidden;border-radius:18px;box-shadow:var(--lift);
+  border:1px solid var(--border);transition:box-shadow .18s}
+.adm-sec:hover{box-shadow:var(--lift-hover)}
+.adm-sec::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;
+  background:linear-gradient(180deg,var(--brand-2,#f5a30d),var(--brand,#12203a))}
+.adm-sec::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 60% at 0% 0%,color-mix(in srgb,var(--brand-2,#f5a30d) 6%,transparent),transparent 55%)}
+.adm-sec>*{position:relative;z-index:1}
+.adm-sec .as-h{font-size:15.5px;font-weight:900;letter-spacing:-.5px;padding-bottom:9px;position:relative}
+.adm-sec .as-h::after{content:'';position:absolute;left:0;bottom:2px;width:44px;height:3px;border-radius:99px;
+  background:linear-gradient(90deg,var(--brand-2,#f5a30d),#ffd166)}
+.adm-sec .as-d{font-size:12px;line-height:1.55}
+.adm-sec.danger::before,.adm-sec.adm-danger::before{background:linear-gradient(180deg,#ff6b70,#c0262b)}
+.adm-sec.danger::after,.adm-sec.adm-danger::after{background:radial-gradient(120% 60% at 0% 0%,rgba(229,72,77,.07),transparent 55%)}
+.adm-sec .as-grid2 label{font-size:11.5px;font-weight:900;letter-spacing:.2px;color:var(--sub-2);
+  text-transform:uppercase}
+.adm-sec .as-grid2 input,.adm-sec .as-grid2 select{font-weight:700}
+.mc-btn{border-radius:12px;font-weight:900;letter-spacing:-.2px;position:relative;overflow:hidden;
+  border:1px solid var(--border);background:var(--panel);
+  box-shadow:0 2px 8px rgba(10,16,30,.06),0 1px 0 rgba(255,255,255,.5) inset;
+  transition:transform .1s,box-shadow .16s,filter .16s}
+.mc-btn:hover{box-shadow:0 6px 16px rgba(10,16,30,.12);filter:brightness(1.03)}
+.mc-btn:active{transform:translateY(1px)}
+.adm-sec .as-btns .mc-btn:first-child{color:#fff;border:0;
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33));
+  box-shadow:0 8px 18px color-mix(in srgb,var(--brand,#12203a) 32%,transparent),0 1px 0 rgba(255,255,255,.14) inset}
+.mc-btn.danger{color:#fff;border:0;background:linear-gradient(135deg,#ff6b70,#e5484d);
+  box-shadow:0 6px 14px rgba(229,72,77,.35)}
+.adm-sec .au-card{border-radius:14px;border:1px solid var(--border);box-shadow:0 2px 10px rgba(10,16,30,.05)}
+html.dark .mc-btn{box-shadow:0 2px 8px rgba(0,0,0,.3),0 1px 0 rgba(255,255,255,.05) inset}
+/* 시장 토글·선택 확인 필 */
+.ev-mkt{display:inline-flex;gap:6px;margin-top:4px}
+.ev-mkt button{padding:7px 16px;border-radius:99px;border:1px solid var(--border);background:var(--panel);
+  font-size:12.5px;font-weight:900;cursor:pointer;transition:all .14s}
+.ev-mkt button.on{color:#fff;border-color:transparent;
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33));
+  box-shadow:0 5px 12px color-mix(in srgb,var(--brand,#12203a) 30%,transparent)}
+.ev-picked{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:6px 13px;border-radius:99px;
+  font-size:12px;font-weight:800;color:#065f46;background:#d1fae5}
+html.dark .ev-picked{color:#6ee7b7;background:rgba(16,185,129,.15)}
