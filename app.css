@@ -7820,3 +7820,132 @@ html.dark .md-s .md-new{color:#ff9b9e}
 /* 코너 제목이 카드 높이에 따라 밀리던 것 — 아래 섹션들의 시작선을 고정 */
 #view-account .sec-title{margin-top:0}
 #view-account .ins-row{align-items:start}
+
+/* ═══ [v16.9] 체결 흐름 코너 — 주문 패널 끝선에 맞춘 높이 ═══════════════════════ */
+@media (min-width:961px){
+  /* 오른쪽 주문 패널과 아래끝을 맞춘다(둘 다 같은 행에서 시작해 함께 끝나게) */
+  .trade-grid>#dGlance{align-self:stretch}
+  #dGlance{display:flex;flex-direction:column}
+  #dGlanceBody{flex:1;display:flex;flex-direction:column;justify-content:center;gap:2px}
+}
+.dg-h .dg-live{margin-left:7px;font-size:9.5px;font-weight:900;letter-spacing:.4px;padding:2px 7px;border-radius:99px;
+  color:#fff;background:linear-gradient(135deg,#ff6b70,#e5484d);box-shadow:0 2px 7px rgba(229,72,77,.35);vertical-align:2px}
+.dg-lean{display:flex;align-items:baseline;gap:8px;margin-bottom:9px}
+.dg-lean b{font-size:16px;font-weight:900;letter-spacing:-.5px}
+.dg-lean span{font-size:11.5px;color:var(--sub-2);font-weight:700;margin-left:auto}
+.dg-lean.buy b{color:#e5484d}
+.dg-lean.sell b{color:#2563eb}
+.dg-lean.flat b{color:var(--sub)}
+.dg-bar{display:flex;height:9px;border-radius:99px;overflow:hidden;background:var(--border-soft);margin-bottom:12px;
+  box-shadow:0 1px 2px rgba(0,0,0,.07) inset}
+.dg-bar i{display:block;height:100%}
+.dg-bar i.b{background:linear-gradient(90deg,#ff9b9e,#e5484d)}
+.dg-bar i.a{background:linear-gradient(90deg,#2563eb,#7dabff)}
+.dg-v.zero{color:var(--sub-2)}
+
+/* ═══ [v16.9] 라이트 모달 프리미엄 — 문의·코드 입력 창 격상 ═════════════════════ */
+.lite-modal{max-width:460px;width:min(460px,94vw);border-radius:22px;padding:0;overflow:hidden;
+  box-shadow:0 30px 70px rgba(12,20,38,.34),0 2px 0 rgba(255,255,255,.5) inset}
+.lite-modal .modal-head{position:relative;display:flex;align-items:center;gap:10px;
+  padding:20px 22px 18px;margin:0;
+  background:linear-gradient(135deg,#101c33,#1b2a4a 60%,#24365c);border:0}
+.lite-modal .modal-head::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(255,209,102,.9),transparent)}
+.lite-modal .modal-head .t{flex:1;font-size:18px;font-weight:900;letter-spacing:-.6px;color:#fff}
+.lite-modal .modal-head .x{width:32px;height:32px;border-radius:50%;border:0;cursor:pointer;
+  font-size:15px;line-height:1;color:rgba(255,255,255,.82);
+  background:rgba(255,255,255,.12);transition:background .14s,transform .12s}
+.lite-modal .modal-head .x:hover{background:rgba(255,255,255,.22)}
+.lite-modal .modal-head .x:active{transform:scale(.94)}
+.lite-modal .lite-body{padding:20px 22px 22px}
+.lite-modal .fld2{margin-bottom:15px}
+.lite-modal .fld2 label{font-size:11.5px;font-weight:900;letter-spacing:.2px;color:var(--sub-2);
+  text-transform:uppercase;margin-bottom:7px}
+.lite-modal .fld2 select,.lite-modal .fld2 input,.lite-modal .fld2 textarea{
+  width:100%;border:1px solid var(--border);border-radius:13px;padding:12px 14px;
+  font-size:14.5px;font-weight:700;outline:none;background:var(--panel);
+  box-shadow:0 1px 2px rgba(10,16,30,.04) inset;transition:border-color .14s,box-shadow .14s}
+.lite-modal .fld2 select:focus,.lite-modal .fld2 input:focus,.lite-modal .fld2 textarea:focus{
+  border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 65%,var(--border));
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-2,#f5a30d) 18%,transparent)}
+.lite-modal .fld2 textarea{resize:vertical;line-height:1.55;min-height:84px}
+.tc-ask-n{margin-top:2px;padding:12px 14px;border-radius:13px;font-size:12px;line-height:1.6;
+  color:var(--sub);background:color-mix(in srgb,var(--brand-2,#f5a30d) 7%,var(--panel));
+  border:1px dashed color-mix(in srgb,var(--brand-2,#f5a30d) 40%,var(--border))}
+.tc-ask-n b{font-weight:900;color:var(--tx)}
+.lite-modal .lg-row{gap:9px;margin-top:16px}
+.lite-modal .lg-row .btn-ghost,.lite-modal .lg-row .btn-primary{
+  flex:1;height:48px;border-radius:14px;font-size:14px;font-weight:900;letter-spacing:-.3px;
+  border:1px solid var(--border);background:var(--panel);cursor:pointer;transition:all .14s}
+.lite-modal .lg-row .btn-ghost:hover{background:var(--border-soft)}
+.lite-modal .lg-row>*:first-child{color:#fff;border-color:transparent;
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33));
+  box-shadow:0 9px 20px color-mix(in srgb,var(--brand,#12203a) 30%,transparent)}
+html.dark .lite-modal .modal-head{background:linear-gradient(135deg,#0b1424,#16233d 60%,#1d2c4c)}
+
+/* ═══ [v16.9] 관리자 그룹 탭 ═══════════════════════════════════════════════════ */
+.adm-tabs{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 16px;padding:6px;border-radius:16px;
+  background:var(--border-soft);border:1px solid var(--border);position:sticky;top:6px;z-index:30;
+  backdrop-filter:blur(8px)}
+.adm-tabs button{display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:12px;
+  border:0;background:none;font-size:13px;font-weight:900;letter-spacing:-.3px;color:var(--sub);
+  cursor:pointer;transition:all .15s}
+.adm-tabs button:hover{background:color-mix(in srgb,var(--panel) 70%,transparent);color:var(--tx)}
+.adm-tabs button.on{color:#fff;background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33));
+  box-shadow:0 6px 15px color-mix(in srgb,var(--brand,#12203a) 32%,transparent),0 1px 0 rgba(255,255,255,.14) inset}
+.adm-tabs button i{font-style:normal;font-size:10.5px;font-weight:900;padding:1px 7px;border-radius:99px;
+  background:color-mix(in srgb,var(--brand,#12203a) 10%,transparent);color:var(--sub-2)}
+.adm-tabs button.on i{background:rgba(255,255,255,.2);color:#fff}
+html.dark .adm-tabs{background:rgba(255,255,255,.05)}
+@media (max-width:760px){
+  .adm-tabs{gap:5px;padding:5px}
+  .adm-tabs button{padding:9px 12px;font-size:12px}
+  .adm-tabs button i{display:none}
+}
+
+/* ═══ [v16.9] 이용권 발급 문의창 — 프리미엄 ══════════════════════════════════ */
+.tqx{margin:-4px -2px 0}
+.tqx-hero{position:relative;overflow:hidden;border-radius:16px;padding:18px 19px 16px;
+  background:linear-gradient(135deg,#101c33,#1b2a4a 60%,#24365c);
+  box-shadow:0 12px 26px rgba(12,20,38,.26),0 1px 0 rgba(255,255,255,.07) inset}
+.tqx-hero::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(90% 130% at 88% -20%,rgba(245,163,13,.30),transparent 58%)}
+.tqx-hero>*{position:relative;z-index:1}
+.tqx-kick{display:inline-block;font-size:9.5px;font-weight:900;letter-spacing:1.4px;color:#3a2600;
+  padding:4px 11px;border-radius:99px;background:linear-gradient(135deg,#ffd166,#f5a30d);
+  box-shadow:0 4px 12px rgba(245,163,13,.40)}
+.tqx-hero b{display:block;margin-top:10px;font-size:17.5px;font-weight:900;letter-spacing:-.7px;color:#fff;line-height:1.3}
+.tqx-hero p{margin:5px 0 0;font-size:12.3px;font-weight:600;line-height:1.55;color:rgba(255,255,255,.72)}
+.tqx-now{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:11px;
+  border-top:1px solid rgba(255,255,255,.13)}
+.tqx-now span{font-size:11px;font-weight:800;color:rgba(255,255,255,.55)}
+.tqx-badge{font-style:normal;font-size:11.5px;font-weight:900;padding:3px 11px;border-radius:99px;
+  color:#3a2600;background:linear-gradient(135deg,#ffe9b0,#f5a30d)}
+.tqx-body{margin-top:15px;display:flex;flex-direction:column;gap:13px}
+.tqx-f label{display:block;font-size:11.5px;font-weight:900;letter-spacing:.2px;color:var(--sub);margin-bottom:6px}
+.tqx-f label small{font-weight:800;color:var(--sub-2);margin-left:4px}
+.tqx-sel{position:relative}
+.tqx-sel select,.tqx-f textarea{width:100%;padding:12px 14px;border-radius:12px;
+  border:1px solid var(--border);background:var(--panel);font-size:13.5px;font-weight:800;
+  box-shadow:0 1px 3px rgba(10,16,30,.05) inset}
+.tqx-f textarea{font-weight:600;line-height:1.55;resize:vertical}
+.tqx-sel select:focus,.tqx-f textarea:focus{outline:none;border-color:color-mix(in srgb,var(--brand-2,#f5a30d) 60%,var(--border));
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-2,#f5a30d) 18%,transparent)}
+.tqx-steps{display:flex;flex-direction:column;gap:7px;padding:12px 14px;border-radius:13px;
+  background:var(--border-soft)}
+.tqx-s{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;color:var(--sub);line-height:1.45}
+.tqx-s i{flex:none;width:19px;height:19px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-style:normal;font-size:10.5px;font-weight:900;color:#fff;
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33))}
+.tqx-acts{display:flex;gap:8px;flex-wrap:wrap}
+.tqx-btn{flex:1;min-width:130px;padding:13px;border-radius:13px;border:1px solid var(--border);
+  background:var(--panel);font-size:13.5px;font-weight:900;letter-spacing:-.3px;cursor:pointer;
+  transition:transform .1s,box-shadow .16s,filter .16s}
+.tqx-btn:hover{box-shadow:0 6px 16px rgba(10,16,30,.12)}
+.tqx-btn:active{transform:translateY(1px)}
+.tqx-btn.primary{color:#fff;border-color:transparent;
+  background:linear-gradient(135deg,#1b2a4a,var(--brand,#0f1b33));
+  box-shadow:0 9px 20px color-mix(in srgb,var(--brand,#12203a) 32%,transparent),0 1px 0 rgba(255,255,255,.16) inset}
+.tqx-fall{font-size:11.8px;line-height:1.55;color:var(--sub);padding:10px 13px;border-radius:11px;
+  background:var(--border-soft);word-break:break-all}
+html.dark .tqx-sel select,html.dark .tqx-f textarea{background:rgba(255,255,255,.04)}

@@ -1390,7 +1390,7 @@ function proLockShow(t,need){
   }
   lock.innerHTML=`<b>${nm}은(는) ${tierNeedName(need)} 부터예요</b>
     <span>${desc}</span>
-    <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button>`;
+    <button type="button" class="btn-ghost" data-tier-go>이용권 발급 문의</button>`;
   /* 원래 내용은 지우지 않고 가리기만 한다 */
   [...el.children].forEach(c=>{ if(c!==lock)c.classList.add('pro-hidden'); });
   bindTierGo(lock);
@@ -12498,9 +12498,14 @@ function updateStar(){
 }
 
 /* 종목 상세 */
-/* ══ [v15.6] 상세 왼쪽 '한눈 요약' 코너 — 주문 패널 옆 빈 공간을 정보로 채운다 ═══
-   52주 고저 밴드에서 현재가 위치, 오늘 변동폭, 거래량이 평소(20일 평균)의
-   몇 배인지 — 실기 MTS 들이 요약 탭에 두는 3가지를 한 카드로. */
+/* ══ [v16.9] 주문 패널 옆 코너 — '체결 흐름' ═══════════════════════════════════
+   예전 '한눈 요약'은 52주 밴드·변동폭·거래량 배율을 보여 줬는데, 이는 아래
+   종목요약·시세 탭에 이미 있는 값이라 화면이 겹쳤다(실기 사진).
+   이 자리에는 아래 어느 탭에도 없는 것만 둔다:
+     · 매수/매도 잔량 비중(호가 10단계 합) — 호가 탭은 단계별 표라 '비중'은 없다
+     · 스프레드(최우선 매도−매수) 와 한 틱 기준
+     · 지금 지정가로 살 수 있는 최대 수량(내 예수금 기준) — 주문 판단에 직결
+   높이는 오른쪽 주문 패널 끝선에 맞춘다(CSS 에서 처리). */
 async function renderGlance(){
   const el=$('dGlance'), body=$('dGlanceBody');
   if(!el||!body)return;
@@ -12509,28 +12514,34 @@ async function renderGlance(){
   el.hidden=false;
   try{
     const code=selected;
-    const bars=await ensureDailySummary(code);
+    const ob=await obLoad(code);
     if(currentView!=='trade'||selected!==code)return;
     const st=byCode[code]||{};
-    if(!bars||!bars.length||!(st.price>0)){ body.innerHTML='<div class="empty">데이터를 모으는 중…</div>'; return; }
-    const m=mergeTodayLive(bars,code);
-    const yr=m.slice(-252);
-    const hi52=Math.max(...yr.map(x=>x.h)), lo52=Math.min(...yr.map(x=>x.l));
-    const pos=hi52>lo52?Math.round((st.price-lo52)/(hi52-lo52)*100):50;
-    const today=m[m.length-1];
-    const rangePct=today.l>0?((today.h-today.l)/today.l*100):0;
-    const v20=m.slice(-21,-1).reduce((a,x)=>a+(x.v||0),0)/Math.max(1,Math.min(20,m.length-1));
-    const vx=v20>0?(today.v||0)/v20:0;
-    body.innerHTML=`
-      <div class="dg-row"><span class="dg-k">52주 밴드</span>
-        <span class="dg-band"><i style="left:${Math.max(2,Math.min(98,pos))}%"></i></span>
-        <span class="dg-v num">${pos}<small>%</small></span></div>
-      <div class="dg-sub num">${KRW(lo52)} ~ ${KRW(hi52)}</div>
-      <div class="dg-row"><span class="dg-k">오늘 변동폭</span><span class="dg-v num">${rangePct.toFixed(1)}%</span></div>
-      <div class="dg-row"><span class="dg-k">거래량 배율</span><span class="dg-v num ${vx>=2?'hot':''}">${vx?vx.toFixed(1):'—'}<small>×</small></span>
-        <span class="dg-hint">20일 평균 대비</span></div>`;
-  }catch(e){ body.innerHTML='<div class="empty">요약을 만들지 못했습니다</div>'; }
+    const px=Number((dispQuote(code)||{}).price||st.price)||0;
+    if(!ob||!ob.ok||!(px>0)){ body.innerHTML='<div class="empty">호가를 받는 중…</div>'; return; }
+    const sum=(a)=>(Array.isArray(a)?a:[]).reduce((t,x)=>t+(Number(x.q)||0),0);
+    const bq=sum(ob.buy), aq=sum(ob.sell), tot=bq+aq;
+    const bPct=tot>0?Math.round(bq/tot*100):50;
+    const aPct=100-bPct;
+    const spread=(ob.spread!=null)?ob.spread:null;
+    const tick=(typeof tickSize==='function')?tickSize(px,mktOf(code)):0;
+    const tickN=(spread!=null&&tick>0)?Math.round(spread/tick):null;
+    const want=(typeof getOrderPrice==='function'&&getOrderPrice())||px;
+    const canBuy=want>0?Math.floor(Math.max(0,intOf(cash,0))/want):0;
+    const lean=bPct>=58?['매수 우위','buy']:bPct<=42?['매도 우위','sell']:['균형','flat'];
+    body.innerHTML=
+      '<div class="dg-lean '+lean[1]+'"><b>'+lean[0]+'</b><span class="num">매수 '+bPct+'% · 매도 '+aPct+'%</span></div>'
+     +'<div class="dg-bar"><i class="b" style="width:'+bPct+'%"></i><i class="a" style="width:'+aPct+'%"></i></div>'
+     +'<div class="dg-row"><span class="dg-k">매수 잔량</span><span class="dg-v num">'+KRW(bq)+'<small>주</small></span></div>'
+     +'<div class="dg-row"><span class="dg-k">매도 잔량</span><span class="dg-v num">'+KRW(aq)+'<small>주</small></span></div>'
+     +'<div class="dg-row"><span class="dg-k">스프레드</span><span class="dg-v num">'
+       +(spread!=null?KRW(spread)+'<small>원</small>':'—')+'</span>'
+       +(tickN!=null?'<span class="dg-hint">'+tickN+'틱</span>':'')+'</div>'
+     +'<div class="dg-row"><span class="dg-k">매수 가능</span><span class="dg-v num'+(canBuy>0?'':' zero')+'">'
+       +KRW(canBuy)+'<small>주</small></span><span class="dg-hint">현재 지정가</span></div>';
+  }catch(e){ body.innerHTML='<div class="empty">체결 흐름을 만들지 못했습니다</div>'; }
 }
+
 function renderDetail(){
   const s=byCode[selected]||{};   /* [v10.6] 종목이 아직 없을 수 있다 */
   const _dq=dispQuote(selected)||{};
@@ -13824,7 +13835,7 @@ function renderSimBt(el){
   if(!tierAllow('backtest')){
     el.innerHTML=`<div class="tc-lock"><b>백테스트는 ${tierNeedName('backtest')} 부터예요</b>
       <span>"그때 샀다면 어땠을까"를 최대 낙폭까지 함께 계산해 드립니다.</span>
-      <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button></div>`;
+      <button type="button" class="btn-ghost" data-tier-go>이용권 발급 문의</button></div>`;
     bindTierGo(el); return;
   }
   const term=SB_TERMS.find(t=>t.k===sbTerm)||SB_TERMS[1];
@@ -14107,7 +14118,7 @@ function renderTaxReport(){
   if(!tierAllow('tax')){
     el.innerHTML=`<div class="tc-lock"><b>손익·세금 리포트는 ${tierNeedName('tax')} 부터예요</b>
       <span>매도로 확정된 손익을 선입선출로 계산하고, 해외 양도세까지 미리 짚어 드립니다.</span>
-      <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button></div>`;
+      <button type="button" class="btn-ghost" data-tier-go>이용권 발급 문의</button></div>`;
     bindTierGo(el); return;
   }
   const yNow=new Date().getFullYear();
@@ -15154,7 +15165,7 @@ function renderConsensus(el){
   if(!tierAllow('consensus')){
     if(el){ el.innerHTML=`<div class="tc-lock"><b>증권가 전망은 ${tierNeedName('consensus')} 부터예요</b>
       <span>목표주가와 투자의견을 한눈에 모아 보여 드립니다.</span>
-      <button type="button" class="btn-ghost" data-tier-go>이용 문의하기</button></div>`;
+      <button type="button" class="btn-ghost" data-tier-go>이용권 발급 문의</button></div>`;
       bindTierGo(el); }
     return;
   }
@@ -20769,7 +20780,7 @@ function showTierGift(m){
       <div class="gift-code" id="giftCode">${htmlEsc(cpnPretty(m.code))}</div>
       <button type="button" class="mc-btn primary" id="giftGo" style="--nc:${t.c}">지금 등록하기</button>
       <button type="button" class="mc-btn" id="giftCopy">코드 복사</button>
-      <p class="gift-note">나중에 하시려면 <b>멤버십 → 쿠폰 코드 입력</b>에서 이 코드를 넣으시면 됩니다.</p>
+      <p class="gift-note">나중에 하시려면 <b>멤버십 → 이용권 코드 입력</b>에서 이 코드를 넣으시면 됩니다.</p>
     </div>`);
   const cp=$('giftCopy');
   if(cp)cp.onclick=()=>{
@@ -21033,7 +21044,7 @@ async function myDataDetail(i){
   setTimeout(()=>{
     const c=$('mddCopy'); if(c)c.onclick=()=>{
       try{navigator.clipboard&&navigator.clipboard.writeText(r.code).catch(()=>{});}catch(e){}
-      toast('ok','코드를 복사했습니다','멤버십 → 쿠폰 코드 입력에서 쓸 수 있어요');
+      toast('ok','코드를 복사했습니다','멤버십 → 이용권 코드 입력에서 쓸 수 있어요');
     };
     const g=$('mddGo'); if(g)g.onclick=async()=>{
       const acc=accounts()[currentUser]; if(!acc){toast('warn','로그인이 필요합니다','');return;}
@@ -21248,7 +21259,14 @@ function renderAdmWork(){
   const tierOpts=(sel)=>TIERS.filter(t=>t.k!=='free')
     .map(t=>`<option value="${t.k}"${t.k===sel?' selected':''}>${t.n}</option>`).join('');
   el.innerHTML=`
-  <div class="panel adm-sec">
+  <div class="adm-tabs" id="admTabs">
+    <button data-ag="tier" class="on">🎟 이용권·쿠폰<i>5</i></button>
+    <button data-ag="user">👤 회원·데이터<i>2</i></button>
+    <button data-ag="event">🎁 이벤트<i>1</i></button>
+    <button data-ag="ops">📢 운영·공지<i>2</i></button>
+    <button data-ag="sys">🛠 시스템<i>3</i></button>
+  </div>
+  <div class="panel adm-sec" data-ag="tier">
     <div class="as-h">이용권 코드 발급</div>
     <div class="as-grid">
       <label>등급<select id="cpTier">${tierOpts('pro')}</select></label>
@@ -21267,7 +21285,7 @@ function renderAdmWork(){
     <div class="as-out" id="cpOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="tier">
     <div class="as-h">이용권 발급 안내 보내기</div>
     <div class="as-d">코드를 만든 뒤 여기서 보내면, 그분이 앱을 열 때 <b>안내창이 뜹니다.</b>
       메일·오픈채팅 답장과 함께 쓰시면 놓치지 않아요.</div>
@@ -21282,7 +21300,7 @@ function renderAdmWork(){
     <div class="as-out" id="nfOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="tier">
     <div class="as-h">등급 직접 지정</div>
     <div class="as-d">문의를 받고 바로 올려 줄 때 씁니다. 코드를 거치지 않습니다.</div>
     <div class="as-grid2">
@@ -21297,7 +21315,7 @@ function renderAdmWork(){
     <div class="as-out" id="cpSetMsg"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="ops">
     <div class="as-h">업데이트 공지</div>
     <input class="as-in" id="admVer" placeholder="버전 (예: 13.0.0)">
     <textarea class="as-in as-area" id="admNotes" rows="5" placeholder="업데이트 내용 — 한 줄에 하나씩"></textarea>
@@ -21308,7 +21326,7 @@ function renderAdmWork(){
     <div class="as-out" id="admMsg"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="user">
     <div class="as-h">회원 조회</div>
     <div class="as-grid2">
       <label>아이디<input id="auId" placeholder="정확한 아이디" autocomplete="off"></label>
@@ -21322,7 +21340,7 @@ function renderAdmWork(){
     <div class="as-out" id="auOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="tier">
     <div class="as-h">쿠폰 회수</div>
     <div class="as-d">잘못 나간 코드를 무효로 만듭니다. 이미 등록한 사람의 등급은 유지됩니다.</div>
     <div class="as-grid2">
@@ -21332,7 +21350,7 @@ function renderAdmWork(){
     <div class="as-out" id="rvOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="ops">
     <div class="as-h">홈 공지 배너</div>
     <div class="as-d">게시하면 모든 사용자의 홈 맨 위에 뜹니다. 점검 안내는 주황 경고로 표시됩니다.</div>
     <input class="as-in" id="bnText" placeholder="공지 문구 (200자)" maxlength="200">
@@ -21349,7 +21367,7 @@ function renderAdmWork(){
     <div class="as-out" id="bnOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="sys">
     <div class="as-h">시스템 진단·캐시 도구</div>
     <div class="as-d">순위·추천주 서버 캐시 상태를 보고, 이상하면 그 자리에서 지워 다시 만들게 합니다.</div>
     <div class="as-btns">
@@ -21367,7 +21385,7 @@ function renderAdmWork(){
     <div class="as-out" id="dgOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="user">
     <div class="as-h">사용자 데이터 관리</div>
     <div class="as-d">예수금 변경 요청을 처리합니다. 사용자 화면의 예수금 변경은 계좌당 최초 1회로 제한되며, 그 이후의 조정은 이곳에서 이루어집니다.</div>
     <div class="as-grid2">
@@ -21377,7 +21395,7 @@ function renderAdmWork(){
     <div class="as-out" id="udOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="event">
     <div class="as-h">이벤트 관리</div>
     <div class="as-d">참여 즉시 혜택이 지급되는 이벤트를 만듭니다. 이용권은 서버가 등급을 바로 부여하고, 예수금은 참여자 활성 계좌에 입금됩니다.</div>
     <div class="as-grid2">
@@ -21432,14 +21450,14 @@ function renderAdmWork(){
     <div class="as-out" id="evOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="tier">
     <div class="as-h">쿠폰 상태 조회</div>
     <div class="as-grid2"><label>코드<input id="ciCode" placeholder="LIVE-XXXXX-XXXXX-XXXXX-0" autocomplete="off"></label></div>
     <div class="as-btns"><button type="button" class="mc-btn" id="ciGo">조회</button></div>
     <div class="as-out" id="ciOut"></div>
   </div>
 
-  <div class="panel adm-sec">
+  <div class="panel adm-sec" data-ag="sys">
     <div class="as-h">서버 데이터 재생성</div>
     <div class="as-d">캐시를 지우고 그 자리에서 새로 만들어 결과 개수까지 확인합니다.</div>
     <div class="as-btns">
@@ -21452,7 +21470,7 @@ function renderAdmWork(){
     <div class="as-out" id="rgOut"></div>
   </div>
 
-  <div class="panel adm-sec adm-danger">
+  <div class="panel adm-sec adm-danger" data-ag="sys">
     <div class="as-h">위험 구역</div>
     <div class="as-d">복구할 수 없는 작업입니다. 아이디를 정확히 입력해야 실행됩니다.</div>
     <div class="as-grid2"><label>아이디<input id="dzId" placeholder="대상 아이디" autocomplete="off"></label></div>
@@ -21655,6 +21673,23 @@ function wireAdmTools(){
   };
 
   /* ── [v15.7] 이벤트 관리 배선 ── */
+  /* ══ [v16.9] 관리자 그룹 탭 — 13개 섹션이 세로로 끝없이 늘어지던 문제 해소.
+     섹션은 그대로 두고 그룹으로 접었다 편다(배선은 이미 전부 걸려 있으므로
+     보이기만 바꾸면 기능은 그대로 동작한다). 선택은 세션에 기억한다. */
+  (function admTabsInit(){
+    const bar=$('admTabs'); if(!bar||bar._wired)return; bar._wired=true;
+    const secs=[...document.querySelectorAll('#admWork .adm-sec[data-ag]')];
+    const show=(g)=>{
+      secs.forEach(x=>{ x.hidden = x.dataset.ag!==g; });
+      bar.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.ag===g));
+      try{ sessionStorage.setItem('admTab',g); }catch(e){}
+      try{ bar.scrollIntoView({block:'nearest'}); }catch(e){}
+    };
+    bar.querySelectorAll('button').forEach(b=>b.onclick=()=>show(b.dataset.ag));
+    let init='tier'; try{ init=sessionStorage.getItem('admTab')||'tier'; }catch(e){}
+    if(!secs.some(x=>x.dataset.ag===init))init='tier';
+    show(init);
+  })();
   const evType=$('evType');
   const _evSync=()=>{const t=evType.value;
     $('evTierWrap').hidden=!(t==='tier'||t==='coupon');
@@ -22100,7 +22135,7 @@ function tierBlockFeat(feat, label, desc){
   toast('warn',`${label}은(는) ${need} 부터 이용할 수 있어요`, desc||'내 계좌에서 이용 등급을 확인해 보세요');
 }
 function confirmLike(){ return false; }   /* 자동으로 창을 열지는 않는다 */
-/* 잠금 카드 안의 '이용 문의하기' 버튼을 연결한다 */
+/* 잠금 카드 안의 '이용권 발급 문의' 버튼을 연결한다 */
 function bindTierGo(root){
   try{ (root||document).querySelectorAll('[data-tier-go]').forEach(b=>b.onclick=()=>openTierAsk()); }catch(e){}
 }
@@ -22190,7 +22225,7 @@ function renderTierExpire(){
     el.innerHTML=`<div class="panel tx-warn expired">
       <b>이용 기간이 끝났어요</b>
       <span>지금은 Free 로 이용 중입니다. 새 이용권을 받으시면 곧바로 돌아옵니다.</span>
-      <button type="button" class="btn-primary" data-tier-go>이용 문의하기</button></div>`;
+      <button type="button" class="btn-primary" data-tier-go>이용권 발급 문의</button></div>`;
     bindTierGo(el); return;
   }
   if(!u||tierLv()<=0){ el.innerHTML=''; return; }
@@ -22402,8 +22437,8 @@ function renderTierCard(){
            Free 에서 회색 버튼이 되어 눌러 볼 마음이 안 생긴다. -->
       <div class="mc-acts"${next?` style="--nc:${next.c}"`:''}>
         <button type="button" class="mc-btn primary" id="tcAsk">
-          ${next?`${next.n} 이용 문의`:'이용 문의'}</button>
-        <button type="button" class="mc-btn" id="tcCoupon">쿠폰 코드 입력</button>
+          이용권 발급 문의</button>
+        <button type="button" class="mc-btn" id="tcCoupon">이용권 코드 입력</button>
       </div>
       <p class="mc-note">문의를 남기시면 확인 후 이용권 코드를 보내 드립니다.</p>
     </div>
@@ -22431,24 +22466,42 @@ function openTierAsk(){
      '기간 연장·기타 문의'를 고를 수 있게 한다. 창구를 막지 않는다. */
   const opts=(lv>=TIERS.length-1)?[TIERS[lv]]:TIERS.slice(lv+1);
   const isTop=lv>=TIERS.length-1;
-  openLiteGate('이용 문의하기',`
-    <div class="tc-ask">
-      <div class="fld2"><label>${isTop?'문의 내용':'희망 등급'}</label>
-        <select id="tcWant">${
-          isTop
-            ? `<option value="max">Max 기간 연장</option>
-               <option value="etc">그 밖의 문의</option>`
-            : opts.map(t=>`<option value="${t.k}">${t.n} — ${htmlEsc(t.d)}</option>`).join('')
-        }</select></div>
-      <div class="fld2"><label>남기실 말 <small style="font-weight:600;color:var(--sub-2)">— 없으면 비워 두셔도 됩니다</small></label>
-        <textarea id="tcMemo" rows="3" placeholder="예: 관심종목을 더 담고 싶어요"></textarea></div>
-      <div class="tc-ask-n">아래 버튼을 누르면 <b>내용이 채워진 채로</b> 메일 앱(또는 채팅)이 열립니다.
-        보내시면 확인 후 코드를 드려요.</div>
-      <div class="lg-row" id="tcAskBtns"></div>
-      <div class="tc-ask-n" id="tcAskFall" hidden></div>
+  /* ══ [v16.9] 문의창 프리미엄 개편 — 헤더 배지·단계 안내·현재 등급 요약 ══ */
+  openLiteGate('이용권 발급 문의',`
+    <div class="tqx">
+      <div class="tqx-hero">
+        <span class="tqx-kick">MEMBERSHIP</span>
+        <b>${isTop?'기간 연장·기타 문의':'원하시는 등급을 알려 주세요'}</b>
+        <p>확인 후 이용권 코드를 보내 드립니다. 발급은 무료입니다.</p>
+        <div class="tqx-now"><span>현재 등급</span><i class="tqx-badge">${htmlEsc(me.n)}</i></div>
+      </div>
+      <div class="tqx-body">
+        <div class="tqx-f">
+          <label>${isTop?'문의 내용':'희망 등급'}</label>
+          <div class="tqx-sel"><select id="tcWant">${
+            isTop
+              ? `<option value="max">Max 기간 연장</option>
+                 <option value="etc">그 밖의 문의</option>`
+              : opts.map(t=>`<option value="${t.k}">${t.n}</option>`).join('')
+          }</select></div>
+        </div>
+        <div class="tqx-f">
+          <label>남기실 말 <small>선택</small></label>
+          <textarea id="tcMemo" rows="3" placeholder="예: 관심종목을 더 담고 싶어요"></textarea>
+        </div>
+        <div class="tqx-steps">
+          <div class="tqx-s"><i>1</i><span>아래 버튼을 누르면 내용이 채워진 채로 열립니다</span></div>
+          <div class="tqx-s"><i>2</i><span>그대로 보내 주세요</span></div>
+          <div class="tqx-s"><i>3</i><span>확인 후 코드를 보내 드립니다</span></div>
+        </div>
+        <div class="tqx-acts" id="tcAskBtns"></div>
+        <div class="tqx-fall" id="tcAskFall" hidden></div>
+      </div>
     </div>`);
   const btns=$('tcAskBtns');
-  const mk=(label,fn)=>{ const b=document.createElement('button'); b.className='btn-ghost'; b.textContent=label; b.onclick=fn; btns.appendChild(b); };
+  let _mkN=0;
+  const mk=(label,fn)=>{ const b=document.createElement('button');
+    b.className='tqx-btn'+(_mkN++===0?' primary':''); b.textContent=label; b.onclick=fn; btns.appendChild(b); };
   const body=()=>{
     const want=$('tcWant')?$('tcWant').value:'';
     const wn=want==='etc'?'그 밖의 문의':((TIERS.find(t=>t.k===want)||{}).n||want);
@@ -22486,7 +22539,7 @@ function openTierAsk(){
 /* ── 쿠폰 등록 ────────────────────────────────────────────────────────── */
 function openCouponGate(){
   if(!currentUser){ toast('warn','로그인이 필요해요','오른쪽 위 프로필에서 로그인해 주세요'); return; }
-  openLiteGate('쿠폰 코드 입력',`
+  openLiteGate('이용권 코드 입력',`
     <div class="fld2"><label>코드</label>
       <input id="cpnCode" placeholder="LIVE-XXXXX-XXXXX-XXXXX-X" autocomplete="off" aria-label="쿠폰 코드"></div>
     <div class="lg-row"><button class="btn-primary" id="cpnGo">등록</button></div>

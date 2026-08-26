@@ -91,6 +91,26 @@ function kvAdapter(kv, prefix) {
    live-accounts:usr:<id> 다. 관리자 조회가 app:usr:<id> 를 보고 있어서 데이터가
    있는데도 "없습니다"가 떴다. 두 자리를 모두 확인하고, 쓸 때는 읽은 자리에 쓴다. */
 const USR_KEYS=(id)=>["live-accounts:usr:"+id,"app:usr:"+id];
+/* ══ [v16.8] 계정(등급)도 같은 문제였다 ═══════════════════════════════════════
+   로그인·동기화 라우트는 openStore()=kvAdapter(KV,"live-accounts") 를 쓰므로
+   계정이 live-accounts:acc:<id> 에 저장된다. 반면 쿠폰·관리자 라우트는
+   kvAdapter(KV,"app") 을 써서 app:acc:<id> 를 본다. 그래서 같은 사람인데
+   멤버십 화면(로그인 응답)과 관리자 조회(쿠폰 라우트)의 등급이 어긋났다.
+   두 자리를 모두 확인하고, 쓸 때는 "읽은 자리 + 반대 자리" 양쪽에 맞춰 둔다. */
+const ACC_KEYS=(id)=>["live-accounts:acc:"+id,"app:acc:"+id];
+async function accRawRead(KV,id){
+  const key=String(id==null?"":id).trim().toLowerCase();
+  for(const k of ACC_KEYS(key)){
+    try{ const raw=await KV.get(k); if(raw) return { key:k, raw }; }catch(e){}
+  }
+  return null;
+}
+/* 어느 자리에서 읽었든 두 자리를 같은 내용으로 맞춘다 — 앞으로 갈리지 않게 */
+async function accMirrorWrite(KV,id,acc){
+  const key=String(id==null?"":id).trim().toLowerCase();
+  const body=JSON.stringify(acc);
+  for(const k of ACC_KEYS(key)){ try{ await KV.put(k, body); }catch(e){} }
+}
 async function usrRawRead(KV,id){
   for(const k of USR_KEYS(id)){
     try{ const raw=await KV.get(k); if(raw) return { key:k, raw }; }catch(e){}
@@ -5980,6 +6000,14 @@ async function accLoad(st, id, legacyDb) {
      그 문자열이 "객체인 척" 흘러가면 verifyPass·tier 읽기가 조용히 다 틀린다.
      어댑터가 무엇이든 여기서 한 번 방어 파싱한다. */
   if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { v = null; } }
+  /* [v16.8] 내 접두사에 없으면 반대 접두사(live-accounts↔app)도 본다.
+     두 라우트가 서로 다른 자리를 쓰던 탓에 등급이 갈리던 문제를 여기서 흡수한다. */
+  if (v == null && KV) {
+    try {
+      const hit = await accRawRead(KV, key);
+      if (hit) { try { v = JSON.parse(hit.raw); } catch (e) { v = null; } }
+    } catch (e) {}
+  }
   if (v == null && legacyDb && legacyDb.accounts) {
     /* 옛 자리 — 정확한 키, 없으면 대소문자만 다른 키까지 훑는다(이전 대상 찾기) */
     let hit = legacyDb.accounts[key];
@@ -6080,6 +6108,8 @@ async function accSave(st, id, acc) {
   if (!key) return false;
   _accCache[key] = { v: acc, at: Date.now() };
   try { await st.setJSON(accKeyOf(key), acc); } catch (e) { return false; }
+  /* [v16.8] 반대 접두사에도 같은 내용을 남겨 두 라우트가 항상 같은 등급을 본다 */
+  try { if (KV) await accMirrorWrite(KV, key, acc); } catch (e) {}
   await accIndex(st, key, acc);
   return true;
 }
@@ -9808,7 +9838,9 @@ async function coinIndex(pair){ /* pair: "BTC-USD" — Coinbase 는 워커 IP �
 }
 var CNBC_IDX={ "^IXIC":".IXIC","^GSPC":".SPX","^DJI":".DJI","^VIX":".VIX",
   "^N225":".N225","^HSI":".HSI","NQ=F":"@ND.1","ES=F":"@SP.1","YM=F":"@DJ.1","CL=F":"@CL.1","GC=F":"@GC.1" };
-var STOOQ_IDX={ "^IXIC":"^ndq","^GSPC":"^spx","^DJI":"^dji","^N225":"^nkx","CL=F":"cl.f","GC=F":"gc.f","NQ=F":"nq.f","ES=F":"es.f","YM=F":"ym.f" };
+/* [v16.8] VIX·항셍이 빠져 있어 그 카드만 30일 이력을 못 받았다 — 매핑 보강 */
+var STOOQ_IDX={ "^IXIC":"^ndq","^GSPC":"^spx","^DJI":"^dji","^N225":"^nkx","^HSI":"^hsi","^VIX":"^vix",
+  "CL=F":"cl.f","GC=F":"gc.f","NQ=F":"nq.f","ES=F":"es.f","YM=F":"ym.f","SI=F":"si.f" };
 /* [v5.9] 야후 차트에서 최근 흐름을 받아 온다 — Stooq 가 막힌 날의 대체 경로 */
 async function yahooIndexHist(sym){
   try{
@@ -11566,6 +11598,34 @@ var market_default = async (req2) => {
         pack("\uC6D0/\uC720\uB85C", "EURKRW", null, eurH || [], "\uD658\uC728")
       ]
     };
+    /* ══ [v16.8] 지수 스파크라인이 비던 원인 ══════════════════════════════════
+       화면은 3점 이상이어야 흐름을 그린다(2점은 '직선'이라 일부러 막아 둠).
+       그런데 해외·선물·원자재는 원천이 history 를 주지 않아 pack() 이 만든
+       2점짜리 폴백만 있었다 → 영원히 3점에 못 미쳐 카드가 늘 비었다.
+       이제 호출될 때마다 각 카드의 현재가를 KV 에 적립하고(최대 40점),
+       원천 이력이 모자라면 적립분으로 채워 준다. */
+    try {
+      const HK = "idxhist:v1";
+      let acc = null;
+      try { acc = (await KV.get(HK, "json")) || {}; } catch (e) { acc = {}; }
+      const nowT = Date.now();
+      const rows = [...(body.indices || []), ...(body.crypto || []), ...(body.commodities || [])];
+      for (const x of rows) {
+        if (!x || x.price == null || !isFinite(x.price)) continue;
+        const a = Array.isArray(acc[x.key]) ? acc[x.key] : [];
+        const last = a.length ? a[a.length - 1] : null;
+        /* 같은 값이 연달아 쌓여 '수평선'이 되지 않게, 값이 바뀔 때만 적립한다 */
+        if (last == null || Math.abs(last - x.price) > Math.abs(x.price) * 1e-9) a.push(x.price);
+        acc[x.key] = a.slice(-40);
+        if ((x.history || []).length < 3 && acc[x.key].length >= 2) {
+          const merged = acc[x.key].slice();
+          if (merged[merged.length - 1] !== x.price) merged.push(x.price);
+          if (merged.length >= 3) x.history = merged;
+        }
+      }
+      acc._at = nowT;
+      try { await KV.put(HK, JSON.stringify(acc)); } catch (e) {}
+    } catch (e) {}
     try {
       const probe2 = req2 && new URL(req2.url).searchParams.get("probe") === "1";
       if (probe2 || !(krf && (krf.day || krf.night))) body._futDiag = krf && krf.diag || ["nofetch"];
@@ -16823,7 +16883,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "16.7.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "16.9.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
