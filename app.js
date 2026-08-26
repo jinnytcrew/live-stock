@@ -6472,7 +6472,8 @@ function _showView(name){
   if(name==='folio')_paint(()=>safeRun('folio',()=>{ window._foSlowAt=0; renderFolio(); }));
   if(name==='index')_paint(()=>safeRun('ixDetail',renderIdxDetail));
   if(name==='tier')_paint(()=>renderTierView());
-  if(name==='event')_paint(()=>renderEventView());
+  if(name==='event')_paint(()=>{_evtItems=null;renderEventView();});   /* [v16.2] 진입마다 신선 목록 */
+  if(name==='mydata')_paint(()=>renderMyDataView());
   if(name==='admin')_paint(()=>safeRun('admin',renderAdminView));      /* [v10.4] 지수 상세 */
   if(name==='search'){
     try{ulaBind();}catch(e){}          // [v4.77] 해외 로고 검사 버튼 배선
@@ -20744,7 +20745,7 @@ const EVT_CATALOG=[
  {g:'관심종목 팩',t:'엔터·게임 5선',p:{type:"watchpack",packName:"엔터·게임 5선",codes:["352820", "035900", "041510", "259960", "036570"]}},
 ];
 
-let _evtItems=null,_evtBusy=false;
+let _evtItems=null,_evtBusy=false,_evtTab='on';
 const EVT_BEN=(ev)=>{
   const nm={basic:'Basic',plus:'Plus',pro:'Pro',max:'Max'}[ev.tier]||ev.tier;
   if(ev.type==='tier')return {ic:'🎟',txt:nm+' 이용권 '+ev.days+'일',cls:'tier'};
@@ -20796,6 +20797,44 @@ async function evtApplyBenefit(b2,ben){
     toast('ok',b2.lucky?'🎰 랜덤 박스 당첨!':'💰 예수금 지급 완료',Number(b2.amount).toLocaleString()+'원이 활성 계좌에 입금되었습니다');
   }
 }
+/* ══ [v16.2] MY 데이터 — 상품 획득·응모 자동 기록(계정별 로컬 보관) ═══════════════
+   쿠폰 코드처럼 "안내창이 닫히면 끝"이던 정보를 영구 보관한다. */
+function rewardLogKey(){ return pkey('rewardLog'); }
+function rewardLogGet(){ try{ return JSON.parse(localStorage.getItem(rewardLogKey())||'[]')||[]; }catch(e){ return []; } }
+function rewardLogAdd(rec){
+  try{
+    const l=rewardLogGet();
+    l.unshift({ ...rec, at:Date.now() });
+    localStorage.setItem(rewardLogKey(), JSON.stringify(l.slice(0,200)));
+  }catch(e){}
+}
+function renderMyDataView(){
+  const el=$('myDataBody'); if(!el)return;
+  const l=rewardLogGet();
+  if(!l.length){
+    el.innerHTML='<div class="empty big"><i>🗂️</i><b>아직 기록이 없습니다</b><span>이벤트에 참여해 상품을 받으면 이곳에 자동으로 쌓여요.</span></div>';
+    return;
+  }
+  const IC={tier:'🎟',cash:'💰',usd:'💵',stock:'📈',usstock:'🇺🇸',coupon:'🎫',watchpack:'📋',entry:'📮',bundle:'🎁'};
+  el.innerHTML='<div class="md-list">'+l.map((r,i)=>{
+    const d=new Date(r.at);
+    const when=d.toLocaleDateString('ko-KR',{month:'long',day:'numeric'})+' '+d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+    const code=r.code?`<div class="md-code"><span class="num">${htmlEsc(r.code)}</span>
+      <button type="button" class="md-copy" data-code="${htmlEsc(r.code)}">복사</button></div>`:'';
+    return `<div class="md-row">
+      <div class="md-ic">${IC[r.kind]||'🎁'}</div>
+      <div class="md-b">
+        <div class="md-t">${htmlEsc(r.label||'')}</div>
+        <div class="md-s">${htmlEsc(r.src||'')} · ${when}${r.kind==='entry'?' · <b class="md-entry">응모 완료</b>':''}</div>
+        ${code}
+      </div></div>`;
+  }).join('')+'</div>';
+  el.querySelectorAll('.md-copy').forEach(b=>b.onclick=()=>{
+    try{navigator.clipboard&&navigator.clipboard.writeText(b.dataset.code).catch(()=>{});}catch(e){}
+    toast('ok','복사되었습니다','멤버십 화면의 쿠폰 등록에서 사용할 수 있어요');
+  });
+}
+
 async function renderEventView(){
   const el=$('eventList'); if(!el)return;
   if(!_evtItems&&!_evtBusy){
@@ -20811,10 +20850,24 @@ async function renderEventView(){
     if(currentView==='event')renderEventView();
     return;
   }
-  const items=_evtItems;
+  /* [v16.2] 진행 중 / 종료 탭 */
+  const tabs=$('evtTabs');
+  if(tabs&&!tabs._wired){tabs._wired=true;
+    tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{_evtTab=b.dataset.et;
+      tabs.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+      renderEventView();});}
+  const _all=_evtItems;
+  const items=_all===null?null:_all.filter(ev=>{
+    const ended=ev.endAt&&Date.now()>ev.endAt;
+    return _evtTab==='end'?ended:!ended;
+  });
   if(items===null){el.innerHTML='<div class="empty">이벤트를 불러오지 못했습니다.<br><button class="etf-more" id="evtRetry">다시 시도</button></div>';
     const b=$('evtRetry'); if(b)b.onclick=()=>{_evtItems=null;renderEventView();}; return;}
-  if(!items.length){el.innerHTML='<div class="empty">지금 진행 중인 이벤트가 없습니다.<br>새 이벤트가 열리면 이곳에서 알려 드릴게요.</div>';return;}
+  if(!items.length){
+    el.innerHTML=_evtTab==='end'
+      ?'<div class="empty big"><i>🏁</i><b>종료된 이벤트가 없습니다</b><span>기간이 끝난 이벤트가 이곳에 보관돼요.</span></div>'
+      :'<div class="empty big"><i>🎁</i><b>지금 진행 중인 이벤트가 없습니다</b><span>새 이벤트가 열리면 이곳에서 알려 드릴게요.</span></div>';
+    return;}
   const now=Date.now();
   el.innerHTML=items.map(ev=>{
     const ben=EVT_BEN(ev);
@@ -20829,14 +20882,15 @@ async function renderEventView(){
       +(ev.mine?'<span class="evt-mine">✓ 참여 완료</span>':'')+'</div>'
       +'<div class="evt-tt">'+htmlEsc(ev.title)+'</div>'
       +(ev.desc?'<div class="evt-d">'+htmlEsc(ev.desc)+'</div>':'')
-      +'<div class="evt-ben"><i>'+ben.ic+'</i><b>'+ben.txt+'</b><span>즉시 지급</span></div>'
+      +'<div class="evt-ben"><i>'+ben.ic+'</i><b>'+ben.txt+'</b><span>'+(ev.joinMode==='entry'?'응모 후 추첨':'즉시 지급')+'</span></div>'
+      +(ev.mission?'<div class="evt-msn"><i>🎯</i><div><b>참여 조건</b><p>'+htmlEsc(ev.mission)+'</p></div></div>':'')
       +'<div class="evt-meta">'
       +(ev.endAt?'<span>~ '+new Date(ev.endAt).toLocaleDateString('ko-KR',{month:'long',day:'numeric'})+'</span>':'<span>상시</span>')
       +'<span>·</span><span class="num">'+(ev.joined||0).toLocaleString()+'명 참여'
       +(ev.maxJoin?' / '+ev.maxJoin.toLocaleString()+'명 한정':'')+'</span></div>'
       +(prog!=null?'<div class="evt-prog"><i style="width:'+prog+'%"></i></div>':'')
       +'<button class="evt-go" data-evt="'+ev.id+'"'+(canJoin?'':' disabled')+'>'
-      +(ev.mine?'참여 완료':ended?'마감된 이벤트':full?'정원 마감':'지금 참여하고 받기')+'</button></div>';
+      +(ev.mine?(ev.joinMode==='entry'?'응모 완료':'참여 완료'):ended?'마감된 이벤트':full?'정원 마감':(ev.joinMode==='entry'?'지금 응모하기':'지금 참여하고 받기'))+'</button></div>';
   }).join('');
   el.querySelectorAll('.evt-go[data-evt]:not([disabled])').forEach(b=>b.onclick=()=>evtJoin(b.dataset.evt));
 }
@@ -20844,16 +20898,38 @@ async function evtJoin(id){
   if(typeof currentUser==='undefined'||!currentUser){toast('warn','로그인이 필요합니다','이벤트는 로그인 후 참여할 수 있어요');return;}
   const ev=(_evtItems||[]).find(x=>x.id===id); if(!ev)return;
   const ben=EVT_BEN(ev);
-  if(!await askConfirm('이벤트 참여',"'"+ev.title+"' — 혜택: "+ben.txt+" (즉시 지급)",{okLabel:'참여하기'}))return;
+  const isEntry=ev.joinMode==='entry';
+  if(!await askConfirm(isEntry?'이벤트 응모':'이벤트 참여',
+    "'"+ev.title+"' — 혜택: "+ben.txt+(isEntry?' (응모 후 추첨)':' (즉시 지급)')+(ev.mission?'\n참여 조건: '+ev.mission:''),
+    {okLabel:isEntry?'응모하기':'참여하기'}))return;
+  let answer='';
+  if(ev.askLabel){
+    answer=await askText(ev.askLabel,{desc:ev.mission||'참여 조건을 입력해 주세요'});
+    if(answer==null)return;
+    answer=String(answer).trim();
+    if(!answer){toast('warn','입력이 필요합니다',ev.askLabel);return;}
+  }
   try{
     fnBump();
     const r=await fetch('/api/coupon',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({act:'evtjoin',id,user:currentUser})});
+      body:JSON.stringify({act:'evtjoin',id,user:currentUser,answer})});
     const j=await r.json();
     if(!j||!j.ok){toast('warn','참여하지 못했습니다',(j&&j.msg)||'잠시 후 다시 시도해 주세요');
       if(j&&(j.err==='dup'||j.err==='ended'||j.err==='full')){_evtItems=null;renderEventView();}
       return;}
     const b2=j.benefit||{};
+    /* [v16.2] MY 데이터 자동 기록 — 코드가 있는 혜택은 코드 원문까지 보관 */
+    const _log=(it)=>{ try{ const bn=EVT_BEN(it.type?it:ev);
+      rewardLogAdd({ kind:it.type||ev.type, label:(it.type==='entry')?('응모: '+ev.title):bn.txt,
+        src:'이벤트 · '+ev.title, code:it.code||null, amount:it.amount||null }); }catch(e){} };
+    if(b2.type==='entry'){
+      _log(b2);
+      toast('ok','📮 응모가 접수되었습니다','발표·지급 소식은 이벤트 안내를 확인해 주세요');
+      _evtItems=null; renderEventView(); return;
+    }
+    if(b2.type==='bundle'){
+      (b2.items||[]).forEach(_log);
+    }else{ _log(b2); }
     if(b2.type==='bundle'){
       for(const it of (b2.items||[]))await evtApplyBenefit(it,EVT_BEN(it));
       toast('ok','🎁 패키지 지급 완료',(b2.items||[]).length+'가지 혜택이 모두 지급되었습니다');
@@ -21063,6 +21139,11 @@ function renderAdmWork(){
         <select id="evCur" style="width:84px"><option value="krw">원화</option><option value="usd">달러</option></select>
         <input id="evMin" type="number" min="1" placeholder="최소" style="flex:1"> ~
         <input id="evLMax" type="number" min="1" placeholder="최대" style="flex:1"></span></label>
+      <label>참여 방식<select id="evMode">
+        <option value="instant">즉시 지급</option>
+        <option value="entry">응모 접수(추첨·수동 지급)</option></select></label>
+      <label>미션·참여 조건(선택)<input id="evMission" maxlength="140" placeholder="예: 앱 스토어 리뷰 남기고 닉네임 적기"></label>
+      <label>제출 입력 요구(선택)<input id="evAsk" maxlength="40" placeholder="예: 리뷰 닉네임 / 응모 한마디 — 비우면 입력 없음"></label>
       <label>종료일(선택)<input id="evEnd" type="date"></label>
       <label>최대 인원(0=무제한)<input id="evMax" type="number" min="0" value="0"></label>
     </div>
@@ -21266,6 +21347,7 @@ function wireAdmTools(){
             evQ._loading=true;
             evSL.innerHTML='<button type="button" disabled>전체 종목 목록을 불러오는 중…</button>';
             evSL.hidden=false;
+      try{const sec=evSL.closest('.adm-sec'); if(sec){sec.style.zIndex='60'; evSL._sec=sec;}}catch(e){}
             Promise.resolve().then(()=>loadStockAll()).then(()=>{evQ._loading=false;
               if(document.activeElement===evQ||evQ.value)evQ.oninput();}).catch(()=>{evQ._loading=false;});
             return;
@@ -21299,20 +21381,22 @@ function wireAdmTools(){
       if(!hits.length&&!usHint){evSL.hidden=true;return;}
       evSL.innerHTML=usHint+hits.map(x=>`<button type="button" data-c="${htmlEsc(x.code)}" data-n="${htmlEsc(x.name)}"><b>${htmlEsc(x.name)}</b><span class="num">${htmlEsc(x.sub)}</span></button>`).join('');
       evSL.hidden=false;
+      try{const sec=evSL.closest('.adm-sec'); if(sec){sec.style.zIndex='60'; evSL._sec=sec;}}catch(e){}
       evSL.querySelectorAll('.ev-us-hint').forEach(b2=>b2.onclick=()=>{
         evMkt='us'; _mkSync();
         $('evTicker').value=b2.dataset.us; $('evUsName').value=b2.dataset.n;
-        evQ.value=b2.dataset.n; evSL.hidden=true;
+        evQ.value=b2.dataset.n; _slHide();
         _showPick(b2.dataset.n,b2.dataset.us+' · 해외');});
       evSL.querySelectorAll('button:not(.ev-us-hint)').forEach(b2=>b2.onclick=()=>{
         if(evMkt==='us'){ $('evTicker').value=b2.dataset.c; $('evUsName').value=b2.dataset.n;
           $('evCode').value='';$('evSname').value=''; }
         else{ $('evCode').value=b2.dataset.c; $('evSname').value=b2.dataset.n;
           $('evTicker').value='';$('evUsName').value=''; }
-        evQ.value=b2.dataset.n; evSL.hidden=true;
+        evQ.value=b2.dataset.n; _slHide();
         _showPick(b2.dataset.n,b2.dataset.c);});
     };
-    evQ.onblur=()=>setTimeout(()=>{evSL.hidden=true;},250);
+    const _slHide=()=>{evSL.hidden=true; try{if(evSL._sec){evSL._sec.style.zIndex='';evSL._sec=null;}}catch(e){}};
+    evQ.onblur=()=>setTimeout(_slHide,250);
   }
   let _evBundle=null,_evPack=null;   /* 카탈로그 전용 payload 보관 */
   if(evType)evType.onchange=_evSync;
@@ -21347,6 +21431,8 @@ function wireAdmTools(){
       cur:$('evCur').value,min:+$('evMin').value||0,max:+$('evLMax').value||0,
       items:_evBundle||undefined,codes:_evPack?_evPack.codes:undefined,packName:_evPack?_evPack.packName:undefined,
       endAt:$('evEnd').value?new Date($('evEnd').value+'T23:59:59+09:00').getTime():0,
+      mission:($('evMission').value||'').trim(),askLabel:($('evAsk').value||'').trim(),
+      joinMode:$('evMode').value,
       maxJoin:+$('evMax').value||0};
     if(!payload.title){out('evOut','<b class="bad">제목을 넣어 주세요</b>');return;}
     if((t==='cash'||t==='usd')&&!(payload.amount>0)){out('evOut','<b class="bad">지급 금액을 넣어 주세요</b>');return;}
@@ -21358,7 +21444,7 @@ function wireAdmTools(){
     try{const j=await admCall(payload);
       out('evOut',j&&j.ok?`<b>이벤트를 만들었습니다</b> · ${esc(j.ev.title)} <span class="au-sub">(id ${esc(j.ev.id)})</span>`
                         :'<b class="bad">실패: '+esc(j&&j.err||'')+'</b>');
-      if(j&&j.ok){$('evTitle').value='';$('evDesc').value='';}
+      if(j&&j.ok){$('evTitle').value='';$('evDesc').value='';$('evMission').value='';$('evAsk').value='';try{_evtItems=null;}catch(e){}}
     }catch(e){out('evOut','<b class="bad">서버 연결 실패</b>');}
     finally{busy(evC,false,'이벤트 만들기');}
   };
@@ -21372,13 +21458,21 @@ function wireAdmTools(){
             <div class="au-sub num">${(ev.joined||0)}명 참여${ev.maxJoin?` / ${ev.maxJoin}명`:''} · ${ev.endAt?('~'+new Date(ev.endAt).toLocaleDateString('ko-KR')):'상시'}</div>
             <div class="as-btns" style="margin-top:7px">
               <button type="button" class="mc-btn" data-evstop="${esc(ev.id)}">${ev.disabled?'재개':'중지'}</button>
-              <button type="button" class="mc-btn danger" data-evdel="${esc(ev.id)}">삭제</button></div></div>`;
+              ${(ev.joinMode==='entry'||ev.askLabel)?`<button type="button" class="mc-btn" data-evsubs="${esc(ev.id)}">응모·제출 보기</button>`:''}
+              <button type="button" class="mc-btn danger" data-evdel="${esc(ev.id)}">삭제</button></div>
+            <div class="au-sub" data-subsout="${esc(ev.id)}"></div></div>`;
         }).join(''):'<div class="au-sub">만든 이벤트가 없습니다</div>');
         document.querySelectorAll('[data-evstop]').forEach(b=>b.onclick=async()=>{
-          const j2=await admCall({act:'evtstop',id:b.dataset.evstop}); if(j2&&j2.ok)evL.click();});
+          const j2=await admCall({act:'evtstop',id:b.dataset.evstop}); if(j2&&j2.ok){try{_evtItems=null;}catch(e){} evL.click();}});
+        document.querySelectorAll('[data-evsubs]').forEach(b=>b.onclick=async()=>{
+          const j2=await admCall({act:'evtsubs',id:b.dataset.evsubs});
+          const box=document.querySelector(`[data-subsout="${b.dataset.evsubs}"]`);
+          if(box)box.innerHTML=(j2&&j2.ok&&j2.subs.length)
+            ?j2.subs.map(x=>`<div class="md-sub"><b>${esc(x.user)}</b> · ${new Date(x.at).toLocaleString('ko-KR')}<br>${esc(x.answer||'')}</div>`).join('')
+            :'제출 내역이 없습니다';});
         document.querySelectorAll('[data-evdel]').forEach(b=>b.onclick=async()=>{
           if(!await askConfirm('이벤트 삭제','참여 기록 집계도 함께 사라집니다.',{okLabel:'삭제',danger:true}))return;
-          const j2=await admCall({act:'evtdel',id:b.dataset.evdel}); if(j2&&j2.ok)evL.click();});
+          const j2=await admCall({act:'evtdel',id:b.dataset.evdel}); if(j2&&j2.ok){try{_evtItems=null;}catch(e){} evL.click();}});
       } else out('evOut','<b class="bad">불러오지 못했습니다</b>');
     }catch(e){out('evOut','<b class="bad">서버 연결 실패</b>');}
     finally{busy(evL,false,'이벤트 목록');}

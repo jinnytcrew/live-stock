@@ -11017,6 +11017,9 @@ var coupon_default = async (req2) => {
       items:(type==="bundle"&&Array.isArray(body.items))?body.items.slice(0,6):null,
       codes:(type==="watchpack"&&Array.isArray(body.codes))?body.codes.slice(0,20).map(x=>String(x).slice(0,10)):null,
       packName:(type==="watchpack")?String(body.packName||"").trim().slice(0,30):null,
+      mission:String(body.mission||"").trim().slice(0,140)||null,
+      askLabel:String(body.askLabel||"").trim().slice(0,40)||null,
+      joinMode:(body.joinMode==="entry")?"entry":"instant",
       endAt:+body.endAt||0, maxJoin:Math.max(0,+body.maxJoin||0),
       joined:0, disabled:0, madeAt:Date.now() };
     if((ev.type==="tier"||ev.type==="coupon")&&!ev.tier) return J({ ok:false, err:"form" });
@@ -11043,6 +11046,12 @@ var coupon_default = async (req2) => {
     await evtSave(list);
     return J({ ok:true, id:ev.id, disabled:ev.disabled?1:0, deleted:act==="evtdel"?1:0 });
   }
+  if (act === "evtsubs") {                             /* 응모·제출 목록(관리자) */
+    if (!admOk(body.token)) return J({ ok:false, err:"forbidden" },403);
+    const id=String(body.id||"");
+    let subs=[]; try{ subs=(await KV.get("evt:subs:"+id,"json"))||[]; }catch(e){}
+    return J({ ok:true, id, subs });
+  }
   if (act === "evtpub") {                              /* 사용자 목록(+내 참여 여부) */
     const uid=String(body.user||"").trim().toLowerCase();
     const list=(await evtLoad()).filter(x=>!x.disabled);
@@ -11068,8 +11077,20 @@ var coupon_default = async (req2) => {
     const jk="evt:join:"+ev.id+":"+uid;
     try{ if(await KV.get(jk)) return J({ ok:false, err:"dup", msg:"이미 참여한 이벤트입니다" }); }catch(e){}
     if(ev.maxJoin&&ev.joined>=ev.maxJoin) return J({ ok:false, err:"full", msg:"참여 인원이 가득 찼습니다" });
-    try{ await KV.put(jk, JSON.stringify({ at:Date.now() }), { expirationTtl: 180*86400 }); }catch(e){}
+    const subTxt=String(body.answer||"").trim().slice(0,500);
+    if(ev.askLabel&&!subTxt) return J({ ok:false, err:"answer", msg:"참여 조건 입력이 필요합니다" });
+    try{ await KV.put(jk, JSON.stringify({ at:Date.now(), answer:subTxt||null }), { expirationTtl: 180*86400 }); }catch(e){}
+    if(subTxt){ try{
+      const sk="evt:subs:"+ev.id;
+      const subs=(await KV.get(sk,"json"))||[];
+      subs.push({ user:uid, at:Date.now(), answer:subTxt });
+      await KV.put(sk, JSON.stringify(subs.slice(-500)), { expirationTtl: 180*86400 });
+    }catch(e){} }
     ev.joined=(ev.joined||0)+1; await evtSave(list);
+    /* [v16.2] 응모형(entry) — 혜택은 지급하지 않고 접수만. 발표·지급은 관리자 몫 */
+    if(ev.joinMode==="entry"){
+      return J({ ok:true, id:ev.id, joined:ev.joined, benefit:{ type:"entry", title:ev.title } });
+    }
     /* [v16.0] 혜택 실행기 — bundle 이 재사용할 수 있게 한 곳에 모은다.
        서버가 직접 집행하는 것: tier(등급 부여)·coupon(코드 발급)·lucky(추첨 확정).
        클라이언트가 집행하는 것(금액·수량만 확정해 전달): cash/usd/stock/usstock/watchpack. */
@@ -16659,7 +16680,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "16.1.1";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "16.2.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=571">
+<link rel="stylesheet" href="/app.css?v=580">
 </head>
 <body>
 
@@ -644,6 +644,7 @@ body.needs-auth #authGate{z-index:2000001}
       <!-- [v12.1] 이용 등급 — 내 계좌 안에 있으니 눈에 띄지 않았다. 독립 메뉴로 뺀다 -->
       <button data-view="tier">멤버십</button>
       <button data-view="event">이벤트</button>
+      <button data-view="mydata">MY 데이터</button>
       <!-- [v13.0] 관리자 전용 — 들어갈 때 암호를 먼저 묻는다 -->
       <button data-view="admin" id="navAdmin">관리자</button>
     </nav>
@@ -1415,7 +1416,17 @@ body.needs-auth #authGate{z-index:2000001}
 <section class="view" id="view-event" hidden>
   <div class="page-title">이벤트</div>
   <div class="page-sub">참여만 해도 혜택이 바로 지급됩니다. 이용권·예수금 이벤트를 놓치지 마세요.</div>
+  <div class="evt-tabs" id="evtTabs">
+    <button data-et="on" class="on">진행 중</button>
+    <button data-et="end">종료된 이벤트</button>
+  </div>
   <div id="eventList"><div class="empty">이벤트를 불러오는 중…</div></div>
+</section>
+
+<section class="view" id="view-mydata" hidden>
+  <div class="page-title">MY 데이터</div>
+  <div class="page-sub">이벤트로 받은 상품·쿠폰 코드·응모 내역이 자동으로 기록됩니다. 코드는 언제든 여기서 다시 확인하세요.</div>
+  <div id="myDataBody"><div class="empty">기록을 불러오는 중…</div></div>
 </section>
 
 <section class="view" id="view-tier" hidden>
@@ -1620,6 +1631,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
   <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
-<script type="module" src="/app.js?v=571"></script>
+<script type="module" src="/app.js?v=580"></script>
 </body>
 </html>
