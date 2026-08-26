@@ -7353,7 +7353,7 @@ html.dark .evt-st.on{color:#6ee7b7;background:rgba(16,185,129,.15)}
 .evt-card.watchpack::before{background:linear-gradient(180deg,#94a3b8,#475569)}
 .evt-card.watchpack::after{background:radial-gradient(110% 70% at 0% 0%,rgba(71,85,105,.07),transparent 55%)}
 /* 관리자 종목 검색 드롭다운 */
-.ev-sr{position:absolute;left:0;right:74px;top:calc(100% + 4px);z-index:40;background:var(--panel);
+.ev-sr{position:absolute;left:0;right:74px;top:calc(100% + 4px);z-index:80;background:var(--panel);
   border:1px solid var(--border);border-radius:12px;box-shadow:var(--lift-hover);overflow:hidden}
 .ev-sr button{display:flex;justify-content:space-between;gap:10px;width:100%;padding:9px 13px;border:0;
   background:none;cursor:pointer;font-size:12.5px;text-align:left}
@@ -7362,12 +7362,15 @@ html.dark .evt-st.on{color:#6ee7b7;background:rgba(16,185,129,.15)}
 .ev-sr button span{color:var(--sub-2)}
 
 /* ═══ [v16.1] 관리자 프리미엄 — 멤버십의 결로 격상 ═══════════════════════════════ */
-.adm-sec{position:relative;overflow:hidden;border-radius:18px;box-shadow:var(--lift);
+.adm-sec{position:relative;border-radius:18px;box-shadow:var(--lift);
   border:1px solid var(--border);transition:box-shadow .18s}
+/* [v16.1.1] overflow:hidden 이 종목 검색 드롭다운을 잘랐다(실기 사진) —
+   클리핑을 풀고 색 띠·광이 스스로 모서리를 지키게 한다 */
 .adm-sec:hover{box-shadow:var(--lift-hover)}
 .adm-sec::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;
+  border-radius:18px 0 0 18px;
   background:linear-gradient(180deg,var(--brand-2,#f5a30d),var(--brand,#12203a))}
-.adm-sec::after{content:'';position:absolute;inset:0;pointer-events:none;
+.adm-sec::after{content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
   background:radial-gradient(120% 60% at 0% 0%,color-mix(in srgb,var(--brand-2,#f5a30d) 6%,transparent),transparent 55%)}
 .adm-sec>*{position:relative;z-index:1}
 .adm-sec .as-h{font-size:15.5px;font-weight:900;letter-spacing:-.5px;padding-bottom:9px;position:relative}
@@ -7402,3 +7405,14 @@ html.dark .mc-btn{box-shadow:0 2px 8px rgba(0,0,0,.3),0 1px 0 rgba(255,255,255,.
 .ev-picked{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:6px 13px;border-radius:99px;
   font-size:12px;font-weight:800;color:#065f46;background:#d1fae5}
 html.dark .ev-picked{color:#6ee7b7;background:rgba(16,185,129,.15)}
+
+/* [v16.1.1] 선택기 드롭다운 — 형제(버튼 줄)보다 항상 위 + 스크롤 */
+.adm-sec .as-grid2{z-index:5}
+.ev-sr{z-index:60;max-height:300px;overflow-y:auto;
+  box-shadow:0 18px 44px rgba(8,13,28,.28),0 2px 8px rgba(8,13,28,.12)}
+html.dark .ev-sr{box-shadow:0 18px 44px rgba(0,0,0,.6)}
+.ev-sr button+button{border-top:1px solid color-mix(in srgb,var(--border) 70%,transparent)}
+
+/* [v16.1.1] 국내 검색 결과 위 해외 바로가기 행 */
+.ev-sr .ev-us-hint{background:color-mix(in srgb,#0d9488 8%,var(--panel));font-weight:800}
+.ev-sr .ev-us-hint:hover{background:color-mix(in srgb,#0d9488 14%,var(--panel))}

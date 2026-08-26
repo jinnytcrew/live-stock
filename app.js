@@ -21248,9 +21248,17 @@ function wireAdmTools(){
       if(q.length<1){evSL.hidden=true;return;}
       let hits=[];
       if(evMkt==='us'){
+        const uscore=(x)=>{const tk=String(x.t).toLowerCase(),kr=(x.kr||'').toLowerCase();
+          let sc=0;
+          if(tk===q)sc-=1000; else if(tk.startsWith(q))sc-=500;
+          if(kr===q)sc-=800; else if(kr.startsWith(q))sc-=300;
+          if(x.etf)sc+=200;
+          sc+=(x.kr||x.en||'').length;
+          return sc;};
         hits=Object.values(usMeta)
           .filter(x=>String(x.t).toLowerCase().startsWith(q)||(x.kr||'').toLowerCase().includes(q)||(x.en||'').toLowerCase().includes(q))
-          .slice(0,8).map(x=>({code:x.t,name:x.kr||x.en||x.t,sub:x.t}));
+          .sort((a,b2)=>uscore(a)-uscore(b2))
+          .slice(0,10).map(x=>({code:x.t,name:x.kr||x.en||x.t,sub:x.t}));
       }else{
         if(!(stockAll&&stockAll.length)){
           try{loadStockCache();}catch(e){}
@@ -21265,13 +21273,38 @@ function wireAdmTools(){
         }
         const src=(stockAll&&stockAll.length)?stockAll
           :Object.values(byCode).filter(x=>x&&x.name&&!x.us&&/^\d{6}$/.test(String(x.code||'')));
+        /* [v16.1.1] 인기 보통주가 맨 위에 — 점수 정렬:
+           완전일치 ≫ 이름 시작일치 ≫ 보통주(코드 끝 0) ≫ 비ETF ≫ 짧은 이름 순 */
+        const isEtfNm=(n)=>/^(KODEX|TIGER|ACE|SOL|RISE|PLUS|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|KoAct|1Q|히어로즈|마이다스|파워|FOCUS|트루|마이티|UNICORN|VITA|WON)\b/i.test(n||'');
+        const score=(x)=>{const nm=(x.name||'').toLowerCase();
+          let sc=0;
+          if(nm===q)sc-=1000; else if(nm.startsWith(q))sc-=400;
+          else if(String(x.code||'').startsWith(q))sc-=350;
+          if(isEtfNm(x.name))sc+=200;
+          if(!/0$/.test(String(x.code||'')))sc+=60;   /* 우선주·전환주 등 */
+          sc+=(x.name||'').length;
+          return sc;};
         hits=src.filter(x=>(x.name||'').toLowerCase().includes(q)||String(x.code||'').startsWith(q))
-          .slice(0,8).map(x=>({code:x.code,name:x.name,sub:x.code}));
+          .sort((a,b2)=>score(a)-score(b2))
+          .slice(0,10).map(x=>({code:x.code,name:x.name,sub:x.code}));
       }
-      if(!hits.length){evSL.hidden=true;return;}
-      evSL.innerHTML=hits.map(x=>`<button type="button" data-c="${htmlEsc(x.code)}" data-n="${htmlEsc(x.name)}"><b>${htmlEsc(x.name)}</b><span class="num">${htmlEsc(x.sub)}</span></button>`).join('');
+      /* [v16.1.1] '테슬라'처럼 국내엔 테마 ETF 뿐인 이름 — 해외에 그 이름의
+         "진짜 보통주"가 있으면 맨 위에 바로가기 행을 얹는다(실기 사진 문제) */
+      let usHint='';
+      if(evMkt==='kr'){
+        const hit=Object.values(usMeta).find(x=>!x.etf&&(
+          (x.kr||'').toLowerCase()===q||(x.kr||'').toLowerCase().startsWith(q)||String(x.t).toLowerCase()===q));
+        if(hit)usHint=`<button type="button" class="ev-us-hint" data-us="${htmlEsc(hit.t)}" data-n="${htmlEsc(hit.kr||hit.en||hit.t)}">🇺🇸 해외 주식 <b>${htmlEsc(hit.kr||hit.t)}</b><span class="num">${htmlEsc(hit.t)}</span></button>`;
+      }
+      if(!hits.length&&!usHint){evSL.hidden=true;return;}
+      evSL.innerHTML=usHint+hits.map(x=>`<button type="button" data-c="${htmlEsc(x.code)}" data-n="${htmlEsc(x.name)}"><b>${htmlEsc(x.name)}</b><span class="num">${htmlEsc(x.sub)}</span></button>`).join('');
       evSL.hidden=false;
-      evSL.querySelectorAll('button').forEach(b2=>b2.onclick=()=>{
+      evSL.querySelectorAll('.ev-us-hint').forEach(b2=>b2.onclick=()=>{
+        evMkt='us'; _mkSync();
+        $('evTicker').value=b2.dataset.us; $('evUsName').value=b2.dataset.n;
+        evQ.value=b2.dataset.n; evSL.hidden=true;
+        _showPick(b2.dataset.n,b2.dataset.us+' · 해외');});
+      evSL.querySelectorAll('button:not(.ev-us-hint)').forEach(b2=>b2.onclick=()=>{
         if(evMkt==='us'){ $('evTicker').value=b2.dataset.c; $('evUsName').value=b2.dataset.n;
           $('evCode').value='';$('evSname').value=''; }
         else{ $('evCode').value=b2.dataset.c; $('evSname').value=b2.dataset.n;
