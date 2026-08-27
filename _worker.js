@@ -46,19 +46,29 @@ var KV = null;
    ══════════════════════════════════════════════════════════════════════════ */
 var KVGOV = {
   day: "", ess: 0, cache: 0, skip: 0, blocked: 0,
+  read: 0, del: 0, toCache: 0,
+  edge: null, edgeBusy: false,        /* null=아직 확인 안 함 · true/false=실측 결과 */
   last: /* @__PURE__ */ new Map(),
   sig: /* @__PURE__ */ new Map(),
   mem: /* @__PURE__ */ new Map(),
-  CACHE_CAP: 550
+  /* [v17.3] 캐시가 KV 밖으로 나갔으므로 여기 남는 쓰기는 하루 수십 건이다.
+     인스턴스가 여러 대여도 합계가 한도 근처에 가지 않도록 한 대 몫을 작게 잡는다. */
+  CACHE_CAP: 80
 };
-function kvDayKST() {
-  const k = new Date(Date.now() + 9 * 36e5);
-  return k.toISOString().slice(0, 10);
+/* ══ [v17.3] 날짜 경계는 반드시 UTC 여야 한다 ═══════════════════════════════
+   [v17.1 의 잘못] 예산을 한국 날짜(KST)로 셌다. 그런데 클라우드플레어의 한도는
+   00:00 UTC 에 초기화된다. 두 시계가 9시간 어긋나면, 하나의 UTC 하루가
+   두 개의 KST 하루에 걸친다(00~15시 UTC = 어제치, 15~24시 UTC = 오늘치).
+   즉 예산이 하루에 두 번 되살아나 상한이 사실상 두 배가 됐다.
+   클라우드플레어와 같은 시계를 쓴다. */
+function kvDayUTC() {
+  return new Date().toISOString().slice(0, 10);
 }
 function kvGovRoll() {
-  const d = kvDayKST();
+  const d = kvDayUTC();
   if (KVGOV.day !== d) {
     KVGOV.day = d; KVGOV.ess = 0; KVGOV.cache = 0; KVGOV.skip = 0; KVGOV.blocked = 0;
+    KVGOV.read = 0; KVGOV.del = 0; KVGOV.toCache = 0;
     KVGOV.last.clear(); KVGOV.sig.clear();
   }
 }
@@ -84,6 +94,71 @@ function kvShape(raw, opts) {
   if (t === "json") { try { return JSON.parse(raw); } catch (e) { return null; } }
   return raw;
 }
+/* ══ [v17.3] 캐시는 KV 를 쓰지 않는다 — 이것이 구조적 해결이다 ══════════════
+   [v17.1 이 놓친 것] 쓰기만 막고 읽기는 그대로 두었다. 그런데 무료 한도는
+   읽기 100,000 · 쓰기 1,000 으로 종류가 나뉘어 있고, 알림은 '둘 중 하나가
+   50% 를 넘었다'만 알려 준다. 게다가 클라우드플레어는 "없는 키를 읽어
+   null 이 돌아온 것도 읽기로 센다"고 명시한다 — 캐시 미스가 곧 비용이다.
+   해외 시세·차트·순위는 종목마다·질의마다 키가 따로라(usq: uscd: usmin:
+   usinfo: usnews: srt: uslg: …) 보는 사람이 늘수록 읽기가 비례해 늘어난다.
+   [해결] 수명(TTL)이 붙은 캐시는 정의상 버려도 되는 데이터다. 이런 키는
+   KV 대신 Cache API(caches.default)로 보낸다. Cache API 는 워커에 딸린
+   엣지 캐시라 KV 의 하루 한도를 전혀 쓰지 않는다.
+   → KV 에는 '다시 만들 수 없는 것'(계정·친구·클랜·쿠폰·이벤트)과
+     수명 없는 소수의 기준 데이터만 남는다. 사람이 늘어도 한도에 닿지 않는다.
+   Cache API 를 못 쓰는 환경이면 조용히 KV 로 되돌아간다(기능 손실 없음). */
+function kvCacheReq(key) {
+  return new Request("https://kv-cache.live.internal/" + encodeURIComponent(String(key)));
+}
+async function kvCacheGet(key) {
+  try {
+    const c = (typeof caches !== "undefined") && caches.default;
+    if (!c) return null;
+    const r = await c.match(kvCacheReq(key));
+    if (!r) return null;
+    return await r.text();
+  } catch (e) { return null; }
+}
+async function kvCachePut(key, body, ttl) {
+  try {
+    const c = (typeof caches !== "undefined") && caches.default;
+    if (!c) return false;
+    const age = Math.max(60, Math.min(ttl || 3600, 2592000));
+    await c.put(kvCacheReq(key), new Response(body, {
+      headers: { "cache-control": "max-age=" + age, "content-type": "text/plain" }
+    }));
+    return true;
+  } catch (e) { return false; }
+}
+/* ══ [v17.3] 엣지 캐시가 진짜로 동작하는지 먼저 확인한다 ═══════════════════════
+   [함정] Cache API 는 존(zone) 단위 기능이라 *.workers.dev 주소에서는 동작하지
+   않는다. put() 이 오류를 내지도 않고 조용히 아무 일도 하지 않으며, match() 는
+   언제나 빈손으로 돌아온다. 이 사실을 모르고 캐시를 통째로 Cache API 로 옮기면
+   '어디에도 저장되지 않는' 상태가 되어, 모든 요청이 매번 외부 원천을 다시
+   두드린다 — 지금보다 훨씬 나빠진다(외부호출 50회 한도까지 위협한다).
+   그래서 넘겨짚지 않고, 인스턴스마다 한 번 실제로 써 보고 읽어 본다.
+   왕복이 확인되면 그때부터 캐시를 엣지로 보내고, 아니면 지금까지처럼 KV 를
+   쓰되 조임(간격·예산)을 그대로 적용한다. 어느 쪽이든 기능은 온전하다. */
+async function kvEdgeReady() {
+  if (KVGOV.edge !== null) return KVGOV.edge;
+  if (KVGOV.edgeBusy) return false;
+  KVGOV.edgeBusy = true;
+  try {
+    const k = "__probe:" + Math.random().toString(36).slice(2);
+    await kvCachePut(k, "1", 60);
+    const back = await kvCacheGet(k);
+    KVGOV.edge = (back === "1");
+    kvCacheDel(k);
+  } catch (e) { KVGOV.edge = false; }
+  KVGOV.edgeBusy = false;
+  return KVGOV.edge;
+}
+async function kvCacheDel(key) {
+  try {
+    const c = (typeof caches !== "undefined") && caches.default;
+    if (c) await c.delete(kvCacheReq(key));
+  } catch (e) {}
+}
 function govKV(kv) {
   if (!kv || kv.__gov) return kv;
   const g = { __gov: 1, __raw: kv };
@@ -92,14 +167,43 @@ function govKV(kv) {
   /* 읽기 — 캐시성 키는 메모리 거울이 살아 있으면 KV 를 건드리지 않는다.
      사용자 데이터는 인스턴스끼리 어긋나면 안 되므로 항상 KV 를 본다. */
   g.get = async (key, opts) => {
+    kvGovRoll();
     const k = String(key);
-    if (!kvEssential(k)) {
-      const m = KVGOV.mem.get(k);
-      if (m && m.exp > Date.now()) return kvShape(m.v, opts);
+    if (kvEssential(k)) { KVGOV.read++; return await kv.get(key, opts); }
+    /* ① 이 인스턴스가 이미 본 값 */
+    const m = KVGOV.mem.get(k);
+    if (m && m.exp > Date.now()) return m.v == null ? null : kvShape(m.v, opts);
+    /* ② 엣지 캐시(쓸 수 있다고 확인된 경우에만) */
+    if (KVGOV.edge === true) {
+      const cv = await kvCacheGet(k);
+      if (cv != null) {
+        KVGOV.mem.set(k, { v: cv, exp: Date.now() + 6e4 });
+        return kvShape(cv, opts);
+      }
     }
-    return await kv.get(key, opts);
+    /* ③ 그래도 없으면 KV */
+    KVGOV.read++;
+    const v = await kv.get(key, opts);
+    /* ══ 미스도 기억한다 ═══════════════════════════════════════════════════════
+       클라우드플레어는 "없는 키를 읽어 null 이 돌아온 것도 읽기로 센다"고
+       명시한다. 아직 채워지지 않은 캐시 키를 초당 여러 번 두드리면 그것만으로
+       읽기 한도가 녹는다. 3분 동안은 '없다'는 사실을 기억한다. */
+    if (v == null) { KVGOV.mem.set(k, { v: null, exp: Date.now() + 18e4 }); return null; }
+    const raw = (typeof v === "string") ? v : JSON.stringify(v);
+    /* ══ 메모리 수명은 짧게 ════════════════════════════════════════════════════
+       KV 에서 읽은 값의 원래 수명(TTL)은 알 수 없다. 넉넉히 잡으면 10분 지난
+       시세를 지금 값인 양 내보내게 된다 — 한도를 아끼려다 값을 틀리게 만드는
+       것은 남는 장사가 아니다. 1분만 들고 있는다. */
+    KVGOV.mem.set(k, { v: raw, exp: Date.now() + 6e4 });
+    if (KVGOV.mem.size > 3000) KVGOV.mem.clear();
+    return v;
   };
-  g.delete = async (key) => { try { KVGOV.mem.delete(String(key)); } catch (e) {} return await kv.delete(key); };
+  g.delete = async (key) => {
+    try { KVGOV.mem.delete(String(key)); } catch (e) {}
+    kvCacheDel(String(key));
+    KVGOV.del++;
+    return await kv.delete(key);
+  };
   g.put = async (key, val, opts) => {
     kvGovRoll();
     const k = String(key);
@@ -110,18 +214,31 @@ function govKV(kv) {
     if (body != null) {
       if (ess) KVGOV.mem.delete(k);
       else {
+        /* 원본 수명보다 오래 들고 있지 않는다(시세 120초 = 메모리도 120초) */
         KVGOV.mem.set(k, { v: body, exp: Date.now() + (ttl ? Math.min(ttl * 1e3, 6e5) : 6e5) });
         if (KVGOV.mem.size > 3000) KVGOV.mem.clear();
       }
     }
+    /* ② 수명이 붙은 캐시는 KV 로 보내지 않는다 — 엣지 캐시가 맡는다.
+       버려져도 원천에서 다시 받아 오면 그만인 데이터이고, 이것들이
+       종목 수·사용자 수에 비례해 한도를 갉아먹던 주범이다. */
+    if (!ess && ttl && body != null && await kvEdgeReady()) {
+      KVGOV.toCache++;
+      await kvCachePut(k, body, ttl);
+      return;                       /* KV 한도를 전혀 쓰지 않는다 */
+    }
     /* ② 내용이 그대로면 쓸 이유가 없다 (수명 없는 키만 — TTL 키는 재기록이 곧 연장이다) */
     if (body != null && !ttl && KVGOV.sig.get(k) === kvSig(body)) { KVGOV.skip++; return; }
     if (!ess) {
-      /* ③ 키별 최소 간격 — 10분 이상, 30분 이하 */
-      const gap = ttl ? Math.min(Math.max(ttl * 1e3, 6e5), 18e5) : 9e5;
-      if (Date.now() - (KVGOV.last.get(k) || 0) < gap) { KVGOV.skip++; return; }
-      /* ④ 일일 캐시 예산 */
-      if (KVGOV.cache >= KVGOV.CACHE_CAP) { KVGOV.blocked++; return; }
+      /* ③ 키별 최소 간격 — 여기까지 온 것은 수명 없는 기준 데이터뿐이다
+         (공모주 목록·휴장일·야간선물 코드 등). 30분에 한 번이면 충분하다. */
+      if (Date.now() - (KVGOV.last.get(k) || 0) < 18e5) { KVGOV.skip++; return; }
+      /* ④ 일일 예산 — 인스턴스는 여러 개가 동시에 살아 있으므로 한 대의 몫은
+         작게 잡는다. 캐시가 이미 KV 밖으로 빠졌으니 이 정도면 넉넉하다. */
+      /* 엣지 캐시를 못 쓰는 주소(*.workers.dev)에서는 캐시가 KV 에 남는다 —
+         그만큼만 예산을 늘려 주되, 한도 근처에는 절대 가지 않게 한다. */
+      const cap = (KVGOV.edge === false) ? KVGOV.CACHE_CAP * 3 : KVGOV.CACHE_CAP;
+      if (KVGOV.cache >= cap) { KVGOV.blocked++; return; }
     }
     try {
       const r = await kv.put(key, val, opts);
@@ -144,9 +261,13 @@ function govKV(kv) {
   };
   return g;
 }
+/* r=KV읽기 w=KV쓰기(사용자데이터) b=KV쓰기(기준데이터) c=엣지캐시로 보낸 것
+   s=생략 x=예산차단 — 이 인스턴스가 오늘(UTC) 실제로 쓴 양이다. */
 function kvGovStat() {
   kvGovRoll();
-  return KVGOV.ess + "/" + KVGOV.cache + "/" + KVGOV.skip + (KVGOV.blocked ? "+" + KVGOV.blocked : "");
+  return "r" + KVGOV.read + " w" + KVGOV.ess + " b" + KVGOV.cache +
+         " c" + KVGOV.toCache + " s" + KVGOV.skip + (KVGOV.blocked ? " x" + KVGOV.blocked : "") +
+         " edge=" + (KVGOV.edge === null ? "?" : KVGOV.edge ? "on" : "off");
 }
 function setEnv(env) {
   if (env) _ENV = env;
@@ -9021,6 +9142,8 @@ function budgetTick(env) {
   if (now - _bgAt < 12e5 || _bgN < 25) return;
   _bgAt = now;
   const add = _bgN; _bgN = 0;
+  /* [v17.3] 이 집계는 화면 속도 조절용 참고값일 뿐이다. 그걸 위해 KV 한도를
+     쓸 이유가 없다 — 수명을 붙여 엣지 캐시로 보낸다(govKV 가 알아서 돌린다). */
   const KVx = govKV(env && env.APP_KV);
   if (!KVx) { _bgTotal += add; return; }
   /* 읽고 더해 쓰기 — 인스턴스가 여럿이면 약간 어긋나지만 방향은 맞다 */
@@ -9030,7 +9153,7 @@ function budgetTick(env) {
       const cur = Number(await KVx.get(k)) || 0;
       const next = cur + add;
       _bgTotal = next;
-      await KVx.put(k, String(next), { expirationTtl: 172800 });
+      await KVx.put(k, String(next), { expirationTtl: 172800 });   /* TTL 있음 → 엣지 캐시로 */
     } catch (e) { _bgTotal += add; }
   })();
 }
@@ -17024,7 +17147,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.1.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.4.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

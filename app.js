@@ -2465,6 +2465,39 @@ function acctPwOf(id){
   const a=acctList.find(x=>x.id===(id||acctActive));
   return (a&&a.pw)?a.pw:acctPassHash;              // 계좌 비번이 없으면 계정 공용 비번
 }
+/* ══ [v17.2] 계좌 비밀번호 확인 — 앱 전체가 이 함수 하나만 쓴다 ═══════════════
+   네 곳(국내 주문 키패드·해외 주문·계좌 해지·송금)이 제각각 비교하고 있었고,
+   그중 해외 주문은 hash(=legacyHash)만 보고 있어서 SHA-256 으로 저장된
+   비밀번호와는 영영 맞을 수 없었다(사실상 항상 실패).
+   확인 대상은 세 곳이다 — 활성 계좌 비번, 계정 공용 비번, 계정 레코드의 acctPass.
+   각각 SHA-256·구형 해시 두 형태를 모두 받아 준다(구버전 계정 호환). */
+async function acctPwVerify(pin){
+  const v=String(pin||'').trim();
+  if(!/^\d{4}$/.test(v))return false;
+  const cands=[];
+  try{ const a=acctList.find(x=>x.id===acctActive); if(a&&a.pw)cands.push(a.pw); }catch(e){}
+  if(acctPassHash)cands.push(acctPassHash);
+  try{ const acc=accounts()[currentUser]; if(acc&&acc.acctPass)cands.push(acc.acctPass); }catch(e){}
+  let sha=''; try{ sha=await pwHash(v); }catch(e){}
+  const leg=legacyHash(v);
+  return cands.some(c=>c&&(c===sha||c===leg));
+}
+/* 이 계좌가 '비밀번호를 정한 적 없는' 상태인가 —
+   이전(migrate)으로 만들어졌거나 옛 데이터라 a.pw 가 비어 있는 경우다.
+   이때 통과하는 값은 가입 때 자동 지정된 0000 뿐인데, 0000 은 개설 화면이
+   막는 값이라 사용자가 정할 수 없다. 즉 사실상 잠긴 계좌다 — 알아보고 알려 준다. */
+let _PW0=[legacyHash('0000')];
+try{ pwHash('0000').then(h=>{ if(h)_PW0.push(h); }); }catch(e){}
+function acctPwUnset(){
+  try{
+    const a=acctList.find(x=>x.id===acctActive);
+    if(!a||!a.pw)return true;
+    /* 저장된 값이 '0000' 이면 사용자가 정한 것일 수 없다 —
+       개설 화면이 같은 숫자 반복을 막으므로 0000 은 아무도 고를 수 없는 값이고,
+       이전(migrate)으로 만들어진 계좌에 자동으로 들어가는 기본값이기 때문이다. */
+    return _PW0.includes(a.pw);
+  }catch(e){ return false; }
+}
 function acctPwSet(id,hashed){
   const a=acctList.find(x=>x.id===(id||acctActive));
   if(a&&hashed){ a.pw=hashed; if(id===acctActive||!id)acctPassHash=hashed; saveState(); return true; }
@@ -3180,10 +3213,40 @@ function askAcctPw(title,sub,cb){
   $('askPwNo').onclick=()=>closeLiteGate();
   const go=()=>{ const v=(inp.value||'').trim();
     if(!/^\d{4}$/.test(v)){ $('askPwMsg').textContent='숫자 4자리를 입력해 주세요.'; return; }
-    pwHash(v).then(h=>{ const AP=acctPwOf();
-      done(h===AP||legacyHash(v)===AP); }); };
+    acctPwVerify(v).then(ok=>done(ok)); };   /* [v17.2] 확인 창구 통일 */
   $('askPwOk').onclick=go;
   if(inp)inp.onkeydown=(e)=>{ if(e.key==='Enter')go(); };
+}
+/* ══ [v17.2] 계좌 비밀번호 재설정 — 잠긴 계좌를 스스로 풀 수 있게 ═══════════════
+   순서 결함으로 이미 잠긴 계좌가 각 기기에 남아 있다. 코드를 고쳐도 그 데이터는
+   저절로 낫지 않으므로, 실제 증권사와 같은 복구 절차를 둔다 —
+   로그인 비밀번호로 본인을 확인한 뒤 새 4자리를 정한다. */
+async function acctPwReset(){
+  const acc=accounts()[currentUser];
+  if(!acc){ toast('warn','로그인이 필요합니다',''); return false; }
+  const lp=await askText('본인 확인',{desc:'계좌 비밀번호를 다시 정하기 위해 <b>로그인 비밀번호</b>를 입력해 주세요.',
+    html:true,password:true,placeholder:'로그인 비밀번호'});
+  if(lp==null)return false;
+  let ok=false;
+  try{ ok=(await pwHash(lp))===acc.pass||legacyHash(lp)===acc.pass; }catch(e){}
+  if(!ok){ toast('warn','본인 확인 실패','로그인 비밀번호가 맞지 않습니다'); return false; }
+  const np=await askText('새 계좌 비밀번호',{desc:'주문·송금에 쓸 <b>숫자 4자리</b>를 정해 주세요.',
+    html:true,password:true,placeholder:'0000',maxLen:4});
+  if(np==null)return false;
+  const v=String(np).trim();
+  if(!/^\d{4}$/.test(v)){ toast('warn','형식 오류','숫자 4자리로 정해 주세요'); return false; }
+  if(/^(\d)\1{3}$/.test(v)||['0123','1234','2345','3456','4567','5678','6789','9876','4321','3210'].includes(v)){
+    toast('warn','쓸 수 없는 번호','같은 숫자 반복이나 연속된 숫자는 쓸 수 없습니다'); return false; }
+  const hh=await pwHash(v);
+  /* 활성 계좌·계정 공용·계정 레코드 세 곳을 한꺼번에 맞춘다 — 갈라지면 또 잠긴다 */
+  try{ const a=acctList.find(x=>x.id===acctActive); if(a)a.pw=hh; }catch(e){}
+  acctPassHash=hh;
+  try{ acc.acctPass=hh; const accs=accounts(); accs[currentUser]=acc; store.set('accounts',accs); }catch(e){}
+  try{ const u=store.get('user:'+currentUser)||{}; u.acctPass=hh; store.set('user:'+currentUser,u); }catch(e){}
+  try{ cloudCall({action:'profile',id:currentUser,pass:acc.pass,acctPass:hh}); }catch(e){}
+  saveState();
+  toast('buy','계좌 비밀번호 변경 완료','새 비밀번호로 주문·송금할 수 있습니다');
+  return true;
 }
 /* ══ [v4.40] 계좌 선택 바 + 미개설 안내 ═══════════════════════════════════ */
 var aeSel='general';
@@ -4183,13 +4246,30 @@ function applyUser(u){
   acctList=Array.isArray(d.acctList)?d.acctList.filter(a=>a&&a.id&&ACCT_TYPES[a.type]):[];
   acctBooks=(d.acctBooks&&typeof d.acctBooks==='object')?d.acctBooks:{};
   sendLog=Array.isArray(d.sendLog)?d.sendLog:[];                      // [v4.51] 이체 내역
-  /* 예전에 개설된 계좌에는 번호가 없다 — 불러올 때 한 번 발급해 준다 */
-  {let need=false; acctList.forEach(a=>{ if(!a.no){ a.no=acctNewNo(a.type); need=true; } });
-   if(need)setTimeout(()=>{try{saveState();}catch(e2){}},400);}
+  /* ══ [v17.2 · 치명] 계좌 비밀번호가 모든 계정에서 막히던 진짜 원인 ═════════════
+     [증상] 개설 때 정한 4자리를 정확히 넣어도 '비밀번호가 올바르지 않습니다'.
+     [원인] 이 함수 안의 실행 순서가 세 군데 뒤집혀 있었다.
+       ⓐ 계정 공용 비번(acctPassHash)을 d.acctPass 로 채우는 줄이 이 블록보다
+          26줄 아래에 있었다. 그래서 acctMigrate() 가 pw:acctPassHash 로 계좌를
+          만들 때 그 값이 아직 비어 있었다 → 이전된 계좌에 비밀번호가 없다.
+       ⓑ acctLoad() 가 '활성 계좌의 비밀번호로 전환'해 놓아도, 아래쪽의
+          acctPassHash=d.acctPass 가 그것을 도로 계정 공용 비번으로 덮었다.
+       ⓒ 계좌번호를 채워 주는 줄이 이전(acctMigrate)보다 먼저 돌았다.
+          그래서 이전된 계좌는 번호가 영영 비어 있었다('계좌번호 —' · 첨부 사진).
+     [결과] 비밀번호 확인이 acctPwOf() → a.pw 가 없어 acctPassHash 로 떨어지고,
+       그 값은 가입 때 자동 지정된 '0000' 이다. 그런데 0000 은 개설 화면이
+       "같은 숫자 반복"으로 막는 값이라 사용자가 정할 수 없다 —
+       즉 어떤 비밀번호를 넣어도 통과할 수 없는 상태가 된다. 재현으로 확인했다.
+     [고침] 순서를 뜻대로 되돌린다. 공용 비번 먼저 → 계좌 복원/이전 →
+       계좌번호 채우기. acctLoad 가 세운 값은 이제 아무도 덮지 않는다. */
+  acctPassHash=d.acctPass||legacyHash('0000');
   acctActive=(d.acctActive&&acctList.some(a=>a.id===d.acctActive))?d.acctActive:(acctList[0]?acctList[0].id:'');
   if(acctOpened()&&acctActive)acctLoad(acctActive);
   else if(!hasNewFmt)acctMigrate();                      // 예전 사용자 → 계좌 하나로 이전
   else { cash=0; usdCash=0; usdSettling=[]; holdings=[]; }   // 미개설 → 빈 상태
+  /* 예전에 개설된 계좌에는 번호가 없다 — 이전까지 끝난 뒤에 한 번 발급해 준다 */
+  {let need=false; acctList.forEach(a=>{ if(!a.no){ a.no=acctNewNo(a.type); need=true; } });
+   if(need)setTimeout(()=>{try{saveState();}catch(e2){}},400);}
   /* ══ [v13.8] 화면 값과 활성 계좌가 짝이 맞음을 표시한다 ═══════════════════════
      [무엇이 잘못됐나] acctSnap 은 '펼친 계좌만 기록한다'는 안전장치를 두었는데
      (v13.2), 그 표시를 acctLoad 에서만 세웠다. 그런데 위 갈래에서 acctLoad 를
@@ -4214,7 +4294,8 @@ function applyUser(u){
   stockMemos=(d.stockMemos&&typeof d.stockMemos==='object')?d.stockMemos:{};
   loadPrefs(d.prefs||null);                    // 클라우드에 설정이 있으면 그걸 우선
   reloadPerUser();                             // 검색기록·최근본·정렬을 이 계정 것으로
-  acctPassHash=d.acctPass||hash('0000');
+  /* [v17.2] acctPassHash 는 위쪽(계좌 복원 전)에서 이미 세웠다. 여기서 다시 쓰면
+     acctLoad 가 정한 '활성 계좌 비밀번호'를 도로 덮어 버린다 — 그게 잠금의 원인이었다. */
   store.set('session',u);
 }
 /* [v4.1] 게스트 모드 폐지 — 회원가입·로그인해야 이용할 수 있다.
@@ -6164,7 +6245,15 @@ $('pmSaveSec').onclick=async()=>{
   const body={action:'profile',id:currentUser,pass:acc.pass};
   if(pw)body.newPass=await pwHash(pw); if(a)body.acctPass=await pwHash(a);
   cloudCall(body);
-  if(pw)acc.pass=await pwHash(pw); if(a){const ah=await pwHash(a);acc.acctPass=ah;acctPassHash=ah;const u=store.get('user:'+currentUser)||{};u.acctPass=ah;store.set('user:'+currentUser,u);}
+  if(pw)acc.pass=await pwHash(pw);
+  if(a){const ah=await pwHash(a);acc.acctPass=ah;acctPassHash=ah;
+    const u=store.get('user:'+currentUser)||{};u.acctPass=ah;store.set('user:'+currentUser,u);
+    /* ══ [v17.2] 계좌 목록에도 반영한다 ═══════════════════════════════════════
+       acctPwOf() 는 활성 계좌의 a.pw 를 먼저 본다. 여기서 계정 공용 비번만
+       바꾸면 '바꿨다'는 안내는 뜨는데 주문 확인은 계속 옛 비밀번호를 요구했다.
+       바꾼 사람 입장에서는 새 비밀번호가 통째로 무시되는 것으로 보인다. */
+    try{ (acctList||[]).forEach(x=>{ x.pw=ah; }); saveState(); }catch(e){}
+  }
   const accs=accounts();accs[currentUser]=acc;store.set('accounts',accs);
   m.style.color='var(--up)';m.textContent='변경되었습니다.';$('pmPw').value='';$('pmAcct').value='';
   {const e2=$('pmPw2'); if(e2)e2.value=''; const mt=$('pmPwMeter'); if(mt){mt.innerHTML='';mt.hidden=true;}}
@@ -6553,6 +6642,9 @@ function openTrade(code){
   safeRun('openTrade:price',()=>syncPriceField(true));
   safeRun('openTrade:candles',()=>loadCandles());
   safeRun('openTrade:glance',()=>renderGlance());
+  /* [v17.4] 체결 흐름은 넓은 화면에서 항상 떠 있는 코너다 — 호가 탭을 열지
+     않아도 갱신 타이머가 돌도록 여기서 시작한다(obStart 는 중복 호출에 안전하다). */
+  safeRun('openTrade:obtimer',()=>{ if(obGlanceOn())obStart(); });
   safeRun('openTrade:fund',()=>loadFundamentals(code));
   safeRun('openTrade:etftab',()=>syncEtfTab(code));
   safeRun('openTrade:gate',()=>renderTradeGate());   // [v4.5] 세션 배너
@@ -12582,7 +12674,20 @@ async function renderGlance(){
     if(currentView!=='trade'||selected!==code)return;
     const st=byCode[code]||{};
     const px=Number((dispQuote(code)||{}).price||st.price)||0;
-    if(!ob||!ob.ok||!(px>0)){ body.innerHTML='<div class="empty">호가를 받는 중…</div>'; return; }
+    if(!ob||!ob.ok||!(px>0)){
+      /* [v17.4] 왜 비어 있는지까지 말해 준다 — 08:30 이전·장 마감 후에는
+         호가가 '아직 없는 것이 정상'인데 예전 문구는 계속 받는 중처럼 보였다. */
+      let why='호가를 받는 중…';
+      try{
+        const k=krSession(), hm=nowTz('Asia/Seoul').hm;
+        if(k&&k.krx&&!k.krx.open){
+          why=(hm<8*60+30)?'08:30 호가 접수 시작 후 표시됩니다'
+             :(hm>=15*60+30)?'장 마감 · 다음 거래일 08:30부터 표시됩니다':'호가를 받는 중…';
+        }
+      }catch(e){}
+      body.innerHTML='<div class="empty">'+why+'</div>';
+      return;
+    }
     const sum=(a)=>(Array.isArray(a)?a:[]).reduce((t,x)=>t+(Number(x.q)||0),0);
     const bq=sum(ob.buy), aq=sum(ob.sell), tot=bq+aq;
     const bPct=tot>0?Math.round(bq/tot*100):50;
@@ -14263,18 +14368,35 @@ var taxYear=0;
    없는 5칸을 만들어 채우지 않는다. 받은 만큼만, 대신 정확하게 보여 준다.
    막대 길이는 원천이 계산해 준 rate(잔량÷최대잔량×100)를 그대로 쓴다 —
    우리가 다시 계산하면 원천 화면과 미세하게 달라진다. */
-var _obData={}, _obAt={}, _obBusy={}, _obTimer=null;
+var _obData={}, _obAt={}, _obBusy={}, _obTimer=null, _obProm={};
+/* ══ [v17.4] '체결 흐름'이 계속 "호가를 받는 중…"에 머물던 진짜 원인 ═══════════
+   [증상] 아래 호가 탭에는 호가가 멀쩡히 떠 있는데, 오른쪽 체결 흐름 코너만
+     한참 동안 "호가를 받는 중…" 그대로였다(실기 사진). 느린 게 아니라 멈춰 있었다.
+   [원인] 이 함수가 '이미 요청이 날아가 있으면' 그 요청을 기다리지 않고
+     _obData(아직 비어 있다) 를 즉시 돌려줬다. 즉 진행 중인 요청을 '없는 셈' 쳤다.
+     그런데 종목을 열 때 openTrade 가 먼저 obLoad(code) 를 던져 놓는다(v9.90).
+     그 직후 renderGlance 가 await obLoad(code) 를 부르면 반드시 이 분기에 걸려
+     null 을 받는다 → "호가를 받는 중…" 을 그리고 끝. 다시 그리는 사람이 없다.
+     호가 탭은 자체 재시도(obLoad().then(renderAsking))가 있어서 채워졌고,
+     체결 흐름만 남겨졌다 — 두 화면이 갈린 이유가 이것이다.
+   [고침] 진행 중인 약속(Promise)을 보관해 두고 그대로 돌려준다. 같은 요청은
+     여전히 한 번만 나가고(중복 호출 방지 목적은 유지), 부르는 쪽은 결과를
+     제대로 기다린다. */
 function obLoad(code,force){
   if(!code)return Promise.resolve(null);
-  if(_obBusy[code])return Promise.resolve(_obData[code]||null);
+  if(_obBusy[code]&&_obProm[code])return _obProm[code];                 // 진행 중 → 그 결과를 함께 기다린다
   if(!force&&_obAt[code]&&Date.now()-_obAt[code]<3000)return Promise.resolve(_obData[code]||null);
   _obBusy[code]=1;
-  return fetch('/api/askprice?code='+encodeURIComponent(code),{cache:'default'})
+  const p=fetch('/api/askprice?code='+encodeURIComponent(code),{cache:'default'})
     .then(r=>r.json())
     .then(j=>{ if(j&&j.ok){_obData[code]=j;_obAt[code]=Date.now();} else {_obData[code]=j||null;_obAt[code]=Date.now();}
       return _obData[code]; })
     .catch(()=>null)
-    .finally(()=>{ _obBusy[code]=0; });
+    .finally(()=>{ _obBusy[code]=0; _obProm[code]=null;
+      /* 호가가 도착했으니 이 값을 쓰는 코너를 함께 갱신한다 — 기다리는 화면을 남기지 않는다 */
+      try{ if(currentView==='trade'&&selected===code)safeRun('ob:glance',()=>renderGlance()); }catch(e){} });
+  _obProm[code]=p;
+  return p;
 }
 function obFmtQ(v){ return v>=10000?(Math.round(v/1000)/10).toFixed(1).replace(/\.0$/,'')+'만':KRW(v); }
 function renderAsking(el){
@@ -14375,10 +14497,25 @@ function renderAsking(el){
   });
 }
 /* 호가 탭을 보고 있는 동안만 갱신한다 — 안 보는 화면을 계속 부르지 않는다 */
+/* [v17.4] 체결 흐름 코너도 호가로 만들어진다 — 호가 탭을 보고 있지 않아도
+   이 코너가 화면에 있으면 함께 갱신해야 'LIVE' 라는 배지가 사실이 된다.
+   넓은 화면에서만 뜨는 코너이므로 좁은 화면에서는 예전과 똑같이 동작한다. */
+function obGlanceOn(){
+  try{
+    const el=$('dGlance');
+    return !!(el&&!el.hidden&&currentView==='trade'&&selected&&!usMeta[selected]&&window.innerWidth>=961);
+  }catch(e){ return false; }
+}
 function obTick(){
   try{
-    if(currentView!=='trade'||infoTab!=='asking'){ if(_obTimer){clearInterval(_obTimer);_obTimer=null;} return; }
-    obLoad(selected,true).then(()=>{ if(currentView==='trade'&&infoTab==='asking')renderAsking($('infoBody')); });
+    const askOn=(currentView==='trade'&&infoTab==='asking');
+    const glOn=obGlanceOn();
+    if(!askOn&&!glOn){ if(_obTimer){clearInterval(_obTimer);_obTimer=null;} return; }
+    obLoad(selected,true).then(()=>{
+      if(currentView!=='trade')return;
+      if(infoTab==='asking')renderAsking($('infoBody'));
+      if(obGlanceOn())safeRun('obTick:glance',()=>renderGlance());
+    });
   }catch(e){}
 }
 var _obIv=0;
@@ -17480,7 +17617,17 @@ function renderPwDots(){$('pwDots').querySelectorAll('span').forEach((d,i)=>d.cl
 $('keypad').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const k=b.dataset.k;
   if(k==='C')pwBuf='';else if(k==='X')pwBuf=pwBuf.slice(0,-1);else if(pwBuf.length<4)pwBuf+=b.textContent;
   renderPwDots();
-  if(pwBuf.length===4){pwHash(pwBuf).then(h=>{const AP=acctPwOf();if(h===AP||legacyHash(pwBuf)===AP){const o=pendingOrder;closePw();executeOrder(o);}else{$('pwMsg').textContent='비밀번호가 올바르지 않습니다';pwBuf='';setTimeout(renderPwDots,400);}});}});
+  if(pwBuf.length===4){const typed=pwBuf;acctPwVerify(typed).then(ok=>{
+    if(ok){const o=pendingOrder;closePw();executeOrder(o);}
+    else{
+      /* [v17.2] 잠긴 계좌라면 '틀렸다'가 아니라 '정한 적이 없다'가 사실이다 — 그렇게 알린다 */
+      $('pwMsg').innerHTML=acctPwUnset()
+        ? '이 계좌에는 비밀번호가 설정돼 있지 않습니다 · <a href="#" id="pwFix">지금 정하기</a>'
+        : '비밀번호가 올바르지 않습니다 · <a href="#" id="pwFix">비밀번호를 잊으셨나요?</a>';
+      const fx=$('pwFix'); if(fx)fx.onclick=(ev)=>{ev.preventDefault();const o=pendingOrder;closePw();
+        acctPwReset().then(done=>{ if(done&&o){pendingOrder=o;openPw();} });};
+      pwBuf='';setTimeout(renderPwDots,400);
+    }});}});
 $('pwCancel').onclick=closePw;
 function executeOrder(o){return executeOrderCore(byCode[selected],o,'');}
 /* [v2.5] 코어 분리 — 예약·손절·익절 자동 체결이 '보고 있지 않은 종목'에도 안전하게 작동 */
@@ -23569,11 +23716,17 @@ function wireUsOrder(){
       usEnsureQuotes([usSel],true).then(()=>renderUsOrder()); return; }
     const wrap=$('usPassWrap');
     if(wrap.hidden){wrap.hidden=false;$('usPassIn').focus();return;}
+    /* ══ [v17.2] 여기는 hash(=legacyHash)만 보고 있었다 ═══════════════════════
+       계좌 비밀번호는 개설 때 SHA-256(pwHash)으로 저장된다. 구형 해시로만
+       비교했으니 이 화면의 확인은 구조적으로 통과할 수 없었다.
+       국내 주문과 같은 창구를 쓴다. */
     const pw=$('usPassIn').value;
-    const AP=acctPwOf();
-    if(hash(pw)!==AP&&legacyHash(pw)!==AP){
-      toast('warn','비밀번호 오류','계좌 비밀번호 4자리를 확인하세요');return;}
-    usExecuteOrder(usSide,{price:parseFloat(pxIn.value)||0,qty:Math.round((parseFloat(qIn.value)||0)*100)/100});
+    acctPwVerify(pw).then(ok=>{
+      if(!ok){ toast('warn','비밀번호 오류',acctPwUnset()
+        ?'이 계좌에는 비밀번호가 설정돼 있지 않습니다. 내 계좌에서 먼저 정해 주세요.'
+        :'계좌 비밀번호 4자리를 확인하세요'); return; }
+      usExecuteOrder(usSide,{price:parseFloat(pxIn.value)||0,qty:Math.round((parseFloat(qIn.value)||0)*100)/100});
+    });
   };
 }
 function usExecuteOrder(side,o){

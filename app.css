@@ -8153,3 +8153,41 @@ html.dark .mdd-note.warn{color:#ffd166}
   .hold-wrap td.num{font-size:11.5px}
   .hold-wrap th{font-size:10px}
 }
+
+/* ── ⑤ 코너 제목의 금장 띠가 글자보다 위로 떠 있던 문제 ────────────────────────
+   [사진] '보유 종목'·'환전'·'목표 자산'·'주식 매매일지'·'송금' — 왼쪽 작은 띠가
+     글자보다 눈에 띄게 위에 붙어, 제목만 아래로 밀린 것처럼 보였다.
+   [원인] .sec-title::before 를 정의한 규칙이 두 개 있고, 뒤엣것이 앞엣것을
+     '일부만' 덮고 있었다.
+       · 앞(구): top:50% · transform:translateY(-50%) · height:15px  (파랑 띠)
+       · 뒤(신): top:.18em · bottom:.18em · width:3.5px · 금장          (v15.2.1)
+     뒤 규칙은 top 을 바꾸고 bottom 을 새로 주었을 뿐, height 와 transform 은
+     건드리지 않았다. 그래서 살아남은 height:15px 때문에 bottom 이 무시되고,
+     역시 살아남은 translateY(-50%) 가 띠를 위로 7.5px 끌어올렸다.
+     지금까지 이것을 '제목 여백'으로 보고 margin 을 만졌기 때문에 고쳐지지 않았다.
+   [고침] 남아 있던 두 속성을 명시적으로 해제한다. 그러면 top/bottom 이 뜻대로
+     동작해 띠가 글자 높이에 정확히 맞는다. */
+.sec-title::before,.fo-sec-h::before,.tt-h::before,.as-h::before,.uz-sec-h::before{
+  transform:none;height:auto}
+/* 제목 줄 자체도 글자 기준선에 맞춘다 — 부제(.sec-sub)나 버튼이 함께 있어도
+   제목이 세로 가운데에서 밀리지 않게 한다. */
+.sec-title{align-items:center;line-height:1.35}
+.sec-title .sec-sub{line-height:1.35}
+
+/* ── ⑥ 같은 유형의 결함 전수 조사에서 하나 더 나왔다 ──────────────────────────
+   [무엇] 홈 '오늘의 장' 카드 왼쪽의 브랜드 띠.
+   [원인] .hero-market::before 가 두 번 정의돼 있고, 뒤엣것이 앞엣것을 일부만 덮었다.
+     · 앞(2034줄) : right:-46px · top:-56px · width/height:170px · border-radius:50%
+                    → 오른쪽 위에 번지는 '빛 원'이었다
+     · 뒤(7152줄) : left:0 · top:0 · bottom:0 · width:5px
+                    → 왼쪽 세로 띠로 용도를 바꿨다
+     그런데 뒤 규칙이 height 와 border-radius 를 지우지 않았다. 살아남은
+     height:170px 때문에 bottom:0 이 무시되어 띠가 카드 높이(298px)의 57%만
+     덮었고, 살아남은 border-radius:50% 때문에 5×170 상자가 '렌즈 모양'으로
+     그려졌다. 코너 제목 띠와 완전히 같은 실수다.
+   [고침] 남은 속성을 명시적으로 해제한다. */
+.hero-market::before{height:auto;right:auto;border-radius:0 99px 99px 0}
+
+/* 두 줄짜리 코너 제목(제목+부제)에서 띠가 두 줄 전체를 덮어, 제목 줄 기준으로는
+   9.5px 내려앉아 보였다(실측). 다른 코너 제목과 같이 '제목 줄'에 맞춘다. */
+.fo-sec-h::before{top:.16em;bottom:auto;height:1.24em}
