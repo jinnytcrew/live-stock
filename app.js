@@ -14881,6 +14881,21 @@ function volProfile(cd,px,bins){
   return {lo,hi,step,bins,vol,total,poc,pocP,vah,val,ci,digest,overhead,
           hvn,lvn,res,sup,gapUp,gapDn,trap,brokePoc,brokeVah,lostVal,inVa,zone,days:arr.length};
 }
+/* ══ [v17.5] 확률을 '자르지' 않고 '점근'시킨다 ═══════════════════════════════
+   Math.min(88, x) 처럼 딱 자르면 그 위의 값이 전부 88 한 점에 뭉친다.
+   knee 아래는 손대지 않고, 그 위는 cap 에 서서히 다가가게 눌러 준다.
+   엄격히 증가하므로 원래 1%p 차이가 나던 두 값은 눌린 뒤에도 서로 다르다. */
+function softCeil(v,cap,knee){
+  if(!(v>knee))return v;
+  return cap-(cap-knee)*Math.exp(-(v-knee)/(cap-knee));
+}
+function softBand(p,hi,lo){
+  /* [v17.5] 눌리는 구간을 좁게 잡는다(hi-15). 너무 넓게 누르면 위쪽에서
+     1점 차이가 0.1%p 도 못 움직여 다시 값이 붙는다 — 시험으로 확인했다. */
+  let v=softCeil(p,hi,hi-15);
+  v=100-softCeil(100-v,100-lo,100-lo-5);
+  return v;
+}
 function aiCompute(code){
   const s=byCode[code];if(!s||s.price==null||!s.prevClose)return null;
   const cd=_sumDaily[code]||candleCache[code+':D'];
@@ -14932,14 +14947,56 @@ function aiCompute(code){
     if(vp.trap>=22)sc-=5; else if(vp.trap>=14)sc-=2;                            // 본전 매물 압력
     if(vp.gapUp&&vp.res&&vp.gapUp.p<vp.res.p)sc+=4;                             // 위쪽이 빈 구간이면 가볍다
     if(vp.res&&vp.res.w>=4.5&&vp.res.p<px*1.05)sc-=4;                           // 코앞에 두꺼운 매물벽
-    sc=Math.max(3,Math.min(97,Math.round(sc)));
+    sc=Math.max(3,Math.min(97,sc));                  /* [v17.5] 여기서 반올림하지 않는다 */
   }
   sc=sc*(0.82+rg.mult*0.18);                         // 시장 분위기(무드) 배수
-  sc=Math.max(3,Math.min(97,Math.round(sc)));
-  // ── 상승 확률(3거래일 내 +5%) — 점수 로지스틱 + 시장국면 + 과거 스캔 적중률 보정 ──
-  let p=100/(1+Math.exp(-(sc-56)/11));
-  const acc=surgeAcc(null);if(acc&&acc.n>=15)p=p*0.75+acc.rate*0.25;
-  p=Math.max(4,Math.min(88,Math.round(p*rg.mult)));
+  /* [v17.5] 화면에 쓸 점수만 정수로 만들고, 확률 계산에는 반올림 전 값을 쓴다.
+     정수로 뭉갠 뒤 확률을 만들면 미세한 차이가 시작부터 사라진다. */
+  const scRaw=Math.max(1,Math.min(120,sc));
+  sc=Math.max(3,Math.min(97,Math.round(scRaw)));
+  /* ══ [v17.5] 상승 확률이 죄다 88% 로 나오던 이유 ═══════════════════════════
+     [증상] 어느 종목을 열어도 88%. 실기 사진에서 확인됐다.
+     [원인] 세 가지가 겹쳤다.
+       ⓐ 천장을 88 로 딱 잘랐다 — Math.min(88, …). 그 위 값은 전부 한 점에 뭉친다.
+       ⓑ 시장 국면 배수를 '확률에 직접 곱했다' — p*rg.mult. 그런데 이 배수는
+          그날 시장 전체에 하나뿐인 상수다(강한 강세 1.22 · 강세 1.12 · …).
+          곱하는 순간 모든 종목이 같은 비율로 밀려 천장에 달라붙는다.
+          실제로 계산해 보면 배수 1.22 인 날에는 점수 66.5점 이상이 예외 없이
+          88% 가 된다 — 강세장이면 웬만한 종목이 전부 여기 들어간다.
+       ⓒ 점수를 정수로 반올림한 뒤 확률을 만들어, 해상도가 한 번 더 깎였다.
+     [고침]
+       ⓐ 자르는 대신 93% 에 점근시킨다(softBand). 값이 겹치지 않는다.
+       ⓑ 국면 보정을 확률이 아니라 로그 승산(로짓) 위에서 한다. 곡선을 옮길
+          뿐이라 종목마다의 차이가 그대로 살아남는다.
+       ⓒ 반올림 전 점수를 쓰고, 점수를 만들 때 구간으로 뭉개 버린 연속값
+          (RSI·거래량비·모멘텀·당일등락·변동성·매물 소화도·저항까지 거리)을
+          낮은 가중치로 로짓에 되살린다. 없는 정보를 지어내는 것이 아니라
+          이미 계산해 둔 값을 버리지 않는 것이다.
+     표시는 0.1%p 단위 — 1%p 차이는 확실히 구분된다. */
+  /* 기울기 11 → 14. 가파르면 높은 점수대가 곧바로 포화해 90점과 100점이
+     같은 값이 된다. 완만하게 두어 점수 차이가 확률 차이로 남게 한다. */
+  let z=(scRaw-56)/14;
+  z+=(rg.mult-1)*2.0;                                // 국면은 곱하지 않고 옮긴다
+  let fine=0;
+  if(d.rsi!=null)fine+=Math.max(-0.20,Math.min(0.20,(d.rsi-58)/100));
+  fine+=Math.max(-0.15,Math.min(0.15,((volR||1)-1)*0.12));
+  fine+=Math.max(-0.15,Math.min(0.15,(mom20||0)*0.010));
+  fine+=Math.max(-0.12,Math.min(0.12,(q.chg||0)*0.020));
+  /* 변동성이 크면 +5% 도달 자체는 쉬워지지만 신호의 신뢰도는 떨어진다 */
+  fine-=Math.max(0,Math.min(0.15,(volD*100-3)*0.03));
+  if(vp){
+    fine+=Math.max(-0.15,Math.min(0.15,(vp.digest-50)/300));
+    if(vp.res&&vp.res.p>px)fine+=Math.max(-0.12,Math.min(0.12,((vp.res.p/px-1)*100-5)*0.02));
+  }
+  z+=Math.max(-0.6,Math.min(0.6,fine));
+  /* 과거 적중률도 로짓에서 섞는다 — 표본이 많을수록 더 믿는다(최대 30%) */
+  const acc=surgeAcc(null);
+  if(acc&&acc.n>=15){
+    const r=Math.max(0.03,Math.min(0.97,acc.rate/100));
+    z=z*(1-Math.min(0.30,acc.n/300))+Math.log(r/(1-r))*Math.min(0.30,acc.n/300);
+  }
+  let p=softBand(100/(1+Math.exp(-z)),95,3);
+  p=Math.round(p*10)/10;
   // ── 가격 전략 ──
   const sup1=Math.min(d.ma5,px*0.995),sup2=Math.max(Math.min(d.ma20,d.vwap60),px*0.90);
   let buyLo=tickPx(Math.min(sup2,px*0.985)),buyHi=tickPx(Math.max(buyLo*1.004,Math.min(sup1,px*0.998)));
@@ -15299,7 +15356,7 @@ function renderAiStock(el,force){
       <div class="ai-card stop"><div class="k">손절 라인</div><div class="v num">${KRW(a.stop)}</div><div class="s num down">${pctUp(a.stop)}% · 이탈 시 리스크 관리</div></div>
     </div>
     <div class="ai-sec-t">상승 확률 <span>3거래일 내 +5% 도달 추정</span></div>
-    <div class="ai-prob"><div class="ai-prob-bar"><i style="width:${a.p}%"></i></div><b class="num ${a.p>=55?'up':a.p<=35?'down':''}">${a.p}%</b></div>
+    <div class="ai-prob"><div class="ai-prob-bar"><i style="width:${a.p}%"></i></div><b class="num ${a.p>=55?'up':a.p<=35?'down':''}">${a.p.toFixed(1)}%</b></div>
     <div class="ai-prob-d">기술 신호 ${a.sc}점을 과거 유사 신호 통계와 시장 국면(${a.rg.label} ×${a.rg.mult})으로 보정한 값입니다.</div>
     ${a.vp?vpSectionHtml(a.vp,a.px,'aiVp'):''}
     <div class="ai-sec-t">차트 예측 <span>향후 10거래일 · 추세+변동성 시나리오</span></div>
@@ -22981,10 +23038,22 @@ function usAiCompute(){
   const lt=px*(1+w*3.2/100);
   const stop=px*(1-w*1.8/100);
 
-  /* ── 상승 확률 ── 점수를 바탕으로 하되 변동성이 크면 폭을 넓힌다 */
-  let p=Math.round(28+(sc-50)*0.62);
-  if(vola&&vola>=3)p+=4; if(rsi!=null&&rsi>=75)p-=6;
-  p=Math.max(5,Math.min(92,p));
+  /* ══ [v17.5] 해외도 같은 방식으로 ═══════════════════════════════════════════
+     여기는 선형식이라 88 에 뭉치지는 않았지만, 정수 점수에서 정수 확률을 만들어
+     해상도가 낮았다(같은 점수 = 완전히 같은 확률). 국내와 같은 틀로 통일한다:
+     로짓에서 계산 → 연속값으로 해상도 보강 → 천장·바닥은 점근 → 0.1%p 표시. */
+  let z=((sc||50)-52)/12;
+  let fine=0;
+  if(rsi!=null)fine+=Math.max(-0.20,Math.min(0.20,(rsi-58)/100));
+  if(volR!=null)fine+=Math.max(-0.15,Math.min(0.15,(volR-1)*0.12));
+  if(pos!=null)fine+=Math.max(-0.12,Math.min(0.12,(pos-50)/400));
+  if(ma20&&px)fine+=Math.max(-0.15,Math.min(0.15,(px/ma20-1)*3));
+  /* 변동성이 크면 도달은 쉬워도 신뢰도는 낮다 — 과열이면 한 번 더 깎는다 */
+  if(vola)fine-=Math.max(0,Math.min(0.18,(vola-3)*0.05));
+  if(rsi!=null&&rsi>=75)fine-=0.22;
+  z+=Math.max(-0.6,Math.min(0.6,fine));
+  let p=softBand(100/(1+Math.exp(-z)),92,4);
+  p=Math.round(p*10)/10;
 
   /* ── 키워드 ── */
   const kw=[];
@@ -23097,7 +23166,7 @@ function renderUsAi(el){
 
     <div class="ai-sec-t">상승 확률 <span>3거래일 내 +5% 도달 추정</span></div>
     <div class="ai-prob"><div class="ai-prob-bar"><i style="width:${a.p}%"></i></div>
-      <b class="num ${a.p>=55?'up':a.p<=35?'down':''}">${a.p}%</b></div>
+      <b class="num ${a.p>=55?'up':a.p<=35?'down':''}">${a.p.toFixed(1)}%</b></div>
     <div class="ai-prob-d">기술 신호 ${a.sc}점에 변동성(${a.vola.toFixed(2)}%)과 과열 여부를 함께 반영한 값입니다.</div>
 
     <div class="ai-sec-t">지표 요약</div>
