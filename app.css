@@ -7997,3 +7997,159 @@ html.dark .mdd-st.new{color:#7dabff;background:rgba(37,99,235,.16)}
   border:1px solid color-mix(in srgb,#f5a30d 36%,var(--border))}
 html.dark .mdd-note.warn{color:#ffd166}
 .mdd-acts{display:flex;gap:8px;margin-top:11px}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.1] 모바일 정밀 수리 — 412px 실기 사진 6장에서 확인된 결함을 원인별로 고친다.
+   짐작으로 값을 흔들지 않는다. 각 항목마다 '무엇이 어떤 규칙 때문에 그렇게 됐는지'를
+   먼저 적고, 그 규칙만 정확히 되돌린다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── ① 창(모달)이 하단 탭바에 가려 아래가 잘리던 문제 ─────────────────────────
+   [사진 7·8] 설정 창의 '애니메이션 줄이기', 프로필 창의 '로그아웃'이 정확히
+   탭바가 시작되는 높이에서 잘렸다.
+   [원인] .overlay 는 z-index:200 인데 .tabbar 는 920, .topbar 는 900 이다.
+     즉 탭바가 모달 '위'에 떠 있었다. 모달은 바텀시트라 화면 바닥까지 내려오는데
+     그 마지막 66px 를 탭바가 통째로 덮었다. 창이 길어서 잘린 게 아니라,
+     맨 아래가 다른 것에 가려져 있었던 것이다.
+   [고침] 겹침 순서를 바로 세운다. 모달 계열을 탭바·헤더 위로 올리되,
+     서로의 상하 관계(확인창 > 일반창)는 그대로 유지한다. */
+.overlay{z-index:1200}
+.acct-gate{z-index:1240}
+.xfer-gate{z-index:1250}
+.gw-gate{z-index:1260}
+.fd-pop{z-index:1280}
+.ask-ov{z-index:1320}
+.ob-ov{z-index:1330}
+
+/* .overlay 는 inset:0 전면이므로, 위로 올라온 순간 탭바는 dim 뒤로 완전히 들어간다.
+   탭 클릭도 오버레이가 먼저 받는다 — 따로 pointer-events 를 끌 필요가 없다. */
+
+/* 바텀시트 규칙 통일 — #setGate 가 id 특이성으로 혼자 다른 값을 쓰고 있었다.
+   (max-height:86vh + overflow-y:auto 가 .overlay .modal 의 flex 규칙과 섞여
+    머리말까지 함께 스크롤되고 본문 높이가 어긋났다) */
+@media (max-width:720px){
+  .overlay .modal,#setGate .modal,#profileGate .modal{
+    max-height:92dvh;max-height:92vh;
+    display:flex;flex-direction:column;overflow:hidden}
+  .overlay .modal>.modal-head,.overlay .modal>.pm-head,.overlay .modal>.set-head{flex:0 0 auto}
+  .overlay .modal-body,.overlay .lite-body,.overlay .set-body,
+  .overlay .pm-body,.overlay .ae-sheet{
+    flex:1 1 auto;min-height:0;max-height:none;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+}
+
+/* ── ② ETF 목록에서 종목명이 잘리던 문제 ─────────────────────────────────────
+   [사진 1] 'KODEX 2…', 'TIGER 미국S…' 처럼 이름이 두세 글자에서 끊겼다.
+   [원인] 두 가지가 겹쳤다.
+     ⓐ 이름 줄(.e2-nm)이 flex 인데 그 안에 브랜드 배지(KODEX/TIGER)가
+        flex:0 0 auto 로 자리를 먼저 차지한다. 그런데 이 배지는 이름 앞머리가
+        이미 'KODEX 200' 이라 좁은 화면에서는 완전히 중복된 정보다.
+     ⓑ 이름 칸이 minmax(0,1fr) 이고 숫자 칸이 auto 라, 가격이 긴 종목
+        (1,075,700원)에서는 숫자가 먼저 폭을 가져가고 이름이 남은 만큼만 받았다.
+   [고침] 중복 배지를 빼고, 숫자 칸을 고정 폭으로 못 박아 이름 칸의 몫을
+     보장한다. 그래도 긴 이름은 한 줄에 안 들어가므로 두 줄까지 허용한다
+     (말줄임은 두 줄을 다 쓴 뒤에만 일어난다). */
+@media (max-width:680px){
+  .etf-row .e2-nm .etf-brand{display:none}
+  .etf-table-head,.etf-row{grid-template-columns:20px 26px minmax(0,1fr) 80px 72px;gap:6px}
+  .etf-row{align-items:center;padding:10px 6px}
+  .etf-row .e2-nm{align-items:flex-start;gap:5px}
+  .etf-row .e2-nm b{
+    flex:1 1 auto;min-width:0;font-size:13px;line-height:1.26;
+    white-space:normal;word-break:break-word;overflow-wrap:anywhere;text-overflow:clip;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .etf-row .c2,.etf-row .c3{font-size:12.5px}
+  .etf-row .e2-sub{font-size:10.5px}
+}
+/* 레버리지 배지(+2배)가 붙은 종목만 이름 폭이 118px → 73px 로 줄던 문제(360px 실측).
+   배지는 이름과 같은 줄을 쓸 만큼 중요하지 않다 — 이름에 한 줄을 통째로 주고
+   배지는 그 아래로 내린다. 좁을수록 줄 수도 한 줄 더 허용한다. */
+@media (max-width:430px){
+  .etf-row .e2-nm{flex-wrap:wrap;row-gap:2px}
+  .etf-row .e2-nm b{flex:1 1 100%;-webkit-line-clamp:3}
+}
+@media (max-width:400px){
+  .etf-table-head,.etf-row{grid-template-columns:18px 24px minmax(0,1fr) 74px 66px;gap:5px}
+  .etf-row .e2-nm b{font-size:12.5px}
+  .etf-row .c2,.etf-row .c3{font-size:12px}
+}
+
+/* ── ③ 계좌 개설 / 계좌 해지가 서로 다른 줄로 갈라지던 문제 ────────────────────
+   [사진 4] '+ 계좌 개설'만 수수료 옆에 붙고 '계좌 해지'는 혼자 아랫줄로 떨어졌다.
+   [원인] .ab-r 이 flex-wrap:wrap 인데 수수료 3개와 버튼 2개가 모두 같은 레벨
+     형제였다. 폭이 모자라면 마지막 하나만 밀려 내려간다 — 하필 그게 해지 버튼.
+   [고침] 버튼 둘을 한 묶음(.ab-acts)으로 감싼다. 줄바꿈은 묶음 단위로만 일어나므로
+     두 버튼은 어떤 폭에서도 갈라지지 않는다. */
+.ab-kvs{display:flex;align-items:center;gap:16px;flex-wrap:nowrap}
+.ab-acts{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+@media (max-width:560px){
+  .acct-bar{align-items:stretch}
+  .ab-r{width:100%;gap:12px;justify-content:space-between}
+  .ab-kvs{flex:1 1 100%;justify-content:space-between;gap:8px}
+  .ab-kv{text-align:center}
+  .ab-acts{flex:1 1 100%}
+  .ab-acts .ab-add{flex:1 1 0;padding:11px 8px;font-size:13px;text-align:center}
+}
+
+/* ── ④ 보유 종목 표가 옆으로 밀려 잘리던 문제 ────────────────────────────────
+   [사진 5] 표 머리글이 '종목 수량 현재가 손익 수익률'까지만 보이고, 빈 상태 안내가
+     오른쪽으로 밀려 '…매수해 보세' 에서 끊겼다.
+   [원인] 9열짜리 표에 min-width:520px 이 걸려 있다. 412px 화면에서는 표가 껍데기보다
+     넓으니 가로 스크롤이 생기고, colspan=9 짜리 빈 상태 셀은 520px 기준으로 가운데
+     정렬되므로 화면 밖으로 밀려 나간다.
+   [고침] 두 갈래로 나눈다.
+     · 비었을 때 : 보여 줄 값이 없으니 머리글을 접고 표의 최소 폭을 푼다.
+       안내 문구가 화면 한가운데에 정확히 놓인다(스크롤 자체가 사라진다).
+     · 보유가 있을 때 : 실제 증권사 모바일 화면과 같은 5열로 줄인다
+       (종목·수량·현재가·평가손익·수익률). 평균단가·평가금액·비중·봉은 넓은 화면 몫이다. */
+.hold-empty td{text-align:center;color:var(--sub-2);padding:26px 14px;font-weight:700;line-height:1.6}
+.hold-wrap.is-empty table{min-width:0!important;width:100%}
+.hold-wrap.is-empty thead{display:none}
+.hold-wrap.is-empty{overflow-x:hidden}
+@media (max-width:560px){
+  .hold-wrap table{min-width:0!important;width:100%;table-layout:fixed}
+  .hold-wrap th:nth-child(3),.hold-wrap td:nth-child(3),
+  .hold-wrap th:nth-child(5),.hold-wrap td:nth-child(5),
+  .hold-wrap th:nth-child(8),.hold-wrap td:nth-child(8),
+  .hold-wrap th:nth-child(9),.hold-wrap td:nth-child(9){display:none}
+  /* 폭은 % 로 준다. px 로 고정하면 360px 기기에서 숫자 칸 넷이 268px 를 먼저 먹고
+     종목명 칸에 62px 밖에 안 남는다(실측) — 이름이 다시 잘리는 원인이 된다. */
+  .hold-wrap th:nth-child(1),.hold-wrap td:nth-child(1){width:40%}
+  .hold-wrap th:nth-child(2),.hold-wrap td:nth-child(2){width:12%}
+  .hold-wrap th:nth-child(4),.hold-wrap td:nth-child(4){width:18%}
+  .hold-wrap th:nth-child(6),.hold-wrap td:nth-child(6){width:17%}
+  .hold-wrap th:nth-child(7),.hold-wrap td:nth-child(7){width:13%}
+  .hold-wrap th{white-space:normal;word-break:keep-all;padding:9px 4px;font-size:10.5px}
+  .hold-wrap td{padding:10px 4px;vertical-align:middle}
+  .hold-wrap td.num{white-space:nowrap;font-size:12px}
+  .hold-wrap .td-l{min-width:0;gap:6px}
+  .hold-wrap .td-t{min-width:0}
+  /* ETF 를 담고 있으면 종목명이 길다('KODEX CD금리액티브(합성)').
+     ETF 목록과 같은 원칙 — 말줄임보다 여러 줄이 낫다. 잘린 이름은 정보가 아니다.
+     줄 수를 세지 않고 자유롭게 흘린다(-webkit-box 클램프는 이 표에서 다른 규칙에
+     밀려 적용되지 않았다 — 브라우저 기능에 기대지 않는 쪽이 확실하다). */
+  .hold-wrap .td-t .nm{display:block;white-space:normal;overflow-wrap:anywhere;
+    word-break:break-word;overflow:visible;text-overflow:clip;line-height:1.3;font-size:12.5px}
+  .hold-wrap .td-t .cd{font-size:10.5px}
+  .hold-wrap.is-empty td:nth-child(1){width:auto}
+  /* 빈 상태 셀은 열 폭 규칙보다 우선한다(첫 칸이라 살아 있지만 폭을 묶으면 안 된다) */
+  .hold-empty td{width:auto!important}
+}
+
+/* 아주 좁은 폰에서는 보유 종목명도 한 줄 더 허용한다(ETF 목록과 같은 원칙).
+   행이 조금 높아지는 대신 이름이 잘리지 않는다 — 잘린 이름은 정보가 아니다. */
+/* 430px 이하에서는 숫자가 자기 열을 넘었다(1,075,700 이 14px, +2.55% 가 15px 초과 — 실측).
+   fixed 레이아웃에서 넘친 숫자는 옆 칸을 침범한다. 숫자 칸 몫을 늘리고 종목명 몫을 줄인다.
+   이름은 자유 줄바꿈이라 좁아져도 잘리지 않고 줄만 늘어난다 — 숫자를 우선한다. */
+@media (max-width:430px){
+  .hold-wrap th,.hold-wrap td{padding-left:3px;padding-right:3px}
+  .hold-wrap th:nth-child(1),.hold-wrap td:nth-child(1){width:31%}
+  .hold-wrap th:nth-child(2),.hold-wrap td:nth-child(2){width:10%}
+  .hold-wrap th:nth-child(4),.hold-wrap td:nth-child(4){width:23%}
+  .hold-wrap th:nth-child(6),.hold-wrap td:nth-child(6){width:19%}
+  .hold-wrap th:nth-child(7),.hold-wrap td:nth-child(7){width:17%}
+  .hold-wrap .td-t .nm{font-size:12px}
+  .hold-wrap td.num{font-size:11.5px}
+  .hold-wrap th{font-size:10px}
+}

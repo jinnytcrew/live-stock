@@ -24,9 +24,133 @@ var __export = (target, all) => {
      국내가 멀쩡했던 건 국내 코드가 KV 를 안 쓰거나 지역 KV 가 있는 함수였기 때문이다.
    [교훈] 바깥을 의심하기 전에 코드를 실제로 실행해 본다. 정적 분석만으로 세 번 틀렸다. */
 var KV = null;
+/* ══ [v17.1] KV 쓰기 총량 관리자 — 하루 한도를 절대 넘기지 않는다 ══════════════
+   [무엇이 터졌나] 친구 화면이 "KV put() limit exceeded for the day" 로 멈췄다.
+     무료 Workers KV 는 하루 쓰기 1,000회다. 한도를 넘는 순간 캐시뿐 아니라
+     계정·친구·클랜처럼 '사용자가 만든 데이터'까지 통째로 저장이 막힌다.
+   [범인 ① · 결정적] budgetTick() 이 호출량 집계를 60초마다 KV 에 적었다.
+     인스턴스 하나만 살아 있어도 하루 1,440회 — 집계 하나가 한도의 144%를 먹었다.
+     "1분에 한 번만 적으니 안전하다"고 적어 둔 주석 자체가 틀린 계산이었다.
+   [범인 ②] 시세·차트·순위 캐시가 종목마다 키를 따로 잡고 갱신했다
+     (usq:<코드> TTL 120초, uscap:<코드>, rank:<종류> …). 보는 사람이 늘수록
+     쓰기가 비례해 늘어나는 구조라 오전에 한도가 바닥나기도 한다.
+   [고침] 모든 쓰기를 이 길목 하나로 모으고 네 겹으로 막는다.
+     ① 메모리 거울 — 쓴 값을 인스턴스 메모리에도 담는다. KV 에 실제로 못 써도
+        이 인스턴스의 다음 읽기는 방금 값을 그대로 받는다(캐시 효과는 유지).
+     ② 같은 값 재기록 금지 — 내용이 그대로면 KV 를 건드리지 않는다.
+     ③ 키별 최소 간격 — 캐시 키는 10~30분 안에 두 번 쓰지 않는다.
+     ④ 일일 캐시 예산 — 캐시성 쓰기는 550회까지. 나머지 450회는 사용자
+        데이터 몫으로 남겨 둔다. 예산이 말라도 캐시는 '못 썼을 뿐'
+        읽기·메모리로 계속 돈다(기능 정지 없음).
+   사용자 데이터(계정·친구·클랜·쿠폰·이벤트·제출·관리자)는 어떤 경우에도 통과.
+   ══════════════════════════════════════════════════════════════════════════ */
+var KVGOV = {
+  day: "", ess: 0, cache: 0, skip: 0, blocked: 0,
+  last: /* @__PURE__ */ new Map(),
+  sig: /* @__PURE__ */ new Map(),
+  mem: /* @__PURE__ */ new Map(),
+  CACHE_CAP: 550
+};
+function kvDayKST() {
+  const k = new Date(Date.now() + 9 * 36e5);
+  return k.toISOString().slice(0, 10);
+}
+function kvGovRoll() {
+  const d = kvDayKST();
+  if (KVGOV.day !== d) {
+    KVGOV.day = d; KVGOV.ess = 0; KVGOV.cache = 0; KVGOV.skip = 0; KVGOV.blocked = 0;
+    KVGOV.last.clear(); KVGOV.sig.clear();
+  }
+}
+/* 사용자가 만든 데이터 = 다시 만들 수 없는 것. 나머지는 원천에서 다시 받아 올 수 있다. */
+function kvEssential(key) {
+  const k = String(key || "");
+  /* 저장소 이름으로 먼저 거른다 — 계정(live-accounts)·친구(live-social)·클랜(live-clans) */
+  if (/^live-accounts:|^live-social:|^live-clans?:/.test(k)) return true;
+  /* 이벤트 참여 기록·제출물·첨부는 사용자가 만든 것이다(evt:list 는 관리자가 만든 목록) */
+  if (/^evt:(list|join|subs|file):?/.test(k)) return true;
+  /* [주의] 'code' 를 통째로 넣으면 k200nf:code 같은 캐시까지 필수로 잡힌다.
+     클랜 초대코드(code:XXXX)는 위의 live-clans 접두사에서 이미 걸린다. */
+  return /(^|:)(acc|usr|usrlog|fr|clan|cpn|msg|sub|subs|push|pushst|gsub|mail|adm|version|job|signal)(:|$)/.test(k);
+}
+function kvSig(v) {
+  const s2 = String(v == null ? "" : v);
+  let h = 5381;
+  for (let i = 0; i < s2.length; i++) h = (h * 33 ^ s2.charCodeAt(i)) >>> 0;
+  return s2.length + ":" + h;
+}
+function kvShape(raw, opts) {
+  const t = (typeof opts === "string") ? opts : (opts && opts.type) || "text";
+  if (t === "json") { try { return JSON.parse(raw); } catch (e) { return null; } }
+  return raw;
+}
+function govKV(kv) {
+  if (!kv || kv.__gov) return kv;
+  const g = { __gov: 1, __raw: kv };
+  for (const m of ["getWithMetadata", "list"])
+    if (typeof kv[m] === "function") g[m] = (...a) => kv[m](...a);
+  /* 읽기 — 캐시성 키는 메모리 거울이 살아 있으면 KV 를 건드리지 않는다.
+     사용자 데이터는 인스턴스끼리 어긋나면 안 되므로 항상 KV 를 본다. */
+  g.get = async (key, opts) => {
+    const k = String(key);
+    if (!kvEssential(k)) {
+      const m = KVGOV.mem.get(k);
+      if (m && m.exp > Date.now()) return kvShape(m.v, opts);
+    }
+    return await kv.get(key, opts);
+  };
+  g.delete = async (key) => { try { KVGOV.mem.delete(String(key)); } catch (e) {} return await kv.delete(key); };
+  g.put = async (key, val, opts) => {
+    kvGovRoll();
+    const k = String(key);
+    const body = (typeof val === "string") ? val : null;
+    const ttl = (opts && opts.expirationTtl) || 0;
+    const ess = kvEssential(k);
+    /* ① 메모리 거울 */
+    if (body != null) {
+      if (ess) KVGOV.mem.delete(k);
+      else {
+        KVGOV.mem.set(k, { v: body, exp: Date.now() + (ttl ? Math.min(ttl * 1e3, 6e5) : 6e5) });
+        if (KVGOV.mem.size > 3000) KVGOV.mem.clear();
+      }
+    }
+    /* ② 내용이 그대로면 쓸 이유가 없다 (수명 없는 키만 — TTL 키는 재기록이 곧 연장이다) */
+    if (body != null && !ttl && KVGOV.sig.get(k) === kvSig(body)) { KVGOV.skip++; return; }
+    if (!ess) {
+      /* ③ 키별 최소 간격 — 10분 이상, 30분 이하 */
+      const gap = ttl ? Math.min(Math.max(ttl * 1e3, 6e5), 18e5) : 9e5;
+      if (Date.now() - (KVGOV.last.get(k) || 0) < gap) { KVGOV.skip++; return; }
+      /* ④ 일일 캐시 예산 */
+      if (KVGOV.cache >= KVGOV.CACHE_CAP) { KVGOV.blocked++; return; }
+    }
+    try {
+      const r = await kv.put(key, val, opts);
+      if (ess) KVGOV.ess++;
+      else {
+        KVGOV.cache++;
+        KVGOV.last.set(k, Date.now());
+        if (KVGOV.last.size > 4000) KVGOV.last.clear();
+      }
+      if (body != null && !ttl) {
+        KVGOV.sig.set(k, kvSig(body));
+        if (KVGOV.sig.size > 4000) KVGOV.sig.clear();
+      }
+      return r;
+    } catch (e) {
+      /* 한도를 넘었다면 오늘은 캐시 쓰기를 완전히 멈춰 사용자 데이터 몫을 지킨다 */
+      if (/limit exceeded/i.test(String((e && e.message) || e))) KVGOV.cache = 1e9;
+      throw e;
+    }
+  };
+  return g;
+}
+function kvGovStat() {
+  kvGovRoll();
+  return KVGOV.ess + "/" + KVGOV.cache + "/" + KVGOV.skip + (KVGOV.blocked ? "+" + KVGOV.blocked : "");
+}
 function setEnv(env) {
   if (env) _ENV = env;
-  try { if (env && env.APP_KV) KV = env.APP_KV; } catch (e) { }
+  try { if (env && env.APP_KV) KV = govKV(env.APP_KV); } catch (e) { }
 }
 function envGet(key, env) {
   if (!env) env = _ENV;
@@ -99,6 +223,7 @@ const USR_KEYS=(id)=>["live-accounts:usr:"+id,"app:usr:"+id];
    두 자리를 모두 확인하고, 쓸 때는 "읽은 자리 + 반대 자리" 양쪽에 맞춰 둔다. */
 const ACC_KEYS=(id)=>["live-accounts:acc:"+id,"app:acc:"+id];
 async function accRawRead(KV,id){
+  KV=govKV(KV);   /* [v17.1] */
   const key=String(id==null?"":id).trim().toLowerCase();
   for(const k of ACC_KEYS(key)){
     try{ const raw=await KV.get(k); if(raw) return { key:k, raw }; }catch(e){}
@@ -107,11 +232,13 @@ async function accRawRead(KV,id){
 }
 /* 어느 자리에서 읽었든 두 자리를 같은 내용으로 맞춘다 — 앞으로 갈리지 않게 */
 async function accMirrorWrite(KV,id,acc){
+  KV=govKV(KV);   /* [v17.1] */
   const key=String(id==null?"":id).trim().toLowerCase();
   const body=JSON.stringify(acc);
   for(const k of ACC_KEYS(key)){ try{ await KV.put(k, body); }catch(e){} }
 }
 async function usrRawRead(KV,id){
+  KV=govKV(KV);   /* [v17.1] */
   for(const k of USR_KEYS(id)){
     try{ const raw=await KV.get(k); if(raw) return { key:k, raw }; }catch(e){}
   }
@@ -199,7 +326,7 @@ async function getStoreX(nameOrOpts, env) {
 }
 async function storeRaw(name, env) {
   if (!env) env = _ENV;
-  if (env && env.APP_KV && typeof env.APP_KV.get === "function") return kvAdapter(env.APP_KV, name);
+  if (env && env.APP_KV && typeof env.APP_KV.get === "function") return kvAdapter(govKV(env.APP_KV), name);   /* [v17.1] 쓰기 관리자 경유 */
   try {
     const NB = "@netlify/blobs";
     const m = await import(
@@ -7600,6 +7727,7 @@ var friends_default = async (req2) => {
   me.profile = { ..._p0, name: uname,
     rate: _p0.rate ?? null, msg: _p0.msg || "", tr: _p0.tr || 0, ts: _p0.ts || 0 };
   const act = String(b.action || "");
+  let savedErr = "";
   try {
     if (act === "sync" || act === "get") {
       if (act === "sync") {
@@ -7615,13 +7743,21 @@ var friends_default = async (req2) => {
         if (b.msg !== void 0) me.profile.msg = clip2(b.msg, 30);
         if (b.tr != null && isFinite(+b.tr)) me.profile.tr = Math.max(0, Math.round(+b.tr));
         const changed = before.r !== me.profile.rate || before.m !== me.profile.msg || before.t !== me.profile.tr;
-        const stale = Date.now() - (me.profile.ts || 0) > 300000;
+        /* ══ [v17.1] 여기가 두 가지를 한꺼번에 잘못하고 있었다 ═══════════════
+           ① 바뀐 게 없어도 5분마다 저장했다 — 친구 화면을 자주 여는 사람 하나가
+              하루 288회를 쓴다. 사람이 몇 명만 되어도 한도가 무너진다.
+              '마지막 갱신 시각'은 6시간에 한 번이면 충분하다(하루 4회).
+           ② 저장이 실패하면 예외가 그대로 올라가 친구 목록 전체가 오류 화면이
+              됐다(첨부 사진). 저장은 곁다리고 목록이 본체다 — 저장이 안 되면
+              저장만 포기하고 목록은 그대로 보여 준다. */
+        const stale = Date.now() - (me.profile.ts || 0) > 6 * 3600 * 1e3;
         if (changed || stale) {
           me.profile.ts = Date.now();
-          await save(uid, me);
+          try { await save(uid, me); }
+          catch (e) { savedErr = String((e && e.message) || e).slice(0, 60); }
         }
       }
-      return json4({ ok: true, ...await view(st, uid, me) });
+      return json4({ ok: true, degraded: savedErr || void 0, ...await view(st, uid, me) });
     }
     if (act === "add") {
       const t = clip2(b.target, 24);
@@ -8877,10 +9013,15 @@ function budgetTick(env) {
   if (_bgDay !== day) { _bgDay = day; _bgN = 0; _bgTotal = 0; _bgAt = 0; }
   _bgN++;
   const now = Date.now();
-  if (now - _bgAt < 60000) return;
+  /* ══ [v17.1] 여기가 KV 쓰기 한도를 터뜨린 진짜 원인이었다 ═══════════════════
+     60초마다 적으면 인스턴스 하나로도 하루 1,440회다. 무료 한도가 1,000회이니
+     집계 하나가 한도 전체를 먹고, 그때부터 계정·친구·클랜 저장이 모두 막힌다.
+     20분 간격 + 25회 이상 쌓였을 때만 적는다(하루 최대 72회, 한가하면 0회).
+     그사이 값은 메모리(_bgN)에 그대로 남아 화면 표시는 어긋나지 않는다. */
+  if (now - _bgAt < 12e5 || _bgN < 25) return;
   _bgAt = now;
   const add = _bgN; _bgN = 0;
-  const KVx = env && env.APP_KV;
+  const KVx = govKV(env && env.APP_KV);
   if (!KVx) { _bgTotal += add; return; }
   /* 읽고 더해 쓰기 — 인스턴스가 여럿이면 약간 어긋나지만 방향은 맞다 */
   (async () => {
@@ -16883,7 +17024,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.0.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.1.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -16915,6 +17056,8 @@ var worker_default = {
           h.set("x-subreq", String(_n));
           /* [v9.97] 오늘 전체 사용량(%) — 화면이 이 값을 보고 속도를 낮춘다 */
           try { h.set("x-budget", String(budgetPct())); } catch (e) {}
+          /* [v17.1] KV 쓰기 현황 = 필수/캐시/생략(+차단) — 한도에 얼마나 여유가 있는지 밖에서 본다 */
+          try { h.set("x-kvw", kvGovStat()); } catch (e) {}
           if (_n >= 42) { h.set("x-subreq-warn", "near-limit"); console.log("[subreq] " + url.pathname + " = " + _n + "/50"); }
           return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h });
         } catch (e) { return r; }

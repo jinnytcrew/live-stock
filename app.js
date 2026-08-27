@@ -3294,11 +3294,18 @@ function renderAcctBar(){
         <div class="ab-no">계좌번호 <b>${cur.no||'—'}</b></div>
       </div></div>
     <div class="ab-r">
-      <div class="ab-kv"><span>국내</span><b>${(FEE_RATE_BASE*t.feeKr*100).toFixed(4)}%</b></div>
-      <div class="ab-kv"><span>해외</span><b>${(US_FEE_BASE*t.feeUs*100).toFixed(2)}%</b></div>
-      <div class="ab-kv"><span>환전우대</span><b>${Math.round((t.fxPref!=null?t.fxPref:0.95)*100)}%</b></div>
-      <button class="ab-add" id="acctAddBtn">+ 계좌 개설</button>
-      <button class="ab-add close" id="acctCloseBtn">계좌 해지</button></div></div>`;
+      <div class="ab-kvs">
+        <div class="ab-kv"><span>국내</span><b>${(FEE_RATE_BASE*t.feeKr*100).toFixed(4)}%</b></div>
+        <div class="ab-kv"><span>해외</span><b>${(US_FEE_BASE*t.feeUs*100).toFixed(2)}%</b></div>
+        <div class="ab-kv"><span>환전우대</span><b>${Math.round((t.fxPref!=null?t.fxPref:0.95)*100)}%</b></div>
+      </div>
+      <!-- [v17.1] 개설·해지가 서로 다른 줄로 갈라지던 문제(첨부 4번) —
+           수수료 3개와 버튼 2개가 같은 레벨 형제라, 폭이 모자라면 마지막 버튼만
+           다음 줄로 떨어졌다. 두 버튼을 한 묶음으로 감싸 항상 같은 줄에 둔다. -->
+      <div class="ab-acts">
+        <button class="ab-add" id="acctAddBtn">+ 계좌 개설</button>
+        <button class="ab-add close" id="acctCloseBtn">계좌 해지</button>
+      </div></div></div>`;
   $('acctSelect').onchange=(e)=>acctSwitch(e.target.value);
   $('acctAddBtn').onclick=()=>openAcctOpenSheet();
   {const cb=$('acctCloseBtn'); if(cb)cb.onclick=()=>openAcctClose();}
@@ -6952,7 +6959,7 @@ function livePx(code,fallback){
   const st=byCode[code]||{};
   return (st.price!=null?st.price:fallback);
 }
-function dispQuote(code){
+function dispQuoteRaw(code){
   const st=byCode[code];
   if(!st)return null;
   /* [v4.41] 해외 종목은 NXT·정규장 판정 대상이 아니다 — 달러 시세를 그대로 돌려준다.
@@ -6980,6 +6987,52 @@ function dispQuote(code){
     if(u2&&u2.price)return {price:u2.price,prevClose:u2.prevClose||st.prevClose,src:'통합'};
   }
   return base;
+}
+/* ══ [v17.1] 장 시작 전에는 '오늘 등락'이 존재하지 않는다 ═══════════════════════
+   [증상] 아침 7시대에 삼성전자가 '장 전 · 261,500 ▲+1.75%' 로 보였다(첨부 2번).
+   [무엇이 틀렸나] +1.75% 는 오늘 오른 값이 아니라 '전 거래일에 오른 값'이다.
+     원천(네이버 금융)은 개장 전에는 어제 종가를 현재가로, 그저께 종가를 전일
+     종가로 내려 준다. 그대로 그리면 아직 한 주도 체결되지 않은 시각에 등락률이
+     붙는다 — 없는 사실을 화면이 만들어 낸 셈이다.
+   [실제 증권사] 같은 시각 HTS 는 전 종목이 0 · 0.00% 다(첨부 3번).
+   [고침] 오늘 아직 어떤 시장도 열리지 않은 종목은 전일 종가 = 현재가로 본다.
+     · KRX 전용 종목 : 08:30 (장전 시간외 종가 개시) 이전
+     · NXT 취급 종목 : 08:00 (NXT 프리마켓 개시) 이전
+     · 휴장일(주말·공휴일) : 손대지 않는다. 주말에 금요일 등락을 보여 주는 것은
+       정상이며, 0 으로 만들면 오히려 정보가 사라진다.
+   화면 계산은 검색·순위·관심·보유·홈 요약이 전부 dispQuote 를 지나가므로
+   여기 한 곳만 감싸면 앱 전체가 한꺼번에 맞는다. */
+let _poC={t:0,hm:-1,w:-1,hol:false};
+function _poNow(){
+  const now=Date.now();
+  if(now-_poC.t>10000){
+    const k=kstNow();
+    _poC={t:now,hm:k.getUTCHours()*60+k.getUTCMinutes(),w:k.getUTCDay(),hol:isKrHolidayTodayKST()};
+  }
+  return _poC;
+}
+/* krxOnly=true 면 08:30 기준, 아니면 08:00 기준 */
+function preOpenKRX(krxOnly){
+  const c=_poNow();
+  if(c.w===0||c.w===6||c.hol)return false;   // 휴장일은 전 거래일 등락을 그대로 둔다
+  return c.hm<(krxOnly?510:480);
+}
+function preOpenKR(code){
+  let krxOnly=false;
+  try{ krxOnly=(nxtCapability(code)===false); }catch(e){}
+  return preOpenKRX(krxOnly);
+}
+/* ETF·순위처럼 '원천이 준 등락률'을 그대로 쓰는 목록에서 부른다 */
+function preFlatRate(v,code){
+  if(v==null)return v;
+  return (code?preOpenKR(code):preOpenKRX(true))?0:v;
+}
+function dispQuote(code){
+  const q=dispQuoteRaw(code);
+  if(!q||q.us||q.price==null)return q;
+  if(!preOpenKR(code))return q;
+  /* 전일 종가를 현재가와 같게 둔다 → 차이 0 → 0.00%. 가격 자체는 건드리지 않는다. */
+  return {...q,prevClose:q.price,preflat:1};
 }
 /* [B2] 등락률 계산 단일 창구 — 모든 화면이 이걸 쓴다. 프리마켓엔 dispQuote 가 NXT 체결가를 얹는다. */
 function chgPct(s){
@@ -7188,15 +7241,17 @@ function etfLogo(name,size){
   return `<span class="${cls}" style="--lgc:${b.col}" title="${htmlEsc(b.key)}"><i aria-hidden="true">${htmlEsc(b.ab)}</i></span>`;
 }
 function etfRowHtml(x,rank){
-  const dir=dirOf(x.changeRate),d3=dirOf(x.m3);
+  /* [v17.1] 장 전에는 오늘 등락이 없다 — ETF 는 KRX 전용이므로 08:30 기준 */
+  const cr=preFlatRate(x.changeRate,x.code);
+  const dir=dirOf(cr),d3=dirOf(x.m3);
   const lev=x.lev!==1?`<span class="etf-lev ${x.lev<0?'inv':'up'}">${x.lev>0?'+':''}${x.lev}배</span>`:'';
   return `<div class="etf-row" data-code="${x.code}">
     <span class="rk num">${rank}</span>
     ${etfLogo(x.name,'sm')}
-    <span class="c1"><span class="e2-nm"><b>${htmlEsc(x.name)}</b>${lev}<span class="etf-brand">${x.brand}</span></span>
+    <span class="c1"><span class="e2-nm"><b title="${htmlEsc(x.name)}">${htmlEsc(x.name)}</b>${lev}<span class="etf-brand">${x.brand}</span></span>
       <span class="e2-sub num">${x.code} · ${x.tab}</span></span>
     <span class="c2 num">${x.price!=null?KRW(x.price):'—'}</span>
-    <span class="c3 num ${dir}">${x.changeRate!=null?arrow(dir)+' '+pctS(x.changeRate):'—'}</span>
+    <span class="c3 num ${dir}">${cr!=null?arrow(dir)+' '+pctS(cr):'—'}</span>
     <span class="c4 num ${d3}">${x.m3!=null?pctS(x.m3):'—'}</span>
     <span class="c5 num">${eokWon(x.marketSum)}</span>
   </div>`;
@@ -7212,8 +7267,10 @@ function renderEtfHero(){
   const card=(title,sub,rows,fmt)=>`<div class="etf-hero-card"><div class="ehc-t">${title}<span>${sub}</span></div>
     ${rows.map((x,i)=>`<div class="ehc-r" data-code="${x.code}"><span class="ehc-n">${i+1}. ${htmlEsc(x.name)}</span><span class="ehc-v num ${fmt(x).cls}">${fmt(x).txt}</span></div>`).join('')}</div>`;
   el.innerHTML=
-    card('상승 TOP 3','오늘',top,x=>({txt:pctS(x.changeRate),cls:dirOf(x.changeRate)}))+
-    card('하락 TOP 3','오늘',bot,x=>({txt:pctS(x.changeRate),cls:dirOf(x.changeRate)}))+
+    /* [v17.1] 장 전에는 이 값이 '오늘'이 아니라 '전 거래일' 것이다 — 이름을 정직하게 바꾼다.
+       (행의 등락률은 0 으로 눕히지만, 여기서는 값을 남겨 둬야 순위가 의미를 갖는다) */
+    card('상승 TOP 3',preOpenKRX(true)?'전 거래일':'오늘',top,x=>({txt:pctS(x.changeRate),cls:dirOf(x.changeRate)}))+
+    card('하락 TOP 3',preOpenKRX(true)?'전 거래일':'오늘',bot,x=>({txt:pctS(x.changeRate),cls:dirOf(x.changeRate)}))+
     card('3개월 수익률 TOP 3','최근 3개월',m3,x=>({txt:pctS(x.m3),cls:dirOf(x.m3)}))+
     card('순자산 TOP 3','규모',big,x=>({txt:eokWon(x.marketSum),cls:''}));
   el.querySelectorAll('.ehc-r').forEach(r=>r.onclick=()=>etfOpen(r.dataset.code));
@@ -9571,9 +9628,16 @@ async function renderFriend(){
   if(!frCache&&!_frBusy){
     _frBusy=true;el.innerHTML='<div class="empty">친구 목록을 불러오는 중…</div>';
     const mp=monthPerf();
-    const r=await frCall('sync',{rate:mp.rate,msg:(frCache&&frCache.me&&frCache.me.msg)||'',tr:tradeLog.length});
+    let r=await frCall('sync',{rate:mp.rate,msg:(frCache&&frCache.me&&frCache.me.msg)||'',tr:tradeLog.length});
+    /* ══ [v17.1] 저장 한도 때문에 친구 목록 전체가 오류 화면이 되던 문제(첨부 6번) ══
+       sync 는 '내 수익률을 올려 두는' 곁다리 작업이고, 목록을 받아 오는 것이 본체다.
+       저장이 막혔다고 목록까지 못 볼 이유가 없다 — 쓰기가 전혀 없는 get 으로 한 번 더
+       두드려 화면을 살린다. (서버도 v17.1 에서 저장 실패를 치명 오류로 올리지 않는다) */
+    if(!(r&&r.ok))r=await frCall('get',{});
     _frBusy=false;
-    if(r&&r.ok)frCache=r;
+    if(r&&r.ok){frCache=r;
+      if(r.degraded)try{toast('warn','내 기록만 잠시 저장 보류','친구 목록은 정상입니다. 수익률 반영은 잠시 뒤 자동으로 재시도합니다.');}catch(e){}
+    }
     else{
       /* [v6.1] 무엇 때문에 막혔는지 알려 준다 — 'auth' 만으로는 알 수 없다 */
       /* [v7.7] 무슨 오류인지 화면에서 알 수 있게 코드까지 함께 보여 준다.
@@ -15308,7 +15372,13 @@ function renderHoldings(){
       <td class="num">${KRW(evalAmt)}</td><td class="num ${dir}">${signed(pnl)}</td><td class="num ${dir}">${pctS(rate)}</td>
       <td class="hw-cell"><div class="hw-bar"><i style="width:${Math.min(100,wgt).toFixed(1)}%"></i></div><span class="num">${wgt.toFixed(1)}%</span></td>
       <td class="cdl-td">${miniCandle(h.code)}</td></tr>`;}).join('')
-    : '<tr><td colspan="9" style="text-align:center;color:var(--sub-2);padding:26px">보유 종목이 없습니다. 거래·주문에서 매수해 보세요.</td></tr>';
+    /* [v17.1] 빈 상태가 오른쪽으로 밀려 잘리던 문제(첨부 5번) — 표에 min-width:520px 이
+       걸려 있어서, 412px 화면에서 colspan 셀이 520px 기준으로 가운데 정렬됐다.
+       인라인 style 대신 클래스를 주고, 비었을 때는 표 자체의 최소 폭을 푼다(CSS). */
+    : '<tr class="hold-empty"><td colspan="9">보유 종목이 없습니다. 거래·주문에서 매수해 보세요.</td></tr>';
+  /* [v17.1] 비었을 때는 껍데기에 표식을 남긴다 — CSS 가 머리글을 접고 최소 폭을 푼다.
+     (:has() 지원에 기대지 않는다 — 구형 웹뷰에서도 똑같이 동작해야 한다) */
+  try{ const _hw=$('holdBody').closest('.hold-wrap'); if(_hw)_hw.classList.toggle('is-empty',!holdings.length); }catch(e){}
   $('holdBody').querySelectorAll('tr[data-usopen]').forEach(tr=>{tr.onclick=(e)=>{e.stopPropagation();openUS(tr.dataset.code);};});
   bindStockClicks($('holdBody'));
   if(currentView==='account')safeRun('acctx',renderAcctExtras);   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
