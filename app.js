@@ -13204,8 +13204,16 @@ function renderInfo(){
   if(d){if(infoTab!=='summary'){if(d.nvErr)parts.push('손익:'+d.nvErr);if(d.yhErr)parts.push('재무상태/현금:'+d.yhErr);if(d.igErr)parts.push('지표:'+d.igErr);}if(infoTab==='consensus'&&d.brokers)parts.push('증권사:'+d.brokers);}
   if(infoTab==='summary'&&!NXTLIST.ready)parts.push('NXT명단:'+(NXTLIST.err||'로딩중'));
   if(inv&&inv.error&&infoTab!=='summary')parts.push('투자자:'+inv.error);
-  if(parts.length)el.insertAdjacentHTML('beforeend',`<div style="margin-top:14px;font-size:10px;color:#b3bcca;text-align:left;word-break:break-all;white-space:pre-wrap;line-height:1.6">진단 ${parts.join(' · ')}</div>`);
+  /* ══ [v17.6] 내부 진단 문자열이 사용자 화면에 그대로 나오던 문제 ═══════════
+     컨센서스 탭 아래에 "진단 증권사:n=5;keys:id,cd,nm,bnm,tit,rcnt,wdt" 가
+     찍히고 있었다(첨부 2번). 원천 응답의 내부 필드 이름을 그대로 드러내는
+     개발용 출력이라 사용자에게는 뜻이 없고, 구조만 노출한다.
+     개발자가 켰을 때만 보이게 한다 — 콘솔에서 liveDiag(true) 로 켠다. */
+  let _diagOn=false; try{ _diagOn=localStorage.getItem('live:diag')==='1'; }catch(e){}
+  if(parts.length&&_diagOn)el.insertAdjacentHTML('beforeend',`<div style="margin-top:14px;font-size:10px;color:#b3bcca;text-align:left;word-break:break-all;white-space:pre-wrap;line-height:1.6">진단 ${parts.join(' · ')}</div>`);
 }
+try{ window.liveDiag=(on)=>{ try{ localStorage.setItem('live:diag',on?'1':'0');
+  console.log('진단 표시 '+(on?'켬':'끔')+' — 화면을 다시 열면 반영됩니다'); }catch(e){} }; }catch(e){}
 const intFmt=(v)=>{const n=Number(v);if(isNaN(n))return v==null?'—':v;return(n>0?'+':'')+n.toLocaleString('ko-KR');};
 // ── 종목요약 ──
 /*DF-CORE-BEGIN*/
@@ -23429,6 +23437,17 @@ function usConsPick(c){
   };
 }
 function renderUsCons(el){
+  /* ══ [v17.6] 국내는 잠기는데 해외는 열려 있던 문제 ═══════════════════════════
+     같은 '컨센서스'인데 국내(renderConsensus)는 Basic 등급부터 열리고 해외는
+     아무 등급에서나 그대로 보였다(첨부 2번·4번). 같은 이름의 기능이 화면마다
+     다른 규칙으로 동작하면 등급 제도 자체가 의미를 잃는다. 국내와 같은 문을 쓴다. */
+  if(!tierAllow('consensus')){
+    if(el){ el.innerHTML=`<div class="tc-lock"><b>증권가 전망은 ${tierNeedName('consensus')} 부터예요</b>
+      <span>애널리스트 투자의견과 목표주가를 한눈에 모아 보여 드립니다.</span>
+      <button type="button" class="btn-ghost" data-tier-go>이용권 발급 문의</button></div>`;
+      bindTierGo(el); }
+    return;
+  }
   const t=usSel, q=usQ[t]||{}, info=usInfoCache[t];
   if(!info){ usInfoLoad(t,()=>{ if(currentView==='ustrade'&&usInfoTab==='consensus')renderUsInfo(); });
     el.innerHTML=usNoData('컨센서스를 불러오는 중입니다','잠시만 기다려 주세요.'); return; }
@@ -24068,3 +24087,81 @@ try{(function(){
   document.addEventListener('visibilitychange',apply);
   setInterval(apply,4000);
 })();}catch(e){}
+
+/* ══ [v17.7] 실기 QA 오버레이 — 화면 위에서 바로 결함을 짚는다 ═══════════════════
+   [왜 필요한가] 지금까지의 모바일 결함은 전부 '실기 사진'으로 발견됐다. 사진으로
+   보고받으면 어느 요소가 범인인지 다시 찾아야 한다. 이 오버레이는 그 측정을
+   기기 위에서 즉석으로 한다 — 화면 밖으로 나간 요소·잘린 글자에 빨간 테두리를
+   켜고 건수를 배지로 띄운다. 문제 제보가 "잘렸어"에서 "#homeJump 가 +37px"로 바뀐다.
+   [켜는 법] 주소 뒤 ?qa=1 또는 콘솔 liveQA(true). 평소에는 한 줄도 돌지 않는다. */
+(function(){
+  var marked=[], badge=null;
+  function unmark(){ marked.forEach(function(m){ try{ m.el.style.outline=m.o; m.el.style.outlineOffset=m.oo; }catch(e){} }); marked=[]; }
+  function inScroller(el){
+    for(var p=el.parentElement;p;p=p.parentElement){
+      var cs=getComputedStyle(p);
+      if(cs.overflowX==='auto'||cs.overflowX==='scroll')return true;
+    }
+    return false;
+  }
+  function scan(){
+    unmark();
+    var W=window.innerWidth, n=0;
+    var all=document.querySelectorAll('*');
+    for(var i=0;i<all.length;i++){
+      var el=all[i];
+      if(el.closest('[hidden]')||el.id==='qaBadge')continue;
+      var r=el.getBoundingClientRect();
+      if(!r.width||!r.height)continue;
+      var hit=false;
+      if(r.right-W>2&&!inScroller(el)){
+        var p=el.parentElement;
+        if(!(p&&p.getBoundingClientRect().right-W>2))hit=true;   // 가장 바깥 원인만
+      }
+      if(!hit&&!el.children.length&&(el.textContent||'').trim()){
+        var cs=getComputedStyle(el);
+        if(!(cs.overflow==='visible'&&cs.overflowY==='visible')){
+          var ell=cs.textOverflow==='ellipsis'||cs.webkitLineClamp!=='none';
+          if((el.scrollWidth-el.clientWidth>1&&!ell)||el.scrollHeight-el.clientHeight>3)hit=true;
+        }
+      }
+      if(hit){
+        marked.push({el:el,o:el.style.outline,oo:el.style.outlineOffset});
+        el.style.outline='2px dashed #e5484d'; el.style.outlineOffset='-2px';
+        n++;
+        if(n<=40)try{console.warn('[QA]',el.id?'#'+el.id:'.'+String(el.className).split(' ')[0],
+          '우측초과',Math.max(0,Math.round(r.right-W))+'px');}catch(e){}
+      }
+    }
+    if(badge){
+      badge.textContent=(n?('⚠ '+n+'곳'):'✓ 이상 없음')+' · '+W+'px';
+      badge.style.background=n?'#e5484d':'#2f9e44';
+    }
+    return n;
+  }
+  window.liveQA=function(on){
+    if(on===false){ unmark(); if(badge){badge.remove();badge=null;}
+      try{localStorage.setItem('live:qa','0');}catch(e){} return; }
+    try{localStorage.setItem('live:qa','1');}catch(e){}
+    if(!badge){
+      badge=document.createElement('button');
+      badge.id='qaBadge'; badge.type='button';
+      badge.style.cssText='position:fixed;right:10px;bottom:76px;z-index:2147483200;'+
+        'border:none;border-radius:99px;color:#fff;font:800 12px/1 system-ui;'+
+        'padding:10px 14px;box-shadow:0 4px 14px rgba(0,0,0,.3);cursor:pointer';
+      badge.onclick=scan;
+      badge.oncontextmenu=function(ev){ev.preventDefault();window.liveQA(false);};
+      var x=document.createElement('span');
+      x.textContent=' ✕'; x.style.opacity='.75';
+      x.onclick=function(ev){ev.stopPropagation();window.liveQA(false);};
+      badge.appendChild(x);
+      document.body.appendChild(badge);
+      window.addEventListener('resize',function(){ if(badge)setTimeout(scan,200); });
+    }
+    setTimeout(scan,50);
+  };
+  try{
+    if(/[?&]qa=1/.test(location.search)||localStorage.getItem('live:qa')==='1')
+      setTimeout(function(){window.liveQA(true);},1500);
+  }catch(e){}
+})();

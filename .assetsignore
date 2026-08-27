@@ -34,3 +34,7 @@ push-lib.js
 .vscode/**
 .devcontainer
 .devcontainer/**
+
+#  모바일 QA 도구 — 배포 전 검사용이지 공개 자산이 아니다
+mobile-qa-check.mjs
+mobile-qa-README.md
