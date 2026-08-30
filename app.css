@@ -8311,3 +8311,21 @@ input,select,textarea{min-width:0;max-width:100%}
    원인 제거 + 결과 차단, 두 겹으로 막는다. */
 .search-box{max-width:100%}
 .search-box input{min-width:0;max-width:100%;box-sizing:border-box}
+
+/* ── [v17.11] AI 분석 성격 고지 ──────────────────────────────────────────────
+   숫자보다 위, 화면 첫 줄에 놓는다. 눈에 띄되 화면을 가리지는 않게 —
+   읽히지 않는 고지는 없는 고지이고, 거슬리는 고지는 무시당한다.
+   [주의] 이 상자를 flex 로 만들면 안쪽 <b> 가 각각 flex 항목이 되어
+   문장이 토막 나 세로로 쪼개진다(실측으로 확인). 글은 글답게 흐르도록
+   block 으로 두고, 아이콘만 띄워서 앞에 붙인다. */
+.ai-lead{
+  display:block;
+  margin:0 0 12px;padding:10px 12px;border-radius:12px;
+  background:color-mix(in srgb,var(--brand-2,#f5a30d) 9%,var(--panel));
+  border:1px solid color-mix(in srgb,var(--brand-2,#f5a30d) 26%,var(--border));
+  color:var(--sub);font-size:11.5px;line-height:1.6;font-weight:600;
+  word-break:keep-all;overflow-wrap:anywhere}
+.ai-lead::before{content:'ⓘ';float:left;margin:0 7px 0 0;font-size:13px;font-weight:800;
+  color:var(--brand-2,#f5a30d);line-height:1.55}
+.ai-lead b{color:var(--text);font-weight:800}
+@media (max-width:560px){ .ai-lead{font-size:11px;padding:9px 10px;margin-bottom:10px} }
