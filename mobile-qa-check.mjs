@@ -73,7 +73,11 @@ const SCAN = (W) => {
     if (over > 2 && !inScroller(el)) {
       const p = el.parentElement;
       const pOver = p ? p.getBoundingClientRect().right - W > 2 : false;
-      if (!pOver) rep.overflow.push({ sel: name(el), txt: (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 24), over });
+      if (!pOver) rep.overflow.push({ sel: name(el), txt: (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 24), over,
+        /* 원인 추적용 — 부모 폭과 이 요소의 폭·최소폭을 함께 남긴다.
+           환경마다 다르게 나는 결함은 이 숫자가 있어야 바로 짚을 수 있다. */
+        w: Math.round(r.width), pw: p ? Math.round(p.getBoundingClientRect().width) : 0,
+        minw: getComputedStyle(el).minWidth });
     }
 
     /* ② 글자가 상자 밖으로 잘리는 잎 노드 */
@@ -155,7 +159,8 @@ const main = async () => {
       const r = await pg.evaluate(SCAN, W);
       const label = 'view-' + v;
       if (r.docW > W + 1) bad(label + ' · 문서 폭 ' + r.docW + 'px > 화면 ' + W + 'px');
-      for (const o of r.overflow.slice(0, 6)) bad(label + ' · 화면 밖 ' + o.sel + ' "' + o.txt + '" (+' + o.over + 'px)');
+      for (const o of r.overflow.slice(0, 6)) bad(label + ' · 화면 밖 ' + o.sel + ' "' + o.txt + '" (+' + o.over +
+        'px · 폭 ' + o.w + ' / 부모 ' + o.pw + ' · min-width:' + o.minw + ')');
       for (const o of r.clip.slice(0, 6)) bad(label + ' · 글자 잘림 ' + o.sel + ' "' + o.txt + '" (가로+' + o.cx + ' 세로+' + o.cy + ')');
       for (const o of r.band.slice(0, 6)) bad(label + ' · 띠 어긋남 ' + o.sel + ' ' + o.off + 'px');
       if (!r.overflow.length && !r.clip.length && !r.band.length && r.docW <= W + 1) good(label);

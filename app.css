@@ -8288,3 +8288,26 @@ html.dark .mdd-note.warn{color:#ffd166}
      항상 제목 줄 옆에 선다. */
 .sec-title::before,.fo-sec-h::before,.tt-h::before,.as-h::before,.uz-sec-h::before{
   top:.18em;bottom:auto;height:1.15em}
+
+/* ── [v17.7.2] 입력창이 컨테이너를 뚫고 나가던 문제 ───────────────────────────
+   [증상] 360px 검색 화면에서 #searchInput 이 화면 밖으로 19px 나갔다.
+     그런데 이 결함은 '어떤 환경에서만' 났다 — 같은 코드가 어떤 기기에서는
+     멀쩡하고 어떤 서버에서는 터졌다.
+   [원인] .search-box input 은 flex:1(=flex-basis 0) 인데 min-width 가 auto 다.
+     flex 자식의 min-width:auto 는 '최소 내용 너비'를 바닥으로 삼는데,
+     <input> 의 최소 내용 너비는 기본 size 속성(20자) × 글자 폭으로 정해진다.
+     그래서 글꼴이 바뀌면 이 바닥값이 함께 바뀐다 — 한글 글꼴이 없는 환경에서
+     더 넓은 대체 글꼴이 쓰이면 바닥이 컨테이너보다 커지고, 입력창은 그
+     아래로 줄어들 수 없어 화면을 뚫는다.
+     기기·서버마다 결과가 달라지는, 눈으로는 재현하기 어려운 유형이다.
+   [고침] 입력 요소의 축소 바닥을 0 으로 푼다. 지정한 width 는 그대로 듣고,
+     '내용 때문에 못 줄어드는' 상황만 사라진다. 글꼴이 무엇이든 컨테이너를
+     넘지 않는다. */
+input,select,textarea{min-width:0;max-width:100%}
+/* [주의] 이 결함은 내 검사 환경(Chromium v1194)에서는 재현되지 않고
+   Codespaces(v1234)에서만 났다. 브라우저 판에 따라 최소 내용 너비 계산이
+   달라지기 때문이다. 그래서 원인(min-width:auto)을 푸는 것에 더해,
+   max-width 로 '어떤 계산이 나오든 컨테이너를 넘을 수 없는' 상한을 함께 건다.
+   원인 제거 + 결과 차단, 두 겹으로 막는다. */
+.search-box{max-width:100%}
+.search-box input{min-width:0;max-width:100%;box-sizing:border-box}
