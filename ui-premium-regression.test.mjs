@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+const app = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+const css = readFileSync(new URL('./app.css', import.meta.url), 'utf8');
+const worker = readFileSync(new URL('./_worker.js', import.meta.url), 'utf8');
+const bundled = readFileSync(new URL('./version-info.js', import.meta.url), 'utf8');
+const sw = readFileSync(new URL('./sw.js', import.meta.url), 'utf8');
+test('stock side preview has accessible dialog, close affordances and the requested two bottom actions', () => {
+  assert.match(html, /id="stockSidePanel"[^>]*role="dialog"/);
+  assert.match(html, /id="stockSideScrim"/);
+  assert.match(html, /id="sspClose"/);
+  assert.match(html, /id="sspDetailBtn"[^>]*>종목 상세</);
+  assert.match(html, /id="sspTradeBtn"[^>]*>매수\/매도</);
+  assert.match(app, /function openStockSidePanel\(code\)/);
+  assert.match(app, /openTrade\(c,'detail'\)/);
+  assert.match(app, /openTrade\(c,'order','buy'\)/);
+  assert.match(app, /openStockSidePanel\(c\)/);
+});
+test('focused order mode reuses current quote/order inputs and routes visible ask/bid prices into the order form', () => {
+  assert.match(html, /id="tradeOrderHeader|id="tradeScreenHeader"/);
+  assert.match(html, /id="tradeOrderBook"/);
+  assert.match(app, /function renderTradeOrderBook\(\)/);
+  assert.match(app, /data-price="\$\{Number\(x\.p\)/);
+  assert.match(app, /userPrice=p/);
+  assert.match(html, /id="pxInput"/);
+  assert.match(app, /function syncOrderSideUI\(\)/);
+});
+test('detail header exposes quick info/order-book/chart/news tabs and the original information panel remains', () => {
+  assert.match(html, /data-tinfo="summary"/);
+  assert.match(html, /data-tinfo="asking"/);
+  assert.match(html, /data-tinfo="chart"/);
+  assert.match(html, /data-tinfo="news"/);
+  assert.match(html, /id="infoBody"/);
+  assert.match(app, /function renderTradeScreenHeader\(\)/);
+  assert.match(app, /target\.click\(\)/);
+});
+test('detail and order are separate modes with persistent favorite/sell/buy actions', () => {
+  assert.match(html, /id="tradeDetailActions"/);
+  assert.match(html, /id="tradeDetailStar"/);
+  assert.match(html, /id="tradeDetailSell"/);
+  assert.match(html, /id="tradeDetailBuy"/);
+  assert.match(app, /sell\.onclick=\(\)=>openTrade\(selected,'order','sell'\)/);
+  assert.match(app, /buy\.onclick=\(\)=>openTrade\(selected,'order','buy'\)/);
+  assert.match(app, /const ds=\$\('tradeDetailStar'\)/);
+  assert.match(css, /#view-trade\.is-detail-mode \.trade-grid\{grid-template-columns:minmax\(0,1fr\);gap:14px/);
+  assert.match(css, /#view-trade\.is-detail-mode \.trade-grid>\.trade-order-card\{display:none!important\}/);
+  assert.match(css, /#view-trade\.is-order-mode \.trade-detail-actions\{display:none!important\}/);
+});
+test('premium UI, responsive breakpoints and version/cache identifiers are synchronized', () => {
+  assert.match(css, /\.stock-side-panel/);
+  assert.match(css, /\.is-order-mode/);
+  assert.match(css, /@media\(max-width:720px\)/);
+  assert.match(html, /app\.css\?v=668/);
+  assert.match(html, /app\.js\?v=676/);
+  assert.match(bundled, /version: '17\.7\.5'/);
+  assert.match(worker, /version: "17\.7\.5"/);
+  assert.match(worker, /var APP_VER = "17\.7\.5"/);
+  assert.match(sw, /v17\.7\.5-premium-stock-ui1/);
+});

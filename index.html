@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=673">
+<link rel="stylesheet" href="/app.css?v=668">
 </head>
 <body>
 
@@ -1316,6 +1316,18 @@ body.needs-auth #authGate{z-index:2000001}
   <section class="view" id="view-trade" hidden>
     <div class="page-title">거래·주문</div>
     <div class="page-sub">캔들 차트는 손가락(마우스)으로 좌우 이동·확대/축소할 수 있습니다.</div>
+    <div id="tradeScreenHeader" class="trade-screen-header" hidden aria-live="polite">
+      <div class="tsh-nav">
+        <button type="button" id="tradeBackBtn" class="tsh-back" aria-label="이전 화면">‹</button>
+        <div class="tsh-ident"><span id="tshLogo"></span><div class="tsh-ident-copy"><b id="tshName">종목</b><span id="tshCode">—</span></div></div>
+        <button type="button" id="tshStarBtn" class="tsh-star" aria-label="관심종목">☆</button>
+      </div>
+      <div class="tsh-quote">
+        <div class="tsh-price-line"><strong id="tshPrice" class="num">—</strong><span id="tshChange" class="num"></span></div>
+        <div class="tsh-market-line"><span id="tshMarket">국내주식</span><span id="tshVenue"></span><span id="tshValue"></span></div>
+      </div>
+      <div class="tsh-tabs" id="tshTabs" hidden><button type="button" data-tinfo="summary" class="on">정보</button><button type="button" data-tinfo="asking">호가</button><button type="button" data-tinfo="chart">차트</button><button type="button" data-tinfo="news">뉴스·공시</button></div>
+    </div>
     <div class="trade-grid">
       <div class="panel">
         <div class="d-head">
@@ -1342,8 +1354,9 @@ body.needs-auth #authGate{z-index:2000001}
         <div class="d-stats" id="dStats"></div>
         <div class="ex-row" id="exRow"></div>
         <div class="detail-hint">🔻 자세한 종목 정보는 아래에서 조회하실 수 있습니다. 🔻</div>
+        <div id="tradeOrderBook" class="trade-order-book" hidden></div>
       </div>
-      <div class="panel">
+      <div class="panel trade-order-card">
         <!-- [v4.56] 주문 계좌 선택 — 어느 계좌로 사고파는지 주문 직전에 바꾼다 -->
         <div class="ord-acct" id="ordAcct"></div>
         <div class="ord-tabs"><button class="buy on" data-side="buy">매수</button><button class="sell" data-side="sell">매도</button></div>
@@ -1392,6 +1405,11 @@ body.needs-auth #authGate{z-index:2000001}
 <div class="chart-box"><div class="chart-labels"><div class="chart-legend" id="chartLegend"></div><div class="chart-ma" id="chartMa"></div><div class="chart-vplg"><b>매물대</b><span><i class="poc"></i>최대 거래</span><span><i class="cur"></i>현재가 구간</span></div></div><div class="chart-tip" id="chartTip" hidden></div><canvas id="chart"></canvas></div><div class="chart-hint2">드래그 이동 · 휠·핀치 확대축소 · 마우스를 올리면 값 표시</div>
       </div></div>
       <div class="info-body" id="infoBody"></div>
+    </div>
+    <div id="tradeDetailActions" class="trade-detail-actions" aria-label="종목 상세 빠른 작업">
+      <button type="button" id="tradeDetailStar" class="tda-watch"><span aria-hidden="true">☆</span><b>관심</b></button>
+      <button type="button" id="tradeDetailSell" class="tda-sell">매도</button>
+      <button type="button" id="tradeDetailBuy" class="tda-buy">매수</button>
     </div>
   </section>
 
@@ -1631,6 +1649,12 @@ body.needs-auth #authGate{z-index:2000001}
   </div>
 </footer>
 
+<div id="stockSideScrim" class="stock-side-scrim" hidden aria-hidden="true"></div>
+<aside id="stockSidePanel" class="stock-side-panel" hidden role="dialog" aria-modal="true" aria-labelledby="sspName">
+  <div class="ssp-topline"><span class="ssp-kicker">LIVE STOCK</span><button type="button" id="sspClose" class="ssp-close" aria-label="종목 미리보기 닫기">×</button></div>
+  <div id="sspContent" class="ssp-content"></div>
+  <div class="ssp-footer"><button type="button" id="sspDetailBtn" class="ssp-detail-btn">종목 상세</button><button type="button" id="sspTradeBtn" class="ssp-trade-btn">매수/매도</button></div>
+</aside>
 <div class="toast-wrap" id="toastWrap"></div>
 
 <!-- 모바일 하단 내비게이션 (768px 이하에서 표시) -->
@@ -1642,6 +1666,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
   <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
-<script type="module" src="/app.js?v=673"></script>
+<script type="module" src="/app.js?v=676"></script>
 </body>
 </html>

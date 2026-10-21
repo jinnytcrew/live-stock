@@ -38,3 +38,13 @@ push-lib.js
 #  모바일 QA 도구 — 배포 전 검사용이지 공개 자산이 아니다
 mobile-qa-check.mjs
 mobile-qa-README.md
+
+# 국내 거래시간 회귀 테스트는 배포 대상이 아니다
+market-hours-regression.test.mjs
+
+# QA 및 운영자 전용 문서/테스트는 공개 정적 파일로 배포하지 않는다.
+server-security-regression.test.mjs
+ADMIN-SECRET-SETUP.md
+RELEASE-QA-17.7.4.md
+RELEASE-QA-17.7.5.md
+ui-premium-regression.test.mjs
