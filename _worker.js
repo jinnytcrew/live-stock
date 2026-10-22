@@ -13848,9 +13848,10 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.7.5",
-  releasedAt: "2026-10-22 12:30",
+  version: "17.7.6",
+  releasedAt: "2026-10-22 23:00",
   notes: [
+    "긴급 복구: 앱 진입 전 모듈 로딩 실패를 유발할 수 있는 모든 JS 의존성 캐시 키 갱신 및 시작 오류 표시 추가",
     "종목 선택 측면 프리뷰와 종목 상세 / 매수·매도 하단 버튼 추가",
     "전용 주문 화면 및 실시간 공개 호가 가격 입력 연동",
     "종목 상세 상단 및 전체 메뉴·카드·탭의 프리미엄 UI 개선",
@@ -17269,7 +17270,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.7.5";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.7.6";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

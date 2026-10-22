@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=668">
+<link rel="stylesheet" href="/app.css?v=669">
 </head>
 <body>
 
@@ -1666,6 +1666,15 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
   <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
-<script type="module" src="/app.js?v=676"></script>
+<script>
+/* v17.7.6 emergency startup diagnostic: module-graph failures happen before app.js can install its own error handler. */
+window.addEventListener('error', function(e){
+  if(!e || !e.target || e.target.tagName !== 'SCRIPT' || e.target.type !== 'module') return;
+  var b=document.getElementById('startupModuleError');
+  if(!b){b=document.createElement('div');b.id='startupModuleError';b.style.cssText='position:fixed;z-index:100000;left:12px;right:12px;bottom:12px;background:#3b1519;color:#fff;padding:14px;border:1px solid #ff6b6b;border-radius:10px;font:14px/1.5 sans-serif;white-space:pre-wrap';document.body.appendChild(b);}
+  b.textContent='앱 시작 파일을 불러오지 못했습니다. 네트워크/캐시 또는 모듈 파일 응답을 확인해야 합니다. 주소: '+(e.target.src||'알 수 없음');
+}, true);
+</script>
+<script type="module" src="/app.js?v=677"></script>
 </body>
 </html>

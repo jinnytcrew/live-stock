@@ -52,10 +52,10 @@ test('premium UI, responsive breakpoints and version/cache identifiers are synch
   assert.match(css, /\.stock-side-panel/);
   assert.match(css, /\.is-order-mode/);
   assert.match(css, /@media\(max-width:720px\)/);
-  assert.match(html, /app\.css\?v=668/);
-  assert.match(html, /app\.js\?v=676/);
-  assert.match(bundled, /version: '17\.7\.5'/);
-  assert.match(worker, /version: "17\.7\.5"/);
-  assert.match(worker, /var APP_VER = "17\.7\.5"/);
-  assert.match(sw, /v17\.7\.5-premium-stock-ui1/);
+  assert.match(html, /app\.css\?v=669/);
+  assert.match(html, /app\.js\?v=677/);
+  assert.match(bundled, /version: '17\.7\.6'/);
+  assert.match(worker, /version: "17\.7\.6"/);
+  assert.match(worker, /var APP_VER = "17\.7\.6"/);
+  assert.match(sw, /v17\.7\.6-startup-module-cache-fix/);
 });

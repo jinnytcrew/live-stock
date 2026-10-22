@@ -1874,10 +1874,10 @@ function eaBucket(f){
   return 'error';                                                      // 실제 조회 실패
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
-import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=337';   // [v2.2] 실행 중 번들의 진짜 버전
-import { KRS, getMarketHoursState, getMarketBadgeInfo, getMarketSessionSummary, getAllowedOrderTypes, shiftMarketClockText, qualifyPendingNxtBadge, isNxtOnlyExecutionWindow } from '/market-hours.mjs?v=1776';
-import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
+import { LiveFeed } from '/feed.js?v=96';
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=338';   // [v2.2] 실행 중 번들의 진짜 버전
+import { KRS, getMarketHoursState, getMarketBadgeInfo, getMarketSessionSummary, getAllowedOrderTypes, shiftMarketClockText, qualifyPendingNxtBadge, isNxtOnlyExecutionWindow } from '/market-hours.mjs?v=1777';
+import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=431';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
 function bindClick(id,fn){const el=$(id);if(!el)return;el.onclick=(ev)=>{try{return fn(ev);}catch(e){console.error('[click:'+id+']',e);}};}

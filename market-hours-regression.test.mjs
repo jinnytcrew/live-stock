@@ -219,9 +219,9 @@ test('release versions and cache keys are coherent across client, worker, and se
     readFile(new URL('./version-info.js', import.meta.url), 'utf8'),
     readFile(new URL('./_worker.js', import.meta.url), 'utf8')
   ]);
-  assert.match(html,/app\.js\?v=676/);
-  assert.match(sw,/v17\.7\.5-premium-stock-ui1/);
-  assert.match(version,/version:\s*'17\.7\.5'/);
-  assert.match(worker,/var APP_VER = "17\.7\.5"/);
-  assert.match(worker,/version: "17\.7\.5"/);
+  assert.match(html,/app\.js\?v=677/);
+  assert.match(sw,/v17\.7\.6-startup-module-cache-fix/);
+  assert.match(version,/version:\s*'17\.7\.6'/);
+  assert.match(worker,/var APP_VER = "17\.7\.6"/);
+  assert.match(worker,/version: "17\.7\.6"/);
 });
