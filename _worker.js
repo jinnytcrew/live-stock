@@ -4487,18 +4487,44 @@ function looseNaverComponentRows(arr, allowSmall = false) {
     }
     return String(x == null ? "" : x).trim();
   };
+  /* [v17.8.14] 근본 원인 — ETFComponent 행에는 ETF 자신의 코드(itemCode)가 모든 행에 똑같이 들어 있다.
+     예전 파서는 이 값을 구성종목 코드로 읽어 20행이 전부 같은 키가 되었고, 마지막 중복 제거에서
+     1행만 남아 '구성종목 0건'이 됐다. 모든 행에서 값이 같은 칸(ETF 본인 코드·이름·운용사)은
+     구성종목 정보가 아니므로 건너뛰고, 구성종목 코드 칸(componentItemCode 등)을 먼저 쓴다. */
+  const nodeRowsAll = arr.filter(x => x && typeof x === "object" && !Array.isArray(x));
+  const constantKeys = new Set();
+  if (nodeRowsAll.length >= 2) {
+    const f0 = nodeRowsAll[0];
+    for (const k of Object.keys(f0)) {
+      const v = f0[k];
+      if (v === null || v === undefined || typeof v === "object") continue;
+      if (nodeRowsAll.every(r => r && r[k] === v)) constantKeys.add(k);
+    }
+  }
+  const COMP_CODE_KEYS = ["componentItemCode", "componentStockCode", "componentShortCode", "componentCode", "componentSymbol", "componentTicker"];
+  const COMP_NAME_KEYS = ["componentName", "componentItemName", "componentStockName", "componentKorName", "componentNm", "componentItemNm"];
+  let rowHasCompCode = false;
+  const pickSkipConst = (node, keys) => {
+    for (const k of keys) {
+      if (constantKeys.has(k)) continue;
+      if (rowHasCompCode && (k === "itemCode" || k === "itemcode" || k === "stockCode" && false)) continue;
+      const v = node[k];
+      if (v !== void 0 && v !== null && v !== "") return v;
+    }
+    return null;
+  };
   const getField = (node, kind) => {
     if (!node || typeof node !== "object" || Array.isArray(node)) return null;
-    const explicit = kind === "name" ? names : kind === "code" ? codes : weights;
-    const exact = pick(node, explicit);
+    const explicit = kind === "name" ? COMP_NAME_KEYS.concat(names) : kind === "code" ? COMP_CODE_KEYS.concat(codes) : weights;
+    const exact = kind === "weight" ? pick(node, explicit) : pickSkipConst(node, explicit);
     if (exact !== null) return exact;
-    const entries = Object.entries(node);
+    const entries = Object.entries(node).filter(([k]) => kind === "weight" || !constantKeys.has(k));
     if (kind === "name") {
       const match = entries.find(([k,v]) => v != null && /^(?:(?:item|stock|security|asset|component|holding|issue|isu).*?(?:name|nm)|(?:name|displayname|korname|korsec[n]?nm|isuname|종목명|주식명|한글종목명))$/.test(normKey(k)));
       return match ? match[1] : null;
     }
     if (kind === "code") {
-      const match = entries.find(([k,v]) => v != null && /^(?:(?:item|stock|security|issue|isu|short).*?(?:code|cd|no|id)|(?:code|cd|symbol|ticker|종목코드|단축코드))$/.test(normKey(k)));
+      const match = entries.find(([k,v]) => v != null && !/isin|reuters|trustee|company/i.test(k) && !(rowHasCompCode && /^(?:itemcode|stockcode)$/.test(normKey(k)) && !/component/i.test(k)) && /^(?:(?:item|stock|security|issue|isu|short|component).*?(?:code|cd|no|id)|(?:code|cd|symbol|ticker|종목코드|단축코드))$/.test(normKey(k)));
       return match ? match[1] : null;
     }
     const bad = /(?:change|fluctuation|return|yield|dividend|fee|tracking|deviation|interest|price|volume|amount|value|market|total|count|shares|qty|quantity|date|time|rank|수익|등락|변동|보수|괴리|추적|거래|평가금액|주식수|시가총액)/i;
@@ -4531,6 +4557,7 @@ function looseNaverComponentRows(arr, allowSmall = false) {
   const out = [];
   for (const row of nodeRows) {
     // 응답 버전에 따라 종목명·코드·비중이 stock/item/component 하위로 이동한다.
+    rowHasCompCode = Object.keys(row).some(k => /^component.*(?:code|cd)$/i.test(k) && !/isin|reuters/i.test(k));
     const nodes = [row, row.stock, row.item, row.component, row.security, row.stockInfo, row.itemInfo, row.componentInfo, row.asset, row.holding, row.securityInfo, row.etfItem].filter(x => x && typeof x === "object" && !Array.isArray(x));
     let name = null, code = null, rawWeight = null;
     for (const node of nodes) {
@@ -4558,7 +4585,93 @@ function looseNaverComponentRows(arr, allowSmall = false) {
     out.push({ name, code, weight });
   }
   const seen = new Set();
-  return out.filter(x => { const key = x.code || x.name; if (seen.has(key)) return false; seen.add(key); return true; });
+  const loose = out.filter(x => { const key = (x.code || "") + "|" + x.name; if (seen.has(key)) return false; seen.add(key); return true; });
+  /* 이름 칸·비중 칸의 키 이름이 처음 보는 모양이어도 값의 생김새로 찾는 2차 추론 */
+  if (loose.length < Math.max(1, Math.ceil(nodeRows.length * 0.6))) {
+    const inferred = inferNaverComponentRows(nodeRows, allowSmall);
+    if (inferred.length > loose.length) return inferred;
+  }
+  return loose;
+}
+/* [v17.8.14] 키 이름을 몰라도 값의 생김새로 구성종목 표를 읽는다.
+   · 이름 칸 : 행마다 서로 다른 한글/영문 문자열 (코드·ISIN·날짜·모든 행이 같은 값은 제외)
+   · 코드 칸 : 행마다 다른 6자리 영숫자(ETF 본인 코드처럼 모든 행이 같은 값은 제외)
+   · 비중 칸 : 0~100 숫자 칸 중 이름이 비중/비율/ratio/weight 류이거나, 값이 큰 순서로 정렬된 칸 */
+function inferNaverComponentRows(nodeRows, allowSmall = false) {
+  try {
+    const rows = (nodeRows || []).filter(x => x && typeof x === "object" && !Array.isArray(x));
+    if (rows.length < (allowSmall ? 1 : 3)) return [];
+    const keys = [...new Set(rows.flatMap(r => Object.keys(r)))];
+    const raw = (v) => { let x = v; for (let i = 0; i < 3 && x && typeof x === "object"; i++) { let n = null; for (const k of ["raw", "rawValue", "value", "val", "text", "formatted", "displayValue", "name"]) if (x[k] !== void 0 && x[k] !== null && x[k] !== "" && typeof x[k] !== "object") { n = x[k]; break; } if (n === null) return null; x = n; } return x; };
+    const codeRe = /^A?[0-9][0-9A-Z]{5}(?:\.(?:KS|KQ))?$/i;
+    const isinRe = /^[A-Z]{2}[0-9A-Z]{10}$/;
+    const stat = {};
+    for (const k of keys) {
+      const vals = rows.map(r => raw(r[k]));
+      const present = vals.filter(v => v !== null && v !== void 0 && String(v).trim() !== "");
+      const strs = present.map(v => String(v).trim());
+      stat[k] = { present: present.length, strs, distinct: new Set(strs).size, constant: strs.length > 1 && new Set(strs).size === 1 };
+    }
+    const need = Math.max(1, Math.ceil(rows.length * 0.7));
+    const hasCompCode = keys.some(k => /^component.*(?:code|cd)$/i.test(k) && !/isin|reuters/i.test(k));
+    // 이름 칸
+    let nameKey = null, nameScore = -1;
+    for (const k of keys) {
+      const st = stat[k];
+      if (st.present < need || st.constant) continue;
+      if (/isin|reuters|trustee|company|date|time|type|kind|class|market|exchange|currency/i.test(k)) continue;
+      const good = st.strs.filter(v => /[가-힣A-Za-z]/.test(v) && v.length <= 60 && !codeRe.test(v) && !isinRe.test(v) && !/^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(v));
+      if (good.length < need || st.distinct < Math.min(rows.length, Math.max(1, Math.ceil(rows.length * 0.6)))) continue;
+      let sc = good.length + (/name|nm|명/i.test(k) ? 20 : 0) + (/component|stock|item|security|asset|holding/i.test(k) ? 6 : 0) + (/kor|hname/i.test(k) ? 2 : 0);
+      if (sc > nameScore) { nameScore = sc; nameKey = k; }
+    }
+    if (!nameKey) return [];
+    // 코드 칸
+    let codeKey = null, codeScore = -1;
+    for (const k of keys) {
+      const st = stat[k];
+      if (st.present < need || st.constant || /isin|reuters/i.test(k)) continue;
+      const good = st.strs.filter(v => codeRe.test(v)).length;
+      if (good < need) continue;
+      const sc = good + (/component/i.test(k) ? 10 : 0) - (hasCompCode && !/component/i.test(k) ? 50 : 0);
+      if (sc > codeScore) { codeScore = sc; codeKey = k; }
+    }
+    // 비중 칸
+    const numOf = (v) => { const n = Number(String(v).replace(/,/g, "").replace(/[^0-9.\-]/g, "")); return Number.isFinite(n) && String(v).trim() !== "" ? n : null; };
+    let wKey = null, wScore = -1e9;
+    for (const k of keys) {
+      if (k === nameKey || k === codeKey) continue;
+      const st = stat[k];
+      if (st.present < need) continue;
+      if (/isin|reuters|code|cd$|date|time|rank|seq|\bid\b|price|qty|quantity|count|shares|stockcnt|주식수|수량|가격|단가/i.test(k)) continue;
+      const nums = st.strs.map(numOf).filter(n => n !== null);
+      if (nums.length < need) continue;
+      if (nums.some(n => n < 0 || n > 100)) continue;
+      const sum = nums.reduce((a, b) => a + b, 0);
+      if (sum <= 0) continue;
+      let sorted = true; for (let i = 1; i < nums.length; i++) if (nums[i] > nums[i - 1] + 1e-9) { sorted = false; break; }
+      const hint = /weight|ratio|percent|pct|rate|composition|compst|portion|allocation|wgt|비중|비율|구성비/i.test(k);
+      const bad = /change|fluct|return|yield|dividend|fee|tracking|deviation|interest|earn|profit|수익|등락|변동|보수|괴리|추적/i.test(k);
+      if (bad && !hint) continue;
+      const sc = (hint ? 40 : 0) + (bad ? -30 : 0) + (sorted ? 12 : 0) + (sum >= 90 && sum <= 110 ? 25 : 0) + (rows.length >= 15 && sum <= 100.5 ? 6 : 0);
+      if (!hint && !sorted && !(sum >= 90 && sum <= 110)) continue;
+      if (sc > wScore) { wScore = sc; wKey = k; }
+    }
+    if (!wKey) return [];
+    const out = [], seen = new Set();
+    for (const r of rows) {
+      const name = String(raw(r[nameKey]) ?? "").trim();
+      if (!name || /^(그\s*외|그외|기타|others?|other holdings|etc\.?|잔여)$/i.test(name)) continue;
+      const w = numOf(raw(r[wKey]));
+      if (w === null || w <= 0 || w > 100) continue;
+      let code = "";
+      if (codeKey) { const c = String(raw(r[codeKey]) ?? "").trim(); code = codeRe.test(c) ? normalizeEtfCode(c) : ""; }
+      const key = code + "|" + name;
+      if (seen.has(key)) continue; seen.add(key);
+      out.push({ name, code, weight: w });
+    }
+    return out;
+  } catch (_) { return []; }
 }
 function findNaverComponentArrays(root, maxDepth = 10) {
   const found = [];
@@ -4796,7 +4909,7 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
     const pageStep = Math.max(1, Math.min(PAGE_SIZE, attempt.firstRawLength || firstCount || PAGE_SIZE));
     let requestedPages = 0, failedPages = 0, reachedEnd = false, truncated = false;
     const maxByBudget = Math.max(0, Math.min(MAX_EXTRA_PAGES, Math.floor((remain() - 300) / 115)));
-    const collected = new Set(rows.map(x => x.code || x.name));
+    const collected = new Set(rows.map(x => (x.code || "") + "|" + x.name));
     const appendPage = (pageValue) => {
       const pageCandidates = findNaverComponentArrays(pageValue);
       const candidate = pageCandidates.find(x => x.rows.length) || pageCandidates[0] || null;
@@ -4804,8 +4917,8 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
       const rawLength = Number(candidate && candidate.rawLength) || 0;
       let newKeys = 0;
       for (const h of next) {
-        const key = h.code || h.name;
-        if (key && !collected.has(key)) { collected.add(key); newKeys++; rows.push(h); }
+        const key = (h.code || "") + "|" + h.name;
+        if (h.name && !collected.has(key)) { collected.add(key); newKeys++; rows.push(h); }
       }
       return { rowCount: next.length, rawLength, newKeys };
     };
@@ -4854,7 +4967,7 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
     }
     // Deduplicate codes/names only after collecting every page. Keep up to the source limit.
     const seen = new Set();
-    rows = rows.filter(x => { const key = x.code || x.name; if (!key || seen.has(key)) return false; seen.add(key); return true; });
+    rows = rows.filter(x => { const key = (x.code || "") + "|" + x.name; if (!x.name || seen.has(key)) return false; seen.add(key); return true; });
     const expectedCount = Number.isInteger(attempt.declaredTotal) && attempt.declaredTotal > 0 ? attempt.declaredTotal : null;
     const countCovered = expectedCount != null && rows.length === expectedCount;
     let total = rows.reduce((a, b) => a + b.weight, 0);
@@ -4869,14 +4982,19 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
     total = rows.reduce((a, b) => a + b.weight, 0);
     const weightsPlausible = total >= 95 && total <= 105;
     const complete = rows.length >= 1 && expectedCount != null && countCovered && failedPages === 0 && !truncated && weightsPlausible;
-    const firstShape = rows.length ? "rows-present" : attempt.first == null ? "null" : shapeOf(attempt.first).slice(0, 100);
+    const sampleRow = (() => { try { const f = attempt.first; const arr = Array.isArray(f) ? f : (f && Object.values(f).find(Array.isArray)) || (f && f.result && Object.values(f.result).find(Array.isArray)) || null; return arr && arr[0] ? JSON.stringify(arr[0]).slice(0, 420) : ""; } catch (_) { return ""; } })();
+    const firstShape = rows.length ? "rows-present" : attempt.first == null ? "null" : (shapeOf(attempt.first, 0).slice(0, 100) + (sampleRow ? " sample=" + sampleRow : ""));
     const baseShape = rows.length ? "not-needed" : attempt.base == null ? "null" : shapeOf(attempt.base).slice(0, 70);
     const diag = `mstock-ETFComponent:${rows.length}/${total.toFixed(2)}${attempt.c !== code ? ":Acode" : ""}:pg${requestedPages}/${failedPages}:n${expectedCount == null ? "?" : expectedCount}${truncated ? ":partial" : ""}`;
     const responseDiag = rows.length ? [] : ["mstock-response:" + firstShape, "mstock-base:" + baseShape,
       "mstock-attempts:" + [initial && "stock:" + initial.c + "=" + (initial.firstRows || []).length + ":" + (initial.firstDiag || "no-diag"),
         alt && (alt.hostTag || "alt") + ":" + alt.c + "=" + (alt.firstRows || []).length + ":" + (alt.firstDiag || "no-diag"),
         wide && "wide=" + (wide.firstRows || []).length + ":" + (wide.firstDiag || "no-diag")].filter(Boolean).join(",")];
-    if (rows.length < 1) return { holdings: [], info, complete: false, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, ...responseDiag, "mstock-component:empty"] };
+    /* [v17.8.14] 공급원이 '정상 응답(HTTP 200)으로 구성종목 0건'이라고 직접 알려 준 경우만
+       '원래 구성종목이 없는 상품'으로 확정한다. 실패·차단·형식 불일치는 여기에 해당하지 않는다. */
+    const confirmedEmpty = rows.length < 1 && !!attempt.first && /^http-200/.test(String(attempt.firstDiag || "")) && attempt.firstRawLength === 0 &&
+      (attempt.declaredTotal === 0 || (attempt.declaredTotal == null && !!attempt.firstCandidate && attempt.firstCandidate.rawLength === 0));
+    if (rows.length < 1) return { holdings: [], info, complete: false, confirmedEmpty, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, ...responseDiag, "mstock-component:empty"] };
     return { holdings: rows, info, complete, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, ...responseDiag] };
   } catch (e) {
     return { holdings: [], info: {}, complete: false, expectedCount: null, asOf: null, tried: ["mstock-component:err:" + String(e && e.message || e).slice(0, 45)] };
@@ -5307,7 +5425,7 @@ var init_etf = __esm({
       let holdingsExpectedCount = holdSrc === "naver-html" && Number(H2 && H2.info && H2.info.holdingsCount) > 0 ? Number(H2.info.holdingsCount) : null;
       let holdingsAsOf = holdSrc === "naver-html" ? (H2 && H2.info && H2.info.holdingsAsOf) || null : null;
       const extra = [];
-      if (M0 && M0.tried) extra.push(...M0.tried.slice(0, 2));
+      if (M0 && M0.tried) extra.push(...M0.tried.slice(0, 3));
       if (TOSS && TOSS.tried) extra.push(...TOSS.tried.slice(0, 4));
       const sumH0 = a => (a || []).reduce((v, h) => v + (Number(h.weight) || 0), 0);
       const scoreH0 = (a, complete = false) => {
@@ -5436,6 +5554,7 @@ var init_etf = __esm({
         holdingsComplete,
         holdingsAsOf: holdingsAsOf || null,
         holdingsFetchedAt,
+        holdingsNone: !holdings.length && !!(M0 && M0.confirmedEmpty),
         holdingsProxy: null,
         holdingsKind: assetKind,
         sectors: Y.sectors && Y.sectors.length ? Y.sectors : proxySectors,
@@ -5450,7 +5569,7 @@ var init_etf = __esm({
           disp: dispSrc,
           metricsMissing: [metrics.marketSum == null ? "marketSum" : "", metrics.nav == null ? "nav" : "", metrics.m3 == null ? "m3" : "", metrics.fee == null ? "fee" : ""].filter(Boolean).join(",") || "none",
           html: (H2.tried || []).join(","),
-          naverApi: (M0 && M0.tried || []).join(",").slice(0, 130),
+          naverApi: (M0 && M0.tried || []).join(",").slice(0, 700),
           apiInfo: Object.keys(M0 && M0.info || {}).join(",") || "none",
           apiComplete: M0 && M0.complete === true ? "y" : "n",
           apiExpected: M0 && M0.expectedCount != null ? M0.expectedCount : "?",
@@ -5458,9 +5577,9 @@ var init_etf = __esm({
           countCovered: countMatches ? "y" : "n",
           asOf: holdingsAsOf || "provider-date-unavailable",
           fetchedAt: holdingsFetchedAt || "none",
-          extra: extra.join(" | ").slice(0, 320)
+          extra: extra.join(" | ").slice(0, 1200)
         }
-      }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
+      }), { headers: { "content-type": "application/json", "cache-control": holdings.length ? "s-maxage=600" : "no-store" } });
     };
     config2 = { path: "/api/etf" };
   }
@@ -17962,7 +18081,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.13";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.14";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18305,7 +18424,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["신규 상장 종목 차트(일·주·월·분봉)를 상장 당일부터 표시", "투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 12:30"; } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["ETF 구성종목·비중 조회 오류 수정(구성종목 0건으로 읽히던 문제)", "시장 표기를 KOSPI·KOSDAQ·ETF 영문으로 통일", "구성종목이 원래 없는 상품은 안내 문구 표시", "투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 14:30"; } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

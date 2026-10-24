@@ -1662,9 +1662,9 @@ async function runLogoAudit(){
         .map(k=>`<tr><td>${(window.__scanNames||LOGO_SRC_NAMES)[k]||('소스'+k)}</td><td class="num">${bySrc[k].toLocaleString()}</td><td class="num">${Math.round(bySrc[k]/Math.max(1,okN)*100)}%</td></tr>`).join('');
       html+=`<div class="ea-sum">
         <span class="ea-chip ${exTotal&&cov>=99?'ok':'bad'}">거래소 기준 대조 <b>${uniN.toLocaleString()} / ${exTotal?exTotal.toLocaleString():'?'}</b>${exTotal?` (${cov}%)`:' · 확인 불가'}</span>
-        <span class="ea-chip">코스피 <b>${nKp.toLocaleString()}</b></span>
-        <span class="ea-chip">코스닥 <b>${nKd.toLocaleString()}</b></span>
-        <span class="ea-chip">ETF·ETN <b>${nEtf.toLocaleString()}</b></span>
+        <span class="ea-chip">KOSPI <b>${nKp.toLocaleString()}</b></span>
+        <span class="ea-chip">KOSDAQ <b>${nKd.toLocaleString()}</b></span>
+        <span class="ea-chip">ETF <b>${nEtf.toLocaleString()}</b></span>
         ${nEtc?`<span class="ea-chip">시장 미상 <b>${nEtc.toLocaleString()}</b></span>`:''}
         </div>
         ${exTotal&&cov<99?`<div class="ea-sum"><div class="ea-exp"><b class="down">주의 — 목록이 거래소 기준보다 ${(exTotal-uniN).toLocaleString()}종 적습니다(${cov}%).</b> 목록을 다 받지 못한 상태라 일부 종목이 검사에서 빠졌을 수 있습니다. 잠시 후 다시 검사해 주세요.</div></div>`:''}
@@ -11060,6 +11060,19 @@ function ensureNxtBatch(codes){
   loadNxtList(false);
 }
 // 소속 시장 배지(코스피/코스닥/코넥스) — 확인된 경우에만 표시
+/* [v17.8.14] 시장 표기는 화면 어디서나 영문 KOSPI / KOSDAQ / KONEX / ETF(ETN) 로 통일한다.
+   ETF·ETN 은 거래소 값이 '코스피'로 와도 시장 이름 대신 상품 종류로 적는다. */
+function mktEn(code,market){
+  const s=byCode[code];
+  if(isFundLike(code))return (s&&/ETN/i.test(s.kind||''))?'ETN':'ETF';
+  const mk=String(market||(s&&s.market)||(typeof mktCache!=='undefined'&&mktCache[String(code).toUpperCase()])||'');
+  if(/코스닥|KOSDAQ/i.test(mk))return 'KOSDAQ';
+  if(/코넥스|KONEX/i.test(mk))return 'KONEX';
+  if(/코스피|KOSPI/i.test(mk))return 'KOSPI';
+  return '';
+}
+/* 종목코드 줄: 'KOSPI 000660' · 'KOSDAQ 0015M0' · 'ETF 069500' */
+function codeLine(code,market){const m=mktEn(code,market);return m?`${m} ${code}`:String(code);}
 function mktTag(code,market){
   const s=byCode[code];
   // ETF·ETN은 유가증권시장 상장이라 거래소 값이 '코스피'로 오지만,
@@ -11070,8 +11083,8 @@ function mktTag(code,market){
   }
   const mk=market||(s&&s.market)||mktCache[String(code).toUpperCase()]||'';
   if(!mk)return '';
-  const cls=mk==='코스닥'?'kq':mk==='코넥스'?'kx':'kp';
-  return `<span class="mkt-tag ${cls}">${mk}</span>`;
+  const cls=/코스닥|KOSDAQ/i.test(mk)?'kq':/코넥스|KONEX/i.test(mk)?'kx':'kp';
+  return `<span class="mkt-tag ${cls}">${mktEn(code,mk)||mk}</span>`;
 }
 /* ══ [v2.0] 시장 세션 배지 — 사용자 확정 규칙 ══
    · 주말/휴장일(KR_HOLIDAYS): 노랑 '휴장'
@@ -11277,7 +11290,7 @@ function stockRow(code,name,market,tag,rank){
   /* [v4.65] 순위 유무를 클래스로 알려 준다 — 2단 배치에서 칸 수가 달라지고,
      :has() 를 못 쓰는 브라우저에서도 어긋나지 않게 하기 위해서다. */
   return `<div class="sr${rank?' has-rk':''}" data-code="${code}" data-name="${String(name||'').replace(/"/g,'')}" data-market="${mk}">
-    <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm"><span class="nm-t">${name||code}</span>${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${code}${mk?' · '+mk:''}</div></div></div>
+    <div class="sr-l">${rk}${anyLogo(code,name||(s&&s.name)||code)}<div class="sr-t"><div class="nm"><span class="nm-t">${name||code}</span>${mktTag(code,mk)}${tag?`<span class="tag">${tag}</span>`:''}${badge}</div><div class="cd num">${codeLine(code,mk)}</div></div></div>
     <div class="px num ${dir}">${srcTag}${price!=null?KRW(price):'—'}</div><div class="ch num ${dir}">${diff==null?(odd?'<span class="ch-odd" title="액면분할·병합 등으로 기준가가 바뀌어 등락률을 계산할 수 없습니다">기준가 변경</span>':''):arrow(dir)+' '+pctS(p)}</div>
     <div class="sr-sp"><canvas class="sr-spark" id="srsp-${code}"></canvas></div></div>`;
 }
@@ -12509,7 +12522,7 @@ function renderWatch(){
       const sel=wlSelMode?`<label class="wl-ck" onclick="event.stopPropagation()"><input type="checkbox" data-sel="${s.code}" ${wlSelSet.has(s.code)?'checked':''}></label>`:'';
       const mv=(mine&&!wlSelMode)?`<span class="wl-mv"><button data-mv="-1" data-code="${s.code}" aria-label="위로">▲</button><button data-mv="1" data-code="${s.code}" aria-label="아래로">▼</button></span>`:'';
       const nxtB=nxtCapability(s.code)===true?'<span class="nxt-badge sm">NXT</span>':'';
-      return `<tr data-code="${s.code}"><td><div class="td-l">${sel}${mv}${anyLogo(s.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${nxtB}${s.tags&&s.tags[0]?`<span class="tag">${s.tags[0]}</span>`:mktTag(s.code,s.market)}<button class="wl-fd" data-fd="${s.code}" aria-label="폴더에 담기">폴더</button><br><span class="cd num">${s.code}</span></div></div></td>
+      return `<tr data-code="${s.code}"><td><div class="td-l">${sel}${mv}${anyLogo(s.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${nxtB}${s.tags&&s.tags[0]?`<span class="tag">${s.tags[0]}</span>`:mktTag(s.code,s.market)}<button class="wl-fd" data-fd="${s.code}" aria-label="폴더에 담기">폴더</button><br><span class="cd num">${codeLine(s.code,s.market)}</span></div></div></td>
       <td class="num ${wv.dir}" id="wpx-${s.code}">${wv.px}</td><td class="num ${wv.dir}">${wv.diff}</td>
       <td class="num ${wv.dir}">${wv.rate}</td><td class="cdl-td" id="wcd-${s.code}">${miniCandle(s.code)}</td><td class="num">${wv.vol}</td>
       <td>${targetCell(s.code)}</td></tr>`;}).join('')+`</tbody></table></div>`;
@@ -13265,7 +13278,10 @@ function etfHoldingsEmpty(kind,diag){
     diag.html && `HTML/PDF: ${diag.html}`,
     diag.extra && `보조 출처: ${diag.extra}`,
     diag.countExpected && `출처 선언 건수: ${diag.countExpected}`
-  ].filter(Boolean).join(' · ').slice(0,520) : '';
+  ].filter(Boolean).join(' · ').slice(0,1600) : '';
+  if(diag&&diag.none)return `<div class="etf-sec-t">구성종목 및 비중</div>
+    <div class="etf-empty">이 상품은 공시된 구성종목이 없습니다.<br>
+    <span>데이터 출처가 정상 응답으로 구성종목 0건을 알려 준 상품입니다. 조회 실패가 아니라 원래 보여 줄 종목·비중이 없는 경우입니다.</span></div>`;
   return `<div class="etf-sec-t">구성종목 및 비중</div>
     <div class="etf-empty">아직 검증된 구성종목 데이터를 확보하지 못했습니다.<br>
     <span>상품명만으로 구성종목이 없다고 추측하지 않으며, 다른 ETF의 종목을 대체해 보여 주지도 않습니다. 확인된 원본 구성표를 확보할 때까지 종목·비중은 미확정으로 표시합니다.</span>
@@ -13333,7 +13349,7 @@ function renderEtfSummary(el){
   if(m.price==null&&s.price!=null)m.price=s.price;
   // ETF 전용 블록(주요지표 · 보유종목 비중 · 포트폴리오 구성 · 유사 ETF)
   let etfBlocks=`<div class="etf-sec-t">주요 지표</div>`+etfMetricCards(m,e.diag)+etfMetricRecoveryHtml(e);
-  etfBlocks+=etfHoldingsHtml(e.holdings,10,e.diag,e.holdingsProxy,e.holdingsKind,e.holdingsComplete,e.holdingsTotalWeight,e.holdingsCount,e.holdingsAsOf,e.holdingsFetchedAt);
+  etfBlocks+=etfHoldingsHtml(e.holdings,10,Object.assign({},e.diag,{none:!!e.holdingsNone}),e.holdingsProxy,e.holdingsKind,e.holdingsComplete,e.holdingsTotalWeight,e.holdingsCount,e.holdingsAsOf,e.holdingsFetchedAt);
   etfBlocks+=etfPortfolioHtml(e.holdings,e.sectors);
   etfBlocks+=etfSimilarHtml(e.similar);
   // 일반 종목과 동일한 코너(연간 가격 변화·기간별 수익률·최근 현황·기본정보·투자자별 순매수)도 함께 표시
@@ -13366,7 +13382,7 @@ function renderEtfInfo(el){
   let html=`<div class="etf-sec-t">기본 정보</div><div class="etf-kv">${rows.map(([k,v])=>`<div class="etf-kv-r"><span>${k}</span><b class="num">${v}</b></div>`).join('')}</div>`;
   html+=`<div class="etf-sec-t">거래 정보</div><div class="etf-kv">${tr.map(([k,v])=>`<div class="etf-kv-r"><span>${k}</span><b class="num">${v}</b></div>`).join('')}</div>`;
   html+=etfMetricRecoveryHtml(e);
-  html+=etfHoldingsHtml(e.holdings,10,e.diag,e.holdingsProxy,e.holdingsKind,e.holdingsComplete,e.holdingsTotalWeight,e.holdingsCount,e.holdingsAsOf,e.holdingsFetchedAt).replace('보유 종목 비중','포트폴리오 구성종목');
+  html+=etfHoldingsHtml(e.holdings,10,Object.assign({},e.diag,{none:!!e.holdingsNone}),e.holdingsProxy,e.holdingsKind,e.holdingsComplete,e.holdingsTotalWeight,e.holdingsCount,e.holdingsAsOf,e.holdingsFetchedAt).replace('보유 종목 비중','포트폴리오 구성종목');
   html+=etfPortfolioHtml(e.holdings,e.sectors);
   html+=etfSimilarHtml(e.similar);
   el.innerHTML=html;
@@ -15831,7 +15847,7 @@ function renderHoldings(){
     const evalAmt=hEvalKRW(h),cost=hCostKRW(h),pnl=evalAmt-cost,rate=cost?pnl/cost*100:0,dir=dirOf(pnl);
     const wgt=evalAmt/totEval*100;
     const P=(v)=>h.us?('$'+USD2(v)):KRW(v);
-    return `<tr data-code="${h.code}" ${h.us?'data-usopen="1"':''}><td><div class="td-l">${h.us?usTick(h.code):anyLogo(h.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${h.us?'<span class="mkt-tag nxt" style="background:#1d3f8f">🇺🇸 미국</span>':mktTag(h.code,s.market)}<br><span class="cd num">${h.code}</span></div></div></td>
+    return `<tr data-code="${h.code}" ${h.us?'data-usopen="1"':''}><td><div class="td-l">${h.us?usTick(h.code):anyLogo(h.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${h.us?'<span class="mkt-tag nxt" style="background:#1d3f8f">🇺🇸 미국</span>':mktTag(h.code,s.market)}<br><span class="cd num">${h.us?h.code:codeLine(h.code,s.market)}</span></div></div></td>
       <td class="num">${h.us?fmtQty(h.qty):KRW(h.qty)}</td><td class="num">${P(h.avg)}</td>
       <td class="num ${s.price!=null?dirOf(s.price-s.prevClose):'flat'}">${P(price)}</td>
       <td class="num">${KRW(evalAmt)}</td><td class="num ${dir}">${signed(pnl)}</td><td class="num ${dir}">${pctS(rate)}</td>
