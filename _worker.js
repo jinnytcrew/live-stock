@@ -6471,33 +6471,85 @@ async function frontMinute(code) {
 async function naverMinute(code) {
   try {
     const c = await frontMinute(code);
-    if (c.length > 2) return { candles: c, src: "front:" + c.length };
+    if (c.length >= 1) return { candles: c, src: "front:" + c.length };
   } catch (e) {
   }
   try {
     const c = await fchartMinute(code);
-    if (c.length > 2) return { candles: c, src: "fchart:" + c.length };
+    if (c.length >= 1) return { candles: c, src: "fchart:" + c.length };
   } catch (e) {
   }
   return { candles: [], src: "none" };
+}
+/* ══ [v17.8.13] 신규 상장 종목 차트가 비던 이유 ═════════════════════════════
+   일·주·월봉을 받은 뒤 'candles.length > 1' 이어야 통과시켰다. 상장 당일에는 일봉이
+   1개뿐이고, 주봉·월봉은 상장 첫 달·첫 주 내내 1개라서 '데이터 없음'으로 처리됐다.
+   또 야후·스투크 쪽은 갓 상장한 종목을 아예 갖고 있지 않아 대체 경로도 비어 있었다.
+   → 1개부터 인정하고, 네이버 모바일 차트·일별 시세 API 를 대체 공급원으로 더한다. */
+async function frontCandles(code, timeframe, days) {
+  const end = /* @__PURE__ */ new Date();
+  const start = /* @__PURE__ */ new Date();
+  start.setDate(start.getDate() - days);
+  const url = `https://m.stock.naver.com/front-api/external/chart/domestic/info?symbol=${code}&requestType=1&startTime=${ymd(start)}&endTime=${ymd(end)}&timeframe=${timeframe}`;
+  const txt = await fetchText2(url, 5e3, { "User-Agent": UA2, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" });
+  const t = String(txt || "").trim();
+  if (!t.startsWith("[")) return [];
+  let arr;
+  try { arr = JSON.parse(t.replace(/'/g, '"').replace(/,\s*]/g, "]")); } catch (e) { return []; }
+  return parseSise(JSON.stringify(arr));
+}
+async function naverDailyRows(code, pages) {
+  const out = [];
+  for (let p = 1; p <= pages; p++) {
+    let j = null;
+    try { j = JSON.parse(await fetchText2(`https://m.stock.naver.com/api/stock/${code}/price?pageSize=60&page=${p}`, 5e3, { "User-Agent": UA2, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" })); } catch (e) { j = null; }
+    const rows = Array.isArray(j) ? j : (j && (j.items || j.list || j.result)) || [];
+    if (!Array.isArray(rows) || !rows.length) break;
+    const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[,\s+]/g, "")); return isFinite(n) ? n : 0; };
+    for (const r of rows) {
+      const d = String(r.localTradedAt || r.tradedAt || r.date || "").replace(/[^0-9]/g, "").slice(0, 8);
+      const c = num(r.closePrice);
+      if (d.length < 8 || !(c > 0)) continue;
+      const o = num(r.openPrice) || c;
+      out.push({ d, o, h: Math.max(num(r.highPrice) || c, o, c), l: Math.min(num(r.lowPrice) || c, o, c), c, v: num(r.accumulatedTradingVolume) });
+    }
+    if (rows.length < 60) break;
+  }
+  out.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
+  return out;
+}
+function aggBars(daily, tf) {
+  const key = (d) => {
+    if (tf === "M") return d.slice(0, 6);
+    const dt = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)));
+    const wd = (dt.getUTCDay() + 6) % 7;                 // 월=0
+    const mon = new Date(dt.getTime() - wd * 864e5);
+    return mon.toISOString().slice(0, 10).replace(/-/g, "");
+  };
+  const map = new Map();
+  for (const c of daily) {
+    const k = key(c.d), g = map.get(k);
+    if (!g) map.set(k, { d: c.d, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v });
+    else { g.h = Math.max(g.h, c.h); g.l = Math.min(g.l, c.l); g.c = c.c; g.d = c.d; g.v += c.v; }
+  }
+  return [...map.values()];
 }
 async function tryBoth(code, tf) {
   const naverTf = { D: "day", W: "week", M: "month" }[tf];
   const stooqI = { D: "d", W: "w", M: "m" }[tf];
   const years = tf === "M" ? 20 : tf === "W" ? 6 : 2;
   let c = [];
+  try { c = await siseJson(code, naverTf, years); } catch { c = []; }
+  if (c.length >= 1) return { src: "naver", candles: c };
+  /* 신규 상장: 네이버 모바일 차트 → 네이버 일별 시세(일봉을 주·월로 묶음) → 스투크 순 */
+  try { c = await frontCandles(code, naverTf, tf === "M" ? 3650 : tf === "W" ? 1500 : 800); } catch { c = []; }
+  if (c.length >= 1) return { src: "naver-front", candles: c };
   try {
-    c = await siseJson(code, naverTf, years);
-  } catch {
-    c = [];
-  }
-  if (c.length > 1) return { src: "naver", candles: c };
-  try {
-    c = await stooq(code, stooqI);
-  } catch {
-    c = [];
-  }
-  if (c.length > 1) return { src: "stooq", candles: c.slice(-300) };
+    const daily = await naverDailyRows(code, tf === "D" ? 5 : 3);
+    if (daily.length >= 1) return { src: "naver-price", candles: tf === "D" ? daily : aggBars(daily, tf) };
+  } catch { }
+  try { c = await stooq(code, stooqI); } catch { c = []; }
+  if (c.length >= 1) return { src: "stooq", candles: c.slice(-300) };
   return { src: "none", candles: [] };
 }
 /* [v10.6] 앱이 쓰는 지수 키 → 야후 심볼. 새 지수를 추가하려면 여기만 늘리면 된다. */
@@ -6584,7 +6636,7 @@ async function yahooMinute(code, mkt, want) {
       }
       let out = [...map.values()].sort((a, b) => a.d < b.d ? -1 : 1);
       if (out.length > 26000) out = out.slice(-26000);
-      if (out.length > 2) return { candles: out, src: "yahoo" + sfx + ":" + IV + ":" + out.length };
+      if (out.length >= 1) return { candles: out, src: "yahoo" + sfx + ":" + IV + ":" + out.length };
     } catch (e) {
     }
   }
@@ -17910,7 +17962,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.12";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.13";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18253,7 +18305,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 12:30"; } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["신규 상장 종목 차트(일·주·월·분봉)를 상장 당일부터 표시", "투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 12:30"; } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

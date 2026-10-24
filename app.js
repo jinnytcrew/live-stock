@@ -17033,9 +17033,21 @@ function openChartCfg(){
    고가는 max, 저가는 min — 시세와 스냅샷 중 더 넓은 쪽이 사실이다. */
 function mergeTodayLive(bars,code){
   try{
-    if(!bars||!bars.length)return bars;
-    const st=byCode[code]; if(!st||!(st.price>0))return bars;
-    const todayYmd=(()=>{const d=new Date(Date.now()+9*3600e3);return d.toISOString().slice(0,10).replace(/-/g,'');})();
+    const st=byCode[code];
+    const _k=new Date(Date.now()+9*3600e3);
+    const todayYmd=_k.toISOString().slice(0,10).replace(/-/g,'');
+    /* [v17.8.13] 상장 당일에는 일봉 API 가 아직 비어 있을 수 있다. 일봉이 하나도 없으면
+       실시간 시세(시가·고가·저가·현재가·거래량)로 오늘 봉을 만들어 차트를 바로 보여 준다.
+       주말에는 '오늘 거래'가 없으므로 만들지 않는다. */
+    if(!bars||!bars.length){
+      const wd=_k.getUTCDay();
+      if(st&&st.price>0&&wd>=1&&wd<=5){
+        const o=st.open>0?st.open:st.price;
+        return [{d:todayYmd,o,h:Math.max(st.high||0,st.price,o),l:Math.min(st.low>0?st.low:Infinity,st.price,o),c:st.price,v:st.volume>0?st.volume:0}];
+      }
+      return bars;
+    }
+    if(!st||!(st.price>0))return bars;
     const last=bars[bars.length-1];
     const lastYmd=String(last.d||'').replace(/-/g,'').slice(0,8);
     if(lastYmd!==todayYmd)return bars;
