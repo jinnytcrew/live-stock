@@ -9894,7 +9894,7 @@ async function renderFriend(){
     if(!t){toast('warn','아이디를 입력해 주세요','영문·숫자로 된 아이디를 넣어 주세요');return;}
     const r=await frCall('add',{target:t});
     if(r.ok){frCache=r;renderFriend();frDot();toast('buy','친구 신청 완료',t+'님에게 신청을 보냈어요');}
-    else toast('warn','신청 실패',{nouser:'그런 아이디가 없어요',already:'이미 친구예요',sent:'이미 신청을 보냈어요',self:'본인은 추가할 수 없어요'}[r.err]||r.err||'');};
+    else toast('warn','신청 실패',{nouser:'그런 아이디가 없어요',already:'이미 친구예요',sent:'이미 신청을 보냈어요',self:'본인은 추가할 수 없어요',full:'상대방의 받은 신청함이 가득 찼어요',auth:'로그인 정보를 확인하지 못했어요. 다시 로그인해 주세요',server:'서버에 일시적인 문제가 있어요. 잠시 후 다시 시도해 주세요',net:'네트워크 연결을 확인해 주세요'}[r.err]||r.err||'');};
   const act=async(a,t)=>{const r=await frCall(a,{target:t});if(r.ok){frCache=r;renderFriend();frDot();}};
   el.querySelectorAll('[data-ac]').forEach(b=>b.onclick=()=>act('accept',b.dataset.ac));
   el.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>act('reject',b.dataset.rj));
@@ -10668,7 +10668,33 @@ function calEventsFor(d){
 let earningsEvents=null;
 function loadCalendarEvents(){
   if(earningsEvents!==null)return; earningsEvents=[];
-  fetch('/api/calendar',{cache:'default'}).then(r=>r.json()).then(j=>{earningsEvents=(j&&j.events)||[];if(currentView==='home')renderCalendar();}).catch(()=>{});
+  fetch('/api/calendar',{cache:'default'}).then(r=>r.json()).then(j=>{earningsEvents=(j&&j.events)||[];if(currentView==='home')renderCalendar();verifyKrEarnings();}).catch(()=>{});
+}
+/* [v17.8.12] 국내 실적 일정 전 종목을 실제 공시(영업(잠정)실적)로 확인한다.
+   한 요청이 보낼 수 있는 외부 호출 수에 한도가 있어, 종목을 40개씩 나눠 여러 번 요청한다.
+   이미 공시한 종목은 공시일·'발표 완료'로 바꾸고, 지난 추정일은 달력에서 뺀다. */
+let _krVerifyRun=false;
+async function verifyKrEarnings(){
+  if(_krVerifyRun||!earningsEvents)return;_krVerifyRun=true;
+  try{
+    const lim=Date.now()+30*864e5,today=isoLocal(new Date());
+    const codes=[...new Set(earningsEvents.filter(e=>e.country==='kr'&&e.code&&!e.past&&e.date<=isoLocal(new Date(lim))).map(e=>e.code))];
+    const batches=[];for(let i=0;i<codes.length;i+=40)batches.push(codes.slice(i,i+40));
+    const reported={};let idx=0;
+    const run=async()=>{while(idx<batches.length){const b=batches[idx++];
+      try{const r=await fetch('/api/calendar?verify='+b.join(','),{cache:'default'});const j=await r.json();
+        if(j&&j.reported)Object.assign(reported,j.reported);}catch(e){}}};
+    await Promise.all([run(),run(),run()]);
+    let changed=false;
+    earningsEvents=earningsEvents.map(e=>{
+      if(e.country==='kr'&&e.code&&!e.past&&reported[e.code]){changed=true;
+        return {...e,date:new Date(reported[e.code]+9*36e5).toISOString().slice(0,10),past:true,sure:true,tag:'실적 · 발표 완료',epsF:null,revF:null};}
+      return e;
+    }).filter(e=>{
+      if(e.country==='kr'&&!e.past&&!e.sure&&e.date<today){changed=true;return false;}
+      return true;});
+    if(changed&&currentView==='home')renderCalendar();
+  }catch(e){}finally{_krVerifyRun=false;}
 }
 /* 억원 단위 표기 — 1조 이상 O.O조, 그 외 O,OOO억 (음수 지원) */
 function fmtEok(v){if(v==null||!isFinite(v))return '—';const a=Math.abs(v),sg=v<0?'-':'';
@@ -15020,7 +15046,7 @@ function renderInvestor(el){
   const totalRow=`<tr class="inv-total"><td>합계(수량)</td>${cols.map(c=>cell(inv.total?inv.total[c]:null)).join('')}</tr>`;
   const shown=invExpanded?inv.rows:inv.rows.slice(0,10);
   const body=shown.map(r=>`<tr><td>${r.date||''}</td>${cols.map(c=>cell(r.values[c])).join('')}</tr>`).join('');
-  const note=inv.partial?`<div style="font-size:11px;color:var(--sub-2);margin-bottom:8px;background:#fff8ec;border:1px solid #ffe3b0;padding:8px 10px;border-radius:8px">ⓘ 세부 12분류는 거래소(KRX) 전용이라 해외 서버에서 차단됩니다. <b>${inv.source||'네이버'}</b> 기준 <b>외국인·기관</b> 순매매를 표시하며, <b>개인</b>은 −(외국인+기관)으로 추정한 값입니다.</div>`:'';
+  const note=inv.partial?`<div style="font-size:11px;color:var(--sub-2);margin-bottom:8px;background:#fff8ec;border:1px solid #ffe3b0;padding:8px 10px;border-radius:8px">ⓘ 최근 1개월 기준 · 세부 12분류는 거래소(KRX) 전용이라 <b>${inv.source||'네이버'}</b> 집계를 표시합니다. ${inv.indivEst?'<b>개인</b>은 −(외국인+기관)으로 추정한 값입니다.':'증권사 앱(MTS)과 집계 시점·기준이 달라 일부 수치가 다를 수 있어요.'}</div>`:'';
   const more=inv.rows.length>10?`<button class="inv-more" id="invMoreBtn">${invExpanded?'접기 ▲':`더보기 (${inv.rows.length}일) ▾`}</button>`:'';
   el.innerHTML=`<div class="inv-date">순매수 · 단위: 주 (빨강 +매수 · 파랑 −매도) · 출처 ${inv.source||'KRX'}</div>${note}
     <div style="overflow:auto"><table class="fin-table inv-table"><thead>${head}</thead><tbody>${totalRow}${body}</tbody></table></div>${more}`;

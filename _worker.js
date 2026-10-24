@@ -4713,8 +4713,12 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
   const remain = () => Math.max(0, maxMs - (Date.now() - started));
   const PAGE_SIZE = 20;
   const MAX_EXTRA_PAGES = 36; // keep total upstream calls below the Worker request budget
-  const headersFor = (c) => ({ "Referer": `https://m.stock.naver.com/domestic/stock/${c}/total`, "Origin": "https://m.stock.naver.com", "Accept": "application/json, text/plain, */*", "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7" });
-  const compURL = (c, start, size) => `https://m.stock.naver.com/api/domestic/detail/${encodeURIComponent(c)}/ETFComponent?startIdx=${start}&pageSize=${size}`;
+  /* [v17.8.9] ETF 상세 JSON 은 m.stock.naver.com 이 아니라 stock.naver.com(신형 웹) 호스트가 준다.
+     m.stock.naver.com/api/domestic/detail/... 은 진단에서 보이듯 http-404 text/html 이라
+     구성종목이 영원히 비어 있었다. 신형 호스트를 먼저, 안 되면 모바일 호스트를 쓴다. */
+  let host = "https://stock.naver.com";
+  const headersFor = (c) => ({ "Referer": host === "https://stock.naver.com" ? `https://stock.naver.com/domestic/stock/${c}/info/summary` : `https://m.stock.naver.com/domestic/stock/${c}/total`, "Origin": host, "Accept": "application/json, text/plain, */*", "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7" });
+  const compURL = (c, start, size) => `${host}/api/domestic/detail/${encodeURIComponent(c)}/ETFComponent?startIdx=${start}&pageSize=${size}`;
   // Unlike the generic fetchJson helper, this source-specific helper does not silently
   // turn HTTP 403/404, HTML challenge pages, or invalid JSON into an indistinguishable null.
   const fetchEtfJsonDetailed = async (url, ms, headers) => {
@@ -4733,7 +4737,7 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
   };
   const tryCode = async (c) => {
     const headers = headersFor(c);
-    const baseURL = `https://m.stock.naver.com/api/domestic/detail/${encodeURIComponent(c)}/ETFBase`;
+    const baseURL = `${host}/api/domestic/detail/${encodeURIComponent(c)}/ETFBase`;
     const [baseRes, compRes] = await Promise.all([
       fetchEtfJsonDetailed(baseURL, Math.min(1500, Math.max(350, remain())), headers),
       fetchEtfJsonDetailed(compURL(c, 0, PAGE_SIZE), Math.min(1500, Math.max(350, remain())), headers)
@@ -4747,11 +4751,22 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
   };
   try {
     const initial = await tryCode(code);
+    initial.hostTag = "stock";
     let attempt = initial;
     let alt = null;
+    /* 신형 호스트가 비면 모바일 호스트로 같은 코드를 한 번 더 */
     if (!initial.firstRows.length && remain() > 1100) {
-      alt = await tryCode("A" + code);
+      host = "https://m.stock.naver.com";
+      alt = await tryCode(code);
+      alt.hostTag = "m";
       if (alt.firstRows.length) attempt = alt;
+      else host = "https://stock.naver.com";
+    }
+    if (!attempt.firstRows.length && remain() > 1100) {
+      const alt2 = await tryCode("A" + code);
+      alt2.hostTag = "stock-A";
+      if (alt2.firstRows.length) { attempt = alt2; alt = alt2; }
+      else if (!alt) alt = alt2;
     }
     // Some upstream deployments ignore pageSize=20 or return a wrapper only for the
     // larger request. Retry the documented endpoint once with a larger first page,
@@ -4858,8 +4873,8 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
     const baseShape = rows.length ? "not-needed" : attempt.base == null ? "null" : shapeOf(attempt.base).slice(0, 70);
     const diag = `mstock-ETFComponent:${rows.length}/${total.toFixed(2)}${attempt.c !== code ? ":Acode" : ""}:pg${requestedPages}/${failedPages}:n${expectedCount == null ? "?" : expectedCount}${truncated ? ":partial" : ""}`;
     const responseDiag = rows.length ? [] : ["mstock-response:" + firstShape, "mstock-base:" + baseShape,
-      "mstock-attempts:" + [initial && initial.c + "=" + (initial.firstRows || []).length + ":" + (initial.firstDiag || "no-diag"),
-        alt && alt.c + "=" + (alt.firstRows || []).length + ":" + (alt.firstDiag || "no-diag"),
+      "mstock-attempts:" + [initial && "stock:" + initial.c + "=" + (initial.firstRows || []).length + ":" + (initial.firstDiag || "no-diag"),
+        alt && (alt.hostTag || "alt") + ":" + alt.c + "=" + (alt.firstRows || []).length + ":" + (alt.firstDiag || "no-diag"),
         wide && "wide=" + (wide.firstRows || []).length + ":" + (wide.firstDiag || "no-diag")].filter(Boolean).join(",")];
     if (rows.length < 1) return { holdings: [], info, complete: false, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, ...responseDiag, "mstock-component:empty"] };
     return { holdings: rows, info, complete, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, ...responseDiag] };
@@ -6144,8 +6159,52 @@ async function buildDetail(code) {
     src: "\uB124\uC774\uBC84 \uAE08\uC735 \xB7 \uCEE8\uC13C\uC11C\uC2A4\uB294 \uC99D\uAD8C\uC0AC \uCD94\uC815 \uD3C9\uADE0"
   };
 }
+/* ══ [v17.8.11] 투자 캘린더 — 이미 발표한 종목이 '앞으로 발표'로 남던 문제 ═══════════
+   TradingView 의 '다음 실적일'은 회사가 영업(잠정)실적을 공시한 뒤에도 한동안 예전 추정일로 남고,
+   회사가 공시한 확정일이 아니라 과거 패턴으로 만든 날짜라 실제와 며칠씩 어긋난다.
+   → 가까운 일정은 실제 공시 목록(영업(잠정)실적)으로 확인해, 이미 공시한 종목은 공시일로 바로잡는다.
+   → 확정이 아닌 날짜가 이미 지났는데 공시도 없으면 날짜를 믿을 수 없으니 달력에서 뺀다. */
+var _krRepCache = {};
+async function krReportedCheck(codes, nowMs) {
+  const out = new Map();
+  const todo = codes.filter((c) => { const h = _krRepCache[c]; if (h && nowMs - h.at < 6 * 36e5) { if (h.ms) out.set(c, h.ms); return false; } return true; });
+  let i = 0;
+  const worker = async () => {
+    while (i < todo.length) {
+      const code = todo[i++];
+      let ms = 0;
+      try {
+        const j = await jget("https://m.stock.naver.com/api/stock/" + code + "/disclosure?pageSize=40&page=1", 3500);
+        const rows = Array.isArray(j) ? j : (j && (j.items || j.list)) || [];
+        for (const it of rows) {
+          const t = String(it.title || "").replace(/\s+/g, "");
+          if (!/영업\(잠정\)실적|영업실적\(잠정\)|잠정\)실적/.test(t)) continue;
+          const d = String(it.datetime || it.date || "").replace(/[^0-9]/g, "").slice(0, 8);
+          if (d.length < 8) continue;
+          const at = Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) - 9 * 36e5 + 12 * 36e5;
+          if (nowMs - at < 40 * 864e5 && at > ms) ms = at;     // 최근 40일 안의 공시만(직전 분기 것과 섞이지 않게)
+        }
+      } catch (e) {}
+      _krRepCache[code] = { at: nowMs, ms };
+      if (ms) out.set(code, ms);
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  return out;
+}
 var calendar_default = async (req2) => {
   const url = new URL(req2.url);
+  /* [v17.8.12] 전 종목 공시 확인 — 한 요청이 보낼 수 있는 외부 호출 수에는 한도가 있어
+     (무료 요금제 50회) 한 번에 전 종목을 확인할 수 없다. 앱이 종목을 40개씩 나눠
+     이 경로를 여러 번 부르면, 요청마다 한도가 따로라 모든 종목을 확인할 수 있다. */
+  const vq = url.searchParams.get("verify");
+  if (vq != null) {
+    const codes = [...new Set(String(vq).split(",").map((c) => c.trim().toUpperCase()).filter((c) => /^[0-9][0-9A-Z]{5}$/.test(c)))].slice(0, 40);
+    const m = await krReportedCheck(codes, Date.now());
+    const reported = {};
+    m.forEach((ms, code) => { reported[code] = ms; });
+    return new Response(JSON.stringify({ ok: true, n: codes.length, reported }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=900" } });
+  }
   const detail = String(url.searchParams.get("detail") || "").replace(/[^0-9A-Z]/gi, "");
   if (/^[0-9][0-9A-Z]{5}$/.test(detail)) {
     const body = await buildDetail(detail.toUpperCase());
@@ -6173,7 +6232,14 @@ var calendar_default = async (req2) => {
       const est = !!q.isEarningsDateEstimate;
       events.push({ date: isoKST(ms), title: nm + " \uC2E4\uC801 \uBC1C\uD45C" + (est ? " \uC608\uC815" : ""), tag: "\uC2E4\uC801", country: "us", ticker: sym, sure: !est });
     }
-    for (const x of tv.items) {
+    /* 공시 확인은 앱이 /api/calendar?verify=… 로 전 종목을 배치 호출해 처리한다. 여기서는 캐시된 결과만 쓴다 */
+    let reported = new Map();
+    try {
+      for (const x of tv.items) { const h = _krRepCache[x.code]; if (h && h.ms && now - h.at < 6 * 36e5) reported.set(x.code, h.ms); }
+      diag.verified = "cache " + reported.size;
+    } catch (e) { diag.verifyErr = String(e).slice(0, 40); }
+    for (let x of tv.items) {
+      if (!x.past && reported.has(x.code)) x = { ...x, ts: Math.round(reported.get(x.code) / 1e3), past: true, sure: true };
       const ms = x.ts * 1e3;
       if (ms < now - 7 * 864e5 || ms > hi) continue;
       const cons = [];
@@ -6197,6 +6263,8 @@ var calendar_default = async (req2) => {
         const prevQEnd = (Math.floor(mo / 3) * 3 + 11) % 12; // 직전 분기의 마지막 달
         const gap = (mo - prevQEnd + 12) % 12;
         if (dt.getUTCDay() === 3 && gap === 1) sure2 = false;
+        /* 확정이 아닌데 날짜가 이미 지났고 공시도 없다 — 틀린 날짜이므로 달력에 두지 않는다 */
+        if (!sure2 && ms < now - 12 * 36e5) continue;
       }
       events.push({
         date: isoKST(ms),
@@ -8500,9 +8568,32 @@ var friends_default = async (req2) => {
       return json4({ ok: true, degraded: savedErr || void 0, ...await view(st, uid, me) });
     }
     if (act === "add") {
-      const t = clip2(b.target, 24);
-      if (!t || t === uid) return json4({ ok: false, err: "self" });
-      if (!(db.accounts && db.accounts[t])) return json4({ ok: false, err: "nouser" });
+      /* [v17.8.10] 친구 신청이 항상 '그런 아이디가 없어요'로 끝나던 이유:
+         상대 계정을 옛 묶음(db.accounts)에서만 찾았다. 계정이 계정별 키(acc:<id>)로 옮겨진 뒤로
+         그 묶음에는 계정이 없어서, 실제로 있는 아이디도 전부 없다고 나왔다.
+         로그인과 같은 방식(accLoad)으로 찾고, 대소문자·앞뒤 공백을 흡수하며,
+         이메일 색인(mail:)으로도 한 번 더 찾는다. 찾으면 정식 키로 바꿔 쓴다. */
+      let t = clip2(b.target, 48).toLowerCase();
+      if (!t) return json4({ ok: false, err: "self" });
+      let tAcc = null;
+      try { tAcc = await accLoad(db.__st || st.acc, t, db); } catch (e) { tAcc = null; }
+      if (!tAcc && db.accounts) {
+        const hit = Object.keys(db.accounts).find((k) => String(k).trim().toLowerCase() === t);
+        if (hit) { tAcc = db.accounts[hit]; t = String(hit).trim().toLowerCase(); }
+      }
+      if (!tAcc) {
+        try {
+          let m = await (db.__st || st.acc).get("mail:" + t, { type: "json" });
+          if (typeof m === "string") { try { m = JSON.parse(m); } catch (e) { m = null; } }
+          if (m && m.id) {
+            const id2 = String(m.id).trim().toLowerCase();
+            const a2 = await accLoad(db.__st || st.acc, id2, db);
+            if (a2) { tAcc = a2; t = id2; }
+          }
+        } catch (e) {}
+      }
+      if (!tAcc) return json4({ ok: false, err: "nouser" });
+      if (t === String(uid).trim().toLowerCase()) return json4({ ok: false, err: "self" });
       if (me.friends.includes(t)) return json4({ ok: false, err: "already" });
       if (me.reqOut.includes(t)) return json4({ ok: false, err: "sent" });
       const other = await load(t);
@@ -8521,7 +8612,7 @@ var friends_default = async (req2) => {
       return json4({ ok: true, ...await view(st, uid, me) });
     }
     if (act === "accept" || act === "reject") {
-      const t = clip2(b.target, 24);
+      const t = clip2(b.target, 48);
       if (!me.reqIn.includes(t)) return json4({ ok: false, err: "noreq" });
       const other = await load(t);
       me.reqIn = me.reqIn.filter((x) => x !== t);
@@ -8535,7 +8626,7 @@ var friends_default = async (req2) => {
       return json4({ ok: true, ...await view(st, uid, me) });
     }
     if (act === "cancel") {
-      const t = clip2(b.target, 24);
+      const t = clip2(b.target, 48);
       const other = await load(t);
       me.reqOut = me.reqOut.filter((x) => x !== t);
       other.reqIn = other.reqIn.filter((x) => x !== uid);
@@ -8544,7 +8635,7 @@ var friends_default = async (req2) => {
       return json4({ ok: true, ...await view(st, uid, me) });
     }
     if (act === "remove") {
-      const t = clip2(b.target, 24);
+      const t = clip2(b.target, 48);
       const other = await load(t);
       me.friends = me.friends.filter((x) => x !== t);
       other.friends = other.friends.filter((x) => x !== uid);
@@ -9881,6 +9972,7 @@ async function frgnPage(code, page) {
     clearTimeout(t);
   }
 }
+function nv2InvWindowEarly(rows, columns) { return nv2InvWindow(rows, columns); }
 async function naverFrgn(code) {
   const pages = await Promise.all([frgnPage(code, 1), frgnPage(code, 2), frgnPage(code, 3)]);
   const seen = /* @__PURE__ */ new Set();
@@ -9897,11 +9989,8 @@ async function naverFrgn(code) {
     r.values["\uAC1C\uC778"] = -(f + i);
   });
   const columns = ["\uAC1C\uC778", "\uC678\uAD6D\uC778", "\uAE30\uAD00\uACC4"];
-  const total = {};
-  columns.forEach((n) => {
-    total[n] = rows.reduce((s, x) => s + (Number(x.values[n]) || 0), 0);
-  });
-  return { columns, total, rows: rows.slice(0, 60), partial: true, source: "\uB124\uC774\uBC84", indivEst: true };
+  const w = nv2InvWindowEarly(rows, columns);
+  return { columns, total: w.total, rows: w.rows, partial: true, source: "\uB124\uC774\uBC84", indivEst: true, window: "1M" };
 }
 var investors_default = async (req2) => {
   const url = new URL(req2.url);
@@ -17821,7 +17910,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.8";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.12";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18085,19 +18174,46 @@ var themestocks_v2 = async (req2, ctx) => {
 };
 
 /* ── 투자자별 매매동향 (종목 · 시장) ─────────────────────────────────────── */
+/* ── [v17.8.9] 투자자별 — 미래에셋 MTS '1개월' 기준에 맞춘다 ─────────────────
+   MTS 는 최근 1개월(최신 거래일 기준 같은 날짜의 한 달 전 다음날부터) 행과 그 합계를 보여 준다.
+   이 사이트는 60거래일 행을 모두 합산해 '합계(수량)'가 MTS 와 전혀 다르게 나왔다.
+   행도 합계도 같은 1개월 창에서만 계산해 화면의 행과 합계가 서로 맞도록 한다. */
+function nv2InvWindow(rows, columns) {
+  const sorted = rows.slice().sort((a, b) => b.date.localeCompare(a.date));
+  if (!sorted.length) return { rows: [], total: {} };
+  const [y, m, d] = sorted[0].date.split(".").map(Number);
+  const cut = new Date(Date.UTC(y, m - 2, d));
+  const cutStr = cut.getUTCFullYear() + "." + String(cut.getUTCMonth() + 1).padStart(2, "0") + "." + String(cut.getUTCDate()).padStart(2, "0");
+  let win = sorted.filter((r) => r.date > cutStr);
+  if (!win.length) win = sorted.slice(0, 1);
+  const total = {};
+  columns.forEach((n) => { total[n] = win.reduce((s, x) => s + (Number(x.values[n]) || 0), 0); });
+  return { rows: win, total };
+}
+/* [v17.8.9] 신형 웹(stock.naver.com)의 거래소(KRX) 기준 투자자 동향을 먼저 쓴다.
+   tradeType=KRX 로 거래소 집계만 받아 MTS(거래소 확정치)와 맞춘다. 실패하면 기존 모바일 경로. */
+function nv2PickTrendRows(j) {
+  if (Array.isArray(j)) return j;
+  if (j && typeof j === "object") for (const k of ["trends", "trendList", "items", "list", "result", "data", "rows"]) {
+    if (Array.isArray(j[k])) return j[k];
+    if (j[k] && typeof j[k] === "object") { const d = nv2PickTrendRows(j[k]); if (d.length) return d; }
+  }
+  return [];
+}
 async function nv2StockTrend(code) {
-  const j = await nv2Json(`https://m.stock.naver.com/api/stock/${code}/trend?pageSize=60`);
-  const rows = (Array.isArray(j) ? j : []).map((r) => {
-    const d = String(r.bizdate || "");
+  let j = null;
+  try { j = await nv2Json(`https://stock.naver.com/api/domestic/detail/${code}/trend?tradeType=KRX&startIdx=0&pageSize=40`); } catch (e) {}
+  let arr = nv2PickTrendRows(j).filter((r) => r && (r.individualPureBuyQuant != null || r.foreignerPureBuyQuant != null));
+  if (!arr.length) { try { j = await nv2Json(`https://m.stock.naver.com/api/stock/${code}/trend?pageSize=60`); } catch (e) {} arr = Array.isArray(j) ? j : nv2PickTrendRows(j); }
+  const rows = arr.map((r) => {
+    const d = String(r.bizdate || r.localTradedAt || r.tradeDate || r.date || "").replace(/[^0-9]/g, "");
     return { date: d.slice(0, 4) + "." + d.slice(4, 6) + "." + d.slice(6, 8),
       values: { "개인": nv2Num(r.individualPureBuyQuant), "외국인": nv2Num(r.foreignerPureBuyQuant), "기관계": nv2Num(r.organPureBuyQuant) } };
   }).filter((r) => /^\d{4}\.\d{2}\.\d{2}$/.test(r.date));
   if (!rows.length) return { error: "trend-empty" };
-  rows.sort((a, b) => b.date.localeCompare(a.date));
   const columns = ["개인", "외국인", "기관계"];
-  const total = {};
-  columns.forEach((n) => { total[n] = rows.reduce((s, x) => s + (Number(x.values[n]) || 0), 0); });
-  return { columns, total, rows, partial: true, source: "네이버" };
+  const w = nv2InvWindow(rows, columns);
+  return { columns, total: w.total, rows: w.rows, partial: true, source: "네이버", indivEst: false, window: "1M" };
 }
 async function nv2IndexTrend(idx) {
   const j = await nv2Json(`https://m.stock.naver.com/api/index/${idx}/trend`);
@@ -18137,7 +18253,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["ETF 구성종목 조회 시 토스 API 코드 형식 2종 재시도와 HTTP 진단 추가", "구성종목 이름·비중 필드 별칭 확장 및 잘못된 데이터 검증 유지", "모바일 구성종목 이름 말줄임 제거·줄바꿈 표시 및 캐시 키 갱신"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-24 22:17"; } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 12:30"; } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
