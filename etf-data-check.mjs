@@ -84,6 +84,17 @@ ctx.fetchJson = async (url) => {
   return { result: { totalCount: 0, items: [] } };
 };
 const defaultFetchJson = ctx.fetchJson;
+ctx.fetch = async (url, options = {}) => {
+  const value = await ctx.fetchJson(String(url));
+  return new Response(value == null ? "" : JSON.stringify(value), {
+    status: value == null ? 502 : 200,
+    headers: { "content-type": value == null ? "text/html" : "application/json" }
+  });
+};
+ctx.AbortController = AbortController;
+ctx.UA8 = 'fixture-test-agent';
+ctx.setTimeout = setTimeout;
+ctx.clearTimeout = clearTimeout;
 vm.createContext(ctx);
 vm.runInContext(parser, ctx, { timeout: 2000 });
 
@@ -94,6 +105,19 @@ assert.equal(a.info.navDetail, 107872, 'nested NAV must be extracted');
 assert.equal(a.info.marketSum, 13066433, 'raw market cap must normalize to hundred-million KRW units');
 assert.equal(a.info.m3, -18.49, 'nested three-month return must be extracted');
 pass('nested ETFBase metadata and 3-item complete composition are parsed');
+ctx.fetchJson = async (url) => {
+  if (url.includes('/ETFBase')) return {};
+  assert.match(url, /detail\/069500\/ETFComponent/, 'A-prefixed ETF code must be normalized for provider requests');
+  return { result: { totalCount: 1, asOfDate: '20261024', etfComponentList: [
+    { stockCode: '005930', stockName: '삼성전자', ratio: 100 }
+  ] } };
+};
+const prefixedCode = await ctx.fromNaverETFAPI('A069500', 3600);
+assert.equal(prefixedCode.holdings.length, 1, 'A-prefixed ETF code should still retrieve holdings');
+assert.equal(prefixedCode.complete, true, 'normalized provider code should reconcile full list');
+pass('ETF request code normalization prevents A-prefixed identifier lookup failures');
+ctx.fetchJson = defaultFetchJson;
+
 
 // Providers sometimes wrap values ({raw/value}) and rename fields or return tuples.
 ctx.fetchJson = async (url) => {
@@ -178,6 +202,9 @@ assert.match(app, /const expectedCodes=new Set/, 'audit reconciles expected ETF 
 assert.match(app, /cache:bypass\?'no-store':'default'/, 'manual ETF requery bypasses browser cache');
 assert.match(app, /&refresh='\+now/, 'manual retry changes edge cache key');
 assert.match(worker, /const PAGE_SIZE = 20;/, 'ETFComponent follows the current documented page size');
+assert.match(worker, /code = normalizeEtfCode\(code\)/, 'ETF API request strips a provider-style A prefix from ETF codes');
+assert.match(worker, /mstock-attempts:/, 'empty-source diagnostics expose code variants and wide-page retry');
+assert.match(worker, /findNaverComponentArrays\(root, maxDepth = 10\)/, 'nested API response discovery covers deeper wrappers');
 assert.match(app, /구성종목 조회 실패 원인 보기/, 'empty state exposes actual source diagnostics');
 assert.match(app, /if\(j\.holdingsComplete!==true\)return true/, 'partial holdings with a near-100% sum remain eligible for requery');
 assert.match(worker, /exact-only:no-direct-composition-source/, 'missing source is exposed instead of guessed holdings');
@@ -188,7 +215,7 @@ assert.doesNotMatch(etfRoute, /holdSrc = "(?:dom-proxy|peer-proxy|index-proxy)"/
 assert.match(etfRoute, /holdSrc === "mstock-api" && apiHoldingsComplete === true/, 'only fully paginated, count-validated ETFComponent rows can be called complete');
 assert.doesNotMatch(etfRoute, /htmlCountMatches/, 'a top-10 HTML table cannot certify itself as a full list');
 assert.match(etfRoute, /a\.length \* 100/, 'more verified constituent rows outrank a top-10 list merely summing near 100%');
-assert.match((read('index.html')), /app\.js\?v=678/, 'updated client JS gets a new cache-busting key');
+assert.match((read('index.html')), /app\.js\?v=679/, 'updated client JS gets a new cache-busting key');
 pass('audit retry/reconciliation, fresh-client loading and empty-state source diagnostics are present');
 
 const versionText = read('version-info.js');

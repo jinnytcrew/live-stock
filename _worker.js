@@ -4560,10 +4560,10 @@ function looseNaverComponentRows(arr, allowSmall = false) {
   const seen = new Set();
   return out.filter(x => { const key = x.code || x.name; if (seen.has(key)) return false; seen.add(key); return true; });
 }
-function findNaverComponentArrays(root, maxDepth = 7) {
+function findNaverComponentArrays(root, maxDepth = 10) {
   const found = [];
   const walk = (node, path, depth) => {
-    if (node == null || depth > maxDepth || found.length > 60) return;
+    if (node == null || depth > maxDepth || found.length > 120) return;
     if (typeof node === "string") {
       const t = node.trim();
       if ((t[0] === "{" || t[0] === "[") && t.length < 250000) { try { walk(JSON.parse(t), path + ".$json", depth + 1); } catch (_) {} }
@@ -4581,7 +4581,7 @@ function findNaverComponentArrays(root, maxDepth = 7) {
       } else if (hint && node.length === 0) {
         found.push({ rows: [], path, rawLength: 0, score: -1000 });
       }
-      if (depth < maxDepth - 1) for (let i = 0; i < Math.min(node.length, 12); i++) walk(node[i], path + "[]", depth + 1);
+      if (depth < maxDepth - 1) for (let i = 0; i < Math.min(node.length, 30); i++) walk(node[i], path + "[]", depth + 1);
       return;
     }
     if (typeof node === "object") for (const [k, v] of Object.entries(node).slice(0, 70)) walk(v, path ? path + "." + k : k, depth + 1);
@@ -4596,7 +4596,7 @@ function findNaverTotalCount(root) {
     if (node == null || depth > 5) return;
     if (typeof node === "string") { const t=node.trim(); if ((t[0]==="{"||t[0]==="[")&&t.length<250000) { try { walk(JSON.parse(t),depth+1); } catch (_) {} } return; }
     if (typeof node !== "object") return;
-    if (Array.isArray(node)) { for (const v of node.slice(0, 10)) walk(v, depth + 1); return; }
+    if (Array.isArray(node)) { for (const v of node.slice(0, 30)) walk(v, depth + 1); return; }
     for (const [k, v] of Object.entries(node).slice(0, 80)) {
       if (wanted.test(k)) { const n = Number(String(v).replace(/,/g, "")); if (Number.isInteger(n) && n >= 1 && n <= 1200) best = Math.max(best || 0, n); }
       if (v && typeof v === "object") walk(v, depth + 1);
@@ -4706,24 +4706,43 @@ function naverEtfInfo(root) {
   return info;
 }
 async function fromNaverETFAPI(code, maxMs = 6200) {
+  const requestedCode = String(code || "");
+  code = normalizeEtfCode(code);
+  if (!code) return { holdings: [], info: {}, complete: false, expectedCount: null, asOf: null, tried: ["mstock-component:invalid-code:" + requestedCode.slice(0, 16)] };
   const started = Date.now();
   const remain = () => Math.max(0, maxMs - (Date.now() - started));
   const PAGE_SIZE = 20;
   const MAX_EXTRA_PAGES = 36; // keep total upstream calls below the Worker request budget
-  const headersFor = (c) => ({ "Referer": `https://m.stock.naver.com/domestic/stock/${c}/total`, "Accept": "application/json, text/plain, */*" });
+  const headersFor = (c) => ({ "Referer": `https://m.stock.naver.com/domestic/stock/${c}/total`, "Origin": "https://m.stock.naver.com", "Accept": "application/json, text/plain, */*", "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7" });
   const compURL = (c, start, size) => `https://m.stock.naver.com/api/domestic/detail/${encodeURIComponent(c)}/ETFComponent?startIdx=${start}&pageSize=${size}`;
+  // Unlike the generic fetchJson helper, this source-specific helper does not silently
+  // turn HTTP 403/404, HTML challenge pages, or invalid JSON into an indistinguishable null.
+  const fetchEtfJsonDetailed = async (url, ms, headers) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(250, ms || 1000));
+    try {
+      const response = await fetch(url, { headers: Object.assign({ "User-Agent": UA8 }, headers || {}), signal: controller.signal });
+      const contentType = String(response.headers.get("content-type") || "unknown").split(";")[0];
+      const body = await response.text();
+      if (!response.ok) return { value: null, diag: `http-${response.status}:${contentType}` };
+      try { return { value: JSON.parse(body), diag: `http-${response.status}:${contentType}` }; }
+      catch (_) { return { value: null, diag: `invalid-json:${contentType}:${body.slice(0, 35).replace(/\s+/g, " ")}` }; }
+    } catch (error) {
+      return { value: null, diag: `fetch-error:${String(error && error.name || error).slice(0, 24)}` };
+    } finally { clearTimeout(timer); }
+  };
   const tryCode = async (c) => {
     const headers = headersFor(c);
     const baseURL = `https://m.stock.naver.com/api/domestic/detail/${encodeURIComponent(c)}/ETFBase`;
-    const [baseRes, compRes] = await Promise.allSettled([
-      fetchJson(baseURL, Math.min(1500, Math.max(350, remain())), headers),
-      fetchJson(compURL(c, 0, PAGE_SIZE), Math.min(1500, Math.max(350, remain())), headers)
+    const [baseRes, compRes] = await Promise.all([
+      fetchEtfJsonDetailed(baseURL, Math.min(1500, Math.max(350, remain())), headers),
+      fetchEtfJsonDetailed(compURL(c, 0, PAGE_SIZE), Math.min(1500, Math.max(350, remain())), headers)
     ]);
-    const base = baseRes.status === "fulfilled" ? baseRes.value : null;
-    const first = compRes.status === "fulfilled" ? compRes.value : null;
+    const base = baseRes.value;
+    const first = compRes.value;
     const candidates = first ? findNaverComponentArrays(first) : [];
     const firstCandidate = candidates.find(x => x.rows.length) || candidates[0] || null;
-    return { c, base, first, firstCandidate, firstRows: firstCandidate?.rows || [], firstRawLength: Number(firstCandidate && firstCandidate.rawLength) || 0,
+    return { c, base, first, firstDiag: compRes.diag, baseDiag: baseRes.diag, firstCandidate, firstRows: firstCandidate?.rows || [], firstRawLength: Number(firstCandidate && firstCandidate.rawLength) || 0,
       declaredTotal: first ? findNaverTotalCount(first) : null, asOf: first ? findNaverHoldingsDate(first) : null };
   };
   try {
@@ -4734,8 +4753,27 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
       alt = await tryCode("A" + code);
       if (alt.firstRows.length) attempt = alt;
     }
+    // Some upstream deployments ignore pageSize=20 or return a wrapper only for the
+    // larger request. Retry the documented endpoint once with a larger first page,
+    // but never mark it complete unless pagination/count reconciliation succeeds.
+    let wide = null;
+    if (!attempt.firstRows.length && remain() > 900) {
+      try {
+        const wideResult = await fetchEtfJsonDetailed(compURL(attempt.c, 0, 100), Math.min(1100, Math.max(350, remain() - 150)), headersFor(attempt.c));
+        const wideValue = wideResult.value;
+        if (wideValue) {
+          const wideCandidates = findNaverComponentArrays(wideValue);
+          const wideCandidate = wideCandidates.find(x => x.rows.length) || wideCandidates[0] || null;
+          wide = { c: attempt.c, base: attempt.base, first: wideValue, firstDiag: wideResult.diag, baseDiag: attempt.baseDiag, firstCandidate: wideCandidate,
+            firstRows: wideCandidate?.rows || [], firstRawLength: Number(wideCandidate && wideCandidate.rawLength) || 0,
+            declaredTotal: findNaverTotalCount(wideValue), asOf: findNaverHoldingsDate(wideValue) };
+          if (wide.firstRows.length) attempt = wide;
+        }
+      } catch (_) {}
+    }
     const info = Object.assign({}, naverEtfInfo(initial.base || {}), naverEtfInfo(initial.first || {}),
-      alt ? naverEtfInfo(alt.base || {}) : {}, alt && alt.firstRows.length ? naverEtfInfo(alt.first || {}) : {});
+      alt ? naverEtfInfo(alt.base || {}) : {}, alt && alt.firstRows.length ? naverEtfInfo(alt.first || {}) : {},
+      wide && wide.firstRows.length ? naverEtfInfo(wide.first || {}) : {});
     let rows = attempt.firstRows.slice();
     const firstCount = rows.length;
     // Some versions hard-cap the result list below requested pageSize. Use the actual
@@ -4816,9 +4854,15 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
     total = rows.reduce((a, b) => a + b.weight, 0);
     const weightsPlausible = total >= 95 && total <= 105;
     const complete = rows.length >= 1 && expectedCount != null && countCovered && failedPages === 0 && !truncated && weightsPlausible;
+    const firstShape = rows.length ? "rows-present" : attempt.first == null ? "null" : shapeOf(attempt.first).slice(0, 100);
+    const baseShape = rows.length ? "not-needed" : attempt.base == null ? "null" : shapeOf(attempt.base).slice(0, 70);
     const diag = `mstock-ETFComponent:${rows.length}/${total.toFixed(2)}${attempt.c !== code ? ":Acode" : ""}:pg${requestedPages}/${failedPages}:n${expectedCount == null ? "?" : expectedCount}${truncated ? ":partial" : ""}`;
-    if (rows.length < 1) return { holdings: [], info, complete: false, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, "mstock-component:empty"] };
-    return { holdings: rows, info, complete, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag] };
+    const responseDiag = rows.length ? [] : ["mstock-response:" + firstShape, "mstock-base:" + baseShape,
+      "mstock-attempts:" + [initial && initial.c + "=" + (initial.firstRows || []).length + ":" + (initial.firstDiag || "no-diag"),
+        alt && alt.c + "=" + (alt.firstRows || []).length + ":" + (alt.firstDiag || "no-diag"),
+        wide && "wide=" + (wide.firstRows || []).length + ":" + (wide.firstDiag || "no-diag")].filter(Boolean).join(",")];
+    if (rows.length < 1) return { holdings: [], info, complete: false, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, ...responseDiag, "mstock-component:empty"] };
+    return { holdings: rows, info, complete, expectedCount, asOf: attempt.asOf || findNaverHoldingsDate(attempt.base || {}), tried: [diag, ...responseDiag] };
   } catch (e) {
     return { holdings: [], info: {}, complete: false, expectedCount: null, asOf: null, tried: ["mstock-component:err:" + String(e && e.message || e).slice(0, 45)] };
   }
@@ -17740,7 +17784,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.6";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.7";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18056,7 +18100,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["ETF 구성종목 마지막 1~2행 페이지 누락 및 목록 개수 검증 개선", "상위 비중 합계만으로 전체 구성으로 오판하지 않도록 출처 건수 대조", "다른 ETF의 대체 구성종목 표시 제거 및 기준일·조회시각 진단 추가"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-24 21:10"; } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["ETF 구성 API 코드 정규화 및 중첩 응답 탐색 확장", "Naver ETFComponent의 HTTP 상태·콘텐츠 형식 진단과 재시도 추가", "A접두사·대용량 첫 페이지 대응 및 실패 원인 표시 개선"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-24 21:44"; } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
