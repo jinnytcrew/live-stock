@@ -17205,7 +17205,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.7.5";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -17502,7 +17502,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["NXT 명단 2026년 4분기 기준 갱신 (605종목: 코스피 335 / 코스닥 270)", "NXT 편출 종목 반영 — 더존비즈온·현대홈쇼핑·더본코리아·티엑스알로보틱스·에스투더블유", "NXT 명단 관리자 갱신 '실패: 200' 표시 수정"]; } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["종목 목록 선택 시 우측 미리보기 측면 패널 추가", "측면 패널 하단을 종목 상세·매수/매도 동선으로 재구성", "종목 상세 상단·통계·주문 패널 타이포그래피와 간격 정돈", "모바일 최근 검색 칩을 한 줄 가로 스크롤 레일로 개선"]; } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

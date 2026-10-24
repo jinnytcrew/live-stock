@@ -1876,7 +1876,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=333';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -6676,6 +6676,7 @@ function openTrade(code){
      항목이 아예 없었다. 열기 전에 빈 껍데기라도 만들어 둔다. */
   try{ if(!byCode[code])ensureStock(code,'',''); }catch(e){}
   selected=code;userPrice=null;invExpanded=false;
+  setTradeHeading('detail');
   safeRun('openTrade:view',()=>showView('trade'));          // ① 무조건 먼저 이동
   safeRun('openTrade:market',()=>resolveMarket(code));
   /* [v10.7] 함수 이름이 addHist 로 잘못 적혀 있어 검색 기록이 저장되지 않았다.
@@ -6920,6 +6921,7 @@ function applyQuote(q,isSnap){
   if(q.uniPrice)st.uniPx={price:q.uniPrice,prevClose:q.prevClose||null,t:Date.now()};   // [v1.99.2] 폴링이 준 통합가
   try{ checkTargets(q.code); }catch(e){}   // [D3] 목표가 도달 확인
   st.ticks.push({t:Date.now(),p:q.price,v:q.volume||0}); if(st.ticks.length>3000)st.ticks.shift();
+  try{if(stockSideCode===q.code)renderStockSidePanel(q.code,true);}catch(e){}
   renderPortfolioNumbers();
   if(currentView==='watch')updateWatchRow(q.code);
   else if(currentView==='account')renderHoldings();
@@ -11516,7 +11518,7 @@ function renderHist(){
     const h=srchHist[+c.dataset.i]; if(!h)return;
     if(h.q){const inp=$('searchInput');if(inp)inp.value=h.q;renderSearch();renderHist();return;}
     if(h.market==='US'||usMeta[h.code]){openUS(h.code);return;}   // [v5.4] 해외는 해외 화면으로
-    else{ensureStock(h.code,h.name,h.market);openTrade(h.code);}
+    else{ensureStock(h.code,h.name,h.market);openStockSidePanel(h.code,h.name,h.market);}
   });
   el.querySelectorAll('.sh-x').forEach(x=>x.onclick=(e)=>{e.stopPropagation();
     srchHist.splice(+x.dataset.x,1);saveHist();renderHist();});
@@ -12677,17 +12679,116 @@ function updateWatchRow(code){
   if(lastPx[code]!==undefined&&lastPx[code]!==w.price){px.classList.remove('fl-up','fl-down');void px.offsetWidth;px.classList.add(w.price>lastPx[code]?'fl-up':'fl-down');}
   lastPx[code]=w.price;
 }
-/* [v4.41] 목록 클릭을 한 곳에서 갈라 준다 — 해외 티커면 해외 거래 화면으로.
-   이 함수는 검색·관심·순위·보유 등 거의 모든 목록이 함께 쓰므로, 여기만 고치면 전 화면이 통일된다. */
+/* ══ [v17.8.0] MTS 종목 미리보기 패널 ════════════════════════════════════════
+   종목 목록은 먼저 요약 패널을 열고, 사용자가 '종목 상세' 또는 '매수/매도'를
+   선택했을 때 기존 상세/주문 엔진으로 이동한다. 기존 시세·주문 로직은 재사용한다. */
+let stockSideCode='';
+function renderStockSidePanel(code,preserveScroll=false){
+  const panel=$('stockSidePanel'),body=$('stockSideBody');
+  if(!panel||!body||!code||stockSideCode!==code||panel.hidden)return;
+  const oldTop=preserveScroll?body.scrollTop:0;
+  const s=byCode[code]||{};
+  const q=dispQuote(code)||{};
+  const px=Number(q.price!=null?q.price:s.price);
+  const prev=Number(q.prevClose||s.prevClose||0);
+  const hasPx=Number.isFinite(px)&&px>0;
+  const hasPrev=Number.isFinite(prev)&&prev>0;
+  const diff=hasPx&&hasPrev?px-prev:null;
+  const rate=diff!=null?diff/prev*100:null;
+  const dir=diff==null?'flat':dirOf(diff);
+  const name=s.name||code;
+  const market=s.market||mktCache[String(code).toUpperCase()]||'KRX';
+  const nxt=nxtCapability(code)===true;
+  const ticks=(Array.isArray(s.ticks)?s.ticks:[]).slice(-36).map(t=>Number(t&&t.p)).filter(v=>Number.isFinite(v)&&v>0);
+  let chart='';
+  if(ticks.length>1){
+    const lo=Math.min(...ticks),hi=Math.max(...ticks),span=hi-lo||Math.max(1,hi*.001);
+    const pts=ticks.map((v,i)=>`${(i/(ticks.length-1)*100).toFixed(2)},${(5+(hi-v)/span*27).toFixed(2)}`);
+    const path=pts.map((p,i)=>(i?'L':'M')+p).join(' ');
+    const area=path+' L 100,39 L 0,39 Z';
+    const stroke=diff==null||diff===0?'#98a2b3':(diff>0?'#df5864':'#3478e8');
+    chart=`<svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="최근 수신 시세 흐름"><path d="${area}" fill="${stroke}" opacity=".10"></path><path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
+  }else chart='<div class="ssp-chart-empty">실시간 시세를 받으면 흐름이 표시됩니다</div>';
+  const low=Number(s.low||0),high=Number(s.high||0);
+  const rangeOk=hasPx&&low>0&&high>=low&&high>0;
+  const rangePct=rangeOk?Math.max(0,Math.min(100,(px-low)/(high-low||1)*100)):50;
+  const fmt=(v)=>Number.isFinite(Number(v))&&Number(v)>0?KRW(Number(v)):'—';
+  const vol=s.volume!=null&&Number(s.volume)>=0?KRW(s.volume)+'주':'—';
+  const value=s.value!=null&&Number(s.value)>0?KRW(Number(s.value)/1e8)+'억원':'—';
+  const liveTag=typeof mktBadgeHtml==='function'?mktBadgeHtml(code):'';
+  $('stockSideHeading').textContent=name+' 미리보기';
+  body.innerHTML=`
+    <div class="ssp-identity">
+      <div class="ssp-logo">${anyLogo(code,name,'lg')}</div>
+      <div class="ssp-name-wrap"><div class="ssp-name">${htmlEsc(name)}</div>
+        <div class="ssp-meta"><span>${htmlEsc(code)}</span><span>·</span><span>${htmlEsc(market)}</span>${nxt?'<span class="ssp-badge nxt">NXT 가능</span>':''}</div>
+      </div>
+    </div>
+    <div class="ssp-price-block">
+      <div class="ssp-price num ${dir}">${hasPx?KRW(px):'시세 확인 중'}</div>
+      <div class="ssp-change ${dir}">${diff==null?'전일 대비 —':`${diff>0?'▲':diff<0?'▼':'—'} ${KRW(Math.abs(diff))}원 <span>${rate>0?'+':''}${rate.toFixed(2)}%</span>`}</div>
+      <div class="ssp-live-label">${liveTag||'통합 시세 기준'} · 실제 주문이 아닌 모의투자</div>
+      <div class="ssp-chart">${chart}</div>
+      ${rangeOk?`<div class="ssp-range"><div class="ssp-range-labels"><span>저가 ${KRW(low)}</span><span>고가 ${KRW(high)}</span></div><div class="ssp-range-track"><i style="left:${rangePct}%"></i></div></div>`:''}
+    </div>
+    <div class="ssp-stats">
+      <div class="ssp-stat"><span>거래량</span><b>${vol}</b></div>
+      <div class="ssp-stat"><span>거래대금</span><b>${value}</b></div>
+      <div class="ssp-stat"><span>시가</span><b>${fmt(Number(s.open))}</b></div>
+      <div class="ssp-stat"><span>고가</span><b class="up">${fmt(Number(s.high))}</b></div>
+      <div class="ssp-stat"><span>저가</span><b class="down">${fmt(Number(s.low))}</b></div>
+      <div class="ssp-stat"><span>전일 종가</span><b>${fmt(Number(s.prevClose||q.prevClose))}</b></div>
+    </div>
+    <div class="ssp-note">시세·통계는 수신된 데이터만 표시합니다. LIVE증권은 실제 주문을 전송하지 않는 모의투자 서비스입니다.</div>`;
+  if(preserveScroll)body.scrollTop=oldTop;
+}
+function closeStockSidePanel(){
+  const panel=$('stockSidePanel'),veil=$('stockSideVeil');
+  if(!panel||panel.hidden){stockSideCode='';return;}
+  panel.classList.remove('open');if(veil)veil.classList.remove('open');
+  document.body.classList.remove('stock-side-open');
+  const closing=panel;stockSideCode='';
+  setTimeout(()=>{if(!stockSideCode){closing.hidden=true;if(veil)veil.hidden=true;}},250);
+}
+function openStockSidePanel(code,name='',market=''){
+  if(!code)return;
+  if(usMeta&&usMeta[code]){openUS(code);return;}
+  try{if(!byCode[code])ensureStock(code,name||code,market||'');else if(name&&(!byCode[code].name||byCode[code].name===code))ensureStock(code,name,market||'');}catch(e){}
+  const panel=$('stockSidePanel'),veil=$('stockSideVeil');if(!panel||!veil){openTrade(code);return;}
+  stockSideCode=code;panel.hidden=false;veil.hidden=false;document.body.classList.add('stock-side-open');
+  renderStockSidePanel(code,false);
+  requestAnimationFrame(()=>{if(stockSideCode!==code)return;panel.classList.add('open');veil.classList.add('open');$('stockSideClose')?.focus({preventScroll:true});});
+  try{feed&&feed.addCode(code,{pin:true});}catch(e){}
+  try{ensureQuote(code).then(()=>renderStockSidePanel(code,true));}catch(e){}
+}
+function setTradeHeading(mode='detail'){
+  const order=mode==='order';
+  const t=$('tradePageTitle'),sub=$('tradePageSub'),view=$('view-trade');
+  if(t)t.textContent=order?'거래·주문':'종목 상세';
+  if(sub)sub.textContent=order?'호가와 주문 조건을 확인한 뒤 모의 매수·매도를 진행하세요.':'실시간 시세와 차트·호가·기업 정보를 한눈에 확인하세요.';
+  if(view)view.classList.toggle('order-focus',order);
+}
+function openStockOrderFromPanel(code){
+  closeStockSidePanel();
+  ordSide='buy';
+  openTrade(code);
+  setTradeHeading('order');
+  setTimeout(()=>{
+    const b=document.querySelector('.ord-tabs [data-side="buy"]');if(b)b.click();
+    const form=document.querySelector('#view-trade .trade-grid>.panel:nth-child(2)');
+    if(form)form.scrollIntoView({behavior:'smooth',block:'start'});
+  },90);
+}
 function bindStockClicks(root){
-  /* [v9.1] 목록을 그린 뒤 당일 캔들을 그린다 — 시세에 이미 있는 값이라 즉시 그려진다 */
-  try{ srCandlesPaint(root); }catch(e){}
-  root.querySelectorAll('[data-code]').forEach(n=>n.onclick=()=>{
-  const c=n.dataset.code;
-  if(usMeta&&usMeta[c]){ openUS(c); return; }
-  if(n.dataset.name)ensureStock(c,n.dataset.name,n.dataset.market);
-  openTrade(c);
-});}
+  /* 목록의 당일 봉은 수신된 시세로 그린다. 탭하면 공통 미리보기 패널을 연다. */
+  try{srCandlesPaint(root);}catch(e){}
+  root.querySelectorAll('[data-code]').forEach(n=>n.onclick=(e)=>{
+    const c=n.dataset.code;if(!c)return;
+    if(usMeta&&usMeta[c]){openUS(c);return;}
+    if(n.dataset.name)ensureStock(c,n.dataset.name,n.dataset.market);
+    openStockSidePanel(c,n.dataset.name||'',n.dataset.market||'');
+  });
+}
 
 /* ⭐ 관심종목 — [v1.99] 별을 누르면 '어느 폴더에 담을지' 선택한다.
    폴더가 하나도 없으면 먼저 폴더 생성 플로우가 열린다(폴더 없이 관심 등록 불가). */
@@ -24228,3 +24329,16 @@ try{(function(){
       setTimeout(function(){window.liveQA(true);},1500);
   }catch(e){}
 })();
+
+
+/* [v17.8.0] 종목 미리보기 패널 입력 연결 */
+(()=>{
+  const veil=$('stockSideVeil'),panel=$('stockSidePanel');
+  if(!veil||!panel)return;
+  $('stockSideClose')?.addEventListener('click',closeStockSidePanel);
+  veil.addEventListener('click',closeStockSidePanel);
+  $('stockSideDetail')?.addEventListener('click',()=>{const c=stockSideCode;if(!c)return;closeStockSidePanel();openTrade(c);});
+  $('stockSideTrade')?.addEventListener('click',()=>{const c=stockSideCode;if(!c)return;openStockOrderFromPanel(c);});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&stockSideCode)closeStockSidePanel();});
+})();
+

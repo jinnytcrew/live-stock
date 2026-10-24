@@ -16,6 +16,8 @@ node mobile-qa-check.mjs
 | 장식 띠 어긋남 | ::before/after 세로 띠 중심 vs 첫 글자 줄 중심, 2.5px 초과 | 코너 제목 띠가 7.5px 위로(v17.2) · 오늘의 장 카드 띠(v17.4) |
 | 창 z-order | 모든 .overlay z-index > .tabbar | 설정·프로필 창 아래 66px이 탭바에 가림(v17.1) |
 | 문서 폭 | documentElement.scrollWidth ≤ 화면 폭 | 그리드 blowout 전반 |
+| 최근 검색 레일 | 한 줄 유지 + 좌우 스크롤 가능 | 검색 기록 칩이 모바일에서 여러 줄로 쌓이는 문제(v17.8.0) |
+| 종목 미리보기 패널 | 412px·360px 폭 안에 패널/하단 버튼 배치, 버튼 터치 높이 44px 이상 | 종목 선택 패널·하단 액션바 신규(v17.8.0) |
 | 버튼 크기 | 높이 30px 미만 버튼(경고만) | — |
 
 처음 한 번(Codespaces):
@@ -68,6 +70,7 @@ npm i -D playwright && npx playwright install chromium --with-deps
 
 1. `node mobile-qa-check.mjs` — 통과
 2. 직전 배포 zip 과 diff — 지워진 코드가 전부 의도한 것인지
-3. `index.html` 의 `?v=` 캐시버스트 + `sw.js` 의 `SW_VER` 올리기
+3. `index.html` 의 CSS/JS `?v=` 캐시버스트, `app.js` 안 `version-info.js?v=`, `sw.js` 의 `SW_VER` 올리기
 4. `version-info.js` 와 `_worker.js` 의 `APP_VER` 일치
-5. 배포 후 실기에서 `?qa=1` 로 한 번 훑기
+5. 새 UI에서는 최근 검색 가로 레일과 종목 미리보기 패널(하단 버튼 포함)도 QA 게이트로 확인
+6. 배포 후 실기에서 `?qa=1` 로 한 번 훑기

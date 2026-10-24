@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=667">
+<link rel="stylesheet" href="/app.css?v=668">
 </head>
 <body>
 
@@ -906,7 +906,7 @@ body.needs-auth #authGate{z-index:2000001}
   <!-- SEARCH -->
   <section class="view" id="view-search" hidden>
     <div class="page-title">종목검색</div>
-    <div class="page-sub">종목명 또는 6자리 코드로 검색. 누르면 실시간 시세와 함께 거래 화면이 열립니다.</div>
+    <div class="page-sub">종목명 또는 6자리 코드로 검색하세요. 종목을 누르면 시세 미리보기와 종목 상세·매수/매도 메뉴가 열립니다.</div>
     <div class="search-box"><input id="searchInput" aria-label="종목 검색" placeholder="종목명·코드로 전체 상장 종목·ETF 검색 (예: 삼성전자, SOL AI반도체TOP2플러스, 000660)" autocomplete="off"><span class="sb-kbd" aria-hidden="true">/</span><button class="sb-clear" id="searchClear" hidden aria-label="지우기">✕</button></div>
     <div class="srch-hist" id="srchHist" hidden></div>
     <div class="srch-hist" id="viewHist" hidden></div>
@@ -1314,8 +1314,8 @@ body.needs-auth #authGate{z-index:2000001}
 
   <!-- TRADE -->
   <section class="view" id="view-trade" hidden>
-    <div class="page-title">거래·주문</div>
-    <div class="page-sub">캔들 차트는 손가락(마우스)으로 좌우 이동·확대/축소할 수 있습니다.</div>
+    <div class="page-title" id="tradePageTitle">종목 상세</div>
+    <div class="page-sub" id="tradePageSub">실시간 시세와 차트·호가·기업 정보를 확인하고 모의 주문을 실행하세요.</div>
     <div class="trade-grid">
       <div class="panel">
         <div class="d-head">
@@ -1615,6 +1615,20 @@ body.needs-auth #authGate{z-index:2000001}
 
 <!-- ══ [v13.0] 사이트 꼬리말 — 모든 화면 맨 아래에 한 번만 ═══════════════════
      본문(main) 밖에 두어 화면을 바꿔도 늘 맨 아래에 남는다. -->
+<!-- [v17.8.0] 종목 미리보기 측면 패널: 목록 선택은 즉시 화면을 바꾸지 않고 이곳에서 요약 후 상세/주문으로 이어진다. -->
+<div class="stock-side-veil" id="stockSideVeil" hidden aria-hidden="true"></div>
+<aside class="stock-side-panel" id="stockSidePanel" hidden role="dialog" aria-modal="true" aria-labelledby="stockSideHeading">
+  <div class="stock-side-head">
+    <div class="stock-side-head-title"><span class="stock-side-kicker">LIVE MARKET</span><b id="stockSideHeading">종목 미리보기</b></div>
+    <button type="button" id="stockSideClose" class="stock-side-close" aria-label="종목 미리보기 닫기">×</button>
+  </div>
+  <div class="stock-side-body" id="stockSideBody"></div>
+  <div class="stock-side-actions">
+    <button type="button" id="stockSideDetail" class="stock-side-detail">종목 상세</button>
+    <button type="button" id="stockSideTrade" class="stock-side-trade">매수/매도 <span aria-hidden="true">↗</span></button>
+  </div>
+</aside>
+
 <footer class="site-foot">
   <div class="sf-in">
     <div class="sf-brand">
@@ -1642,6 +1656,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
   <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
-<script type="module" src="/app.js?v=668"></script>
+<script type="module" src="/app.js?v=669"></script>
 </body>
 </html>

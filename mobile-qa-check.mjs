@@ -161,6 +161,57 @@ const main = async () => {
       if (!r.overflow.length && !r.clip.length && !r.band.length && r.docW <= W + 1) good(label);
     }
 
+    /* [v17.8.0] 최근 검색 한 줄 레일 + 종목 미리보기 패널을 실제 좁은 폭에서 별도 확인 */
+    const quickUi = await pg.evaluate((W) => {
+      document.querySelectorAll('[id^="view-"]').forEach(e => e.hidden = e.id !== 'view-search');
+      const hist = document.getElementById('srchHist');
+      if (hist) {
+        hist.hidden = false;
+        hist.innerHTML = '<div class="sh-head"><span>최근 검색</span><button>전체 삭제</button></div><div class="sh-chips">' +
+          Array.from({length:14}, (_,i) => '<span class="sh-chip"><i class="sh-ic">🔍</i><b>테스트 종목 이름 ' + (i+1) + ' 반도체</b><i class="sh-x">✕</i></span>').join('') +
+          '</div>';
+      }
+      const rail = hist && hist.querySelector('.sh-chips');
+      let railState = null;
+      if (rail) {
+        const cs = getComputedStyle(rail);
+        rail.scrollLeft = 90;
+        railState = { wrap: cs.flexWrap, overflowX: cs.overflowX, width: rail.clientWidth,
+          content: rail.scrollWidth, canScroll: rail.scrollLeft > 0 };
+      }
+      const panel = document.getElementById('stockSidePanel');
+      const veil = document.getElementById('stockSideVeil');
+      let panelState = null;
+      if (panel && veil) {
+        const body = document.getElementById('stockSideBody');
+        if (body) body.innerHTML = '<div class="ssp-identity"><div class="ssp-logo">LOGO</div><div class="ssp-name-wrap"><div class="ssp-name">삼성전자</div><div class="ssp-meta"><span>005930</span><span>·</span><span>KOSPI</span><span class="ssp-badge nxt">NXT 가능</span></div></div></div>' +
+          '<div class="ssp-price-block"><div class="ssp-price num up">223,500</div><div class="ssp-change up">▲ 12,000원 <span>+5.67%</span></div><div class="ssp-chart"><div class="ssp-chart-empty">실시간 시세 흐름</div></div></div>' +
+          '<div class="ssp-stats">' + Array.from({length:6},(_,i)=>'<div class="ssp-stat"><span>지표 ' + (i+1) + '</span><b>223,500</b></div>').join('') + '</div>';
+        panel.hidden = false; veil.hidden = false;
+        panel.classList.add('open'); veil.classList.add('open');
+        const r = panel.getBoundingClientRect();
+        const buttons = [...panel.querySelectorAll('.stock-side-actions button')].map(b => {
+          const x = b.getBoundingClientRect(); return {left:x.left,right:x.right,top:x.top,bottom:x.bottom,height:x.height};
+        });
+        panelState = { left:r.left, right:r.right, width:r.width, top:r.top, bottom:r.bottom,
+          buttons, withinViewport:r.left >= -1 && r.right <= W+1 && r.top >= -1 && r.bottom <= innerHeight+1,
+          buttonsWithin:buttons.every(b=>b.left>=-1 && b.right<=W+1 && b.height>=44 && b.bottom<=innerHeight+1) };
+        panel.classList.remove('open'); panel.hidden = true;
+        veil.classList.remove('open'); veil.hidden = true;
+        if (body) body.innerHTML = '';
+      }
+      if (hist) { hist.hidden = true; hist.innerHTML = ''; }
+      document.body.classList.remove('stock-side-open');
+      return {railState,panelState,docW:document.documentElement.scrollWidth};
+    }, W);
+    if (!quickUi.railState || quickUi.railState.wrap !== 'nowrap' || !['auto','scroll'].includes(quickUi.railState.overflowX) || !quickUi.railState.canScroll)
+      bad('최근 검색 · 한 줄 가로 스크롤 동작 실패 ' + JSON.stringify(quickUi.railState));
+    else good('최근 검색 · 한 줄 가로 스크롤');
+    if (!quickUi.panelState || !quickUi.panelState.withinViewport || !quickUi.panelState.buttonsWithin)
+      bad('종목 미리보기 패널 · 폭/하단 버튼 화면 밖 또는 터치 영역 부족 ' + JSON.stringify(quickUi.panelState));
+    else good('종목 미리보기 패널 · 화면 안쪽 배치/하단 버튼 터치 영역');
+    if (quickUi.docW > W + 1) bad('종목 미리보기·검색 QA 중 문서 폭 ' + quickUi.docW + 'px > 화면 ' + W + 'px');
+
     /* 창(모달)이 하단 탭바 위에 있는가 — 설정·프로필 창이 잘리던 결함의 재발 감시 */
     const z = await pg.evaluate(() => {
       const tb = document.querySelector('.tabbar');
