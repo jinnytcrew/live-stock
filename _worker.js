@@ -486,10 +486,10 @@ var NXT_UNIVERSE;
 var init_nxt_universe = __esm({
   "data/nxt-universe.js"() {
     NXT_UNIVERSE = {
-      "asOf": "2026-07-01",
-      "quarter": "2026Q3",
+      "asOf": "2026-10-01",
+      "quarter": "2026Q4",
       "official": true,
-      "counts": { "total": 610, "KOSPI": 338, "KOSDAQ": 272 },
+      "counts": { "total": 605, "KOSPI": 335, "KOSDAQ": 270 },
       "codes": {
         "282330": "KOSPI",
         "138930": "KOSPI",
@@ -613,9 +613,7 @@ var init_nxt_universe = __esm({
         "084010": "KOSPI",
         "001130": "KOSPI",
         "439260": "KOSPI",
-        "475560": "KOSPI",
         "192080": "KOSPI",
-        "012510": "KOSPI",
         "145720": "KOSPI",
         "460860": "KOSPI",
         "026960": "KOSPI",
@@ -824,7 +822,6 @@ var init_nxt_universe = __esm({
         "001500": "KOSPI",
         "011760": "KOSPI",
         "001450": "KOSPI",
-        "057050": "KOSPI",
         "008770": "KOSPI",
         "004800": "KOSPI",
         "298040": "KOSPI",
@@ -963,7 +960,6 @@ var init_nxt_universe = __esm({
         "056190": "KOSDAQ",
         "0008Z0": "KOSDAQ",
         "041510": "KOSDAQ",
-        "488280": "KOSDAQ",
         "039440": "KOSDAQ",
         "237690": "KOSDAQ",
         "058610": "KOSDAQ",
@@ -1062,7 +1058,6 @@ var init_nxt_universe = __esm({
         "340570": "KOSDAQ",
         "131290": "KOSDAQ",
         "425420": "KOSDAQ",
-        "484810": "KOSDAQ",
         "356860": "KOSDAQ",
         "214450": "KOSDAQ",
         "441270": "KOSDAQ",
@@ -1225,9 +1220,7 @@ var init_nxt_universe = __esm({
         "084010": "\uB300\uD55C\uC81C\uAC15",
         "001130": "\uB300\uD55C\uC81C\uBD84",
         "439260": "\uB300\uD55C\uC870\uC120",
-        "475560": "\uB354\uBCF8\uCF54\uB9AC\uC544",
         "192080": "\uB354\uBE14\uC720\uAC8C\uC784\uC988",
-        "012510": "\uB354\uC874\uBE44\uC988\uC628",
         "145720": "\uB374\uD2F0\uC6C0",
         "460860": "\uB3D9\uAD6D\uC81C\uAC15",
         "026960": "\uB3D9\uC11C",
@@ -1436,7 +1429,6 @@ var init_nxt_universe = __esm({
         "001500": "\uD604\uB300\uCC28\uC99D\uAD8C",
         "011760": "\uD604\uB300\uCF54\uD37C\uB808\uC774\uC158",
         "001450": "\uD604\uB300\uD574\uC0C1",
-        "057050": "\uD604\uB300\uD648\uC1FC\uD551",
         "008770": "\uD638\uD154\uC2E0\uB77C",
         "004800": "\uD6A8\uC131",
         "298040": "\uD6A8\uC131\uC911\uACF5\uC5C5",
@@ -1575,7 +1567,6 @@ var init_nxt_universe = __esm({
         "056190": "\uC5D0\uC2A4\uC5D0\uD504\uC5D0\uC774",
         "0008Z0": "\uC5D0\uC2A4\uC5D4\uC2DC\uC2A4",
         "041510": "\uC5D0\uC2A4\uC5E0",
-        "488280": "\uC5D0\uC2A4\uD22C\uB354\uBE14\uC720",
         "039440": "\uC5D0\uC2A4\uD2F0\uC544\uC774",
         "237690": "\uC5D0\uC2A4\uD2F0\uD31C",
         "058610": "\uC5D0\uC2A4\uD53C\uC9C0",
@@ -1674,7 +1665,6 @@ var init_nxt_universe = __esm({
         "340570": "\uD2F0\uC564\uC5D8",
         "131290": "\uD2F0\uC5D0\uC2A4\uC774",
         "425420": "\uD2F0\uC5D0\uD504\uC774",
-        "484810": "\uD2F0\uC5D1\uC2A4\uC54C\uB85C\uBCF4\uD2F1\uC2A4",
         "356860": "\uD2F0\uC5D8\uBE44",
         "214450": "\uD30C\uB9C8\uB9AC\uC11C\uCE58",
         "441270": "\uD30C\uC778\uC5E0\uD14D",
@@ -1955,7 +1945,13 @@ var init_nxt_exclusions = __esm({
       { name: "\uC6D0\uD14D", code: "336570", market: "KOSDAQ", from: "2026-07-01" },
       { name: "\uC81C\uC774\uC564\uD2F0\uC528", code: "204270", market: "KOSDAQ", from: "2026-07-01" },
       { name: "\uCE74\uCE74\uC624\uAC8C\uC784\uC988", code: "293490", market: "KOSDAQ", from: "2026-07-01" },
-      { name: "\uD604\uB300\uBB34\uBCA1\uC2A4", code: "319400", market: "KOSDAQ", from: "2026-07-01" }
+      { name: "\uD604\uB300\uBB34\uBCA1\uC2A4", code: "319400", market: "KOSDAQ", from: "2026-07-01" },
+      /* ── 2026년 3분기 중 수시 편출 (넥스트레이드 '매매체결종목 변동내역' 기준) ── */
+      { name: "\uB354\uC874\uBE44\uC988\uC628", code: "012510", market: "KOSPI", from: "2026-07-15", reason: "\uC0C1\uC7A5\uD3D0\uC9C0" },
+      { name: "\uD604\uB300\uD648\uC1FC\uD551", code: "057050", market: "KOSPI", from: "2026-07-20", reason: "\uC0C1\uC7A5\uD3D0\uC9C0" },
+      { name: "\uB354\uBCF8\uCF54\uB9AC\uC544", code: "475560", market: "KOSPI", from: "2026-08-26", reason: "\uC2DC\uC7A5\uAD00\uB9AC" },
+      { name: "\uD2F0\uC5D1\uC2A4\uC54C\uB85C\uBCF4\uD2F1\uC2A4", code: "484810", market: "KOSDAQ", from: "2026-08-26", reason: "\uC2DC\uC7A5\uAD00\uB9AC" },
+      { name: "\uC5D0\uC2A4\uD22C\uB354\uBE14\uC720", code: "488280", market: "KOSDAQ", from: "2026-09-30", reason: "\uC2DC\uC7A5\uAD00\uB9AC" }
     ].map((e) => ({
       ...e,
       until: e.until || null,
@@ -1973,6 +1969,11 @@ var init_nxt_exclusions = __esm({
       ],
       // 2026-07-01 정기 변경으로 제외가 확인된 종목
       mustExclude: [
+        { code: "012510", name: "\uB354\uC874\uBE44\uC988\uC628" },
+        { code: "057050", name: "\uD604\uB300\uD648\uC1FC\uD551" },
+        { code: "475560", name: "\uB354\uBCF8\uCF54\uB9AC\uC544" },
+        { code: "484810", name: "\uD2F0\uC5D1\uC2A4\uC54C\uB85C\uBCF4\uD2F1\uC2A4" },
+        { code: "488280", name: "\uC5D0\uC2A4\uD22C\uB354\uBE14\uC720" },
         { code: "240810", name: "\uC6D0\uC775IPS" },
         { code: "035720", name: "\uCE74\uCE74\uC624" },
         { code: "003490", name: "\uB300\uD55C\uD56D\uACF5" },
@@ -1980,9 +1981,9 @@ var init_nxt_exclusions = __esm({
         { code: "319400", name: "\uD604\uB300\uBB34\uBCA1\uC2A4" }
       ],
       // 3분기 공표 기준 610종목 (코스피 338 / 코스닥 272). 여유를 둔 허용 범위.
-      expected: { total: 606, kospi: 335, kosdaq: 271 },
-      // [v17.8] 2026년 4분기 공식 안내(2026-09-21): 정기변경 없이 현재 거래 중인 606종목 유지(코스피 335 / 코스닥 271)
-      q4: { quarter: "2026Q4", asOf: "2026-10-01", total: 606, kospi: 335, kosdaq: 271 },
+      expected: { total: 605, kospi: 335, kosdaq: 270 },
+      // [v17.7.5] 4분기 공식 안내(2026-09-21)는 606종목(코스피 335 / 코스닥 271). 이후 2026-09-30 에스투더블유 편출 → 현재 605종목(코스피 335 / 코스닥 270)
+      q4: { quarter: "2026Q4", asOf: "2026-10-01", total: 605, kospi: 335, kosdaq: 270 },
       countRange: [560, 700]
       // 베이스라인=출범 796 명단, 편출 계층 적용 후 통과하도록 상한 확대
     };
@@ -17204,7 +17205,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.7.4";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.7.5";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -17501,7 +17502,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["NXT 명단 관리자 갱신 '실패: 200' 표시 수정", "NXT 명단 2026년 4분기 공식 개수(606종목) 대조·반영", "NXT 명단 상태에 공식 개수와의 차이 표시", "NXT 명단 대조 중 조회 실패 214종목 발생 수정"]; } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["NXT 명단 2026년 4분기 기준 갱신 (605종목: 코스피 335 / 코스닥 270)", "NXT 편출 종목 반영 — 더존비즈온·현대홈쇼핑·더본코리아·티엑스알로보틱스·에스투더블유", "NXT 명단 관리자 갱신 '실패: 200' 표시 수정"]; } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
