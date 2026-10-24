@@ -31,3 +31,14 @@
   Cache-Control: no-cache, no-store, must-revalidate
   Content-Type: application/javascript; charset=utf-8
   Service-Worker-Allowed: /
+
+# Legacy-compatible aliases. New manifests use versioned filenames to bust stale 404/icon caches.
+/icon-192.png
+  Cache-Control: no-cache, must-revalidate
+  Content-Type: image/png
+/icon-512.png
+  Cache-Control: no-cache, must-revalidate
+  Content-Type: image/png
+/icon-maskable-512.png
+  Cache-Control: no-cache, must-revalidate
+  Content-Type: image/png

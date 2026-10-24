@@ -4058,7 +4058,28 @@ async function fromList(code) {
   });
   return { ok: !!me, n: list.length, me: me ? mk(me) : null, peers: peers.map(mk), peerPool: peerPool.map(mk) };
 }
+/* [v17.8.2] 진단용 JSON 구조 요약. 이전 번들에서 호출부만 남고 정의가 빠져
+   etfAnalysis 응답을 받는 즉시 ReferenceError: shapeOf is not defined 로
+   상세 구성종목 수집 함수 전체가 중단되던 결함을 복구한다. 데이터 값 전체를 로그에
+   노출하지 않고 타입·키만 제한적으로 보여 주며, 순환참조/거대 객체에도 안전하다. */
+function shapeOf(value, depth = 0) {
+  try {
+    if (value === null) return "null";
+    if (Array.isArray(value)) {
+      const first = value.length && depth < 2 ? ";first=" + shapeOf(value[0], depth + 1) : "";
+      return "array:" + value.length + first;
+    }
+    if (typeof value === "object") {
+      const keys = Object.keys(value).slice(0, 18);
+      return "object:" + keys.join(",") + (Object.keys(value).length > keys.length ? ",…" : "");
+    }
+    return typeof value + ":" + String(value).slice(0, 20);
+  } catch (e) {
+    return "shape:error";
+  }
+}
 function pick(obj, keys) {
+  if (!obj || typeof obj !== "object") return null;
   for (const k of keys) if (obj[k] !== void 0 && obj[k] !== null && obj[k] !== "") return obj[k];
   return null;
 }
@@ -4439,6 +4460,307 @@ async function fromPdfApi(code, ms) {
     return { holdings: [], tried: ["pdfapi:err"] };
   }
 }
+/* [v17.8.2] 신형 네이버 ETF 상세 API 복구 경로.
+   구형 item/main HTML은 302/SPA 응답이 오며 PDF 표가 비어 있을 수 있다.
+   이 경우 ETFBase + ETFComponent JSON API를 사용하고, 페이지별 응답을 합산한다.
+   점수/비중 합계가 확인되지 않은 목록은 절대 전체 구성종목이라고 표시하지 않는다. */
+function normalizeEtfCode(v) {
+  let c = String(v || "").trim().toUpperCase().replace(/\.(KS|KQ)$/, "");
+  if (/^A[0-9][0-9A-Z]{5}$/.test(c)) c = c.slice(1);
+  return /^[0-9A-Z]{6}$/.test(c) ? c : "";
+}
+function looseNaverComponentRows(arr) {
+  if (!Array.isArray(arr) || arr.length < 2 || arr.length > 1000) return [];
+  const names = NAME_KEYS.concat(["stockNmKr", "stockNameKr", "itemNameKr", "securityName", "assetNm", "componentNm"]);
+  const codes = CODE_KEYS.concat(["stockShortCode", "issueCode", "itemCd", "stockId", "shortItemCode", "stockCode"]);
+  const weights = WEIGHT_KEYS.concat(["weightPct", "weightRate", "weightValue", "ratioValue", "ratioRate", "compositionRate", "etfWeight", "holdingWeight", "weightingRatio", "compRate", "wgt", "wt"]);
+  const out = [];
+  for (const row of arr) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const nodes = [row, row.stock, row.item, row.component, row.security, row.stockInfo, row.itemInfo].filter(x => x && typeof x === "object");
+    let name = null, code = null, rawWeight = null;
+    for (const node of nodes) {
+      if (name == null) name = pick(node, names);
+      if (code == null) code = pick(node, codes);
+      if (rawWeight == null) rawWeight = pick(node, weights);
+    }
+    name = String(name || "").trim();
+    if (!name || !looksLikeName(name) || /^(그\s*외|그외|기타|others?|other holdings|etc\.?|잔여)$/i.test(name)) continue;
+    let weight = num3(rawWeight);
+    if (weight == null) {
+      for (const node of nodes) {
+        for (const [key, value] of Object.entries(node)) {
+          if (names.includes(key) || codes.includes(key) || SKIP_NUM_KEYS.test(key)) continue;
+          const n = num3(value);
+          if (n != null && n > 0 && n <= 100) { weight = n; break; }
+        }
+        if (weight != null) break;
+      }
+    }
+    if (weight == null || weight <= 0 || weight > 100) continue;
+    code = normalizeEtfCode(code);
+    out.push({ name, code, weight });
+  }
+  const seen = new Set();
+  return out.filter(x => { const key = x.code || x.name; if (seen.has(key)) return false; seen.add(key); return true; });
+}
+function findNaverComponentArrays(root, maxDepth = 7) {
+  const found = [];
+  const walk = (node, path, depth) => {
+    if (!node || depth > maxDepth || found.length > 60) return;
+    if (Array.isArray(node)) {
+      const rows = looseNaverComponentRows(node);
+      const hint = /etf.?component|component|composition|holding|portfolio|constituent|stocklist|stock|items|list|contents|pdf/i.test(path);
+      const codeN = rows.filter(x => /^[0-9A-Z]{6}$/.test(x.code)).length;
+      const ratio = rows.length / Math.max(1, node.length);
+      if (rows.length >= 3 && (hint || ratio >= 0.65)) {
+        found.push({ rows, path, rawLength: node.length, score: (hint ? 1000 : 0) + rows.length * 3 + codeN * 2 - (node.length - rows.length) * 3 });
+      }
+      if (depth < maxDepth - 1) for (let i = 0; i < Math.min(node.length, 12); i++) walk(node[i], path + "[]", depth + 1);
+      return;
+    }
+    if (typeof node === "object") for (const [k, v] of Object.entries(node).slice(0, 70)) walk(v, path ? path + "." + k : k, depth + 1);
+  };
+  walk(root, "root", 0);
+  return found.sort((a, b) => b.score - a.score);
+}
+function findNaverTotalCount(root) {
+  let best = null;
+  const wanted = /^(totalCount|totalCnt|totalElements|totalItems|totalRecords|totalSize|totalNumber|itemTotalCount|componentCount)$/i;
+  const walk = (node, depth) => {
+    if (!node || depth > 5 || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const v of node.slice(0, 10)) walk(v, depth + 1); return; }
+    for (const [k, v] of Object.entries(node).slice(0, 80)) {
+      if (wanted.test(k)) { const n = Number(String(v).replace(/,/g, "")); if (Number.isInteger(n) && n >= 1 && n <= 1200) best = Math.max(best || 0, n); }
+      if (v && typeof v === "object") walk(v, depth + 1);
+    }
+  };
+  walk(root, 0);
+  return best;
+}
+function naverEtfInfo(root) {
+  // ETFBase 응답은 object, result 배열, key/value 메타데이터 등 여러 형태일 수 있다.
+  // 예전 구현은 배열을 만나면 재귀 탐색을 즉시 중단해 실제 데이터가 안쪽 배열에
+  // 들어있는 상품의 지표를 전부 놓쳤다. 배열도 제한된 범위에서 탐색한다.
+  const candidates = [];
+  const walk = (node, depth) => {
+    if (!node || depth > 6 || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const v of node.slice(0, 60)) if (v && typeof v === "object") walk(v, depth + 1);
+      return;
+    }
+    let score = 0;
+    for (const k of ["marketSum", "marketValue", "marketCap", "marketCapitalization", "netAssetValue", "netAssetTotal", "totalAssetAmount", "aum", "nav", "navValue", "threeMonthEarnRate", "threeMonthReturn", "return3m", "totalFeeRatio", "feeRatio", "deviationRate", "baseIndexName", "etfBaseIndex", "listedDate"]) if (node[k] != null) score++;
+    if (score) candidates.push({ node, score });
+    for (const [k, v] of Object.entries(node).slice(0, 70)) if (v && typeof v === "object") walk(v, depth + 1);
+  };
+  walk(root, 0);
+  candidates.sort((a, b) => b.score - a.score);
+  // 상위 블록을 우선하되 NAV·보수·기초지수 등이 하위 sibling 블록으로 나뉜 응답은
+  // 누락되지 않도록 낮은 점수의 객체에서 아직 없는 필드만 보충한다.
+  const b = {};
+  for (const candidate of candidates) for (const [k, v] of Object.entries(candidate.node)) if (b[k] == null && v != null && v !== "") b[k] = v;
+  const info = {};
+  const val = (v) => {
+    if (v && typeof v === "object") return v.raw ?? v.rawValue ?? v.value ?? v.val ?? v.price ?? v.rate ?? v.amount ?? v.text ?? null;
+    return v;
+  };
+  const take = (out, keys) => { for (const k of keys) if (b[k] != null && b[k] !== "") { info[out] = val(b[k]); return k; } return null; };
+  const capKey = take("marketSum", ["marketSum", "marketValue", "marketCap", "marketCapitalization", "netAssetTotal", "totalAssetAmount", "totalNetAssetValue", "aum", "aumValue"]);
+  // 네이버 ETF 목록의 marketSum은 억원 단위지만 일부 상세 필드는 원 단위 금액이다.
+  if (info.marketSum != null && capKey !== "marketSum" && Math.abs(Number(info.marketSum)) >= 1e8) info.marketSum = Number(info.marketSum) / 1e8;
+  take("navDetail", ["nav", "navValue", "netAssetValue", "iNav", "inav", "estimatedNav", "indicatedNav", "baseNav", "navPrice"]);
+  take("m3", ["threeMonthEarnRate", "threeMonthReturn", "return3m", "returnRate3m", "earnRate3m", "m3", "threeMonthRate"]);
+  take("volume", ["quant", "volume", "tradingVolume"]);
+  take("value", ["amount", "amonut", "tradingValue", "tradeValue"]);
+  take("changeRate", ["changeRate", "fluctuationRate", "changePercent"]);
+  take("fee", ["totalFeeRatio", "feeRatio", "expenseRatio", "etfFee", "totalFee", "generalFeeRate"]);
+  take("deviationRate", ["deviationRate", "navDeviationRate", "gapRate", "marketPriceNavDiffRate"]);
+  take("trackingError", ["trackingError", "chaseErrorRate", "trackingErrorRate"]);
+  take("indexName", ["etfBaseIndex", "baseIndexName", "benchmarkName", "underlyingIndexName", "baseIndex", "indexName"]);
+  take("company", ["issuerName", "amcName", "companyName", "managementCompany", "fundCompanyName"]);
+  take("category", ["etfType", "category", "groupName"]);
+  take("listedDate", ["listedDate", "listingDate", "listedAt"]);
+  take("summary", ["etfSummary", "summary", "description"]);
+  // key/value 목록 형태의 메타데이터도 해석한다.
+  const rows = [];
+  const collectRows = (node, depth) => {
+    if (!node || depth > 6 || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const v of node.slice(0, 80)) collectRows(v, depth + 1); return; }
+    if ((node.key != null || node.code != null || node.label != null || node.title != null) && (node.value != null || node.val != null || node.content != null)) rows.push(node);
+    for (const v of Object.values(node).slice(0, 70)) if (v && typeof v === "object") collectRows(v, depth + 1);
+  };
+  collectRows(root, 0);
+  for (const row of rows) {
+    const label = String(row.key ?? row.code ?? row.label ?? row.title ?? "").trim();
+    const raw = val(row.value ?? row.val ?? row.content);
+    if (raw == null || raw === "") continue;
+    if (/시가총액|순자산총액|순자산규모/.test(label) && info.marketSum == null) { const n = num3(raw); if (n != null) info.marketSum = n >= 1e8 ? n / 1e8 : n; }
+    if (/^NAV$|순자산가치|기준가/.test(label) && info.navDetail == null) info.navDetail = num3(raw);
+    if (/3개월.*수익률|수익률.*3개월|3M.*수익률/i.test(label) && info.m3 == null) info.m3 = num3(raw);
+    if (/총보수|보수율/.test(label) && info.fee == null) info.fee = num3(raw);
+    if (/괴리율/.test(label) && info.deviationRate == null) info.deviationRate = num3(raw);
+    if (/추적오차/.test(label) && info.trackingError == null) info.trackingError = num3(raw);
+    if (/기초지수|추종지수/.test(label) && !info.indexName) info.indexName = String(raw);
+    if (/운용사|자산운용/.test(label) && !info.company) info.company = String(raw);
+    if (/상장일|설정일/.test(label) && !info.listedDate) info.listedDate = String(raw);
+  }
+  for (const k of ["marketSum", "navDetail", "m3", "volume", "value", "changeRate", "fee", "deviationRate", "trackingError"]) if (info[k] != null) info[k] = num3(info[k]);
+  return info;
+}
+async function fromNaverETFAPI(code, maxMs = 3600) {
+  const started = Date.now();
+  const remain = () => Math.max(350, maxMs - (Date.now() - started));
+  const PAGE_SIZE = 100;
+  const headers = { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total`, "Accept": "application/json, text/plain, */*" };
+  const tryCode = async (c) => {
+    const baseURL = `https://m.stock.naver.com/api/domestic/detail/${encodeURIComponent(c)}/ETFBase`;
+    const compURL = (start, size) => `https://m.stock.naver.com/api/domestic/detail/${encodeURIComponent(c)}/ETFComponent?startIdx=${start}&pageSize=${size}`;
+    const [baseRes, compRes] = await Promise.allSettled([
+      fetchJson(baseURL, Math.min(1900, remain()), headers),
+      fetchJson(compURL(0, PAGE_SIZE), Math.min(1900, remain()), headers)
+    ]);
+    const base = baseRes.status === "fulfilled" ? baseRes.value : null;
+    const first = compRes.status === "fulfilled" ? compRes.value : null;
+    const candidates = first ? findNaverComponentArrays(first) : [];
+    const firstCandidate = candidates[0] || null;
+    const firstRows = firstCandidate?.rows || [];
+    return { c, base, first, firstRows, candidates, firstRawLength: Number(firstCandidate && firstCandidate.rawLength) || 0, declaredTotal: first ? findNaverTotalCount(first) : null };
+  };
+  try {
+    const initial = await tryCode(code);
+    let attempt = initial;
+    let alt = null;
+    // 네이버 일부 API는 종목 코드 A접두사를 요구한다. 두 주소 중 구성표가 있는 응답을
+    // 선택하되, 첫 응답의 ETFBase 지표는 대체 응답이 비어 있어도 버리지 않는다.
+    if (!initial.firstRows.length && remain() > 1100) {
+      alt = await tryCode("A" + code);
+      if (alt.firstRows.length) attempt = alt;
+    }
+    const info = Object.assign({}, naverEtfInfo(initial.base || {}), naverEtfInfo(initial.first || {}),
+      alt ? naverEtfInfo(alt.base || {}) : {}, alt && alt.firstRows.length ? naverEtfInfo(alt.first || {}) : {});
+    let rows = attempt.firstRows.slice();
+    const firstCount = rows.length;
+    const pageStep = Math.max(1, attempt.firstRawLength || firstCount);
+    let requestedPages = 0, failedPages = 0;
+    if (firstCount && remain() > 500) {
+      const sumFirst = rows.reduce((a, b) => a + b.weight, 0);
+      let morePages = 0;
+      if (attempt.declaredTotal && attempt.declaredTotal > pageStep) morePages = Math.min(11, Math.ceil(attempt.declaredTotal / pageStep) - 1);
+      else if (sumFirst < 99.5) morePages = 5;
+      const pageCount = Math.min(morePages, Math.max(0, Math.floor((remain() - 300) / 230)));
+      const offsets = Array.from({ length: pageCount }, (_, i) => (i + 1) * pageStep);
+      requestedPages = offsets.length;
+      const pages = await Promise.allSettled(offsets.map(start => fetchJson(
+        `https://m.stock.naver.com/api/domestic/detail/${encodeURIComponent(attempt.c)}/ETFComponent?startIdx=${start}&pageSize=${PAGE_SIZE}`,
+        Math.min(1450, remain()), headers
+      )));
+      for (const page of pages) {
+        if (page.status !== "fulfilled" || !page.value) { failedPages++; continue; }
+        const next = findNaverComponentArrays(page.value)[0]?.rows || [];
+        if (next.length) rows.push(...next);
+        else if (attempt.declaredTotal && pageCount) failedPages++;
+      }
+    }
+    const seen = new Set();
+    rows = rows.filter(x => { const key = x.code || x.name; if (!key || seen.has(key)) return false; seen.add(key); return true; });
+    let total = rows.reduce((a, b) => a + b.weight, 0);
+    if (total > 0.5 && total <= 2) { rows.forEach(x => x.weight *= 100); total *= 100; }
+    rows = rows.filter(x => x.weight > 0 && x.weight <= 100).sort((a, b) => b.weight - a.weight).slice(0, 500);
+    total = rows.reduce((a, b) => a + b.weight, 0);
+    const countCovered = attempt.declaredTotal != null && rows.length >= attempt.declaredTotal;
+    const shortFirstPage = attempt.firstRawLength > 0 && attempt.firstRawLength < PAGE_SIZE;
+    // totalCount가 있으면 페이지를 전부 수집했을 때만 완료로 인정한다.
+    // 페이지 일부만 받은 뒤 비중 합계가 우연히 100%에 가까워도 전체 목록이라 단정하지 않는다.
+    const completedPagedByWeight = requestedPages > 0 && failedPages === 0 && total >= 99.5 && !attempt.declaredTotal;
+    const complete = rows.length >= 3 && total >= 99.5 && (countCovered || (!attempt.declaredTotal && shortFirstPage) || completedPagedByWeight);
+    const diag = `mstock-ETFComponent:${rows.length}/${total.toFixed(1)}${attempt.c !== code ? ":Acode" : ""}:pg${requestedPages}/${failedPages}:n${attempt.declaredTotal == null ? "?" : attempt.declaredTotal}`;
+    if (rows.length < 3) return { holdings: [], info, complete: false, expectedCount: attempt.declaredTotal || null, tried: [diag, "mstock-component:empty"] };
+    return { holdings: rows, info, complete, expectedCount: attempt.declaredTotal || null, tried: [diag] };
+  } catch (e) {
+    return { holdings: [], info: {}, complete: false, expectedCount: null, tried: ["mstock-component:err:" + String(e && e.message || e).slice(0, 45)] };
+  }
+}
+
+/* [v17.8.2] 보조 구성종목 공급원.
+   네이버/모바일 상세 API가 일시적으로 빈 응답을 주는 ETF에 한해 토스 공개 웹 API를
+   마지막 데이터 공급원 후보로 확인한다. 반환 목록이 일부(상위 종목 등)일 수 있으므로
+   이 소스는 절대 전체 구성종목으로 표시하지 않는다. '그 외/기타' 묶음은 종목으로
+   오인하지 않고 제외해 합산 비중이 낮으면 부분 데이터로 남긴다. */
+function parseTossRows(arr) {
+  if (!Array.isArray(arr) || arr.length < 3 || arr.length > 250) return null;
+  const nameKeys = NAME_KEYS.concat(["stockNmKr", "displayNameKor", "securityName", "assetNm"]);
+  const weightKeys = WEIGHT_KEYS.concat(["weightPct", "holdingWeight", "compositWeight", "weightValue"]);
+  const codeKeys = CODE_KEYS.concat(["stockShortCode", "issueCode", "itemCd", "stockId"]);
+  const out = [];
+  for (const row of arr) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    let name = pick(row, nameKeys);
+    if (name == null && row.stock && typeof row.stock === "object") name = pick(row.stock, nameKeys);
+    if (name == null && row.item && typeof row.item === "object") name = pick(row.item, nameKeys);
+    name = String(name || "").trim();
+    if (!name || !looksLikeName(name) || /^(그\s*외|기타|그외|others?|other holdings|etc\.?|잔여)$/i.test(name)) continue;
+    let raw = pick(row, weightKeys);
+    if (raw == null && row.stock && typeof row.stock === "object") raw = pick(row.stock, weightKeys);
+    if (raw == null && row.item && typeof row.item === "object") raw = pick(row.item, weightKeys);
+    let weight = num3(raw);
+    if (weight == null) {
+      for (const [key, val] of Object.entries(row)) {
+        if (nameKeys.includes(key) || codeKeys.includes(key) || SKIP_NUM_KEYS.test(key)) continue;
+        const candidate = num3(val);
+        if (candidate != null && candidate > 0 && candidate <= 100) { weight = candidate; break; }
+      }
+    }
+    if (weight == null || weight <= 0 || weight > 100) continue;
+    let code = pick(row, codeKeys);
+    if (code == null && row.stock && typeof row.stock === "object") code = pick(row.stock, codeKeys);
+    if (code == null && row.item && typeof row.item === "object") code = pick(row.item, codeKeys);
+    code = String(code || "").toUpperCase().replace(/\.(KS|KQ)$/, "").replace(/^A(?=[0-9])/, "");
+    out.push({ name, code: /^[0-9A-Z]{6}$/.test(code) ? code : "", weight });
+  }
+  const seen = new Set();
+  const uniq = out.filter((x) => { const k = x.code || x.name; if (seen.has(k)) return false; seen.add(k); return true; });
+  if (uniq.length < 3) return null;
+  let total = uniq.reduce((a, b) => a + b.weight, 0);
+  if (total > 0.5 && total <= 2) { uniq.forEach((x) => x.weight *= 100); total *= 100; }
+  if (total < 8 || total > 120) return null;
+  return uniq.sort((a, b) => b.weight - a.weight).slice(0, 120);
+}
+function findTossCandidates(node, path, out, depth = 0) {
+  if (!node || depth > 7 || out.length > 50) return;
+  if (Array.isArray(node)) {
+    const rows = parseTossRows(node);
+    if (rows) {
+      const total = rows.reduce((a, b) => a + b.weight, 0);
+      const hinted = /composition|holding|portfolio|component|constituent|stock|asset|구성|편입|종목/i.test(path) ? 1000 : 0;
+      out.push({ rows, total, path, score: hinted + Math.min(rows.length, 120) * 2 - Math.abs(100 - total) });
+    }
+    if (depth < 6) for (let i = 0; i < Math.min(node.length, 30); i++) findTossCandidates(node[i], path + "[]", out, depth + 1);
+    return;
+  }
+  if (typeof node === "object") {
+    for (const [key, value] of Object.entries(node).slice(0, 60)) findTossCandidates(value, path ? path + "." + key : key, out, depth + 1);
+  }
+}
+async function fromTossComposition(code, ms = 1800) {
+  const url = `https://wts-info-api.tossinvest.com/api/v2/stock-infos/A${encodeURIComponent(code)}/compositions`;
+  try {
+    const j = await fetchJson(url, ms, {
+      "Accept": "application/json, text/plain, */*",
+      "Origin": "https://www.tossinvest.com",
+      "Referer": "https://www.tossinvest.com/"
+    });
+    if (!j || typeof j !== "object") return { holdings: [], tried: ["toss:empty"] };
+    const candidates = [];
+    findTossCandidates(j, "root", candidates, 0);
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (!best) return { holdings: [], tried: ["toss:no-array:" + shapeOf(j).slice(0, 100)] };
+    return { holdings: best.rows, tried: ["toss:" + best.rows.length + "/" + best.total.toFixed(1) + "%" + (best.path ? "@" + best.path.slice(0, 45) : "")] };
+  } catch (e) {
+    return { holdings: [], tried: ["toss:err:" + String(e && e.message || e).slice(0, 45)] };
+  }
+}
 async function fromDetail(code, maxMs) {
   const T2 = Date.now();
   const left = () => (maxMs || 6500) - (Date.now() - T2);
@@ -4478,6 +4800,11 @@ async function fromDetail(code, maxMs) {
       info.category = info.category || b.etfType || b.category || b.groupName || null;
       info.listedDate = info.listedDate || b.listedDate || b.listingDate || null;
       info.summary = info.summary || b.etfSummary || b.summary || b.description || null;
+      if (info.marketSum == null) info.marketSum = num3(b.marketSum ?? b.marketValue ?? b.marketCap ?? b.netAssetTotal ?? b.totalAssetAmount);
+      if (info.m3 == null) info.m3 = num3(b.threeMonthEarnRate ?? b.threeMonthReturn ?? b.return3m ?? b.m3);
+      if (info.volume == null) info.volume = num3(b.quant ?? b.volume ?? b.tradeVolume);
+      if (info.value == null) info.value = num3(b.amonut ?? b.amount ?? b.tradeValue ?? b.tradingValue);
+      if (info.changeRate == null) info.changeRate = num3(b.changeRate ?? b.fluctuationRate ?? b.changePercent);
       if (info.fee == null) info.fee = num3(b.totalFeeRatio ?? b.feeRatio ?? b.expenseRatio ?? b.fee ?? b.etfFee ?? b.totalFee);
       if (info.navDetail == null) info.navDetail = num3(b.nav ?? b.totalNav);
       if (info.deviationRate == null && b.deviationRate !== void 0) {
@@ -4594,9 +4921,9 @@ var init_etf = __esm({
       return null;
     };
     LIST_CACHE = { at: 0, list: null };
-    NAME_KEYS = ["stockName", "itemName", "name", "stockNameKor", "hname", "issueName", "korSecnNm", "stkNm"];
-    WEIGHT_KEYS = ["weight", "componentRatio", "ratio", "cuRatio", "compstRatio", "compRt", "weightRatio", "portion"];
-    CODE_KEYS = ["itemCode", "stockCode", "code", "cd", "shortCode", "srtnCd"];
+    NAME_KEYS = ["stockName", "itemName", "itemname", "name", "stockNameKor", "stockNm", "hname", "issueName", "korSecnNm", "stkNm", "componentName", "companyName", "korName", "displayName", "assetName", "bondName", "itemNm"];
+    WEIGHT_KEYS = ["weight", "weightPercent", "weightPercentage", "holdingPercent", "holdingRatio", "weighting", "portfolioWeight", "componentRatio", "compositionRatio", "ratioPercent", "ratio", "cuRatio", "compstRatio", "compRt", "weightRatio", "portion", "percentage", "percent", "percentOfPortfolio", "share", "allocation", "holdingRate", "compWeight"];
+    CODE_KEYS = ["itemCode", "itemcode", "stockCode", "stockCd", "ticker", "symbol", "code", "cd", "shortCode", "srtnCd", "issueCode"];
     ETF_BRAND_RE = /^(KODEX|TIGER|SOL|ACE|RISE|PLUS|KBSTAR|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|히어로즈|마이다스|파워)\b/i;
     SKIP_NUM_KEYS = /price|amt|amount|volume|qty|quantity|count|nav|value|sum|cap|date|time|no$|id$|rank|seq|shares|stock_?cnt/i;
     YA_CACHE = { at: 0, v: null };
@@ -4664,6 +4991,7 @@ var init_etf = __esm({
       [/배당|고배당/i, "279530", "\uAD6D\uB0B4 \uBC30\uB2F9\uC8FC"],
       [/ESG|지배구조/i, "069500", "\uCF54\uC2A4\uD53C 200"],
       [/코스피\s*200|K200|200\s*선물|^KODEX\s*레버리지|^KODEX\s*인버스|인버스\s*2X|곱버스/i, "069500", "\uCF54\uC2A4\uD53C 200"],
+      [/^(?:KODEX|TIGER|RISE|ACE|SOL|HANARO|KBSTAR|KOSEF|ARIRANG|PLUS)\s*200(?:\s|$|TR|ESG)/i, "069500", "\uCF54\uC2A4\uD53C 200"],
       [/코스피\s*100/i, "069500", "\uCF54\uC2A4\uD53C 200"],
       [/반도체/i, "091160", "\uAD6D\uB0B4 \uBC18\uB3C4\uCCB4"],
       [/2차전지|배터리/i, "305720", "\uAD6D\uB0B4 2\uCC28\uC804\uC9C0"],
@@ -4701,40 +5029,60 @@ var init_etf = __esm({
         new Promise((res) => setTimeout(() => res(Object.assign({}, fb, { tried: ["timeout"] })), ms))
       ]);
       const T0 = Date.now();
-      const leftMs = () => 8800 - (Date.now() - T0);
-      const [L, H2] = await Promise.all([
+      const leftMs = () => 10800 - (Date.now() - T0);
+      const [L, H2, TOSS, M0] = await Promise.all([
         budget(fromList(code), 6200, { ok: false, n: 0, me: null, peers: [], peerPool: [] }),
-        budget(fromNaverHtml(code, 5200), 5800, { holdings: [], info: {}, tried: ["timeout"] })
+        budget(fromNaverHtml(code, 4400), 4800, { holdings: [], info: {}, tried: ["timeout"] }),
+        budget(fromTossComposition(code, 2100), 2350, { holdings: [], tried: ["toss:timeout"] }),
+        // 구성표뿐 아니라 ETFBase에서 지표를 받아야 하므로 holdings가 이미 있어도 병렬 조회한다.
+        budget(fromNaverETFAPI(code, 3200), 3400, { holdings: [], info: {}, complete: false, expectedCount: null, tried: ["mstock-component:timeout"] })
       ]);
       const D = { info: {}, holdings: [], tried: ["pending"] };
       const Y = { holdings: [], sectors: [], tried: [] };
       if (H2 && H2.info) {
         for (const k of Object.keys(H2.info)) if (H2.info[k] != null && H2.info[k] !== "") D.info[k] = H2.info[k];
       }
+      // 상세 API는 구성표가 있더라도 주요 지표 보강에 사용한다.
+      if (M0 && M0.info) for (const k of Object.keys(M0.info)) if (M0.info[k] != null && M0.info[k] !== "" && (D.info[k] == null || D.info[k] === "")) D.info[k] = M0.info[k];
       let holdings = H2.holdings && H2.holdings.length ? H2.holdings : [];
       let holdSrc = holdings.length ? "naver-html" : "none";
+      let apiHoldingsComplete = false;
       const extra = [];
+      if (M0 && M0.tried) extra.push(...M0.tried.slice(0, 2));
+      if (TOSS && TOSS.tried) extra.push(...TOSS.tried.slice(0, 1));
+      const sumH0 = a => (a || []).reduce((v, h) => v + (Number(h.weight) || 0), 0);
+      const scoreH0 = (a, complete = false) => !a || !a.length ? -1e9 : (complete ? 100000 : 0) + (sumH0(a) >= 99.5 ? 10000 : 0) + a.length * 10 - Math.abs(100 - sumH0(a));
+      const htmlCompleteGuess = holdSrc === "naver-html" && sumH0(holdings) >= 99.5;
+      if (Array.isArray(M0 && M0.holdings) && M0.holdings.length && scoreH0(M0.holdings, M0.complete === true) > scoreH0(holdings, htmlCompleteGuess)) {
+        holdings = M0.holdings;
+        holdSrc = "mstock-api";
+        apiHoldingsComplete = M0.complete === true;
+      }
       let proxyInfo = null, proxySectors = [];
-      if (!holdings.length && leftMs() > 2200) {
-        const P = await budget(fromPdfApi(code, Math.min(2500, leftMs() - 400)), Math.min(2900, leftMs() - 200), { holdings: [], tried: ["pdf:timeout"] });
+      if (!holdings.length && leftMs() > 1700) {
+        const P = await budget(fromPdfApi(code, Math.min(2000, leftMs() - 300)), Math.min(2200, leftMs() - 150), { holdings: [], tried: ["pdf:timeout"] });
         extra.push(...P.tried || []);
         if (P.holdings.length) {
           holdings = P.holdings;
           holdSrc = "pdfapi";
         }
       }
-      if (!holdings.length && leftMs() > 3e3) {
-        const R = await budget(fromDetail(code, Math.min(3600, leftMs() - 500)), Math.min(4e3, leftMs() - 300), { info: {}, holdings: [], tried: ["detail:timeout"] });
-        D.tried = R.tried || [];
-        extra.push(...(R.tried || []).slice(0, 2));
+      if (!holdings.length && leftMs() > 2100) {
+        // 신형 ETFBase/ETFComponent는 초기 병렬 조회에서 이미 확인했다. 여기서는 구형 상세 API만
+        // 재시도해 중복 외부 호출로 인한 Workers 서브요청 한도 소모를 줄인다.
+        const remain = leftMs();
+        const R = await budget(fromDetail(code, Math.min(2400, remain - 250)), Math.min(2600, remain - 150), { info: {}, holdings: [], tried: ["detail:timeout"] });
+        extra.push(...(R.tried || []).slice(0, 3));
         for (const k of Object.keys(R.info || {})) if (R.info[k] != null && R.info[k] !== "" && (D.info[k] == null || D.info[k] === "")) D.info[k] = R.info[k];
-        if (R.holdings && R.holdings.length) {
-          holdings = R.holdings;
-          holdSrc = "mstock";
-        }
+        const rh = Array.isArray(R.holdings) ? R.holdings : [];
+        if (rh.length && scoreH0(rh) > scoreH0(holdings)) { holdings = rh; holdSrc = "mstock"; apiHoldingsComplete = false; }
       }
-      if (!holdings.length && leftMs() > 2500) {
-        const R = await budget(fromYahoo(code), Math.min(3200, leftMs() - 300), { holdings: [], sectors: [], tried: ["yh:timeout"] });
+      if (!holdings.length && TOSS && Array.isArray(TOSS.holdings) && TOSS.holdings.length) {
+        holdings = TOSS.holdings;
+        holdSrc = "toss-partial";
+      }
+      if (!holdings.length && leftMs() > 2100) {
+        const R = await budget(fromYahoo(code), Math.min(2600, leftMs() - 250), { holdings: [], sectors: [], tried: ["yh:timeout"] });
         Y.holdings = R.holdings || [];
         Y.sectors = R.sectors || [];
         Y.tried = R.tried || [];
@@ -4784,8 +5132,8 @@ var init_etf = __esm({
       }
       const assetKind = holdings.length ? null : assetKindOf(L.me ? L.me.name : "");
       const me = L.me;
-      const navLive = D.info.navDetail != null;
-      const nav = navLive ? D.info.navDetail : me && me.nav != null ? me.nav : null;
+      const navLive = Number(D.info.navDetail) > 0;
+      const nav = navLive ? num3(D.info.navDetail) : me && Number(me.nav) > 0 ? num3(me.nav) : null;
       const price = me ? me.price : null;
       let disparity = null, navStale = false, dispSrc = "none";
       if (D.info.deviationRate != null) {
@@ -4805,11 +5153,11 @@ var init_etf = __esm({
         price,
         nav,
         disparity,
-        marketSum: me ? me.marketSum : null,
-        m3: me ? me.m3 : null,
-        volume: me ? me.volume : null,
-        value: me ? me.value : null,
-        changeRate: me ? me.changeRate : null,
+        marketSum: me && Number(me.marketSum) > 0 ? num3(me.marketSum) : Number(D.info.marketSum) > 0 ? num3(D.info.marketSum) : null,
+        m3: me && me.m3 != null && Number.isFinite(Number(me.m3)) ? num3(me.m3) : D.info.m3 != null && Number.isFinite(Number(D.info.m3)) ? num3(D.info.m3) : null,
+        volume: me && me.volume != null ? me.volume : D.info.volume != null ? D.info.volume : null,
+        value: me && me.value != null ? me.value : D.info.value != null ? D.info.value : null,
+        changeRate: me && me.changeRate != null ? me.changeRate : D.info.changeRate != null ? D.info.changeRate : null,
         fee: D.info.fee != null ? D.info.fee : null,
         leverage: leverageOf(name),
         trackingError: D.info.trackingError != null ? D.info.trackingError : null,
@@ -4824,6 +5172,10 @@ var init_etf = __esm({
         listedDate: D.info.listedDate || null
       };
       const similar = (L.peers || []).map((p) => ({ code: p.code, name: p.name, changeRate: p.changeRate, m3: p.m3, marketSum: p.marketSum }));
+      const holdingsTotalWeight = Number(holdings.reduce((a, b) => a + (b.weight || 0), 0).toFixed(2));
+      const fullListSource = ["naver-html", "pdfapi", "mstock"].includes(holdSrc) || (holdSrc === "mstock-api" && apiHoldingsComplete === true);
+      const holdingsComplete = holdings.length > 0 && fullListSource && holdingsTotalWeight >= 99.5;
+      const holdingsCount = proxyInfo ? null : (D.info.holdingsCount != null ? D.info.holdingsCount : (holdingsComplete ? holdings.length : null));
       return new Response(JSON.stringify({
         ok: !!(me || holdings.length),
         code,
@@ -4831,12 +5183,10 @@ var init_etf = __esm({
         metrics,
         info,
         holdings,
-        holdingsTotalWeight: Number(holdings.reduce((a, b) => a + (b.weight || 0), 0).toFixed(2)),
-        // 실제 보유 종목 수: 출처에서 확인된 값이 있으면 그것을, 없고 비중 합이 100%면 목록 길이를 사용.
-        // 확인 불가하면 null(추측 금지 — 화면에서는 'N+' 로 표기)
-        holdingsCount: D.info.holdingsCount != null ? D.info.holdingsCount : holdings.length && holdings.reduce((a, b) => a + (b.weight || 0), 0) >= 99.5 ? holdings.length : null,
-        // 비중 합이 99.5% 미만이면 상위 종목만 받은 것이므로 '전체'라고 표시하면 안 된다.
-        holdingsComplete: holdings.length > 0 && holdings.reduce((a, b) => a + (b.weight || 0), 0) >= 99.5,
+        holdingsTotalWeight,
+        // 전체 목록을 반환하는 것으로 확인된 출처일 때만 '전체 구성종목'으로 표시한다.
+        holdingsCount,
+        holdingsComplete,
         holdingsProxy: proxyInfo,
         holdingsKind: assetKind,
         sectors: Y.sectors && Y.sectors.length ? Y.sectors : proxySectors,
@@ -4844,11 +5194,18 @@ var init_etf = __esm({
         diag: {
           list: L.ok ? "ok(" + L.n + ")" : "miss",
           hold: holdings.length,
+          holdWeight: holdingsTotalWeight,
+          complete: holdingsComplete ? "y" : "n",
           src: holdSrc,
           navStale: navStale ? "y" : "n",
           disp: dispSrc,
+          metricsMissing: [metrics.marketSum == null ? "marketSum" : "", metrics.nav == null ? "nav" : "", metrics.m3 == null ? "m3" : "", metrics.fee == null ? "fee" : ""].filter(Boolean).join(",") || "none",
           html: (H2.tried || []).join(","),
-          extra: extra.join(" | ").slice(0, 200)
+          naverApi: (M0 && M0.tried || []).join(",").slice(0, 130),
+          apiInfo: Object.keys(M0 && M0.info || {}).join(",") || "none",
+          apiComplete: M0 && M0.complete === true ? "y" : "n",
+          apiExpected: M0 && M0.expectedCount != null ? M0.expectedCount : "?",
+          extra: extra.join(" | ").slice(0, 260)
         }
       }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=600" } });
     };
@@ -7263,18 +7620,36 @@ var etfaudit_default = async (req2) => {
       try {
         const res = await etf.default({ url: `https://audit/api/etf?code=${code}` });
         const j2 = JSON.parse(await res.text());
-        const hs = j2.holdings || [];
+        const hs = Array.isArray(j2.holdings) ? j2.holdings : [];
         r.src = j2.diag && j2.diag.src || "none";
+        r.kind = j2.holdingsKind || null;
+        r.complete = j2.holdingsComplete === true;
         r.sum = Number(hs.reduce((a, b) => a + (b.weight || 0), 0).toFixed(1));
+        r.diag = j2.diag || null;
+        const met = j2.metrics || {};
+        const missingKeys = [];
+        if (!(Number(met.marketSum) > 0)) missingKeys.push("marketSum");
+        if (!(Number(met.nav) > 0)) missingKeys.push("nav");
+        // 상장 후 90일 미만 ETF는 3개월 수익률이 없는 것이 정상일 수 있어 결함으로 보지 않는다.
+        const listed = String(j2.info && j2.info.listedDate || "").match(/(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+        const listedAt = listed ? new Date(Number(listed[1]), Number(listed[2]) - 1, Number(listed[3])).getTime() : NaN;
+        const ageDays = Number.isFinite(listedAt) ? (Date.now() - listedAt) / 86400000 : null;
+        if (!(Number(met.m3) === Number(met.m3)) && ageDays != null && ageDays >= 100) missingKeys.push("m3");
+        r.metricsMissingKeys = missingKeys;
+        r.metricsMissing = missingKeys.length > 0;
         const good = hs.filter((h) => looksLikeName2(h.name));
         if (good.length) {
           r.ok = true;
           r.n = good.length;
+          if (!r.complete) r.issue = "partial-holdings";
         } else if (j2.holdingsKind) {
           r.ok = true;
           r.src = "kind:" + j2.holdingsKind;
         } else r.issue = "no-holdings";
-        if (j2.metrics && j2.metrics.marketSum == null) r.issue = (r.issue ? r.issue + "+" : "") + "no-metrics";
+        if (r.metricsMissing) {
+          r.diag = Object.assign({}, r.diag || {}, { metricsMissingKeys: missingKeys.join(",") });
+          if (!r.issue) r.issue = "no-metrics";
+        }
       } catch (e) {
         r.issue = "err:" + String(e.message || e).slice(0, 30);
       }
@@ -7506,8 +7881,11 @@ var etfprobe_default = async (req2) => {
     ["etf_pdf", `https://finance.naver.com/item/etf_pdf.naver?code=${code}`, nRef],
     ["sise-etf-pdf", `https://finance.naver.com/sise/etf_pdf.naver?code=${code}`, nRef],
     ["api-fin-pdf", `https://api.finance.naver.com/service/etfItemPdf.nhn?etfCode=${code}`, nRef],
+    ["m.stock-ETFBase", `https://m.stock.naver.com/api/domestic/detail/${code}/ETFBase`, { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total` }],
+    ["m.stock-ETFComponent", `https://m.stock.naver.com/api/domestic/detail/${code}/ETFComponent?startIdx=0&pageSize=100`, { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total` }],
     ["m.stock-analysis", `https://m.stock.naver.com/api/stock/${code}/etfAnalysis`, { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total` }],
     ["m.stock-integration", `https://m.stock.naver.com/api/stock/${code}/integration`, { "Referer": `https://m.stock.naver.com/domestic/stock/${code}/total` }],
+    ["toss-compositions", `https://wts-info-api.tossinvest.com/api/v2/stock-infos/A${code}/compositions`, { "Origin": "https://www.tossinvest.com", "Referer": "https://www.tossinvest.com/", "Accept": "application/json" }],
     ["yahoo-KS", `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${code}.KS?modules=topHoldings`, { "Referer": "https://finance.yahoo.com/" }]
   ];
   const results = await Promise.all(cands.map(([n, u, h]) => probe(n, u, h)));
@@ -17205,7 +17583,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.3";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -17276,11 +17654,12 @@ var worker_default = {
         lang: "ko-KR", dir: "ltr",
         categories: ["finance", "education"],
         version: APP_VER,
+        prefer_related_applications: false,
         description: "\uC2E4\uC2DC\uAC04 \uC2DC\uC138\uB85C \uC5F0\uC2B5\uD558\uB294 \uAD6D\uB0B4\u00B7\uD574\uC678 \uC8FC\uC2DD \uBAA8\uC758\uD22C\uC790 \u00B7 v" + APP_VER,
         icons: [
-          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-          { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
+          { src: "/icon-192-v17-8-1.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icon-512-v17-8-1.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icon-maskable-512-v17-8-1.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
         ]
       }, null, 2);
       return new Response(body, { headers: {
@@ -17289,11 +17668,29 @@ var worker_default = {
         "access-control-allow-origin": "*"
       } });
     }
-    if (/^\/icon-[\w-]+\.png$/.test(p)
-        || p === "/favicon.png" || p === "/" || p === "/index.html") {
+    if (/^\/icon-[\w-]+\.png$/.test(p) || p === "/favicon.png") {
+      /* 버전별 아이콘이 누락된 배포본에서도 설치 매니페스트가 이미지 404를 내지 않게
+         같은 배포 묶음의 호환용 아이콘으로 폴백한다. 정상 자산은 Cloudflare가 직접 제공한다. */
+      if (!res.ok) {
+        const alias = p.includes("maskable-512") ? "/icon-maskable-512.png"
+          : /icon-512/.test(p) ? "/icon-512.png"
+          : p === "/favicon.png" ? "/icon-192.png" : "/icon-192.png";
+        const fallback = await env.ASSETS.fetch(new Request(new URL(alias, url), request));
+        if (fallback.ok) {
+          const fh = new Headers(fallback.headers);
+          fh.set("cache-control", "no-cache, must-revalidate");
+          fh.set("content-type", "image/png");
+          return new Response(fallback.body, { status: 200, headers: fh });
+        }
+      }
       const h = new Headers(res.headers);
       h.set("cache-control", "no-cache, must-revalidate");
-      if (/\.webmanifest$/.test(p)) h.set("content-type", "application/manifest+json; charset=utf-8");
+      h.set("content-type", "image/png");
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+    }
+    if (p === "/" || p === "/index.html") {
+      const h = new Headers(res.headers);
+      h.set("cache-control", "no-cache, must-revalidate");
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
     }
     return res;
@@ -17502,7 +17899,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["종목 목록 선택 시 우측 미리보기 측면 패널 추가", "측면 패널 하단을 종목 상세·매수/매도 동선으로 재구성", "종목 상세 상단·통계·주문 패널 타이포그래피와 간격 정돈", "모바일 최근 검색 칩을 한 줄 가로 스크롤 레일로 개선"]; } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["PC·태블릿·모바일 차트 레이아웃 전면 재구성", "캔버스 실제 표시 크기 기준으로 캔들·거래량·십자선·툴팁 좌표 보정", "기간·이동평균선·확대 도구 배치를 반응형으로 분리하고 가로 화면 최적화"]; } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

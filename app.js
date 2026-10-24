@@ -1804,8 +1804,9 @@ async function runEtfAudit(){
   let total=0,okN=0,failN=0,doneN=0;
   const fails=[];
   const t0=Date.now();
-  // 1) 전체 개수 파악
-  try{fnBump();const r=await fetch(`/api/etfaudit?from=0&count=1`,{cache:'default'});const j=await r.json();total=j.total||0;}catch(e){}
+  const auditRunId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+  // 실행마다 캐시 키를 바꿔 10분 전의 진단 결과를 최신 점검으로 오인하지 않게 한다.
+  try{fnBump();const r=await fetch(`/api/etfaudit?from=0&count=1&run=${auditRunId}`,{cache:'no-store'});const j=await r.json();total=j.total||0;}catch(e){}
   if(!total){$('eaStat').innerHTML='점검을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.';eaRun=false;$('eaStart').hidden=false;$('eaStop').hidden=true;return;}
   const paint=()=>{
     const pct=Math.min(100,Math.round(doneN/total*100));
@@ -1813,23 +1814,25 @@ async function runEtfAudit(){
     const el=Math.round((Date.now()-t0)/1000);
     const speed=doneN/Math.max(1,el);
     const eta=speed>0?Math.round((total-doneN)/speed):0;
-    const nd=fails.filter(f=>eaBucket(f)==='nodata').length;
-    $('eaStat').innerHTML=`진행 <b>${doneN.toLocaleString()} / ${total.toLocaleString()}</b> (${pct}%) · 정상 <b class="up">${(okN+nd).toLocaleString()}</b> · 확인필요 <b class="down">${(failN-nd).toLocaleString()}</b>
+    const buckets={nodata:[],partial:[],check:[],error:[]};
+    fails.forEach(f=>{buckets[eaBucket(f)].push(f);});
+    const metricMissingN=fails.filter(f=>f.metricsMissing).length;
+    const classified=okN+buckets.nodata.length+buckets.partial.length+buckets.check.length+buckets.error.length;
+    $('eaStat').innerHTML=`진행 <b>${doneN.toLocaleString()} / ${total.toLocaleString()}</b> (${pct}%) · 정상 <b class="up">${okN.toLocaleString()}</b> · 부분조회 <b class="warn">${buckets.partial.length.toLocaleString()}</b> · 확인필요 <b class="down">${buckets.check.length.toLocaleString()}</b>
+      · 구성 미제공 <b>${buckets.nodata.length.toLocaleString()}</b> · 지표 누락 <b class="down">${metricMissingN.toLocaleString()}</b> · 조회 실패 <b class="down">${buckets.error.length.toLocaleString()}</b> · 집계 ${classified===doneN?'일치':'불일치 '+classified+'/'+doneN}
       · 경과 ${Math.floor(el/60)}분 ${el%60}초${doneN<total?` · 남은 시간 약 ${Math.floor(eta/60)}분 ${eta%60}초`:''}`;
     if(fails.length){
-      const buckets={nodata:[],check:[],error:[]};
-      fails.forEach(f=>{buckets[eaBucket(f)].push(f);});
-      const realIssue=buckets.check.length+buckets.error.length;
+      const realIssue=buckets.partial.length+buckets.check.length+buckets.error.length;
       const sum=`<div class="ea-sum">
-        <span class="ea-chip ok">구성 미제공(해외·합성) <b>${buckets.nodata.length}</b></span>
+        <span class="ea-chip ok">구성 미제공(분류됨) <b>${buckets.nodata.length}</b></span>
+        <span class="ea-chip warn">일부만 조회 <b>${buckets.partial.length}</b></span>
         <span class="ea-chip warn">확인필요 <b>${buckets.check.length}</b></span>
         <span class="ea-chip bad">조회 실패 <b>${buckets.error.length}</b></span>
-        <div class="ea-exp">해외자산·합성(스왑)·채권·원자재 ETF는 국내 구성종목이 <b>원래 제공되지 않습니다</b>.
-          정상이며 조치가 필요 없습니다. 실제로 살펴볼 대상은 <b>${realIssue}종</b>입니다.</div></div>`;
+        <div class="ea-exp">전체 결과를 유형별로 분류합니다. 일부 구성종목만 받은 경우 전체 데이터로 취급하지 않습니다. 지표 누락 수치는 구성 문제와 중복될 수 있습니다. 조회 실패·응답 누락은 종목별 기록에 포함됩니다. 확인 대상은 <b>${realIssue}종</b>입니다.</div></div>`;
       const listOf=(arr,label)=>arr.length?`<div class="ea-grp">${label} <b>${arr.length}</b></div>
-        <div class="ea-list">${arr.slice(0,25).map(f=>`<div class="ea-row" data-code="${f.code}"><span>${f.name}</span><i>${eaIssueKo(f.issue)}</i></div>`).join('')}</div>
+        <div class="ea-list">${arr.slice(0,25).map(f=>`<div class="ea-row" data-code="${htmlEsc(f.code||'') }" title="${htmlEsc(JSON.stringify(f.diag||{}).slice(0,300))}"><span>${htmlEsc(f.name||f.code||'종목 확인 불가')}</span><i>${eaIssueKo(f.issue)}${f.src?' · '+htmlEsc(f.src):''}</i></div>`).join('')}</div>
         ${arr.length>25?`<div class="ea-more">외 ${(arr.length-25).toLocaleString()}종</div>`:''}`:'';
-      $('eaFails').innerHTML=sum+listOf(buckets.check,'확인필요')+listOf(buckets.error,'조회 실패')+listOf(buckets.nodata,'구성 미제공(정상)');
+      $('eaFails').innerHTML=sum+listOf(buckets.partial,'부분 조회')+listOf(buckets.check,'확인필요')+listOf(buckets.error,'조회 실패')+listOf(buckets.nodata,'구성 미제공');
       $('eaFails').querySelectorAll('.ea-row').forEach(r=>r.onclick=()=>etfOpen(r.dataset.code));
     }
   };
@@ -1838,11 +1841,35 @@ async function runEtfAudit(){
   const lane=async()=>{
     while(eaRun&&next<total){
       const from=next; next+=BATCH;
-      let j=null;
-      try{fnBump();const r=await fetch(`/api/etfaudit?from=${from}&count=${BATCH}`,{cache:'default'});j=await r.json();}catch(e){}
-      if(!j||!j.ok){doneN=Math.min(total,doneN+BATCH);paint();continue;}
-      (j.results||[]).forEach(x=>{ if(x.ok&&!x.issue)okN++; else {failN++;fails.push(x);} });
-      doneN=Math.min(total,doneN+(j.results||[]).length);
+      let j=null,lastError='';
+      for(let attempt=0;attempt<3;attempt++){
+        try{fnBump();const r=await fetch(`/api/etfaudit?from=${from}&count=${BATCH}&try=${attempt}&run=${auditRunId}`,{cache:'no-store'});j=await r.json();if(j&&j.ok&&Array.isArray(j.results))break;lastError=(j&&j.error)||('HTTP '+r.status);j=null;}
+        catch(e){lastError=String(e&&e.message||e);j=null;}
+        if(attempt<2)await new Promise(rs=>setTimeout(rs,300*(attempt+1)));
+      }
+      const batchItems=(Array.isArray(etfList)?etfList.slice(from,Math.min(total,from+BATCH)):[]);
+      if(!j||!j.ok||!Array.isArray(j.results)){
+        const fallback=batchItems.length?batchItems:Array.from({length:Math.min(BATCH,total-from)},(_,i)=>({code:'',name:'종목 '+(from+i+1)}));
+        fallback.forEach(x=>{failN++;fails.push({code:x.code||'',name:x.name||x.code||'종목 확인 불가',ok:false,issue:'batch-fetch-failed',src:'etfaudit',diag:{error:lastError||'batch request failed',from,count:BATCH}});});
+        doneN=Math.min(total,doneN+fallback.length);paint();continue;
+      }
+      const expected=Math.min(BATCH,total-from);
+      const rows=(j.results||[]).slice(0,expected);
+      const expectedCodes=new Set(batchItems.map(x=>String(x.code||'')).filter(Boolean));
+      const seenCodes=new Set();
+      rows.forEach(x=>{
+        const code=String(x.code||'');
+        // 중복/미확인 코드를 별도 종목 결과로 세지 않는다. 누락 코드는 아래에서 한 번만 기록한다.
+        if(!code||!expectedCodes.has(code)||seenCodes.has(code))return;
+        seenCodes.add(code);
+        if(x.ok&&!x.issue)okN++;else{failN++;fails.push(x);}
+      });
+      // 응답 길이뿐 아니라 실제 코드 집합을 비교해 중복·누락이 있어도 성공으로 셈하지 않는다.
+      const missing=batchItems.filter(x=>{const c=String(x.code||'');return !c||!seenCodes.has(c);});
+      const missingCount=Math.max(expected-seenCodes.size,missing.length);
+      while(missing.length<missingCount)missing.push({code:'',name:`응답 누락 (${from+rows.length+missing.length+1})`});
+      missing.slice(0,missingCount).forEach(x=>{failN++;fails.push({code:x.code||'',name:x.name||x.code||'종목 확인 불가',ok:false,issue:'batch-missing-row',src:'etfaudit',diag:{from,returned:rows.length,requested:expected}});});
+      doneN=Math.min(total,doneN+expected);
       paint();
     }
   };
@@ -1851,32 +1878,24 @@ async function runEtfAudit(){
   if(doneN>=total)$('eaStat').innerHTML+=' · <b>점검 완료</b>';
 }
 function eaIssueKo(k){
-  return ({'no-holdings':'구성종목 없음','no-pdf-table':'구성종목 표 없음','page-empty':'페이지 응답 없음','bad-name':'이름 이상','no-metrics':'지표 없음'}[k])||(String(k||'').startsWith('fetch:')?'조회 실패':k||'기타');
+  return ({'no-holdings':'구성종목 없음','no-pdf-table':'구성종목 표 없음','page-empty':'페이지 응답 없음','bad-name':'이름 이상','no-metrics':'주요 지표 일부 누락','partial-holdings':'일부 구성종목만 확보','batch-fetch-failed':'검사 요청 실패(재시도 후 기록)','batch-missing-row':'응답에 검사 결과 누락','batch-duplicate-row':'응답 중복 검사 결과'}[k])||(String(k||'').startsWith('fetch:')?'조회 실패':k||'기타');
 }
-/* [추가] '구성종목 없음' 74종의 정체 — 대부분 해외자산·합성(스왑)·채권·원자재 ETF다.
-   이런 상품은 국내 구성종목 데이터가 **원래 제공되지 않는다**(운용 방식상 국내 주식을 담지 않음).
-   따라서 '확인필요'가 아니라 '구성 미제공(정상)'으로 분리해야 결과가 정확해진다. */
-const EA_NODATA_RE=new RegExp([
-  // 지역·시장
-  '글로벌','미국','해외','선진','신흥','차이나','중국','홍콩','일본','유럽','독일','인도','베트남','대만','브라질','멕시코','아세안',
-  '나스닥','S&P','러셀','다우','필라델피아','유로스톡스','니케이','항셍','MSCI','FTSE',
-  // 해외 개별종목 테마 (국내 구성종목이 없음)
-  '팔란티어','테슬라','엔비디아','애플','마이크로소프트','아마존','알파벳','구글','메타','브로드컴','버크셔','코인베이스',
-  '비트코인','이더리움','디지털자산','블록체인',
-  // 운용 방식·자산군
-  '합성','\\\\(H\\\\)','TIF','TDF','채권','국채','회사채','단기자금','머니마켓','CD금리','KOFR','금리','통안',
-  '달러','엔화','유로','금현물','은현물','원유','WTI','천연가스','구리','농산물','원자재',
-  '리츠','리얼티','인프라','커버드콜','배당프리미엄','타겟','만기'
-].join('|'),'i');
+/* 이름만 보고 '미국·배당·리츠·인프라·커버드콜' ETF를 구성 미제공으로 뭉뚱그리면
+   실제 주식 구성종목을 담는 상품까지 정상으로 오분류한다. 명백히 주식 구성표가 없는
+   자산 종류만 분류하고, 해외 주식/배당/리츠/테마 ETF는 데이터가 없으면 확인 대상으로 둔다. */
+const EA_NODATA_RE=/(?:금\s*현물|은\s*현물|원유|WTI|천연가스|구리|농산물|원자재|비트코인|이더리움|디지털자산|블록체인|머니마켓|CD\s*금리|KOFR|통안채|국고채|회사채|종합채권|단기채|채권|TDF|TIF|타겟데이트|생애주기|달러선물|엔화선물|통화선물|금리선물)/i;
 function eaBucket(f){
+  if(f.issue==='partial-holdings')return 'partial';
+  if(f.issue==='batch-fetch-failed'||f.issue==='batch-missing-row'||String(f.issue||'').startsWith('fetch:')||f.issue==='page-empty')return 'error';
   const noHold=(f.issue==='no-holdings'||f.issue==='no-pdf-table');
-  if(noHold&&EA_NODATA_RE.test(String(f.name||'')))return 'nodata';   // 정상 · 구성 미제공
-  if(noHold)return 'check';                                            // 국내 ETF인데 없음 → 확인필요
-  return 'error';                                                      // 실제 조회 실패
+  if(noHold&&f.kind)return 'nodata';
+  if(noHold&&EA_NODATA_RE.test(String(f.name||'')))return 'nodata';
+  if(noHold||f.issue==='no-metrics')return 'check';
+  return 'error';
 }
-const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
+const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=333';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=339';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -5677,20 +5696,19 @@ function pingManifest(){
 }
 async function refreshAppIcons(){
   /* ══ [v4.23] 아이콘 자동 갱신 — 가능한 신호를 전부 보낸다 ═══════════════
-     [설계 원칙] 주소는 절대 바꾸지 않는다. 매니페스트도 아이콘도 고정 주소다.
-       · 매니페스트 주소를 바꾸면 Chrome 이 '전에 보던 것'과 비교를 못 한다
-       · 아이콘 파일명을 바꾸면 구버전 참조가 404 → Chrome 이 30일간 확인 중단
-     [대신 이렇게 알린다]
-       ① 매니페스트를 같은 주소로 강제 재수신 → Chrome 이 새 내용을 인지
-       ② 아이콘 3종을 cache:'reload' 로 강제 재수신 → 브라우저 캐시의 그림 교체
-          (Chrome 은 갱신 판정 때 아이콘을 실제로 받아 해시를 비교한다)
-       ③ 매니페스트 안의 version·description 이 배포마다 바뀌므로 내용 자체가 달라진다
-     이 셋이면 Chrome 이 감지하지 못할 경로가 남지 않는다. */
+     [설계 원칙] 매니페스트 URL은 고정하고, 아이콘은 버전별 파일명으로 분리한다.
+       · 매니페스트 주소를 바꾸면 Chrome 이 '전에 보던 매니페스트'와 비교하기 어렵다
+       · 버전별 아이콘 주소는 이전 배포에서 캐시된 404·낡은 이미지를 우회한다
+     [갱신 신호]
+       ① 매니페스트를 같은 주소에서 강제 재수신 → Chrome 이 새 내용을 인지
+       ② 현재 배포의 버전별 아이콘 3종을 cache:'reload' 로 강제 재수신
+       ③ 매니페스트의 version·description 과 아이콘 경로가 배포마다 달라진다
+     실제 설치 아이콘은 매니페스트에 적힌 현재 버전 파일을 브라우저가 다시 받는다. */
   const bust=(u)=>fetch(u,{cache:'reload',credentials:'same-origin'}).catch(()=>{});
   try{ await bust('/manifest.webmanifest'); }catch(e){}
-  try{ await Promise.all(['/icon-192.png','/icon-512.png','/icon-maskable-512.png','/favicon.png'].map(bust)); }catch(e){}
+  try{ await Promise.all(['/icon-192-v17-8-1.png','/icon-512-v17-8-1.png','/icon-maskable-512-v17-8-1.png','/favicon.png'].map(bust)); }catch(e){}
   /* 브라우저 이미지 캐시에 새 그림을 확실히 앉힌다 */
-  try{ await Promise.all(['/icon-192.png','/icon-512.png'].map(u=>new Promise(r=>{
+  try{ await Promise.all(['/icon-192-v17-8-1.png','/icon-512-v17-8-1.png'].map(u=>new Promise(r=>{
     const im=new Image(); im.onload=im.onerror=()=>r(); im.src=u+'#'+Date.now();
   }))); }catch(e){}
   try{ localStorage.setItem('iconSyncAt',String(Date.now())); }catch(e){}
@@ -6026,16 +6044,30 @@ function _todayKey(){return kstDay();}
      · 아이폰/아이패드 : iOS 16.4 이상 + '홈 화면에 추가'로 설치해야만 된다
                         (사파리 탭에서는 애플이 푸시를 허용하지 않는다)
      · 알림 권한을 한 번 '차단'하면 앱에서 다시 물어볼 수 없다 — 브라우저 설정에서 풀어야 한다 */
-var _swReg=null, _pushSub=null;
+var _swReg=null, _pushSub=null, _swMsgBound=false;
+/* PWA 설치 가능성은 푸시 알림을 켰는지와 분리한다.
+   앱 첫 방문 때부터 서비스 워커를 등록해 설치 판정에 필요한 경로를 준비하고,
+   푸시는 권한을 허용한 뒤에만 구독한다. */
+async function pwaRegisterSW(){
+  try{
+    if(!('serviceWorker' in navigator)||!window.isSecureContext)return null;
+    if(!_swReg)_swReg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+    if(!_swMsgBound){
+      /* 알림을 눌러 들어온 경우 해당 종목으로 데려간다 */
+      navigator.serviceWorker.addEventListener('message',(e)=>{
+        const d=e&&e.data; if(!d||d.type!=='push-open')return;
+        try{ if(d.code)openTrade(d.code); else showView('folio'); }catch(err){}
+      });
+      _swMsgBound=true;
+    }
+    return _swReg;
+  }catch(e){ return null; }
+}
 async function pushInit(){
   try{
     if(!('serviceWorker' in navigator)||!('PushManager' in window))return null;
-    _swReg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
-    /* 알림을 눌러 들어온 경우 해당 종목으로 데려간다 */
-    navigator.serviceWorker.addEventListener('message',(e)=>{
-      const d=e&&e.data; if(!d||d.type!=='push-open')return;
-      try{ if(d.code)openTrade(d.code); else showView('folio'); }catch(err){}
-    });
+    _swReg=await pwaRegisterSW();
+    if(!_swReg)return null;
     _pushSub=await _swReg.pushManager.getSubscription();
     if(_pushSub&&currentUser)pushRegister();      // 이미 구독돼 있으면 서버 기록만 갱신
     return _swReg;
@@ -13136,18 +13168,42 @@ function scheduleExchange(){
 /* ===== 투자자별 · 컨센서스 · 재무 ===== */
 const fundCache={};let infoTab='summary',curFund=null,finKind='income',invExpanded=false;
 /* ===== ETF 전용 정보 ===== */
-const etfCache={};let curEtf=null;
-function loadEtf(code){
-  if(etfCache[code]){curEtf=etfCache[code];return Promise.resolve(curEtf);}
-  return fetch('/api/etf?code='+encodeURIComponent(code)).then(r=>r.json()).then(j=>{
-    etfCache[code]=j;if(selected===code)curEtf=j;
+const etfCache={};const etfCacheAt={},etfInFlight={};let curEtf=null;
+function etfNeedsRetry(j){
+  if(!j||j.ok===false||j.diag&&j.diag.err)return true;
+  const m=j.metrics||{}, info=j.info||{};
+  // 핵심지표 누락은 구성종목 유무와 별도로 재조회한다. 비주식형이어도 NAV/시가총액은 확인 대상이다.
+  if(!(Number(m.marketSum)>0)||!(Number(m.nav)>0))return true;
+  const listed=String(info.listedDate||'').match(/(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+  if(m.m3==null&&listed){const at=new Date(+listed[1],+listed[2]-1,+listed[3]).getTime();if(Number.isFinite(at)&&(Date.now()-at)/86400000>=100)return true;}
+  // 파생·채권 등 구성종목이 없는 것이 정상인 상품은 지표를 확인한 뒤 구성표 재시도에서 제외한다.
+  if(j.holdingsKind||j.holdingsProxy)return false;
+  if(j.diag&&/^(?:toss-partial|none)$/.test(String(j.diag.src||'')))return true;
+  if(!(j.holdings&&j.holdings.length))return true;
+  if(j.holdingsComplete!==true&&Number(j.holdingsTotalWeight||0)<99.5)return true;
+  return false;
+}
+function loadEtf(code,force=false){
+  const now=Date.now(), old=etfCache[code];
+  const ttl=old?(etfNeedsRetry(old)?90000:300000):0;
+  if(old&&!force&&now-(etfCacheAt[code]||0)<ttl){curEtf=old;return Promise.resolve(old);}
+  if(etfInFlight[code])return etfInFlight[code];
+  // 재조회는 반드시 URL 캐시 키도 바꾼다. 같은 URL을 no-store로만 요청하면
+  // 중간 CDN/엣지에 남은 실패 응답을 다시 받을 수 있다.
+  const retrying=!!old&&etfNeedsRetry(old);
+  const bypass=force||retrying;
+  const url='/api/etf?code='+encodeURIComponent(code)+'&v='+encodeURIComponent(APP_VERSION)+(bypass?'&refresh='+now:'');
+  etfInFlight[code]=fetch(url,{cache:bypass?'no-store':'default'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(j=>{
+    etfCache[code]=j;etfCacheAt[code]=Date.now();if(selected===code)curEtf=j;
     // 보유 종목 등락률을 함께 보여주기 위해 구성종목 시세를 미리 받아둔다
     const hc=(j&&j.holdings||[]).map(h=>h.code).filter(c=>/^[0-9A-Z]{6}$/.test(c||''));
     if(hc.length){(j&&j.holdings||[]).forEach(h=>{if(/^[0-9A-Z]{6}$/.test(h.code||''))ensureStock(h.code,h.name||'','');});primeQuotes(hc.slice(0,25));}
     if(selected===code&&currentView==='trade'&&(infoTab==='etf'||infoTab==='summary'))renderInfo();
     if(selected===code&&currentView==='trade'&&infoTab==='ai')renderAiStock($('infoBody'),true);
     return j;
-  }).catch(()=>{etfCache[code]={ok:false,metrics:{},info:{},holdings:[],similar:[],diag:{err:'fetch'}};return etfCache[code];});
+  }).catch(e=>{const fallback={ok:false,metrics:old&&old.metrics||{},info:old&&old.info||{},holdings:old&&old.holdings||[],similar:old&&old.similar||[],diag:{err:'fetch:'+String(e&&e.message||e).slice(0,45),src:'none'}};etfCache[code]=fallback;etfCacheAt[code]=Date.now();return fallback;
+  }).finally(()=>{delete etfInFlight[code];});
+  return etfInFlight[code];
 }
 const EN=(v,d=0)=>v==null?'—':Number(v).toLocaleString('ko-KR',{minimumFractionDigits:d,maximumFractionDigits:d});
 const EPCT=(v,d=2)=>v==null?'—':(v>0?'+':'')+Number(v).toFixed(d)+'%';
@@ -13155,6 +13211,16 @@ function eokWon(v){ // 억원 → 조/억 표기
   if(v==null)return '—';
   if(v>=10000){const jo=Math.floor(v/10000),eok=Math.round(v%10000);return `${jo}조${eok?EN(eok)+'억':''}원`;}
   return EN(v)+'억원';
+}
+function etfMetricRecoveryHtml(e){
+  const m=e&&e.metrics||{}, info=e&&e.info||{};
+  const missing=[];
+  if(!(Number(m.marketSum)>0))missing.push('시가총액');
+  if(!(Number(m.nav)>0))missing.push('NAV');
+  const listed=String(info.listedDate||'').match(/(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+  if(m.m3==null&&listed){const at=new Date(+listed[1],+listed[2]-1,+listed[3]).getTime();if(Number.isFinite(at)&&(Date.now()-at)/86400000>=100)missing.push('3개월 수익률');}
+  if(!missing.length||(!(e&&e.holdings||[]).length&&!e.holdingsKind))return '';
+  return `<div class="etf-partial" style="margin:10px 0 14px">주요 지표 ${missing.map(htmlEsc).join(' · ')}를 아직 확인하지 못했습니다. 빈 값으로 확정하지 않고 다른 출처를 다시 조회할 수 있습니다. <button class="etf-more" id="etfMetricRetry" type="button">주요 지표 다시 조회</button></div>`;
 }
 function etfMetricCards(m,diag){
   const navStale=(diag&&diag.navStale==='y')&&!m.navLive;
@@ -13177,9 +13243,9 @@ function etfHoldingsEmpty(kind){
   const m=M[kind];
   if(m)return `<div class="etf-sec-t">보유 종목 비중</div><div class="etf-empty">${m[0]}<br><span>${m[1]}</span></div>`;
   return `<div class="etf-sec-t">보유 종목 비중</div>
-    <div class="etf-empty">구성종목(PDF) 정보를 제공하지 못했습니다.<br>
-    <span>정확하지 않은 값을 표시하지 않기 위해, 구성종목이 확실히 확인될 때만 노출합니다.
-    구성종목은 운용사 공시 자료나 증권사 앱에서 확인하실 수 있습니다.</span></div>`;
+    <div class="etf-empty">아직 검증된 구성종목 데이터를 확보하지 못했습니다.<br>
+    <span>출처 응답을 다시 확인할 수 있습니다. 확인되지 않은 종목명·비중을 임의로 채우지 않습니다.</span>
+    <button class="etf-more" id="etfDataRetry" type="button">구성종목·지표 다시 조회</button></div>`;
 }
 let etfHoldOpen=false;
 function etfHoldingsHtml(list,limit,diag,proxy,kind,complete,totalW,cnt){
@@ -13195,7 +13261,7 @@ function etfHoldingsHtml(list,limit,diag,proxy,kind,complete,totalW,cnt){
   return `<div class="etf-sec-t">보유 종목 비중</div>${pnote}
     <div class="etf-stat2"><div class="etf-stat"><div class="etf-stat-k">보유 종목수</div><div class="etf-stat-v num">${cnt!=null?cnt:(isComplete?list.length:list.length+'+')}</div></div>
       <div class="etf-stat"><div class="etf-stat-k">표시 종목 비중 합계</div><div class="etf-stat-v num">${(totalW!=null?totalW:top10).toFixed(1)}%</div></div></div>
-    ${!isComplete?`<div class="etf-partial">데이터 출처(네이버 금융)가 <b>상위 ${Math.min(list.length,limit)}종목까지만 공개</b>하여 그대로 표시합니다. ${cnt!=null?`나머지 <b>${Math.max(0,cnt-list.length)}종목</b>과 `:''}표시되지 않은 ${Math.max(0,100-(totalW!=null?totalW:top10)).toFixed(1)}%에는 소액 편입분·현금성 자산이 포함되며, <b>운용사 공시(PDF)</b>에서 전체 구성종목을 확인하실 수 있습니다.</div>`:''}
+    ${!isComplete?`<div class="etf-partial">${proxy?'대표 ETF의 구성종목을 대체 표시 중입니다. 실제 편입 종목·비중과 다를 수 있습니다.':(diag&&diag.src==='toss-partial'?'보조 공급원이 공개한 일부 구성종목입니다. 전체 목록이 아니며 합계 비중도 전체를 의미하지 않습니다.':`검증된 공급원이 반환한 ${Math.min(list.length,limit)}종목만 표시합니다.`)} ${cnt!=null?`추가 확인 대상 <b>${Math.max(0,cnt-list.length)}종목</b>. `:''}표시 비중 합계는 ${(totalW!=null?totalW:top10).toFixed(1)}%입니다. 전체 목록 여부가 확인되지 않아 '전체 구성종목'으로 표시하지 않습니다.</div>`:''}
     <div class="etf-hold">${top.map((h,i)=>{
       const st=byCode[h.code];const dir=st&&st.price!=null&&st.prevClose?dirOf(st.price-st.prevClose):'flat';
       const chg=st&&st.price!=null&&st.prevClose?pctS((st.price-st.prevClose)/st.prevClose*100):'';
@@ -13238,7 +13304,7 @@ function renderEtfSummary(el){
   const m=Object.assign({},e.metrics||{});
   if(m.price==null&&s.price!=null)m.price=s.price;
   // ETF 전용 블록(주요지표 · 보유종목 비중 · 포트폴리오 구성 · 유사 ETF)
-  let etfBlocks=`<div class="etf-sec-t">주요 지표</div>`+etfMetricCards(m,e.diag);
+  let etfBlocks=`<div class="etf-sec-t">주요 지표</div>`+etfMetricCards(m,e.diag)+etfMetricRecoveryHtml(e);
   etfBlocks+=etfHoldingsHtml(e.holdings,10,e.diag,e.holdingsProxy,e.holdingsKind,e.holdingsComplete,e.holdingsTotalWeight,e.holdingsCount);
   etfBlocks+=etfPortfolioHtml(e.holdings,e.sectors);
   etfBlocks+=etfSimilarHtml(e.similar);
@@ -13253,9 +13319,12 @@ function renderEtfSummary(el){
     const nm=(((curEtf&&curEtf.similar)||[]).find(x=>x.code===c)||{}).name||r.dataset.name||'';
     ensureStock(c,nm,'','ETF');openTrade(c);});
   bindEtfMore(el);
-  if(e.diag)el.insertAdjacentHTML('beforeend',`<div style="margin-top:14px;font-size:10px;color:#b3bcca;word-break:break-all">진단 ETF ${Object.entries(e.diag).map(([k,v])=>k+':'+v).join(' · ')}</div>`);
+  if(e.diag)el.insertAdjacentHTML('beforeend',`<details class="etf-diag" style="margin-top:14px;font-size:10px;color:#8b95a5;word-break:break-all"><summary>데이터 출처 진단 · ${htmlEsc(String(e.diag.src||'none'))} · ${Number(e.diag.hold||0)}종 확보</summary><div style="padding-top:6px">${Object.entries(e.diag).map(([k,v])=>htmlEsc(k+':'+v)).join(' · ')}</div></details>`);
 }
-function bindEtfMore(el){const b=el.querySelector('#etfMore');if(b)b.onclick=()=>{etfHoldOpen=!etfHoldOpen;renderInfo();};}
+function bindEtfMore(el){
+  const b=el.querySelector('#etfMore');if(b)b.onclick=()=>{etfHoldOpen=!etfHoldOpen;renderInfo();};
+  const retry=el.querySelector('#etfDataRetry,#etfMetricRetry');if(retry)retry.onclick=async()=>{retry.disabled=true;retry.textContent='출처 재확인 중…';await loadEtf(selected,true);if(selected){curEtf=etfCache[selected]||curEtf;renderInfo();}};
+}
 function renderEtfInfo(el){
   const e=curEtf;
   if(!e){el.innerHTML='<div class="empty">ETF 정보 불러오는 중…</div>';return;}
@@ -13268,6 +13337,7 @@ function renderEtfInfo(el){
     ['시가총액',eokWon(m.marketSum)],['3개월 수익률',m.m3==null?'—':EPCT(m.m3)],['당일 등락률',m.changeRate==null?'—':EPCT(m.changeRate)]];
   let html=`<div class="etf-sec-t">기본 정보</div><div class="etf-kv">${rows.map(([k,v])=>`<div class="etf-kv-r"><span>${k}</span><b class="num">${v}</b></div>`).join('')}</div>`;
   html+=`<div class="etf-sec-t">거래 정보</div><div class="etf-kv">${tr.map(([k,v])=>`<div class="etf-kv-r"><span>${k}</span><b class="num">${v}</b></div>`).join('')}</div>`;
+  html+=etfMetricRecoveryHtml(e);
   html+=etfHoldingsHtml(e.holdings,10,e.diag,e.holdingsProxy,e.holdingsKind,e.holdingsComplete,e.holdingsTotalWeight,e.holdingsCount).replace('보유 종목 비중','포트폴리오 구성종목');
   html+=etfPortfolioHtml(e.holdings,e.sectors);
   html+=etfSimilarHtml(e.similar);
@@ -13276,7 +13346,7 @@ function renderEtfInfo(el){
     const nm=(((curEtf&&curEtf.similar)||[]).find(x=>x.code===c)||{}).name||r.dataset.name||'';
     ensureStock(c,nm,'','ETF');openTrade(c);});
   bindEtfMore(el);
-  if(e.diag)el.insertAdjacentHTML('beforeend',`<div style="margin-top:14px;font-size:10px;color:#b3bcca;word-break:break-all">진단 ETF ${Object.entries(e.diag).map(([k,v])=>k+':'+v).join(' · ')}</div>`);
+  if(e.diag)el.insertAdjacentHTML('beforeend',`<details class="etf-diag" style="margin-top:14px;font-size:10px;color:#8b95a5;word-break:break-all"><summary>데이터 출처 진단 · ${htmlEsc(String(e.diag.src||'none'))} · ${Number(e.diag.hold||0)}종 확보</summary><div style="padding-top:6px">${Object.entries(e.diag).map(([k,v])=>htmlEsc(k+':'+v)).join(' · ')}</div></details>`);
 }
 const eok=(v)=>{const n=Number(v);if(isNaN(n))return v??'—';const a=Math.abs(n);if(a>=1e8)return(n/1e8).toLocaleString('ko-KR',{maximumFractionDigits:1})+'억';if(a>=1e4)return Math.round(n).toLocaleString('ko-KR');return n.toLocaleString('ko-KR');};
 const sgn=(v)=>{const n=Number(v);if(isNaN(n))return'flat';return n>0?'up':n<0?'down':'flat';};
@@ -13332,7 +13402,7 @@ function renderInfo(){
   if(infoTab==='ai'){renderAiStock(el);return;}
   const etfMode=isFundLike(selected);
   if(etfMode){
-    if(!etfCache[selected])loadEtf(selected); else curEtf=etfCache[selected];
+    if(!etfCache[selected]||Date.now()-(etfCacheAt[selected]||0)>(etfNeedsRetry(etfCache[selected])?25000:300000))loadEtf(selected); else curEtf=etfCache[selected];
     if(infoTab==='etf'){renderEtfInfo(el);return;}
     if(infoTab==='summary'){renderEtfSummary(el);return;}
   }
@@ -16955,9 +17025,13 @@ function drawChart(){
      이 차트 카드를 해외 정보 패널로 옮겨 놓으므로, 화면 제약만 풀어 주면 된다. */
   if(currentView!=='trade'&&currentView!=='ustrade')return;
   const _cc=$('chartCard');if(_cc&&_cc.hidden)return;
-  const dpr=window.devicePixelRatio||1,box=canvas.parentElement.getBoundingClientRect();
-  if(box.width===0)return;
-  canvas.width=box.width*dpr;canvas.height=box.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+  /* [v17.8.3] 캔버스의 실제 표시 영역만 기준으로 렌더링한다.
+     chart-box 안에는 가격·MA·매물대 라벨 밴드도 있으므로 부모 크기를 쓰면
+     내부 캔버스보다 큰 좌표계로 그려 세로 비율과 포인터 좌표가 틀어진다. */
+  const dpr=window.devicePixelRatio||1,box=canvas.getBoundingClientRect();
+  if(box.width<10||box.height<80)return;
+  canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
   const W=box.width,H=box.height;ctx.clearRect(0,0,W,H);
   if(chartTf==='D'&&currentView==='trade')curCandles=mergeTodayLive(curCandles,selected);   /* [v15.4.7] 진행 봉 라이브 */
   const cs=curCandles;
@@ -16965,7 +17039,7 @@ function drawChart(){
   const padR=58,padL=6,padT=18,plotW=W-padL-padR;   /* [v15.6] 상단 숨통 — 라벨·봉 충돌 방지 */
   /* [v15.0.1] 거래량 영역이 전체의 22%뿐이라 실폰(높이 340px)에서는 40px 남짓 —
      막대가 짜부라져 '이상한 그림'이 됐다(첨부 7). 가격 60% / 거래량 27%로 재배분. */
-  const priceH=(H-24)*0.60,volTop=priceH+padT+16,volH=(H-24)*0.27;
+  const priceH=(H-30)*0.64,volTop=priceH+padT+14,volH=(H-30)*0.24;
   const n=cs.length;
   let count=Math.max(8,Math.min(view.count,n));
   let end=view.follow?n-1:Math.min(view.end,n-1);if(end<0)end=n-1;
@@ -17236,19 +17310,50 @@ function drawChart(){
         <div class="r"><span>대비</span><span class="${cc}">${signed(chg)} (${pctS(cp)})</span></div>
         <div class="r"><span>거래량</span><span>${KRW(c.v)}</span></div>`;
       tip.hidden=false;
-      const bw2=box.width;let tx=x+12;if(tx>bw2-150)tx=x-142;
-      tip.style.left=Math.max(4,tx)+'px';tip.style.top=(padT+6)+'px';
+      /* 툴팁은 chart-box에 배치되므로 캔버스의 부모 기준 오프셋을 더한다. */
+      const hostBox=canvas.parentElement.getBoundingClientRect();
+      const ox=box.left-hostBox.left,oy=box.top-hostBox.top;
+      const tipW=tip.offsetWidth||150;
+      let tx=ox+x+12;
+      if(tx>hostBox.width-tipW-8)tx=ox+x-tipW-10;
+      tip.style.left=Math.max(6,Math.min(hostBox.width-tipW-6,tx))+'px';
+      tip.style.top=Math.max(8,oy+padT+6)+'px';
     }
   } else { $('chartTip').hidden=true; }
 }
 /* 확대/축소·이동 */
 function effEnd(){return view.follow?curCandles.length-1:Math.min(view.end,curCandles.length-1);}
 let drag=null,pinch=null;
-canvas.addEventListener('pointerdown',e=>{if(pinch)return;drag={x:e.clientX,end:effEnd()};try{canvas.setPointerCapture(e.pointerId);}catch{}});
-canvas.addEventListener('pointermove',e=>{if(!drag||pinch)return;const box=canvas.parentElement.getBoundingClientRect();const plotW=box.width-64;const count=Math.max(8,Math.min(view.count,curCandles.length));const barW=plotW/count;const dBars=Math.round((e.clientX-drag.x)/barW);let ne=clamp(drag.end-dBars,Math.min(count-1,curCandles.length-1),curCandles.length-1);view.end=ne;view.follow=(ne>=curCandles.length-1);drawChart();});
-canvas.addEventListener('pointermove',e=>{if(drag||pinch||e.pointerType==='touch')return;const box=canvas.parentElement.getBoundingClientRect();hoverGX=e.clientX-box.left;hoverGY=e.clientY-box.top;drawChart();});
-canvas.addEventListener('pointerleave',()=>{hoverGX=null;hoverGY=null;$('chartTip').hidden=true;drawChart();});
-canvas.addEventListener('pointerup',()=>{drag=null;});
+canvas.addEventListener('pointerdown',e=>{
+  if(pinch)return;
+  drag={x:e.clientX,y:e.clientY,end:effEnd(),moved:false,pointerType:e.pointerType};
+  if(e.pointerType==='touch'){hoverGX=null;hoverGY=null;$('chartTip').hidden=true;}
+  try{canvas.setPointerCapture(e.pointerId);}catch{}
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!drag||pinch)return;
+  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+  if(drag.pointerType==='touch'&&!drag.moved&&Math.abs(dx)<4&&Math.abs(dy)<4)return;
+  if(Math.abs(dx)>=4||Math.abs(dy)>=4)drag.moved=true;
+  if(drag.pointerType==='touch'&&!drag.moved)return;
+  const box=canvas.getBoundingClientRect(),plotW=box.width-64;
+  const count=Math.max(8,Math.min(view.count,curCandles.length));
+  const barW=plotW/count,dBars=Math.round(dx/barW);
+  let ne=clamp(drag.end-dBars,Math.min(count-1,curCandles.length-1),curCandles.length-1);
+  view.end=ne;view.follow=(ne>=curCandles.length-1);drawChart();
+});
+canvas.addEventListener('pointermove',e=>{if(drag||pinch||e.pointerType==='touch')return;const box=canvas.getBoundingClientRect();hoverGX=e.clientX-box.left;hoverGY=e.clientY-box.top;drawChart();});
+canvas.addEventListener('pointerleave',e=>{if(e.pointerType==='touch')return;hoverGX=null;hoverGY=null;$('chartTip').hidden=true;drawChart();});
+canvas.addEventListener('pointerup',e=>{
+  /* [v17.8.3] 모바일은 hover가 없으므로 짧은 탭을 값 확인으로 사용한다.
+     손가락 드래그는 기존처럼 봉 이동, 두 손가락은 확대/축소로 유지한다. */
+  if(drag&&drag.pointerType==='touch'&&!drag.moved){
+    const box=canvas.getBoundingClientRect();
+    hoverGX=clamp(e.clientX-box.left,0,box.width);hoverGY=clamp(e.clientY-box.top,0,box.height);
+    drawChart();
+  }
+  drag=null;
+});
 canvas.addEventListener('pointercancel',()=>{drag=null;});
 canvas.addEventListener('wheel',e=>{e.preventDefault();view.follow=false;view.end=effEnd();const f=e.deltaY>0?1.2:0.82;view.count=Math.round(clamp(view.count*f,8,curCandles.length||8));drawChart();},{passive:false});
 const tdist=(e)=>{const a=e.touches[0],b=e.touches[1];return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);};
@@ -18042,6 +18147,8 @@ function __bootMain(){
   try{window.__boot&&__boot.step(6);}catch(e){}
   if(currentUser)
     requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__boot&&__boot.done();}catch(e){}}));
+  /* 설치 호환성: 로그인/푸시 설정 이전에 서비스 워커를 먼저 등록한다. 실패해도 앱 사용은 계속된다. */
+  setTimeout(()=>{try{pwaRegisterSW().catch(()=>{});}catch(e){}},250);
   setTimeout(()=>{try{pingManifest();autoIconSync();}catch(e){}},4000);   // [v4.23] 아이콘 자동 동기화
 }
 

@@ -22,11 +22,11 @@
 <meta name="format-detection" content="telephone=no">
 <title>LIVE증권 · 실시간 주식</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
-<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
-<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
-<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=332">
-<link rel="apple-touch-icon" href="/icon-192.png">
-<link rel="stylesheet" href="/app.css?v=668">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512-v17-8-1.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
+<link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
+<link rel="stylesheet" href="/app.css?v=669">
 </head>
 <body>
 
@@ -1387,9 +1387,9 @@ body.needs-auth #authGate{z-index:2000001}
           <div class="ma-seg" id="maSeg"></div>
           <div class="zoom"><button class="cc-gear" id="ccGear" title="차트 설정" aria-label="차트 설정">⚙</button><button id="zoomOut" aria-label="줄이기">－</button><button id="zoomIn" aria-label="늘리기">＋</button><button id="zoomReset" title="맨 앞으로" aria-label="새로고침">⟳</button></div>
         </div>
-        <!-- [v10.1] 좁은 화면에서 겹치던 라벨들을 캔버스 바깥 줄(.chart-labels)로 옮긴다.
-     넓은 화면에서는 .chart-labels 가 display:contents 라 예전처럼 차트 위에 겹쳐 뜬다. -->
-<div class="chart-box"><div class="chart-labels"><div class="chart-legend" id="chartLegend"></div><div class="chart-ma" id="chartMa"></div><div class="chart-vplg"><b>매물대</b><span><i class="poc"></i>최대 거래</span><span><i class="cur"></i>현재가 구간</span></div></div><div class="chart-tip" id="chartTip" hidden></div><canvas id="chart"></canvas></div><div class="chart-hint2">드래그 이동 · 휠·핀치 확대축소 · 마우스를 올리면 값 표시</div>
+        <!-- [v17.8.3] 가격 정보·이동평균 값·매물대 범례는 캔버스와 분리된 라벨 밴드에 둔다.
+     화면 폭에 관계없이 라벨은 차트 위를 가리지 않으며, 모바일 탭으로 봉 값을 확인한다. -->
+<div class="chart-box"><div class="chart-labels"><div class="chart-legend" id="chartLegend"></div><div class="chart-ma" id="chartMa"></div><div class="chart-vplg"><b>매물대</b><span><i class="poc"></i>최대 거래</span><span><i class="cur"></i>현재가 구간</span></div></div><div class="chart-tip" id="chartTip" hidden></div><canvas id="chart"></canvas></div><div class="chart-hint2">드래그 이동 · 두 손가락/휠 확대·축소 · 차트를 탭하거나 마우스를 올려 값 확인</div>
       </div></div>
       <div class="info-body" id="infoBody"></div>
     </div>
@@ -1656,6 +1656,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="account"><i>💰</i><span>계좌</span></button>
   <button data-bv="folio"><i>🧭</i><span>포트폴리오</span></button>
 </nav>
-<script type="module" src="/app.js?v=669"></script>
+<script type="module" src="/app.js?v=675"></script>
 </body>
 </html>

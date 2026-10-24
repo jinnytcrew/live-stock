@@ -7,11 +7,23 @@
    캐시(오프라인)는 일부러 건드리지 않는다. 시세 앱에서 낡은 화면을 되살리면
    '어제 값이 오늘 값처럼' 보일 수 있어 오히려 위험하다.
    ══════════════════════════════════════════════════════════════════════════════ */
-const SW_VER = 'v10.21';
+const SW_VER = 'v10.23';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();                 // 새 버전을 바로 쓴다
 });
+/* ── 설치 호환성 + 네트워크 전용 요청 처리 ──────────────────────────────────
+   일부 Chromium 파생 브라우저의 설치 판정이 fetch 이벤트 존재를 확인한다.
+   거래 앱에서 오래된 시세를 되살리지 않도록 캐시는 하지 않고 원 서버로 그대로 전달한다. */
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  let url;
+  try { url = new URL(req.url); } catch (_) { return; }
+  if (url.origin !== self.location.origin) return;
+  event.respondWith(fetch(req));
+});
+
 self.addEventListener('activate', (e) => {
   e.waitUntil(self.clients.claim());  // 이미 열려 있는 탭도 이 워커가 맡는다
 });

@@ -74,3 +74,8 @@ npm i -D playwright && npx playwright install chromium --with-deps
 4. `version-info.js` 와 `_worker.js` 의 `APP_VER` 일치
 5. 새 UI에서는 최근 검색 가로 레일과 종목 미리보기 패널(하단 버튼 포함)도 QA 게이트로 확인
 6. 배포 후 실기에서 `?qa=1` 로 한 번 훑기
+
+
+## PWA 설치 가능성 점검 (Node.js만 필요)
+
+배포 전에 프로젝트 루트에서 `node pwa-install-check.mjs`를 실행하세요. 매니페스트 문법, 필수 192×192/512×512 PNG의 실제 존재·픽셀 크기, maskable 아이콘, Worker/UI 버전 일치, 매니페스트 라우팅을 확인합니다.

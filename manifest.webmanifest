@@ -3,31 +3,31 @@
   "short_name": "LIVE증권",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#7cc0f0",
-  "theme_color": "#7cc0f0",
+  "background_color": "#0d1424",
+  "theme_color": "#0d1424",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "/icon-192-v17-8-1.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/icon-512-v17-8-1.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-maskable-512.png",
+      "src": "/icon-maskable-512-v17-8-1.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }
   ],
   "id": "/",
-  "description": "실시간 시세로 연습하는 국내·해외 주식 모의투자",
-  "version": "9.76.0",
+  "description": "실시간 시세로 연습하는 국내·해외 주식 모의투자 · v17.8.1",
+  "version": "17.8.1",
   "lang": "ko-KR",
   "dir": "ltr",
   "orientation": "any",
@@ -35,5 +35,6 @@
   "categories": [
     "finance",
     "education"
-  ]
+  ],
+  "prefer_related_applications": false
 }
