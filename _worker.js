@@ -1980,7 +1980,9 @@ var init_nxt_exclusions = __esm({
         { code: "319400", name: "\uD604\uB300\uBB34\uBCA1\uC2A4" }
       ],
       // 3분기 공표 기준 610종목 (코스피 338 / 코스닥 272). 여유를 둔 허용 범위.
-      expected: { total: 610, kospi: 338, kosdaq: 272 },
+      expected: { total: 606, kospi: 335, kosdaq: 271 },
+      // [v17.8] 2026년 4분기 공식 안내(2026-09-21): 정기변경 없이 현재 거래 중인 606종목 유지(코스피 335 / 코스닥 271)
+      q4: { quarter: "2026Q4", asOf: "2026-10-01", total: 606, kospi: 335, kosdaq: 271 },
       countRange: [560, 700]
       // 베이스라인=출범 796 명단, 편출 계층 적용 후 통과하도록 상한 확대
     };
@@ -12280,6 +12282,16 @@ var nxtadmin_default = async (req2) => {
   for (const [k, v] of Object.entries(rows)) copy[k] = { ...v };
   const { rows: kept, removed } = applyExclusions(copy);
   const audit = auditList(kept);
+  {
+    const ex = String(new URL(req2.url).searchParams.get("expect") || "").split(",").map((x) => parseInt(x, 10));
+    if (ex.length === 3 && ex.every((x) => x > 0) && (audit.count !== ex[0] || audit.kospi !== ex[1] || audit.kosdaq !== ex[2])) {
+      return json6({
+        ok: false,
+        error: `공식 개수(${ex[0]} / 코스피 ${ex[1]} / 코스닥 ${ex[2]})와 달라 반영하지 않았습니다 — 받은 명단은 ${audit.count} / 코스피 ${audit.kospi} / 코스닥 ${audit.kosdaq}`,
+        감사: audit
+      }, 422);
+    }
+  }
   if (!audit.ok) {
     return json6({
       ok: false,
@@ -12451,6 +12463,7 @@ var nxtlist_default = async (req2) => {
     asOf: r.asOf,
     quarter: r.quarter || NXT_UNIVERSE && NXT_UNIVERSE.quarter || null,
     official: !!(r.official || NXT_UNIVERSE && NXT_UNIVERSE.official),
+    expected: AUDIT.q4,
     source: r.source,
     count: r.count,
     codes: Object.keys(r.codes),
@@ -12555,38 +12568,73 @@ init_store();
 init_nxt_core();
 var base2 = () => envGet("URL") || envGet("DEPLOY_PRIME_URL") || envGet("DEPLOY_URL") || "";
 var nxtrefresh_default = async (req2) => {
-  const run = new URL(req2.url).searchParams.get("run") === "1";
-  let \uAE30\uB3D9 = null;
-  if (run) {
+  const url = new URL(req2.url);
+  const run = url.searchParams.get("run") === "1";
+  const probe = url.searchParams.get("probe") === "1";
+  const J = (body, status = 200) => new Response(JSON.stringify(body, null, 2), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
+  });
+  if (run || probe) {
     const tok = envGet("NXT_ADMIN_TOKEN");
     const auth = req2.headers.get("authorization") || "";
-    if (!tok || auth !== "Bearer " + tok)
-      return new Response(
-        JSON.stringify({ ok: false, err: "\uC778\uC99D \uD544\uC694 \u2014 Authorization: Bearer <NXT_ADMIN_TOKEN>" }),
-        { status: 401, headers: { "content-type": "application/json" } }
-      );
+    if (!tok) return J({ ok: false, err: "NXT_ADMIN_TOKEN 환경변수가 서버에 설정돼 있지 않습니다" }, 401);
+    if (auth !== "Bearer " + tok) return J({ ok: false, err: "인증 필요 — 관리자 토큰이 올바르지 않습니다" }, 401);
+  }
+  /* [v17.8] 4분기 대조용 조사 — 번들 명단을 한 덩어리씩 네이버 실시간 시세로 확인한다.
+     m: 1=통합시세(KRX+NXT) 있음 · 0=조회는 됐으나 통합시세 없음 · -1=조회 실패(상장폐지·일시 오류) */
+  if (probe) {
+    const baseCodes = NXT_UNIVERSE && NXT_UNIVERSE.codes || {};
+    const baseNames = NXT_UNIVERSE && NXT_UNIVERSE.names || {};
+    const all = Object.keys(baseCodes);
+    const from = Math.max(0, parseInt(url.searchParams.get("from") || "0", 10) || 0);
+    const n = Math.min(120, Math.max(1, parseInt(url.searchParams.get("n") || "80", 10) || 80));
+    const part = all.slice(from, from + n);
+    const items = new Array(part.length);
+    let idx = 0;
+    const work = async () => {
+      while (idx < part.length) {
+        const i = idx++;
+        const c = part[i];
+        let m = -1;
+        for (let t = 0; t < 2 && m === -1; t++) {
+          const j = await getJson(`https://polling.finance.naver.com/api/realtime/domestic/stock/${c}`, 4e3);
+          const arr = j && (j.datas || j.result && j.result.areas && j.result.areas.flatMap((a) => a.datas || []));
+          const d = Array.isArray(arr) ? arr[0] : null;
+          if (d) m = d.integratedPriceInfo ? 1 : 0;
+        }
+        items[i] = { c, k: baseCodes[c], n: baseNames[c] || "", m };
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(12, part.length) }, work));
+    return J({ ok: true, total: all.length, from, next: from + part.length < all.length ? from + part.length : null, items, target: AUDIT.q4 });
+  }
+  let 기동 = null;
+  if (run) {
     try {
       const r = await fetch(base2() + "/api/cronstep?job=nxt", { method: "POST" });
-      \uAE30\uB3D9 = `\uC218\uC9D1\uAE30 \uAE30\uB3D9\uB428 (${r.status}) \u2014 \uC218\uC2ED \uCD08 \uB4A4 /api/nxtlist \uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4`;
+      기동 = `수집기 기동됨 (${r.status}) — 수십 초 뒤 /api/nxtlist 에 반영됩니다`;
     } catch (e) {
-      \uAE30\uB3D9 = "\uC218\uC9D1\uAE30 \uAE30\uB3D9 \uC2E4\uD328: " + String(e).slice(0, 120);
+      기동 = "수집기 기동 실패: " + String(e).slice(0, 120);
     }
   }
   const cur = await resolveFast();
-  return new Response(JSON.stringify({
-    \uAE30\uB3D9,
-    \uD604\uC7AC\uC0C1\uD0DC: {
-      \uC2E0\uB8B0\uAC00\uB2A5: !!cur.trusted,
-      \uC885\uBAA9\uC218: cur.count,
-      \uCF54\uC2A4\uD53C: cur.kospi,
-      \uCF54\uC2A4\uB2E5: cur.kosdaq,
-      \uAE30\uC900\uC77C: cur.asOf,
-      \uC18C\uC2A4: cur.source,
-      \uC9C4\uB2E8: cur.attempts || [],
-      \uAC10\uC0AC: cur.audit
+  return J({
+    ok: true,
+    기동,
+    현재상태: {
+      신뢰가능: !!cur.trusted,
+      종목수: cur.count,
+      코스피: cur.kospi,
+      코스닥: cur.kosdaq,
+      기준일: cur.asOf,
+      소스: cur.source,
+      진단: cur.attempts || [],
+      감사: cur.audit
     },
-    \uCD5C\uADFC\uC774\uB825: (await readHistory() || []).slice(0, 5)
-  }, null, 2), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+    "4분기목표": AUDIT.q4,
+    최근이력: (await readHistory() || []).slice(0, 5)
+  });
 };
 
 // functions/api/[[route]].js
@@ -17147,7 +17195,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.7.2";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.7.3";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -17444,7 +17492,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["종목 뉴스·공시 복구", "국내 주도 섹터(테마·업종)·구성 종목 복구", "투자자별 매매동향·시장 수급 복구", "시장 주요 뉴스 복구", "신규 상장 종목 시세(거래량·시가·고가·저가) 표시 복구"]; } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["NXT 명단 관리자 갱신 '실패: 200' 표시 수정", "NXT 명단 2026년 4분기 공식 개수(606종목) 대조·반영", "NXT 명단 상태에 공식 개수와의 차이 표시"]; } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

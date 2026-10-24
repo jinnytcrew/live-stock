@@ -5501,9 +5501,8 @@ function renderSettingsExtra(){
     const tok=await askText('관리자 토큰',{password:true,placeholder:'NXT_ADMIN_TOKEN',maxLen:80});
     if(!tok)return;
     const m=$('nxtStatMsg');m.textContent='갱신 요청 중…';
-    try{fnBump();const r=await fetch('/api/nxtrefresh?run=1',{headers:{Authorization:'Bearer '+tok}});const j=await r.json();
-      m.textContent=j.ok?'백그라운드 갱신을 시작했습니다. 1~2분 뒤 상태를 새로고침하세요.':'실패: '+(j.err||r.status);
-    }catch(e){m.textContent='요청 실패';}};
+    try{ await nxtReconcileRun(tok,(t)=>{m.textContent=t;}); refreshNxtStatusRow(true); }
+    catch(e){m.textContent='요청 실패 — 네트워크를 확인해 주세요';}};
   const tr2=$('setTradeReset');if(tr2)tr2.onclick=async()=>{
     if(!await askConfirm('거래내역 초기화','모든 매매일지 기록이 삭제됩니다. 보유종목·예수금은 유지됩니다.',{okLabel:'초기화',danger:true}))return;
     tradeLog=[];tradeArchive={};saveState();toast('warn','거래내역 초기화 완료','');};
@@ -5946,9 +5945,60 @@ async function refreshNxtStatusRow(force){
     fnBump();
     const r=await fetch('/api/nxtlist'+(force?'?t='+Date.now():''),{cache:force?'no-store':'default'});
     const j=await r.json();
-    if(j&&j.count)el.innerHTML=`현재 <b>${j.count.toLocaleString()}종목</b> · 기준일 <b>${j.asOf||'—'}</b>${j.official?' · 공식 명단':''}`;
-    else el.textContent='명단 정보를 불러오지 못했습니다';
+    if(j&&j.count){
+      let h=`현재 <b>${j.count.toLocaleString()}종목</b> · 기준일 <b>${j.asOf||'—'}</b>${j.official?' · 공식 명단':''}`;
+      /* [v17.8] 공식 4분기 개수(606)와 다르면 숨기지 않고 알린다 */
+      const ex=j.expected;
+      if(ex&&ex.total&&j.count!==ex.total)h+=`<br><span class="set-d">⚠ ${ex.quarter||'최신 분기'} 공식 ${ex.total}종목(코스피 ${ex.kospi}·코스닥 ${ex.kosdaq})과 다릅니다 · [관리자 갱신]으로 맞춰 주세요</span>`;
+      el.innerHTML=h;
+    }else el.textContent='명단 정보를 불러오지 못했습니다';
   }catch(e){ el.textContent='확인 실패'; }
+}
+
+/* ===== [v17.8] NXT 명단 관리자 갱신 — 4분기 공식 개수에 맞춰 대조·반영 =====
+   · 서버는 번들 명단(610)을 80종목씩 네이버 시세로 조회해 '통합시세(KRX+NXT)' 유무를 돌려준다.
+   · 통합시세가 없는 종목을 빼서 공식 개수(606 / 코스피 335 / 코스닥 271)와 정확히 같을 때만 반영한다.
+   · 하나라도 조회 실패가 남거나 개수가 다르면 아무것도 바꾸지 않고, 의심 종목을 그대로 보여 준다. */
+async function nxtReconcileRun(tok,say){
+  const H={Authorization:'Bearer '+tok};
+  const jget=async(u)=>{fnBump();const r=await fetch(u,{headers:H,cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}return {r,j};};
+  /* 1) 수집기 기동 — 응답에 ok 가 없어 '실패: 200' 으로 보이던 부분 */
+  say('1/3 수집기 기동 중…');
+  const k=await jget('/api/nxtrefresh?run=1');
+  if(!k.r.ok||!k.j||!k.j.ok){say('실패: '+((k.j&&k.j.err)||('HTTP '+k.r.status)));return false;}
+  const target=(k.j['4분기목표'])||{total:606,kospi:335,kosdaq:271,asOf:'2026-10-01',quarter:'2026Q4'};
+  /* 2) 번들 명단 대조 */
+  const rows=[];let from=0,guard=0;
+  while(from!==null&&guard++<20){
+    say(`2/3 명단 대조 중… ${from}/${(rows.length&&rows._total)||'?'}`);
+    const p=await jget('/api/nxtrefresh?probe=1&from='+from+'&n=80');
+    if(!p.r.ok||!p.j||!p.j.ok){say('대조 실패: '+((p.j&&p.j.err)||('HTTP '+p.r.status)));return false;}
+    rows._total=p.j.total;for(const it of p.j.items)rows.push(it);from=p.j.next;
+  }
+  /* 조회 실패(-1)는 서버가 이미 2회 재시도한 뒤의 값이다 */
+  const unsure=rows.filter(x=>x.m===-1);
+  const dropped=rows.filter(x=>x.m===0);
+  const kept=rows.filter(x=>x.m===1);
+  const brief=(a)=>a.map(x=>x.n+'('+x.c+')').join(', ')||'없음';
+  if(rows.length<500){say('대조가 중간에 끊겼습니다 ('+rows.length+'종목) — 다시 눌러 주세요');return false;}
+  const cnt={total:kept.length,kospi:kept.filter(x=>x.k==='KOSPI').length,kosdaq:kept.filter(x=>x.k==='KOSDAQ').length};
+  const ok=!unsure.length&&cnt.total===target.total&&cnt.kospi===target.kospi&&cnt.kosdaq===target.kosdaq;
+  if(!ok){
+    say(`반영하지 않았습니다 — 공식 ${target.total}(코스피 ${target.kospi}·코스닥 ${target.kosdaq}) vs 대조 결과 ${cnt.total}(${cnt.kospi}·${cnt.kosdaq}).`
+      +(unsure.length?` 조회 실패 ${unsure.length}종목: ${brief(unsure.slice(0,8))}.`:'')
+      +` 통합시세 없음 ${dropped.length}종목: ${brief(dropped.slice(0,12))}`);
+    return false;
+  }
+  /* 3) 서버 감사(공식 개수 재검증) 후 반영 */
+  say('3/3 반영 중… 편출 '+dropped.length+'종목: '+brief(dropped));
+  const body=JSON.stringify(kept.map(x=>({code:x.c,market:x.k,name:x.n})));
+  fnBump();
+  const r=await fetch('/api/nxtadmin?asOf='+encodeURIComponent(target.asOf)+'&note='+encodeURIComponent(target.quarter+' 공식 개수 대조')+'&expect='+[target.total,target.kospi,target.kosdaq].join(','),
+    {method:'POST',headers:{...H,'Content-Type':'application/json'},body});
+  let j=null;try{j=await r.json();}catch(e){}
+  if(!r.ok||!j||!j.ok){say('반영 거부: '+((j&&(j.error||j.err))||('HTTP '+r.status)));return false;}
+  say(`완료 — ${target.quarter} ${j['반영결과']?j['반영결과']['종목수']:target.total}종목 반영 · 편출: ${brief(dropped)}`);
+  return true;
 }
 
 /* ===== [S11·S12] 알림 엔진 ===== */
@@ -22294,8 +22344,9 @@ function wireAdmTools(){
   });
   const nf=$('nxtForce'); if(nf)nf.onclick=async()=>{
     busy(nf,true,'NXT 명단 강제 갱신');
-    try{fnBump();const r=await fetch('/api/nxtrefresh?run=1',{headers:{Authorization:'Bearer '+admTokGet()}});const j=await r.json();
-      out('rgOut',j&&j.ok?'<b>NXT 명단 갱신을 시작했습니다</b> · 1~2분 뒤 [NXT 명단 상태]로 확인하세요':'<b class="bad">시작 실패: '+esc(j&&j.err||'')+'</b>');
+    try{
+      const done=await nxtReconcileRun(admTokGet(),(t)=>out('rgOut',esc(t)));
+      if(done)out('rgOut','<b>NXT 명단 갱신 완료</b> · [NXT 명단 상태]로 확인하세요');
     }catch(e){out('rgOut','<b class="bad">서버 연결 실패</b>');}
     finally{busy(nf,false,'NXT 명단 강제 갱신');}
   };
