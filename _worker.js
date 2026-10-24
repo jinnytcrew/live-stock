@@ -4875,9 +4875,10 @@ async function fromNaverETFAPI(code, maxMs = 6200) {
    오인하지 않고 제외해 합산 비중이 낮으면 부분 데이터로 남긴다. */
 function parseTossRows(arr) {
   if (!Array.isArray(arr) || arr.length < 3 || arr.length > 250) return null;
-  const nameKeys = NAME_KEYS.concat(["stockNmKr", "displayNameKor", "securityName", "assetNm"]);
-  const weightKeys = WEIGHT_KEYS.concat(["weightPct", "holdingWeight", "compositWeight", "weightValue"]);
-  const codeKeys = CODE_KEYS.concat(["stockShortCode", "issueCode", "itemCd", "stockId"]);
+  // 토스 구성 응답에서 관측되는 별칭을 넓게 받되, 숫자/이름/비중 검증은 그대로 유지한다.
+  const nameKeys = NAME_KEYS.concat(["stockNmKr", "displayNameKor", "securityName", "assetNm", "stockNameKr", "korName", "itemNameKor", "itemNameKr", "nameKr", "displayName", "companyNameKr", "securityNm"]);
+  const weightKeys = WEIGHT_KEYS.concat(["weightPct", "weightPercent", "holdingWeight", "compositWeight", "weightValue", "weightRate", "ratioPct", "investmentRatio", "allocationRatio", "percentOfPortfolio", "compositionRate", "compRate", "proportion"]);
+  const codeKeys = CODE_KEYS.concat(["stockShortCode", "issueCode", "itemCd", "stockId", "symbolCode", "shortCode", "isinCode"]);
   const out = [];
   for (const row of arr) {
     if (!row || typeof row !== "object" || Array.isArray(row)) continue;
@@ -4934,24 +4935,60 @@ function findTossCandidates(node, path, out, depth = 0) {
     for (const [key, value] of Object.entries(node).slice(0, 60)) findTossCandidates(value, path ? path + "." + key : key, out, depth + 1);
   }
 }
-async function fromTossComposition(code, ms = 1800) {
-  const url = `https://wts-info-api.tossinvest.com/api/v2/stock-infos/A${encodeURIComponent(code)}/compositions`;
-  try {
-    const j = await fetchJson(url, ms, {
-      "Accept": "application/json, text/plain, */*",
-      "Origin": "https://www.tossinvest.com",
-      "Referer": "https://www.tossinvest.com/"
-    });
-    if (!j || typeof j !== "object") return { holdings: [], tried: ["toss:empty"] };
+async function fromTossComposition(code, ms = 2200) {
+  const normalized = normalizeEtfCode(code);
+  if (!normalized) return { holdings: [], tried: ["toss:invalid-code"] };
+  // 페이지에서 확인되는 productCode 형식이 A069500 / 069500 으로 바뀌는 경우를 모두 조회한다.
+  // 두 요청은 병렬로 보내므로 재시도 때문에 전체 응답 대기가 두 배가 되지 않는다.
+  const productCodes = ["A" + normalized, normalized];
+  const headers = {
+    "User-Agent": UA8,
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7",
+    "Origin": "https://www.tossinvest.com",
+    "Referer": `https://www.tossinvest.com/stocks/A${normalized}`
+  };
+  const fetchCandidate = async (productCode) => {
+    const url = `https://wts-info-api.tossinvest.com/api/v2/stock-infos/${encodeURIComponent(productCode)}/compositions`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(350, Number(ms) || 2200));
+    try {
+      const response = await fetch(url, { headers, signal: controller.signal });
+      const contentType = String(response.headers && response.headers.get("content-type") || "unknown").split(";")[0].slice(0, 32);
+      const body = await response.text();
+      if (!response.ok) return { productCode, json: null, diag: `http-${response.status}:${contentType}` };
+      try {
+        const json = JSON.parse(body);
+        return { productCode, json: json && typeof json === "object" ? json : null, diag: `http-${response.status}:${contentType}` };
+      } catch {
+        return { productCode, json: null, diag: `invalid-json:${contentType}` };
+      }
+    } catch (e) {
+      const msg = String(e && (e.name === "AbortError" ? "timeout" : e.message) || "fetch-error").slice(0, 32);
+      return { productCode, json: null, diag: msg };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const settled = await Promise.all(productCodes.map(fetchCandidate));
+  const tried = [];
+  for (const result of settled) {
+    tried.push(`toss-v2:${result.productCode}:${result.diag}`);
+    const j = result.json;
+    if (!j || typeof j !== "object") continue;
     const candidates = [];
     findTossCandidates(j, "root", candidates, 0);
     candidates.sort((a, b) => b.score - a.score);
     const best = candidates[0];
-    if (!best) return { holdings: [], tried: ["toss:no-array:" + shapeOf(j).slice(0, 100)] };
-    return { holdings: best.rows, tried: ["toss:" + best.rows.length + "/" + best.total.toFixed(1) + "%" + (best.path ? "@" + best.path.slice(0, 45) : "")] };
-  } catch (e) {
-    return { holdings: [], tried: ["toss:err:" + String(e && e.message || e).slice(0, 45)] };
+    if (!best || !best.rows || best.rows.length < 3) {
+      tried.push("toss-no-valid-composition:" + shapeOf(j).slice(0, 70));
+      continue;
+    }
+    tried.push("toss-rows:" + best.rows.length + "/" + best.total.toFixed(1) + "%" + (best.path ? "@" + best.path.slice(0, 45) : ""));
+    return { holdings: best.rows, tried };
   }
+  tried.push("toss:no-valid-composition");
+  return { holdings: [], tried };
 }
 async function fromDetail(code, maxMs) {
   const T2 = Date.now();
@@ -5256,7 +5293,7 @@ var init_etf = __esm({
       let holdingsAsOf = holdSrc === "naver-html" ? (H2 && H2.info && H2.info.holdingsAsOf) || null : null;
       const extra = [];
       if (M0 && M0.tried) extra.push(...M0.tried.slice(0, 2));
-      if (TOSS && TOSS.tried) extra.push(...TOSS.tried.slice(0, 1));
+      if (TOSS && TOSS.tried) extra.push(...TOSS.tried.slice(0, 4));
       const sumH0 = a => (a || []).reduce((v, h) => v + (Number(h.weight) || 0), 0);
       const scoreH0 = (a, complete = false) => {
         if (!a || !a.length) return -1e9;
@@ -17784,7 +17821,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.7";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.8";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18100,7 +18137,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["ETF 구성 API 코드 정규화 및 중첩 응답 탐색 확장", "Naver ETFComponent의 HTTP 상태·콘텐츠 형식 진단과 재시도 추가", "A접두사·대용량 첫 페이지 대응 및 실패 원인 표시 개선"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-24 21:44"; } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["ETF 구성종목 조회 시 토스 API 코드 형식 2종 재시도와 HTTP 진단 추가", "구성종목 이름·비중 필드 별칭 확장 및 잘못된 데이터 검증 유지", "모바일 구성종목 이름 말줄임 제거·줄바꿈 표시 및 캐시 키 갱신"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-24 22:17"; } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

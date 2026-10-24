@@ -119,6 +119,29 @@ pass('ETF request code normalization prevents A-prefixed identifier lookup failu
 ctx.fetchJson = defaultFetchJson;
 
 
+// Toss v2 compositions: fallback code format and HTTP diagnostics are covered with fixtures.
+const tossStart = worker.indexOf('function parseTossRows(arr) {');
+const tossEnd = worker.indexOf('\nasync function fromDetail(', tossStart);
+assert(tossStart >= 0 && tossEnd > tossStart, 'Toss composition parser block not found');
+vm.runInContext(worker.slice(shapeAt, shapeEnd), ctx, { timeout: 1000 });
+vm.runInContext(worker.slice(tossStart, tossEnd), ctx, { timeout: 1000 });
+ctx.fetchJson = async (url) => {
+  if (url.includes('/A069500/compositions')) return null; // emulate HTML/404 from preferred code format
+  if (url.includes('/069500/compositions')) return { result: { code: '069500', type: 'ETF', endDate: '2026-10-23', items: [
+    { stockCode: '005930', stockName: '삼성전자', ratio: 55.4 },
+    { stockCode: '000660', stockName: 'SK하이닉스', ratio: 30 },
+    { stockCode: '035420', stockName: 'NAVER', ratio: 14.6 },
+  ] } };
+  return null;
+};
+const tossFallback = await ctx.fromTossComposition('A069500', 600);
+assert.equal(tossFallback.holdings.length, 3, 'Toss fallback must accept the unprefixed productCode response');
+assert.equal(tossFallback.holdings[0].name, '삼성전자');
+assert.ok(tossFallback.tried.some(x => x.includes('toss-v2:A069500:http-502:text/html')), 'failed preferred route should report HTTP status and content type');
+assert.ok(tossFallback.tried.some(x => x.includes('toss-rows:3/100.0%')), 'valid fallback response should report parsed row count and sum');
+pass('Toss v2 composition fallback retries A-prefixed/unprefixed product codes and reports HTTP diagnostics');
+ctx.fetchJson = defaultFetchJson;
+
 // Providers sometimes wrap values ({raw/value}) and rename fields or return tuples.
 ctx.fetchJson = async (url) => {
   if (url.includes('/ETFBase')) return {};
@@ -215,7 +238,9 @@ assert.doesNotMatch(etfRoute, /holdSrc = "(?:dom-proxy|peer-proxy|index-proxy)"/
 assert.match(etfRoute, /holdSrc === "mstock-api" && apiHoldingsComplete === true/, 'only fully paginated, count-validated ETFComponent rows can be called complete');
 assert.doesNotMatch(etfRoute, /htmlCountMatches/, 'a top-10 HTML table cannot certify itself as a full list');
 assert.match(etfRoute, /a\.length \* 100/, 'more verified constituent rows outrank a top-10 list merely summing near 100%');
-assert.match((read('index.html')), /app\.js\?v=679/, 'updated client JS gets a new cache-busting key');
+assert.match((read('index.html')), /app\.js\?v=680/, 'updated client JS gets a new cache-busting key');
+assert.match((read('index.html')), /app\.css\?v=671/, 'updated CSS gets a new cache-busting key');
+assert.match((read('app.css')), /\.etf-hold-n b\{[^}]*white-space:normal/, 'ETF constituent names are configured to wrap instead of truncate');
 pass('audit retry/reconciliation, fresh-client loading and empty-state source diagnostics are present');
 
 const versionText = read('version-info.js');
