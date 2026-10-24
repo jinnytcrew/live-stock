@@ -222,56 +222,23 @@ function govKV(kv) {
     /* ② 수명이 붙은 캐시는 KV 로 보내지 않는다 — 엣지 캐시가 맡는다.
        버려져도 원천에서 다시 받아 오면 그만인 데이터이고, 이것들이
        종목 수·사용자 수에 비례해 한도를 갉아먹던 주범이다. */
-    /* [v17.8] '마지막 정상본' 스냅샷(:last)은 엣지로 보내지 않는다.
-       엣지 캐시는 콜로마다 따로이고 언제든 비워질 수 있어, 원천 장애를 버티라고
-       만든 스냅샷의 목적과 맞지 않는다. 이 키들만은 KV 에 남긴다(쓰기 간격·예산은 그대로). */
-    /* '마지막 정상본'(:last) 은 원천 장애를 버티라고 두는 것이라, 언제든 비워질 수
-       있는 엣지 캐시가 아니라 KV 에 남긴다. 나머지 수명 있는 캐시는 엣지로 보낸다. */
-    const durable = /:last$/.test(k);
-    if (!ess && ttl && body != null) {
-      if (!durable && await kvEdgeReady()) {
-        KVGOV.toCache++;
-        await kvCachePut(k, body, ttl);
-        return;                     /* KV 한도를 전혀 쓰지 않는다 */
-      }
-      /* ══ [v17.8] 엣지를 못 쓰는 주소(*.workers.dev)의 진짜 위험 ═══════════════
-         엣지가 없으면 수명 있는 캐시가 전부 KV 로 되돌아온다. 그런데 이 캐시들은
-         '인스턴스마다' 따로 쓴다 — 한 대가 하루 240회면 다섯 대는 1,200회로,
-         스냅샷을 넣기 전부터 이미 한도를 넘는 구조였다(측정으로 확인).
-         [기준] KV 쓰기는 '그 값이 다음 쓰기까지 살아 있을 때'만 값어치가 있다.
-           · 수명 15분 이하(시세 120초 등) — 최소 쓰기 간격(30분)보다 먼저 사라진다.
-             적어 봐야 대부분의 시간 동안 없는 것과 같으니 쓰지 않는다.
-             같은 인스턴스 안에서는 메모리 거울이 원래 수명만큼 받쳐 주고,
-             다른 인스턴스는 원천에서 다시 받아 오면 그만인 데이터다.
-           · 수명 15분 초과(종목 개요·명단·집계 등) — 쓰면 오래 남아 실제로 쓸모가
-             있으므로 KV 에 남긴다. 대신 간격·예산은 그대로 적용된다. */
-      if (!durable && ttl <= 900) { KVGOV.skip++; return false; }
+    if (!ess && ttl && body != null && await kvEdgeReady()) {
+      KVGOV.toCache++;
+      await kvCachePut(k, body, ttl);
+      return;                       /* KV 한도를 전혀 쓰지 않는다 */
     }
     /* ② 내용이 그대로면 쓸 이유가 없다 (수명 없는 키만 — TTL 키는 재기록이 곧 연장이다) */
-    /* 내용이 같으면 쓸 필요가 없다 — '이미 그 값이 KV 에 있다'는 뜻이므로 성공으로 본다 */
-    if (body != null && !ttl && KVGOV.sig.get(k) === kvSig(body)) { KVGOV.skip++; return true; }
+    if (body != null && !ttl && KVGOV.sig.get(k) === kvSig(body)) { KVGOV.skip++; return; }
     if (!ess) {
-      /* ③ 키별 최소 간격
-         ══ [v17.8] '마지막 정상본'(:last) 은 훨씬 드물게 써도 된다 ═════════════
-         이 스냅샷들의 쓸모는 '원천이 막혔을 때 대신 답하는 것' 하나뿐이다.
-         분 단위로 최신일 이유가 없는데, 30분 간격이면 키 하나가 하루 48회를
-         쓴다. :last 키가 4개(rank:search·rank:rise·rank:fall·cal)이고
-         인스턴스가 여러 대 동시에 살아 있으므로 곱하면 한도에 닿는다.
-         4시간 간격이면 키당 하루 6회 — 스냅샷의 목적은 그대로 지키면서
-         쓰기량은 8분의 1이 된다. */
-      /* ══ [v17.8] 간격을 넉넉히 잡는다 — 인스턴스 수만큼 곱해지기 때문이다 ═══════
-         여기 남은 키들은 어느 것도 분 단위 최신이 필요 없다.
-           · :last 스냅샷  — 원천이 죽었을 때 쓰는 대비책. 6시간 전 것이어도 제 몫을 한다.
-           · 그 외(종목 개요·명단·호출량 집계) — 수명이 몇 시간~며칠짜리다.
-         간격을 늘리면 인스턴스가 몇 대로 늘어도 합계가 한도 안에 머문다. */
-      const gapMs = durable ? 216e5 : 72e5;            /* :last 6시간 · 그 외 2시간 */
-      if (Date.now() - (KVGOV.last.get(k) || 0) < gapMs) { KVGOV.skip++; return false; }
+      /* ③ 키별 최소 간격 — 여기까지 온 것은 수명 없는 기준 데이터뿐이다
+         (공모주 목록·휴장일·야간선물 코드 등). 30분에 한 번이면 충분하다. */
+      if (Date.now() - (KVGOV.last.get(k) || 0) < 18e5) { KVGOV.skip++; return; }
       /* ④ 일일 예산 — 인스턴스는 여러 개가 동시에 살아 있으므로 한 대의 몫은
          작게 잡는다. 캐시가 이미 KV 밖으로 빠졌으니 이 정도면 넉넉하다. */
-      /* [v17.8] 엣지가 없어도 예산을 늘리지 않는다 — 캐시는 위에서 이미
-         KV 밖으로 빠졌고, 여기 남는 것은 스냅샷·기준 데이터뿐이라 적게 든다.
-         인스턴스가 여러 대여도 합계가 한도에 닿지 않는 값으로 잡는다. */
-      if (KVGOV.cache >= KVGOV.CACHE_CAP) { KVGOV.blocked++; return false; }
+      /* 엣지 캐시를 못 쓰는 주소(*.workers.dev)에서는 캐시가 KV 에 남는다 —
+         그만큼만 예산을 늘려 주되, 한도 근처에는 절대 가지 않게 한다. */
+      const cap = (KVGOV.edge === false) ? KVGOV.CACHE_CAP * 3 : KVGOV.CACHE_CAP;
+      if (KVGOV.cache >= cap) { KVGOV.blocked++; return; }
     }
     try {
       const r = await kv.put(key, val, opts);
@@ -285,9 +252,7 @@ function govKV(kv) {
         KVGOV.sig.set(k, kvSig(body));
         if (KVGOV.sig.size > 4000) KVGOV.sig.clear();
       }
-      /* [v17.9] 부르는 쪽이 '정말 저장됐는지' 알 수 있어야 한다.
-         집계처럼 값을 누적하는 코드는 저장 실패를 모르면 그만큼을 잃어버린다. */
-      return r === void 0 ? true : r;
+      return r;
     } catch (e) {
       /* 한도를 넘었다면 오늘은 캐시 쓰기를 완전히 멈춰 사용자 데이터 몫을 지킨다 */
       if (/limit exceeded/i.test(String((e && e.message) || e))) KVGOV.cache = 1e9;
@@ -5654,28 +5619,6 @@ var calendar_default = async (req2) => {
     diag.err = String(e).slice(0, 60);
   }
   const seen = /* @__PURE__ */ new Set();
-  /* ══ [v17.8] 실적 일정이 통째로 비던 문제 ═══════════════════════════════════
-     [무엇이 잘못됐나] 실적 일정은 두 외부 원천(야후·트레이딩뷰)에서 그때그때
-     받아 오는데, 어느 쪽이든 막히면(데이터센터 IP 차단이 잦다) 그동안
-     캘린더에서 실적이 통째로 사라졌다. 공모주·휴장·FOMC 는 남아 있어서
-     '실적만 안 나오는' 화면이 됐다(실기 사진). 순위·공모주와 같은 병인데
-     캘린더에만 마지막 정상본이 없었다.
-     [고침] 실적을 8건 이상 확보할 때마다 7일짜리 스냅샷(cal:last)을 남기고,
-     이번 수집이 그보다 못하면 스냅샷과 합쳐 내려준다. */
-  try {
-    const KVc = typeof KV !== "undefined" ? KV : null;
-    if (events.length >= 8) {
-      if (KVc) await KVc.put("cal:last", JSON.stringify({ at: Date.now(), events }), { expirationTtl: 7 * 86400 });
-    } else if (KVc) {
-      const last = await KVc.get("cal:last", "json");
-      if (last && Array.isArray(last.events) && last.events.length > events.length) {
-        diag.calLast = last.events.length;
-        const have = new Set(events.map((e) => e.date + "|" + e.title));
-        for (const e of last.events) if (!have.has(e.date + "|" + e.title)) events.push(e);
-        diag.stale = 1;
-      }
-    }
-  } catch (e) { diag.calErr = String(e).slice(0, 30); }
   const uniq = events.filter((e) => {
     const k = e.date + "|" + e.ticker;
     if (seen.has(k)) return false;
@@ -6446,32 +6389,14 @@ async function accFindByGoogle(st, gsub, email, legacyDb) {
   const tryKey = async (k) => {
     try { const r = await st.get(k, { type: "json" }); return (r && r.id) || null; } catch (e) { return null; }
   };
-  /* ══ [v17.10] 로그인 방식이 다르면 다른 계정이다 ═══════════════════════════
-     [무엇이 잘못됐나] 구글 sub 로 못 찾으면 '이메일이 같은 계정'을 찾아 붙였다.
-     그래서 아이디·비밀번호로 가입한 사람이 같은 이메일의 구글로 들어오면
-     남의 방식으로 만든 계정에 그대로 들어갔다. 로그인 수단을 늘릴수록
-     의도치 않은 계정 합쳐짐이 늘어나는 구조다.
-     [고침] 구글 계정은 구글 식별자(gsub)로만 찾는다. 이메일로 건너 붙이는 것은
-     '이미 구글로 연결된 적이 있는 계정'일 때만 허용한다 — 예전에 이메일로
-     이어졌던 기존 사용자가 로그아웃되지 않게 하기 위한 것이고, 그 외에는
-     새 계정으로 시작한다. 카카오·마이크로소프트를 붙일 때도 같은 규칙을 쓴다. */
   let id = gsub ? await tryKey("gsub:" + gsub) : null;
+  if (!id && email) id = await tryKey("mail:" + String(email).trim().toLowerCase());
   if (id) return id;
-  const linkedToGoogle = async (cand) => {
-    if (!cand) return "";
-    try { const a = await accLoad(st, cand, legacyDb); if (a && a.googleSub) return cand; } catch (e) {}
-    const a2 = legacyDb && legacyDb.accounts && legacyDb.accounts[cand];
-    return (a2 && a2.googleSub) ? cand : "";
-  };
-  if (email) {
-    const byMail = await tryKey("mail:" + String(email).trim().toLowerCase());
-    const okId = await linkedToGoogle(byMail);
-    if (okId) return okId;
-  }
   if (legacyDb && legacyDb.accounts) {
     const k = Object.keys(legacyDb.accounts).find((x) => {
       const a = legacyDb.accounts[x];
-      return a && a.googleSub && a.googleSub === gsub;   /* 이메일만 같은 계정은 더 이상 붙이지 않는다 */
+      return a && ((a.googleSub && a.googleSub === gsub) ||
+        (a.email && String(a.email).toLowerCase() === String(email || "").toLowerCase()));
     });
     if (k) return k;
   }
@@ -9198,7 +9123,7 @@ var stripTags = (s) => s.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace
    알 수 없다. 그래서 '메모리에서 세고, 1분마다 KV 에 더한다'로 절충한다.
    완벽히 정확하진 않지만 한도의 몇 %인지 판단하기에는 충분하고,
    KV 쓰기는 하루 1,440회 이하로 묶인다(요청마다 쓰면 수만 회가 된다). */
-var _bgN = 0, _bgAt = 0, _bgDay = "", _bgTotal = 0, _bgBusy = false;
+var _bgN = 0, _bgAt = 0, _bgDay = "", _bgTotal = 0;
 const BUDGET_DAY = 90000;          // 무료 한도 10만 중 9만까지만 쓴다(여유 1만)
 function budgetDayKey() {
   const d = new Date(Date.now() + 9 * 3600e3);
@@ -9214,40 +9139,22 @@ function budgetTick(env) {
      집계 하나가 한도 전체를 먹고, 그때부터 계정·친구·클랜 저장이 모두 막힌다.
      20분 간격 + 25회 이상 쌓였을 때만 적는다(하루 최대 72회, 한가하면 0회).
      그사이 값은 메모리(_bgN)에 그대로 남아 화면 표시는 어긋나지 않는다. */
-  /* ══ [v17.9] 집계가 숫자를 잃던 문제 ═══════════════════════════════════════
-     [무엇이 잘못됐나] 여기서 _bgN 을 0 으로 비운 뒤 KV 에 더하는데, 쓰기 관리자가
-     간격 제한으로 그 저장을 건너뛰면 비운 숫자가 그대로 사라졌다. 그래서 전체
-     사용량이 실제보다 적게 집계됐고, 사용량이 한도에 가까워져도 브레이크(속도
-     낮추기)가 늦게 걸렸다. KV 쓰기 한도 때 겪은 것과 같은 유형이다.
-     [고침] 저장이 실제로 끝난 것을 확인한 뒤에만 비운다. 실패하면 숫자를
-     되돌려 다음 회차에 함께 더한다 — 한 건도 잃지 않는다.
-     또한 바쁜 시간에는 시간이 아니라 '쌓인 양'으로도 내보낸다. */
-  if ((now - _bgAt < 12e5 && _bgN < 400) || _bgN < 25) return;
-  /* ══ [v17.9] 저장이 겹치면 숫자를 잃는다 ═══════════════════════════════════
-     이 저장은 'KV 에서 읽고 → 더하고 → 다시 쓰기'다. 앞의 저장이 끝나기 전에
-     다음 저장이 시작하면 둘 다 같은 옛 값을 읽어, 나중 것이 앞의 것을 덮어쓴다.
-     시험에서 1,000건을 보냈는데 25건만 집계되는 것으로 재현됐다.
-     [고침] 한 번에 하나만 진행시킨다. 진행 중이면 이번 회차는 넘기고
-     숫자는 그대로 둔다 — 다음 회차에 함께 더해지므로 잃지 않는다. */
-  if (_bgBusy) return;
-  _bgBusy = true;
+  if (now - _bgAt < 12e5 || _bgN < 25) return;
   _bgAt = now;
   const add = _bgN; _bgN = 0;
   /* [v17.3] 이 집계는 화면 속도 조절용 참고값일 뿐이다. 그걸 위해 KV 한도를
      쓸 이유가 없다 — 수명을 붙여 엣지 캐시로 보낸다(govKV 가 알아서 돌린다). */
   const KVx = govKV(env && env.APP_KV);
-  if (!KVx) { _bgTotal += add; _bgBusy = false; return; }
+  if (!KVx) { _bgTotal += add; return; }
   /* 읽고 더해 쓰기 — 인스턴스가 여럿이면 약간 어긋나지만 방향은 맞다 */
   (async () => {
     try {
       const k = "budget:" + day;
       const cur = Number(await KVx.get(k)) || 0;
       const next = cur + add;
-      const okW = await KVx.put(k, String(next), { expirationTtl: 172800 });
-      if (okW) { _bgTotal = Math.max(_bgTotal, next); }
-      else { _bgN += add; _bgTotal = Math.max(_bgTotal, cur + add); }   /* 저장 실패 → 숫자를 되돌린다 */
-    } catch (e) { _bgN += add; }
-    finally { _bgBusy = false; }
+      _bgTotal = next;
+      await KVx.put(k, String(next), { expirationTtl: 172800 });   /* TTL 있음 → 엣지 캐시로 */
+    } catch (e) { _bgTotal += add; }
   })();
 }
 function budgetPct() {
@@ -9545,22 +9452,6 @@ function parseSchedule(html) {
    · 수요예측 경쟁률 — 기관이 몇 대 1로 신청했나 (공모가 결정의 근거)
    · 청약 경쟁률     — 개인이 몇 대 1로 몰렸나 (상장 첫날 수급의 실마리)
    · 의무보유 확약   — 기관이 일정 기간 안 팔겠다고 약속한 비율 (물량 부담 가늠) */
-/* ══ [v17.8] 0 은 경쟁률이 아니다 — 모든 출구에서 같은 규칙을 적용한다 ═══════
-   [무엇이 잘못됐나] 화면에 전 종목 "수요예측 0:1 · 확약 0%" 가 떴다(실기 사진).
-   수요예측 경쟁률 0:1 은 세상에 존재하지 않는 수치다 — 아직 안 열렸거나
-   못 가져온 것이다. v15.6 이 demand 만, 그것도 세 출구 중 두 곳에서만
-   정화했다. 오류 폴백(catch) 출구와 lockup·subRate 는 그대로라,
-   옛 스냅샷·원천 이상 등 어느 길로든 0 이 화면까지 살아 나갔다.
-   [규칙] · 경쟁률(demand·subRate) 0 = 모름 → null
-          · 확약(lockup) 0 은 수요예측 결과(demand)가 있을 때만 진짜 값이다. */
-function ipoClean(items){
-  for(const x of (items||[])){
-    if(x.demand===0)x.demand=null;
-    if(x.subRate===0)x.subRate=null;
-    if(x.lockup===0&&x.demand==null)x.lockup=null;
-  }
-  return items;
-}
 async function ipoAttachRates(items){
   if(!items||!items.length)return;
   /* ══ [v9.71c] 경쟁률이 종목마다 들쭉날쭉하던 이유 ═══════════════════════════
@@ -9668,53 +9559,28 @@ var ipo_default = async (req2, context) => {
       return new Date(y, m - 1, d) >= new Date(today.getTime() - 3 * 864e5);
     }).sort((a, b) => a.subStart.localeCompare(b.subStart)).slice(0, 12);
     if (items.length > 0) {
-      /* [v17.8] 스냅샷 저장을 경쟁률 부착 '뒤'로 옮겼다 — 아래 참조 */
+      try { if (KV) await KV.put("ipo:last", JSON.stringify({ at: Date.now(), items })); } catch {}
       /* ══ [v9.7] 경쟁률을 함께 붙인다 ═══════════════════════════════════════
          공모주에서 가장 먼저 보는 숫자가 경쟁률이다. 수요예측 경쟁률은
          기관이 얼마나 원했는지, 청약 경쟁률은 개인이 얼마나 몰렸는지를 말한다.
          38커뮤니케이션이 두 값을 따로 표에 싣고 있어 함께 읽어 온다. */
-      ipoClean(items);
+      items.forEach(x=>{ if(x.demand===0)x.demand=null; });   /* [v15.6] 구버전 캐시·초기화 잔재 정화 */
       let ratesHit=0;
       try { ratesHit=await ipoAttachRates(items)||0; } catch (e) {}
-      /* ══ [v17.8] 경쟁률도 기억한다 ════════════════════════════════════════════
-         [무엇이 잘못됐나] 스냅샷(ipo:last)을 경쟁률을 붙이기 '전'에 저장했다.
-         38커뮤니케이션 결과 페이지가 잠시 막히면(데이터센터 IP 차단이 잦다)
-         이번 응답의 경쟁률이 전부 비는데, 스냅샷에도 경쟁률이 없어서
-         "기관 경쟁률이 안 나오는" 상태가 계속됐다(실기 사진).
-         [고침] ① 이번에 못 받은 값은 직전 스냅샷에서 종목명으로 이어받고
-                 ② 스냅샷은 경쟁률까지 붙인 완성본으로 저장한다. */
-      try {
-        const prev = KV ? await KV.get("ipo:last", "json") : null;
-        if (prev && Array.isArray(prev.items)) {
-          const byName = {};
-          for (const p of prev.items) byName[String(p.name||"").replace(/\s/g,"")] = p;
-          for (const x of items) {
-            const p = byName[String(x.name||"").replace(/\s/g,"")];
-            if (!p) continue;
-            if (x.demand == null && p.demand > 0) x.demand = p.demand;
-            if (x.subRate == null && p.subRate > 0) x.subRate = p.subRate;
-            if (x.lockup == null && p.lockup != null && p.demand > 0) x.lockup = p.lockup;
-            if (!x.listing && p.listing) x.listing = p.listing;
-          }
-        }
-      } catch (e) {}
-      ipoClean(items);
-      try { if (KV) await KV.put("ipo:last", JSON.stringify({ at: Date.now(), items })); } catch {}
       const withRate=items.filter(x=>x.demand!=null||x.subRate!=null||x.lockup!=null).length;
       return new Response(JSON.stringify({ ok: true, items, rates:{hit:ratesHit,withRate} }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=1800" } });
     }
     /* \uc218\uc9d1 \uc2e4\ud328 \u2014 \ub9c8\uc9c0\ub9c9 \uc131\uacf5\ubcf8(3\uc77c \uc774\ub0b4)\uc774 \uc788\uc73c\uba74 \uc608\uc2dc \ub300\uc2e0 \uadf8\uac78 \uc900\ub2e4 */
     try { if (KV) { const c = await KV.get("ipo:last", "json");
       if (c && c.items && c.items.length && Date.now() - (c.at || 0) < 3 * 864e5)
-        { ipoClean(c.items);
+        { c.items.forEach(x=>{ if(x.demand===0)x.demand=null; });
         return new Response(JSON.stringify({ ok: true, stale: true, at: c.at || 0, items: c.items }), { headers: { "content-type": "application/json", "cache-control": "no-store" } }); }
     } } catch {}
     return new Response(JSON.stringify({ ok: false, items: [] }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   } catch (e) {
     try { if (KV) { const c = await KV.get("ipo:last", "json");
       if (c && c.items && c.items.length && Date.now() - (c.at || 0) < 3 * 864e5)
-        { ipoClean(c.items);   /* [v17.8] 오류 폴백 출구도 같은 규칙 — 0:1 이 새던 마지막 구멍 */
-        return new Response(JSON.stringify({ ok: true, stale: true, at: c.at || 0, items: c.items }), { headers: { "content-type": "application/json" } }); }
+        return new Response(JSON.stringify({ ok: true, stale: true, at: c.at || 0, items: c.items }), { headers: { "content-type": "application/json" } });
     } } catch {}
     return new Response(JSON.stringify({ ok: false, error: String(e), items: [] }), { headers: { "content-type": "application/json" } });
   }
@@ -13049,31 +12915,6 @@ var popular_default = async (req2) => {
         }
       } catch (e) {}
     }
-    /* ══ [v17.8] 거래대금 200종이 갑자기 30종으로 줄던 문제 ════════════════════
-       [무엇이 잘못됐나] 200종 목록은 기본 30종(조회 목록)에 거래대금 페이지
-       2장을 합성해 만든다. 그런데 합성 원천이 한 번이라도 빈손이면(차단·마크업
-       변경·응답 이상) 그대로 30종만 내려갔다. v15.4.1 이 상승/하락에는
-       '마지막 정상본' 스냅샷을 달아 뒀는데 정작 거래대금 탭에는 없었다 —
-       그래서 이 탭만 어느 날 갑자기 30개가 됐다(실기 사진).
-       [고침] 같은 규칙을 적용한다. 150종 이상 정상 목록이 만들어질 때마다
-       40시간 스냅샷을 남기고, 이번 결과가 그보다 못하면 스냅샷으로 답한다
-       (stale 표시 — 화면이 '마지막 거래일 기준'임을 밝힌다). */
-    if (type === "search") {
-      try {
-        if (items.length >= 150) {
-          if (KV) await KV.put("rank:search:last",
-            JSON.stringify({ at: Date.now(), items: items.slice(0, 200) }),
-            { expirationTtl: 40 * 3600 });
-        } else {
-          const last = KV ? await KV.get("rank:search:last", "json") : null;
-          if (last && Array.isArray(last.items) && last.items.length > items.length) {
-            diag.push("last:" + last.items.length);
-            return json3({ ok: true, type, src: "last-day", stale: 1, asOf: last.at,
-              items: last.items, diag });
-          }
-        }
-      } catch (e) { diag.push("last:err"); }
-    }
     return new Response(
       JSON.stringify({ ok: items.length > 0, type, n: items.length, src, items: items.slice(0, 200), diag }),
       { headers: { "content-type": "application/json", "cache-control": items.length ? "s-maxage=60" : "public, max-age=5" } }
@@ -14040,7 +13881,7 @@ async function krxalerts_default(req2, context) {
   for (const c of codesOf(rH)) map[c] = "risk";
   for (const c of codesOf(hH)) map[c] = "halt";
   const body = { at: now, n: Object.keys(map).length, map, caution: codesOf(cH) };
-  const gotAny = !!(wH || rH || hH || mH);
+  const gotAny = Object.keys(map).length > 0;   /* [v17.7.2] 옛 페이지가 리다이렉트돼 0건이어도 성공으로 저장하던 문제 */
   if (gotAny) {
     try { if (KV) await KV.put("krx:alerts", JSON.stringify(body)); } catch {}
     return new Response(JSON.stringify({ ok: true, ...body }), { headers: { "content-type": "application/json", "cache-control": "s-maxage=120" } });
@@ -14056,8 +13897,9 @@ ROUTES["krxalerts"] = krxalerts_default;
 async function stockflags_default(req2, context) {
   const KV = context && context.env && context.env.APP_KV;
   const url = new URL(req2.url);
-  const code = String(url.searchParams.get("code") || "").trim();
-  if (!/^\d{6}$/.test(code)) return new Response(JSON.stringify({ ok: false, err: "code" }), { headers: { "content-type": "application/json" } });
+  const code = String(url.searchParams.get("code") || "").trim().toUpperCase();
+  /* [v17.7.2] 신규 상장 코드(0035S0 처럼 영문 포함)도 받는다 */
+  if (!/^\d[0-9A-Z]{5}$/.test(code)) return new Response(JSON.stringify({ ok: false, err: "code" }), { headers: { "content-type": "application/json" } });
   const kvKey = "sflag:" + code, now = Date.now();
   try { if (KV) { const c = await KV.get(kvKey, "json");
     /* [v4.11] 배지·증거금을 하나도 못 얻은 '약한 결과'는 30분만 캐시 —
@@ -14108,14 +13950,13 @@ async function stockflags_default(req2, context) {
     const c4 = new AbortController(); const t4 = setTimeout(() => c4.abort(), 6000);
     /* [v4.20] 1페이지만 읽으면 '지정예고' 뒤에 온 '지정'·'해제' 공시를 놓쳐
        철 지난 예고가 계속 배지로 남는다(삼현 사례). 2페이지까지 읽어 최신 상태를 만든다. */
-    const pages = await Promise.all([1, 2].map(async (pg) => {
+    /* [v17.7.2] news_notice 페이지 폐쇄(410) → 모바일 공시 API 를 표 모양으로 바꿔 아래 상태기계에 넘긴다 */
+    const pages = await (async () => {
       try {
-        const rr = await fetch("https://finance.naver.com/item/news_notice.naver?code=" + code + "&page=" + pg,
-          { headers: { "User-Agent": UA, "Referer": "https://finance.naver.com/item/main.naver?code=" + code }, signal: c4.signal });
-        if (!rr.ok) return "";
-        return decodeSmart2(await rr.arrayBuffer(), rr.headers.get("content-type"));
-      } catch (e) { return ""; }
-    }));
+        const j = await nv2Json("https://m.stock.naver.com/api/stock/" + code + "/disclosure?pageSize=40&page=1", 6000);
+        return ["<table>" + (Array.isArray(j) ? j : []).map((it) => "<tr><td>" + nv2Esc(it.title) + "</td><td>" + nv2Date(it.datetime) + "</td></tr>").join("") + "</table>"];
+      } catch (e) { return [""]; }
+    })();
     clearTimeout(t4);
     const rn = { ok: pages.some((x) => x) };
     if (rn.ok) {
@@ -17306,7 +17147,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.11.0";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.7.2";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -17400,6 +17241,217 @@ var worker_default = {
     return res;
   }
 };
+
+/* ══ [v17.7.2] 네이버 PC 금융(finance.naver.com) 구 페이지 폐쇄 대응 ══════════════
+   [무엇이 터졌나] 2026-10 네이버가 finance.naver.com 의 옛 PC 페이지를 닫았다.
+   종목 뉴스·공시(news_news / news_notice)는 410 Gone, 테마·업종(theme / sise_group /
+   sise_group_detail)·투자자 동향(frgn / investorDealTrendDay)·시장 경보 목록은
+   m.stock.naver.com 첫 화면으로 302 리다이렉트된다. 리다이렉트는 200 으로 끝나므로
+   옛 파서가 '표가 하나도 없는 정상 응답'으로 받아들여 조용히 0건을 냈다.
+   → 뉴스·공시·테마·업종·구성종목·투자자 동향을 m.stock.naver.com JSON API 로 옮긴다.
+     옛 처리기는 그대로 두고 예비 경로로만 쓴다. */
+var NV2_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Mobile Safari/537.36";
+async function nv2Json(u, ms = 6000) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(u, { headers: { "User-Agent": NV2_UA, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" }, signal: c.signal });
+    if (!r.ok) throw new Error("http " + r.status);
+    const txt = await r.text();
+    if (/^\s*</.test(txt)) throw new Error("html");   /* 없는 주소는 오류 HTML 페이지가 온다 */
+    return JSON.parse(txt);
+  } finally { clearTimeout(t); }
+}
+var nv2Num = (v) => { if (v == null) return null; const n = Number(String(v).replace(/[,%\s+]/g, "")); return isFinite(n) ? n : null; };
+var nv2Esc = (s) => String(s || "").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#0?39;/g, "'")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\s+/g, " ").trim();
+var nv2Txt = (s) => String(s || "").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#0?39;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();   /* 화면이 직접 이스케이프하는 곳(테마·종목명)용 평문 */
+var nv2Code = (s) => String(s || "").toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 6);
+/* "202610240035" · "20261024000213" · "2026-10-15T06:50:25" → "2026.10.24 00:35" */
+function nv2Date(s) {
+  const d = String(s || "").replace(/[^0-9]/g, "");
+  if (d.length < 8) return "";
+  return d.slice(0, 4) + "." + d.slice(4, 6) + "." + d.slice(6, 8) + (d.length >= 12 ? " " + d.slice(8, 10) + ":" + d.slice(10, 12) : "");
+}
+var NV2_J = (o, cc) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": cc || "s-maxage=120" } });
+
+/* ── 종목 뉴스·공시 · 시장 주요 뉴스 ─────────────────────────────────────── */
+async function nv2StockNews(code) {
+  const j = await nv2Json(`https://m.stock.naver.com/api/news/stock/${code}?pageSize=20&page=1`);
+  const out = [];
+  for (const grp of (Array.isArray(j) ? j : [])) for (const it of (grp.items || [])) {
+    const title = nv2Esc(it.titleFull || it.title);
+    if (!title) continue;
+    out.push({ title, source: nv2Esc(it.officeName), date: nv2Date(it.datetime), type: "news",
+      url: it.mobileNewsUrl || (it.officeId && it.articleId ? `https://n.news.naver.com/mnews/article/${it.officeId}/${it.articleId}` : "") });
+  }
+  return out;
+}
+async function nv2StockDisc(code) {
+  const j = await nv2Json(`https://m.stock.naver.com/api/stock/${code}/disclosure?pageSize=20&page=1`);
+  return (Array.isArray(j) ? j : []).map((it) => ({
+    title: nv2Esc(it.title), source: nv2Esc(it.author || "공시"), date: nv2Date(it.datetime), type: "disc",
+    url: `https://m.stock.naver.com/domestic/stock/${code}/disclosure/${it.disclosureId}`
+  })).filter((x) => x.title);
+}
+var news_v2 = async (req2, ctx) => {
+  const url = new URL(req2.url);
+  if (url.searchParams.get("market") === "1") {
+    try {
+      const j = await nv2Json("https://m.stock.naver.com/api/news/list?category=mainnews&pageSize=30&page=1");
+      const seen = new Set(), items = [];
+      for (const it of (Array.isArray(j) ? j : [])) {
+        const t = nv2Esc(it.tit); if (!t) continue;
+        const k = t.slice(0, 16); if (seen.has(k)) continue; seen.add(k);
+        items.push({ t, press: nv2Esc(it.ohnm), time: nv2Date(it.dt),
+          url: it.oid && it.aid ? `https://n.news.naver.com/mnews/article/${it.oid}/${it.aid}` : "" });
+        if (items.length >= 24) break;
+      }
+      if (items.length) return NV2_J({ ok: true, titles: items.map((x) => x.t), items, n: items.length, src: "m.stock/mainnews" }, "s-maxage=180");
+    } catch (e) {}
+    return news_default(req2, ctx);
+  }
+  const code = nv2Code(url.searchParams.get("code") || "005930");
+  const type = String(url.searchParams.get("type") || "all");
+  const diag = {};
+  let items = [];
+  const want = (k) => type === "all" || type === k;
+  const [n, d] = await Promise.all([
+    want("news") ? nv2StockNews(code).catch((e) => { diag.newsErr = String(e).slice(0, 40); return []; }) : [],
+    want("disc") ? nv2StockDisc(code).catch((e) => { diag.discErr = String(e).slice(0, 40); return []; }) : []
+  ]);
+  if (want("news")) diag.news = n.length;
+  if (want("disc")) diag.disc = d.length;
+  items = n.concat(d).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return NV2_J({ ok: items.length > 0, code, items: items.slice(0, 30), diag, src: "m.stock" });
+};
+
+/* ── 테마·업종 목록 · 구성 종목 ───────────────────────────────────────────── */
+function nv2Group(g) {
+  return { no: String(g.no), name: nv2Txt(g.name), rate: nv2Num(g.changeRate), rate3: null,
+    count: nv2Num(g.totalCount), up: nv2Num(g.riseCount), flat: nv2Num(g.steadyCount), down: nv2Num(g.fallCount), leaders: [] };
+}
+var NV2_KIND = (type) => (type === "upjong" ? "industry" : "theme");
+var themes_v2 = async (req2, ctx) => {
+  const url = new URL(req2.url);
+  const type = url.searchParams.get("type") === "upjong" ? "upjong" : "theme";
+  const kind = NV2_KIND(type);
+  const diag = [];
+  try {
+    const first = await nv2Json(`https://m.stock.naver.com/api/stocks/${kind}?page=1&pageSize=100`);
+    let groups = (first && first.groups) || [];
+    const total = Math.min(Number(first && first.totalCount) || groups.length, 600);
+    const pages = [];
+    for (let p = 2; (p - 1) * 100 < total; p++) pages.push(p);
+    const rest = await Promise.all(pages.map((p) => nv2Json(`https://m.stock.naver.com/api/stocks/${kind}?page=${p}&pageSize=100`)
+      .then((j) => (j && j.groups) || []).catch((e) => { diag.push("p" + p + ":" + String(e).slice(0, 30)); return []; })));
+    rest.forEach((g) => { groups = groups.concat(g); });
+    const seen = new Set(), items = [];
+    for (const g of groups) { if (!g || seen.has(g.no)) continue; seen.add(g.no); items.push(nv2Group(g)); }
+    /* 주도주(leaders) — 목록 API 에는 없어서, 강한 순·약한 순 일부만 구성 종목을 읽어 채운다.
+       외부호출 한도(요청당 50회)를 넘지 않게 상한을 둔다. */
+    const byRate = items.filter((x) => x.rate != null).sort((a, b) => b.rate - a.rate);
+    const pick = byRate.slice(0, 15).concat(byRate.slice(-5)).filter((v, i, a) => a.indexOf(v) === i);
+    await Promise.all(pick.map(async (g) => {
+      try {
+        const j = await nv2Json(`https://m.stock.naver.com/api/stocks/${kind}/${g.no}?page=1&pageSize=10`, 4500);
+        const st = ((j && j.stocks) || []).slice().sort((a, b) => (nv2Num(b.fluctuationsRatio) || 0) - (nv2Num(a.fluctuationsRatio) || 0));
+        g.leaders = (g.rate >= 0 ? st : st.reverse()).slice(0, 3).map((s) => ({ code: nv2Code(s.itemCode), name: nv2Txt(s.stockName) }));
+      } catch (e) {}
+    }));
+    if (items.length) return NV2_J({ ok: true, type, n: items.length, items, diag, src: "m.stock" });
+    diag.push("empty");
+  } catch (e) { diag.push(String(e).slice(0, 60)); }
+  const old = await themes_default(req2, ctx);
+  try { const j = await old.json(); j.diag = (j.diag || []).concat(diag); return NV2_J(j); } catch (e) { return NV2_J({ ok: false, type, n: 0, items: [], diag }); }
+};
+var themestocks_v2 = async (req2, ctx) => {
+  const url = new URL(req2.url);
+  const type = url.searchParams.get("type") === "upjong" ? "upjong" : "theme";
+  const no = String(url.searchParams.get("no") || "").replace(/[^0-9]/g, "");
+  if (!no) return NV2_J({ ok: false, items: [], error: "no required" });
+  try {
+    const kind = NV2_KIND(type);
+    const first = await nv2Json(`https://m.stock.naver.com/api/stocks/${kind}/${no}?page=1&pageSize=100`);
+    let stocks = (first && first.stocks) || [];
+    const total = Math.min(Number(first && first.totalCount) || stocks.length, 300);
+    const pages = [];
+    for (let p = 2; (p - 1) * 100 < total; p++) pages.push(p);
+    const rest = await Promise.all(pages.map((p) => nv2Json(`https://m.stock.naver.com/api/stocks/${kind}/${no}?page=${p}&pageSize=100`)
+      .then((j) => (j && j.stocks) || []).catch(() => [])));
+    rest.forEach((s) => { stocks = stocks.concat(s); });
+    const seen = new Set(), items = [];
+    for (const s of stocks) {
+      const code = nv2Code(s.itemCode); if (!code || seen.has(code)) continue; seen.add(code);
+      items.push({ code, name: nv2Txt(s.stockName) });
+    }
+    const title = nv2Txt(first && first.groupInfo && first.groupInfo.name);
+    if (items.length) return NV2_J({ ok: true, type, no, title, n: items.length, items, src: "m.stock" }, "s-maxage=300");
+  } catch (e) {}
+  return themestocks_default(req2, ctx);
+};
+
+/* ── 투자자별 매매동향 (종목 · 시장) ─────────────────────────────────────── */
+async function nv2StockTrend(code) {
+  const j = await nv2Json(`https://m.stock.naver.com/api/stock/${code}/trend?pageSize=60`);
+  const rows = (Array.isArray(j) ? j : []).map((r) => {
+    const d = String(r.bizdate || "");
+    return { date: d.slice(0, 4) + "." + d.slice(4, 6) + "." + d.slice(6, 8),
+      values: { "개인": nv2Num(r.individualPureBuyQuant), "외국인": nv2Num(r.foreignerPureBuyQuant), "기관계": nv2Num(r.organPureBuyQuant) } };
+  }).filter((r) => /^\d{4}\.\d{2}\.\d{2}$/.test(r.date));
+  if (!rows.length) return { error: "trend-empty" };
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+  const columns = ["개인", "외국인", "기관계"];
+  const total = {};
+  columns.forEach((n) => { total[n] = rows.reduce((s, x) => s + (Number(x.values[n]) || 0), 0); });
+  return { columns, total, rows, partial: true, source: "네이버" };
+}
+async function nv2IndexTrend(idx) {
+  const j = await nv2Json(`https://m.stock.naver.com/api/index/${idx}/trend`);
+  if (!j || !j.bizdate) return null;
+  const d = String(j.bizdate);
+  /* 단위: 억원 · 양수 = 순매수 */
+  return { date: d.slice(2, 4) + "." + d.slice(4, 6) + "." + d.slice(6, 8),
+    "개인": nv2Num(j.personalValue) || 0, "외국인": nv2Num(j.foreignValue) || 0, "기관": nv2Num(j.institutionalValue) || 0 };
+}
+var investors_v2 = async (req2, ctx) => {
+  const url = new URL(req2.url);
+  if (url.searchParams.get("market") === "1") {
+    try {
+      const k = await nv2IndexTrend("KOSPI");
+      if (k) return NV2_J({ ok: true, date: k.date, personal: k["개인"], foreign: k["외국인"], inst: k["기관"], diag: ["ok:m.stock KOSPI " + k.date] },
+        "s-maxage=600, stale-while-revalidate=1200");
+    } catch (e) {}
+    return investors_default(req2, ctx);
+  }
+  const code = nv2Code(url.searchParams.get("code") || "005930");
+  /* KRX 정보데이터시스템이 로그인 필수(LOGOUT)로 바뀌어 매번 실패하므로 네이버를 먼저 쓴다 */
+  try {
+    const inv = await nv2StockTrend(code);
+    if (inv && !inv.error) return NV2_J({ ok: true, code, investors: inv }, "s-maxage=180");
+  } catch (e) {}
+  return investors_default(req2, ctx);
+};
+var invtrend_v2 = async (req2, ctx) => {
+  const diag = [];
+  const [a, b] = await Promise.all(["KOSPI", "KOSDAQ"].map((ix) => nv2IndexTrend(ix).catch((e) => { diag.push("m/" + ix + ":" + String(e).slice(0, 20)); return null; })));
+  if (a || b) {
+    return new Response(JSON.stringify({ ok: true, kospi: a, kosdaq: b, diag,
+      at: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ") + " KST", src: "m.stock" }),
+      { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=120, s-maxage=120", "access-control-allow-origin": "*" } });
+  }
+  return invtrend_default(req2, ctx);
+};
+
+/* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["종목 뉴스·공시 복구", "국내 주도 섹터(테마·업종)·구성 종목 복구", "투자자별 매매동향·시장 수급 복구", "시장 주요 뉴스 복구", "신규 상장 종목 시세(거래량·시가·고가·저가) 표시 복구"]; } } catch (e) {}
+
+ROUTES["news"] = news_v2;
+ROUTES["themes"] = themes_v2;
+ROUTES["themestocks"] = themestocks_v2;
+ROUTES["investors"] = investors_v2;
+ROUTES["invtrend"] = invtrend_v2;
+
 export {
   worker_default as default
 };

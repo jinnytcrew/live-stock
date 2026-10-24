@@ -19,6 +19,19 @@ export class LiveFeed {
     this._busy = false;
     this._lastFetch = 0;
   }
+  async _pull(codes) {
+    try {
+      const urls = [];
+      for (let i = 0; i < codes.length; i += this.chunk) urls.push(`/api/quote?codes=${codes.slice(i, i + this.chunk).join(',')}`);
+      this.onFetch(urls.length);
+      const res = await Promise.all(urls.map((u) => fetch(u, { cache: 'default' }).then((r) => r.json()).catch(() => null)));
+      for (const j of res) for (const q of ((j && j.ok && j.quotes) || [])) {
+        if (!q || !q.code) continue;
+        const first = !this.seen.has(q.code); this.seen.add(q.code);
+        this._emit(first ? 'snapshot' : 'quote', q);
+      }
+    } catch (e) {}
+  }
   on(type, cb) { (this.handlers[type] ||= []).push(cb); return this; }
   _emit(type, data) { (this.handlers[type] || []).forEach((cb) => cb(data)); }
   /* [v3.4] 예전엔 화면을 옮길 때마다 코드가 쌓이기만 하고 빠지지 않았다.
@@ -33,6 +46,8 @@ export class LiveFeed {
     if (pin) this.pinned.add(code);
     if (this.codes.includes(code)) return;
     this.codes.push(code);
+    this._fresh = this._fresh || new Set();
+    this._fresh.add(code);        // [v17.7.2] 아직 한 번도 못 받은 종목
     this._trim();
     this._lastFetch = 0;          // 새 종목은 휴장 중에도 즉시 한 번 받아온다
     this._tick();
@@ -73,10 +88,16 @@ export class LiveFeed {
     const stale = Date.now() - this._lastFetch;
 
     // 휴장·마감: 최초 스냅샷이 없거나 오래됐을 때만 조용히 1회 갱신(크레딧 절약 유지)
+    /* [v17.7.2] 장 마감 중 새로 추가된 종목이 10분 동안 시세를 못 받던 문제.
+       앞선 요청이 진행 중(_busy)일 때 추가되면 그 틱을 건너뛰고, 요청이 끝나며
+       _lastFetch 가 갱신돼 '방금 받았다'로 처리됐다. 아직 못 받은 종목은 따로 받는다. */
+    const fresh = [...(this._fresh || [])].filter((c) => !this.seen.has(c) && this.codes.includes(c));
     if (!live && !firstLoad && stale < this.closedInterval) {
+      if (fresh.length) { this._fresh.clear(); this._busy = true; this._pull(fresh).finally(() => { this._busy = false; }); return; }
       this._emit('status', { online: true, market: 'CLOSE', paused: true });
       return;
     }
+    if (this._fresh) this._fresh.clear();
     // 백그라운드 탭은 절약. 단, 아직 한 번도 못 받았으면 받아온다.
     if (!firstLoad && typeof document !== 'undefined' && document.hidden) return;
 

@@ -1875,7 +1875,7 @@ function eaBucket(f){
   return 'error';                                                      // 실제 조회 실패
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',check:'구성종목 확인필요',error:'조회 실패'};
-import { LiveFeed } from '/feed.js?v=94';
+import { LiveFeed } from '/feed.js?v=95';
 import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=332';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
@@ -2050,22 +2050,7 @@ function applyColor(){document.documentElement.setAttribute('data-color',setting
    갱신되고, 사람이 화면에서 인지하는 변화는 3초든 1.5초든 크게 다르지 않다.
    [무엇을 얻나] 15명 기준 하루 사용률이 67% → 53% 로 내려간다.
    같은 단계에서 버티는 인원도 tier0 3명 → 7명, tier1 7명 → 12명으로 늘어난다. */
-/* ══ [v17.9] 상한이 상한 구실을 못 하고 있었다 ═══════════════════════════════
-   [무엇이 잘못됐나] 브라우저 한 대의 하루 상한이 80,000회였는데, 서버(워커)의
-   무료 한도는 하루 100,000회다. 한 사람이 자기 상한만 지켜도 서버 한도의 80%를
-   혼자 쓸 수 있다 — 이건 상한이라고 부를 수 없는 값이다.
-   실제 폴링 주기로 계산하면 최고속에서 한 사람이 하루 28,929회를 쓴다.
-   즉 동시 사용자 세 명이면 하루치가 끝난다(측정으로 확인).
-   [고침] 한 사람 몫을 서버 한도의 6%(6,000회)로 잡는다. 상한에 가까워지면
-   단계적으로 주기를 늦추므로(0→1→2→3) 갑자기 멈추는 것이 아니라 서서히 느려진다.
-   ══ [v17.10] 6,000회면 좁지 않은가 ═══════════════════════════════════════════
-   환율을 환전 화면에서만 부르고, 야간선물을 60초로 늦추고, 손대지 않으면
-   자동으로 감속하게 바꾼 뒤라 실제 소모가 크게 줄었다.
-     · 최고 속도로 쉬지 않고 조작해도 약 3시간은 그대로 유지된다.
-     · 3분만 손을 떼면 유휴 감속이 걸려 소모가 거의 멈춘다.
-     · 상한에 닿아도 멈추지 않고 느려질 뿐이다(최저 속도로 하루 1,509회).
-   이 값이면 서버 한도 기준 동시 16명까지 받는다. 월 상한도 같은 비율로 낮춘다. */
-function speedCfg(){ return {capM:180000,capD:6000,q:[3000,5000,10000,60000],m:[5000,10000,20000,120000]}; }
+function speedCfg(){ return {capM:2400000,capD:80000,q:[3000,5000,10000,60000],m:[5000,10000,20000,120000]}; }
 applyTheme();applyColor();
 /* ══ [v9.71] 호가단위가 코스피 기준 하나뿐이었다 ═══════════════════════════
    [무엇이 잘못됐나] 2023년 호가단위 개편 이후 코스피와 코스닥의 단위가 다르다.
@@ -5462,7 +5447,7 @@ function renderSettingsUI(){
   segSel('setTheme',settings.theme);segSel('setColor',settings.color);
   $('setReal').classList.toggle('on',settings.realHours);$('setReal').setAttribute('aria-checked',settings.realHours);
   $('setOrderPass').classList.toggle('on',settings.orderPass);$('setOrderPass').setAttribute('aria-checked',settings.orderPass);
-  $('setRealDesc').textContent=settings.realHours?'켜짐 · 실제 장 시간에만 주문 가능 (KRX 08:30~18:00 · NXT 종목 08:00~20:00)':'꺼짐 · 시간과 무관하게 항상 매수/매도 가능';
+  $('setRealDesc').textContent=settings.realHours?'켜짐 · 실제 장 시간에만 주문 가능 (KRX 08:30~15:30, 15:40~20:00 · NXT 종목 08:00~20:00)':'꺼짐 · 시간과 무관하게 항상 매수/매도 가능';
   const b=_fbGet();
   /* [v6.8] Cloudflare 는 하루 기준이므로 '오늘'을 앞에 둔다 */
   $('setUsage').innerHTML=`오늘 <b>${b.dc.toLocaleString()}</b> / ${fnCapD().toLocaleString()}회 <b>(${Math.min(100,Math.round(b.dc/fnCapD()*100))}%)</b> · 이번 달 <b>${b.mc.toLocaleString()}</b>회<br><span class="set-d">Cloudflare Workers 무료 요금제는 <b>하루 100,000회</b>가 한도입니다. 80,000회에 닿으면 자동으로 갱신을 늦춰 초과를 막습니다.</span>`;
@@ -5800,13 +5785,7 @@ function showUpdateGate(prevKey){
   /* [v15.6] 노트 출처 단일화 — 설정 화면과 동일하게 history[0] 이 유일한 출처.
      (v15.4.4 에서 최상위 notes 사본을 없앤 뒤 이 창만 옛 필드를 읽어 비어 있었다) */
   const _h0=(bv.history&&bv.history[0])||null;
-  /* ══ [v17.8] 안내창이 내부 구현을 통째로 드러내던 문제 ════════════════════════
-     업데이트 내용에 개발 기록(어느 CSS 속성이 원인이었는지, 검사 도구가 무엇을
-     쓰는지)이 그대로 떴다(실기 사진). 그건 사용자에게 뜻이 없고 내부 구조만
-     알려 준다. 배포 기록에는 사용자용 문구(pub)를 따로 두고, 안내창은 그것만
-     읽는다. 상세 개발 기록(notes)은 소스에 남는 개발 문서다. */
-  const notes=(_h0&&Array.isArray(_h0.pub)&&_h0.pub.length)?_h0.pub
-             :(_h0&&Array.isArray(_h0.notes)&&_h0.notes.length)?_h0.notes.slice(0,3)
+  const notes=(_h0&&Array.isArray(_h0.notes)&&_h0.notes.length)?_h0.notes
              :(Array.isArray(bv.notes)?bv.notes:[]);
   const g=document.createElement('div');
   g.id='updGate';g.className='upd-overlay';
@@ -6680,7 +6659,10 @@ function syncEtfTab(code){
   else{curEtf=null;if(infoTab==='etf'){infoTab='summary';document.querySelectorAll('.info-tabs button').forEach(x=>x.classList.toggle('on',x.dataset.info==='summary'));}}
 }
 async function ensureQuote(code){
-  if(byCode[code]&&byCode[code].price!=null)return;
+  /* [v17.7.2] 순위·검색 목록이 '가격만' 미리 채운 종목(신규 상장주에서 흔함)은
+     price 가 있어도 거래량·시가·고가·저가가 비어 있다. 전체 시세를 한 번도
+     못 받았으면(_px_at 없음) 받아 온다. */
+  if(byCode[code]&&byCode[code].price!=null&&byCode[code]._px_at)return;
   try{const r=await fetch('/api/quote?codes='+code);const j=await r.json();(j.quotes||[]).forEach(q=>applyQuote(q,true));}catch{}
 }
 
@@ -6917,7 +6899,7 @@ function fnUsagePct(){const b=_fbGet();return Math.min(100,Math.round(b.mc/fnCap
    anyNxt === false → 폴링이 한 번도 돌지 않았다(헤더에 계속 '갱신 대기').
    → NXT 정규 운영시간이면 폴링을 켜고, nxt 플래그는 백그라운드로 채운다. */
 /* [v3.9] 시세가 실제로 변하는 시간 — 폴링·갱신 판단의 기준.
-   정규장뿐 아니라 동시호가(예상체결가가 계속 바뀐다)와 시간외 단일가도 포함된다. */
+   정규장뿐 아니라 동시호가(예상체결가가 계속 바뀐다)와 애프터마켓도 포함된다. */
 function krPriceLive(){const k=krSession();return k.krx.tradable||k.nxt.tradable;}
 function quoteShouldPoll(){
   if(krxRegularOpen())return true;                       // KRX 정규장: 모든 종목
@@ -6971,38 +6953,13 @@ function srvBudgetTier(){
   const p=_srvBudget;
   return p>=95?3:p>=80?2:p>=55?1:0;
 }
-/* ══ [v17.10] 보고 있지 않은 화면이 하루 종일 요청을 쓰고 있었다 ═══════════════
-   [무엇이 잘못됐나] 탭을 배경으로 내리면(document.hidden) 폴링이 멈추지만,
-   탭을 켠 채 자리를 비우면 화면은 계속 최고 속도로 돌았다. 실제로 사람들은
-   앱을 열어 두고 다른 일을 한다 — 하루 13시간(국내장+미국장) 내내 붙어 있는
-   사용자를 가정하고 용량을 계산하면, 대부분의 요청이 아무도 안 보는 화면에
-   쓰이는 셈이다.
-   [고침] 손대지 않은 시간이 길어지면 단계적으로 늦춘다.
-     · 3분  — 한 단계 낮춤(사람이 잠깐 다른 일을 하는 정도)
-     · 10분 — 최저 속도(자리를 비운 것으로 본다)
-   화면을 만지거나 스크롤하는 순간 원래 속도로 즉시 돌아온다. 보고 있는
-   사람의 체감은 그대로면서, 안 보는 시간의 요청이 사라진다. */
-let _lastAct=Date.now();
-try{
-  const mark=()=>{ _lastAct=Date.now(); };
-  ['pointerdown','keydown','wheel','touchstart','scroll'].forEach(ev=>
-    window.addEventListener(ev,mark,{passive:true}));
-  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)mark(); });
-}catch(e){}
-function idleTier(){
-  const q=Date.now()-_lastAct;
-  if(q>600000)return 3;        // 10분 — 자리 비움
-  if(q>180000)return 1;        // 3분  — 잠시 다른 일
-  return 0;
-}
 function budgetTier(){
   const b=_fbGet();
   let mine;
   if(b.mc>=fnCapM()||b.dc>=fnCapD())mine=3;
   else{ const r=b.dc/fnCapD(); mine=r<0.5?0:r<0.8?1:2; }
   const srv=srvBudgetTier();
-  /* [v17.10] 내 사용량·서버 사용량·유휴 시간 중 '가장 느리게 하라는 쪽'을 따른다 */
-  return Math.max(mine, srv<0?0:srv, idleTier());
+  return srv<0?mine:Math.max(mine,srv);      // 더 느린 쪽(숫자가 큰 쪽)을 따른다
 }
 // 장중: 빠르게(단계적) / 마감·주말·휴장: 폴링 일시중단(느린 확인만)
 /* NXT 시간대 보완 폴링 — KRX 시세(0.00%) 위에 NXT 체결가를 덧씌운다.
@@ -7077,7 +7034,7 @@ async function primeNxtQuotes(codes){
 /* 화면에 표시할 대표 시세 — NXT 시간대에는 NXT 체결가, 그 외에는 KRX */
 /* 화면 표시 대표 시세 — [v1.99.2] 규칙 확정판(스크린샷 재발 방지):
      · KRX 전용 종목  → 항상 하늘색 KRX
-     · NXT 종목       → NXT 단독 라이브(프리 08~09 · 애프터 15:40~20:00) 체결 중엔 핑크 NXT,
+     · NXT 종목       → NXT 단독 라이브(프리 08:00~08:50 · 애프터 16:00~20:00) 체결 중엔 핑크 NXT,
                         정규장(09:00~15:30)엔 KRX(폴링가가 곧 최신),
                         그 외 모든 시간(마감 후·주말 포함)엔 남색 '통합'.
        통합가 소스 사슬(전부 배치 폴링 기반 — 종목을 클릭하지 않아도 채워진다):
@@ -7208,25 +7165,10 @@ async function pollMarket(){
   if(_mktBusy||document.hidden){scheduleMarket();return;} // 진행 중·백그라운드면 이번 회차 건너뛰고 다음 예약
   _mktBusy=true;
   try{fnBump();
-    /* ══ [v17.9] 환율을 시세와 같은 빈도로 부를 이유가 없다 ════════════════════
-       이 루프는 장중 5초마다 도는데, 매 회차 /api/market 과 /api/fx 를 함께
-       불러 요청이 두 배였다. 환율은 5초마다 의미 있게 바뀌지 않는다.
-       세 번에 한 번만 부른다 — 요청량이 눈에 띄게 줄고 화면은 그대로다. */
-    /* ══ [v17.10] 환율을 계속 따로 부르고 있었다 ══════════════════════════════
-       /api/market 응답에 이미 주요 환율이 들어 있다. /api/fx 는 30여 개 통화를
-       주는 '환전 화면 전용' 자료인데, 환전 화면을 열지 않은 사람에게도 장중
-       내내 불러 왔다 — 지수 폴링만큼의 요청이 통째로 낭비였다.
-       [고침] 환전·계좌 화면을 보고 있을 때만, 그것도 60초에 한 번만 부른다.
-       그 밖에는 지수 응답에 실린 환율을 쓴다(화면 표시는 동일). */
-    pollMarket._n=(pollMarket._n||0)+1;
-    const fxNeeded=(currentView==='account'||fxOpen||!fxData.length);
-    const wantFx=fxNeeded&&(Date.now()-(fxAt||0)>60000);
-    const [r,rf]=await Promise.all([fetch('/api/market',{cache:'default'}),
-      wantFx?fetch('/api/fx',{cache:'default'}).catch(()=>null):Promise.resolve(null)]);
+    const [r,rf]=await Promise.all([fetch('/api/market',{cache:'default'}),fetch('/api/fx',{cache:'default'}).catch(()=>null)]);
     noteBudgetHeader(r);          /* [v9.97] 전체 사용률을 여기서 받아 속도에 반영 */
     const j=await r.json();
-    /* [v17.10] 환전 화면을 안 볼 때는 지수 응답의 환율을 그대로 쓴다 */
-    if(j.ok){market.indices=j.indices||[];market.crypto=j.crypto||[];if(j.fx&&j.fx.length)market.fx=j.fx;
+    if(j.ok){market.indices=j.indices||[];market.crypto=j.crypto||[];if(!fxData.length)market.fx=j.fx||[];
       /* [v3.2] 서버 자가진단 보관 — 빈 지수·이상 등락률·야간선물 기준을 콘솔에서 확인 가능.
          야간선물을 못 받은 날은 카드가 아예 안 뜨므로, 왜 없는지는 여기서 본다. */
       idxHealth={health:j._health||null,futDiag:j._futDiag||null,at:new Date().toLocaleString('ko-KR')};
@@ -7482,10 +7424,9 @@ function marketSession(){
   if(hm<M(9,0))   return {label:'장 시작 동시호가',sub:'08:30~09:00 접수 → 09:00 시가 결정',tone:'pre'};
   if(hm<M(15,20)) return {label:'KRX 정규장',sub:'09:00~15:20 접속매매 · NXT 메인마켓(09:00:30~) 동시 진행',tone:'on'};
   if(hm<M(15,30)) return {label:'장 마감 동시호가',sub:'15:20~15:30 → 15:30 종가 결정 · NXT 휴지',tone:'on'};
-  if(hm<M(15,40)) return {label:'정규장 마감 · NXT 애프터 단일가',sub:'15:30~15:40 호가 접수 → 15:40 체결 · KRX 시간외는 15:40부터',tone:'aft'};
-  if(hm<M(16,0))  return {label:'정규장 마감 · 시간외 종가',sub:'15:40~16:00 당일 종가 체결 · NXT 애프터',tone:'aft'};
-  if(hm<M(18,0))  return {label:'정규장 마감 · 시간외 단일가',sub:'16:00~18:00 10분 단위 · NXT 애프터',tone:'aft'};
-  if(hm<M(20,0))  return {label:'정규장 마감 · NXT 애프터',sub:'KRX 전 세션 종료 · NXT ~20:00',tone:'aft'};
+  if(hm<M(15,40)) return {label:'정규장 마감 · 종가매매 접수',sub:'NXT 종가매매 주문 접수 중 · KRX 시간외종가는 15:40부터',tone:'aft'};
+  if(hm<M(16,0))  return {label:'정규장 마감 · 시간외 종가',sub:'15:40~16:00 당일 종가 체결 · 16:00 애프터마켓 개장',tone:'aft'};
+  if(hm<M(20,0))  return {label:'애프터마켓 진행 중',sub:'KRX·NXT 16:00~20:00 실시간 접속매매',tone:'aft'};
   return {label:'장 종료',sub:(sp?sp+' · ':'')+'KRX·NXT 전 세션 종료 · 다음 영업일 08:00 재개',tone:'off'};
 }
 /* [v3.8] 헤더 배지를 누르면 국내 주식 거래시간 전체를 표로 보여 준다 */
@@ -7510,18 +7451,18 @@ function openHoursSheet(){
       ${R('09:00~15:20','정규장 접속매매','실시간 체결',on(M(9,0),M(15,20)))}
       ${R('15:20~15:30','장 마감 동시호가','15:30 종가를 단일가로 결정',on(M(15,20),M(15,30)))}
       ${R('15:40~16:00','장후 시간외 종가','당일 종가로 체결',on(M(15,40),M(16,0)))}
-      ${R('16:00~18:00','시간외 단일가','10분 단위 · 당일 종가 ±10% (가격제한폭 내)',on(M(16,0),M(18,0)))}
+      ${R('16:00~20:00','애프터마켓','실시간 접속매매 · 시간외 단일가 폐지',on(M(16,0),M(20,0)))}
       </tbody></table></div>
       <div class="cc-sec">NXT 넥스트레이드</div>
       <div class="table-wrap"><table class="hr-tb"><tbody>
       ${R('08:00~08:50','프리마켓','KRX보다 30분 일찍 시작 · 지정가 주문만',onS(T(8,0),T(8,50)))}
       ${R('09:00:30~15:20','메인마켓','KRX 시가 형성을 기다려 30초 늦게 개시 · SOR이 유리한 쪽으로 배분',onS(T(9,0,30),T(15,20)))}
-      ${R('15:30~15:40','애프터마켓 단일가','호가만 접수하고 15:40에 체결',onS(T(15,30),T(15,40)))}
-      ${R('15:40~20:00','애프터마켓 경쟁매매','저녁 8시까지 · 지정가 주문만',onS(T(15,40),T(20,0)))}
+      ${R('15:30~16:00','종가매매','KRX 당일 종가로 체결 · 주문접수 15:00~16:00',onS(T(15,30),T(16,0)))}
+      ${R('16:00~20:00','애프터마켓','실시간 접속매매 · 지정가 주문 중심',onS(T(16,0),T(20,0)))}
       </tbody></table></div>
       <div class="hr-note">NXT는 <b>08:50~09:00:30</b>과 <b>15:20~15:30</b>에 쉽니다. KRX가 시가·종가를 단일가로 정하는 시간과 겹치지 않게 하기 위해서예요.<br>
-      NXT에서 거래되는 종목은 <b>KRX 시간외 단일가(16:00~18:00)를 이용할 수 없습니다</b> — 그 시간엔 NXT 애프터마켓으로 주문하세요.<br>
-      프리마켓과 애프터마켓은 지정가 주문만 받고, 가격제한폭은 KRX와 같은 전일 종가 ±30%입니다.<br>
+      KRX 시간외 단일가는 <b>2026년 9월 14일부터 폐지</b>되고, 16:00~20:00 애프터마켓으로 전환됐습니다. NXT 종가매매(15:30~16:00)는 당일 KRX 종가로 체결됩니다.<br>
+      NXT 프리마켓은 지정가 주문만 받습니다. 애프터마켓 주문·가격제한은 거래소 및 증권사 주문조건을 확인하세요.<br>
       토·일과 공휴일은 양쪽 모두 휴장입니다.</div>
     </div></div>`;
   ov.hidden=false;
@@ -7587,18 +7528,17 @@ function isUsTradingDay(){const t=nowTz('America/New_York');if(t.wd===0||t.wd===
         09:00~15:20 정규장 접속매매
         15:20~15:30 장 마감 동시호가 (→ 15:30 종가 단일가)
         15:40~16:00 장후 시간외 종가 (당일 종가로 체결)
-        16:00~18:00 시간외 단일가 (10분 단위 · 당일 종가 ±10%, 가격제한폭 내)
+        16:00~20:00 KRX 애프터마켓 실시간 접속매매 (시간외 단일가 폐지)
    NXT  08:00~08:50       프리마켓 (지정가만)
         09:00:30~15:20    메인마켓 — KRX 시가 형성을 기다려 30초 늦게 연다
-        15:30~15:40       애프터마켓 단일가 (호가 접수, 15:40 체결)
-        15:40~20:00       애프터마켓 경쟁매매 (지정가만)
+        15:30~16:00       NXT 종가매매 · 16:00~20:00 애프터마켓
         휴지 08:50~09:00:30 · 15:20~15:30 — KRX 시가·종가 단일가와 겹치지 않게
-   ★ NXT 거래 종목은 KRX 시간외 단일가(16:00~18:00) 이용이 제한된다.
+   ★ 2026-09-14부터 KRX 시간외 단일가가 폐지되고 KRX·NXT 애프터마켓은 16:00~20:00.
    [v4.0에서 바로잡은 것]
-     · NXT 애프터마켓을 15:40 시작으로 봤다 → 실제 15:30 (15:30~15:40 은 단일가 호가접수)
-     · 두 번째 휴지를 15:20~15:40 으로 봤다 → 실제 15:20~15:30
+     · NXT 애프터마켓은 16:00에 시작하며, 15:30~16:00은 종가매매 구간
+     · KRX 애프터마켓도 16:00~20:00 실시간 접속매매
      · 메인마켓을 09:00 정각으로 봤다 → 실제 09:00:30
-     · 프리·애프터마켓이 지정가 전용이라는 점, KRX 시간외단일가 제한을 반영하지 않았다   */
+     · 애프터마켓 주문유형은 거래소 및 증권사별로 적용   */
 /* [v4.2] 거래시간 특례일.
    · 새해 첫 거래일은 10:00 개장(폐장·개장 관례)
    · 수능일은 수험생 출근시간 분산을 위해 1시간 늦춰 10:00~16:30
@@ -7614,7 +7554,7 @@ function krShift(){try{return (KR_SPECIAL[tzDateIso('Asia/Seoul')]||{}).shift||0
 function krSpecialLabel(){try{return (KR_SPECIAL[tzDateIso('Asia/Seoul')]||{}).label||'';}catch(e){return '';}}
 
 const KRS={PRE_CLOSE:'장전 시간외 종가',PRE_AUC:'장 시작 동시호가',REG:'정규장',
-  CLOSE_AUC:'장 마감 동시호가',AFT_CLOSE:'장후 시간외 종가',AFT_SINGLE:'시간외 단일가',NONE:''};
+  CLOSE_AUC:'장 마감 동시호가',AFT_CLOSE:'장후 시간외 종가',AFT_MARKET:'애프터마켓',NONE:''};
 function krSession(){
   const t=nowTz('Asia/Seoul');
   /* 특례일에는 시각을 거꾸로 당겨 평소 시간표에 대입한다(10:00 개장 = 평소 09:00) */
@@ -7634,16 +7574,16 @@ function krSession(){
   else if(hm>=M(9,0)&&hm<M(15,20)) out.krx={open:true,phase:KRS.REG,tradable:true};
   else if(hm>=M(15,20)&&hm<M(15,30))out.krx={open:true,phase:KRS.CLOSE_AUC,tradable:true};
   else if(hm>=M(15,40)&&hm<M(16,0))out.krx={open:false,phase:KRS.AFT_CLOSE,tradable:true};
-  else if(hm>=M(16,0)&&hm<M(18,0)) out.krx={open:false,phase:KRS.AFT_SINGLE,tradable:true};
+  else if(hm>=M(16,0)&&hm<M(20,0)) out.krx={open:false,phase:KRS.AFT_MARKET,tradable:true};
   // ── NXT ──
   if(S>=T(8,0)&&S<T(8,50))            out.nxt={open:false,phase:'프리마켓',tradable:true,limitOnly:true};
   else if(S>=T(9,0,30)&&S<T(15,20))   out.nxt={open:true,phase:'메인마켓',tradable:true,limitOnly:false};
-  else if(S>=T(15,30)&&S<T(15,40))    out.nxt={open:false,phase:'애프터마켓 단일가',tradable:true,limitOnly:true};
-  else if(S>=T(15,40)&&S<T(20,0))     out.nxt={open:false,phase:'애프터마켓',tradable:true,limitOnly:true};
+  else if(S>=T(15,30)&&S<T(16,0))     out.nxt={open:false,phase:'종가매매',tradable:true,limitOnly:true};
+  else if(S>=T(16,0)&&S<T(20,0))     out.nxt={open:false,phase:'애프터마켓',tradable:true,limitOnly:true};
   return out;
 }
 function krxRegularOpen(){const s=krSession();return s.krx.open;}
-/* KRX 어떤 형태로든 주문이 가능한 시간(장전 시간외~시간외 단일가) */
+/* KRX 주문 가능 시간(장전부터 애프터마켓 종료까지) */
 function krxTradable(){return krSession().krx.tradable;}
 /* NXT 실제 거래 가능 시간 — 08:50~09:00, 15:20~15:40 휴지 반영 */
 function nxtActive(){return krSession().nxt.tradable;}
@@ -7755,10 +7695,7 @@ try{
 }catch(e){}
 function k200nfLoad(force){
   if(_k200nfBusy)return;
-  /* [v17.10] 20초 → 60초. 야간선물은 참고 지표라 20초 간격이 필요하지 않은데,
-     장중 내내 분당 3회를 썼다(하루 1,170회). 속도 단계가 낮으면 더 늦춘다. */
-  const _t=(typeof budgetTier==='function')?budgetTier():0;
-  const iv=(_k200nf&&_k200nf.price>0)?[60000,90000,180000,600000][_t]:6000;
+  const iv=(_k200nf&&_k200nf.price>0)?20000:6000;      // 아직 못 받았으면 더 자주
   if(!force&&Date.now()-_k200nfAt<iv)return;
   _k200nfBusy=true; _k200nfAt=Date.now();
   fetch('/api/k200nf',{cache:'no-store'})
@@ -8835,7 +8772,7 @@ function hmSessionInfo(){
     const d=(wd===6)?2:(wd===0)?1:1;
     return mk('closed','off','휴장',null,'다음 영업일 09:00 개장');
   }
-  if(hm<8*60+30)  return mk('pre','wait','장 시작 전',8*60+30-hm,'08:30 시간외 단일가');
+  if(hm<8*60+30)  return mk('pre','wait','장 시작 전',8*60+30-hm,'08:30 장전 시간외');
   if(hm<9*60)     return mk('pre','wait','장 시작 전',9*60-hm,'09:00 정규장 개장');
   if(hm<15*60+20) return mk('open','live','정규장 진행 중',15*60+20-hm,'15:20 동시호가');
   if(hm<15*60+30) return mk('close','wait','장 마감 동시호가',15*60+30-hm,'15:30 정규장 마감');
@@ -10696,38 +10633,8 @@ function renderCalEvents(){
       <div class="cal-ev-tag">${e.sub||''}</div></div><span class="cal-chev">${open?'▾':'▸'}</span></div>${open?`<div class="cal-detail">${calDetailHtml(e)}</div>`:''}`;
   }).join('')+(evs.length>showEvs.length?`<button class="cal-more" id="calMore">실적 일정 ${evs.length-showEvs.length}개 더 보기 ▾</button>`
       :(calShowAll&&evs.length>LIM+1?`<button class="cal-more" id="calMore">접기 ▴</button>`:''))
-    :(function(){
-      /* ══ [v17.8] 빈 날짜가 '빈 화면'이 되지 않게 한다 ═══════════════════════
-         실적 시즌 사이(8월 말~10월 초 등)에는 일정이 없는 날이 원래 많다.
-         그런 날 오른쪽 칸이 텅 비면 캘린더 전체가 고장 난 것처럼 보인다
-         (실기 사진). 없는 일정을 지어내는 대신, 선택한 날 이후 2주 안의
-         일정을 날짜와 함께 보여 준다 — '오늘은 없고, 다음은 이것'이 사실이다. */
-      const ups=[];
-      for(let k=1;k<=14&&ups.length<6;k++){
-        const nd=new Date(calSel); nd.setDate(nd.getDate()+k);
-        for(const e of calEventsFor(nd)){
-          ups.push({d:nd,e});
-          if(ups.length>=6)break;
-        }
-      }
-      if(!ups.length)return '<div class="cal-empty">이 날짜에는 표시할 주요 일정이 없습니다.</div>';
-      return '<div class="cal-empty" style="padding-bottom:6px">이 날짜에는 일정이 없습니다 · 다가오는 일정</div>'+
-        ups.map(({d,e})=>{
-          const ic=CAL_IC[e.cat]||CAL_IC.theme;
-          const flag=e.country==='kr'?'🇰🇷':e.country==='us'?'🇺🇸':'';
-          const dl=String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0')+'.'+CAL_WD[d.getDay()];
-          return `<div class="cal-ev up-ev" data-jump="${isoLocal(d)}" role="button" style="cursor:pointer;opacity:.92">
-            <div class="cal-ev-ic ${ic[0]}">${(e.cat==='earn'&&flag)?flag:ic[1]}</div>
-            <div class="cal-ev-b"><div class="cal-ev-t">${e.t}</div>
-            <div class="cal-ev-tag"><b class="num">${dl}</b>${e.sub?' · '+e.sub:''}</div></div></div>`;
-        }).join('');
-    })());
+    :'<div class="cal-empty">이 날짜에는 표시할 주요 일정이 없습니다.</div>');
   {const mb=$('calMore');if(mb)mb.onclick=()=>{calShowAll=!calShowAll;if(!calShowAll)calDetailOpen=null;renderCalEvents();};}
-  box.querySelectorAll('.cal-ev.up-ev').forEach(el=>el.onclick=()=>{
-    const [yy,mm,dd]=el.dataset.jump.split('-').map(Number);
-    calSel=new Date(yy,mm-1,dd); calDetailOpen=null; calShowAll=false;
-    calMonth=new Date(yy,mm-1,1); renderCalendar();
-  });
   box.querySelectorAll('.cal-ev.clickable').forEach(el=>el.onclick=()=>{
     const i=+el.dataset.ei;calDetailOpen=(calDetailOpen===i?null:i);
     if(calDetailOpen===i){const e=evs[i];if(e&&e.cat==='earn'&&e.code)loadCalDetail(e.code);}
@@ -10970,10 +10877,13 @@ async function primeQuotes(codes){
       if(miss&&now-(st._pxTry||0)<Math.min(miss,6)*60e3)return false;
       st._pxTry=now;return true;
     }
+    /* [v17.7.2] 가격만 미리 채워지고 전체 시세(거래량·시고저)를 한 번도 못 받은 종목 —
+       장 마감 뒤 KRX 전용 종목은 아래 규칙에 하나도 안 걸려 빈칸으로 굳었다. 1분 간격으로 받는다. */
+    if(!st._px_at&&now-(st._fullTry||0)>60e3){st._fullTry=now;return true;}
     /* [v3.4] 예전엔 '가격이 비어 있을 때'만 받아 왔다. 한 번 값이 차면 다시는 조회하지 않아,
        실시간 구독에 없는 화면(순위·테마·비교·캘린더)은 첫 값에서 그대로 굳었다.
        장중에는 오래된 값(20초 초과)을 다시 받는다. */
-    /* [v3.9] 정규장·동시호가는 20초, 시간외 단일가는 10분 단위 체결이라 60초 */
+    /* [v3.9] 정규장·동시호가·애프터마켓 체결가 갱신은 최대 20초 간격 */
     {const _k=krSession();
      if(_k.krx.open&&now-(st._px_at||0)>20e3)return true;
      if(_k.krx.tradable&&!_k.krx.open&&now-(st._px_at||0)>60e3)return true;}
@@ -11045,7 +10955,7 @@ function mktTag(code,market){
 }
 /* ══ [v2.0] 시장 세션 배지 — 사용자 확정 규칙 ══
    · 주말/휴장일(KR_HOLIDAYS): 노랑 '휴장'
-   · KRX 전용(거래 08:30~18:00): 00:00~08:30 '장 전' / 08:30~18:00 청록 'KRX' / 18:00~ '장 종료'
+   · KRX 전용(거래 08:30~15:30, 15:40~20:00): 00:00~08:30 '장 전' / 08:30~15:30, 15:40~20:00 청록 'KRX' / 18:00~ '장 종료'
    · NXT 종목(거래 08:00~20:00): 00:00~08:00 '장 전' / 08~09·15:30~20 핑크 'NXT' /
        09~15:30 남색 '통합' / 20:00~ '장 종료'
    가격 값은 기존 dispQuote(통합가 사슬)가 계속 담당하고, 배지는 시계+명단만으로 결정되므로
@@ -11056,26 +10966,28 @@ function isKrHolidayTodayKST(){
   const iso=`${k.getUTCFullYear()}-${String(k.getUTCMonth()+1).padStart(2,'0')}-${String(k.getUTCDate()).padStart(2,'0')}`;
   return !!(typeof KR_HOLIDAYS!=='undefined'&&KR_HOLIDAYS[iso]);
 }
+/* [v17.7.2] 특례일(개장일·수능일 1시간 순연)을 배지에도 반영 — 주문 판정(krSession)과 어긋나지 않게 */
+function _kstHmShifted(k){let sh=0;try{sh=krShift();}catch(e){}return k.getUTCHours()*60+k.getUTCMinutes()-sh;}
 function marketSessionKST(){
-  const k=kstNow(),w=k.getUTCDay(),hm=k.getUTCHours()*60+k.getUTCMinutes();
+  const k=kstNow(),w=k.getUTCDay(),hm=_kstHmShifted(k);
   if(w===0||w===6||isKrHolidayTodayKST())return 'holiday';
   if(hm<480)return 'pre';
   if(hm>=1200)return 'post';
   return 'day';
 }
 function nxtLiveBandKST(){
-  const k=kstNow(),hm=k.getUTCHours()*60+k.getUTCMinutes();
-  return (hm>=480&&hm<540)||(hm>=930&&hm<1200);
+  const k=kstNow(),hm=_kstHmShifted(k);
+  return (hm>=480&&hm<530)||(hm>=960&&hm<1200);
 }
 function mktBadgeInfo(code){
   if(marketSessionKST()==='holiday')return ['휴장','hol'];
-  const hm=(()=>{const k=kstNow();return k.getUTCHours()*60+k.getUTCMinutes();})();
+  const hm=_kstHmShifted(kstNow());
   if(nxtCapability(code)===false){
     /* [v2.0.1] KRX 전용 — KRX 실제 거래 시간표 기준(사용자 첨부 표):
-       장전 시간외 종가 08:30 시작 ~ 시간외 단일가 18:00 종료 */
+       장전 시간외 종가 08:30 시작 ~ 시간외 단일가 20:00 종료 */
     if(hm<510)return ['장 전','prem'];       // 00:00~08:30
-    if(hm>=1080)return ['장 종료','post'];   // 18:00~24:00
-    return ['KRX','krx'];                    // 08:30~18:00
+    if(hm>=1200)return ['장 종료','post'];   // 20:00~24:00
+    return ['KRX','krx'];                    // 08:30~15:30, 15:40~20:00
   }
   /* NXT 종목 — NXT 시간표(프리 08:00 ~ 애프터 20:00) */
   if(hm<480)return ['장 전','prem'];
@@ -11108,7 +11020,7 @@ function mktLabel(code){
     if(/코스피|KOSPI/i.test(mk))return '코스피';
     if(/코넥스|KONEX/i.test(mk))return '코넥스';
     /* 시장을 모르면 종목코드 모양으로 가늠한다 — 국내는 여섯 자리 숫자다 */
-    if(/^\d{6}$/.test(String(code||'')))return '국내';
+    if(/^\d[0-9A-Z]{5}$/.test(String(code||'')))return '국내';
     return '';
   }catch(e){ return ''; }
 }
@@ -13055,7 +12967,7 @@ function scheduleExchange(){
   clearTimeout(exTimer);
   /* [v3.9] 동시호가에도 예상체결가가 계속 바뀌므로 빠른 주기를 쓴다 */
   const _k=krSession();
-  const iv=krxRegularOpen()?5000:(_k.krx.phase&&_k.krx.phase!==KRS.AFT_SINGLE?6000:0)||(nxtOnlyWindow()?6000:(_k.krx.tradable?20000:60000));
+  const iv=krxRegularOpen()?5000:(_k.krx.phase&&_k.krx.phase!==KRS.AFT_MARKET?6000:0)||(nxtOnlyWindow()?6000:(_k.krx.tradable?20000:60000));
   exTimer=setTimeout(()=>{
     if(currentView==='trade'&&selected&&!document.hidden)safeRun('exLoad',()=>loadExchange(selected));
     scheduleExchange();
@@ -15430,16 +15342,7 @@ function renderAiStock(el,force){
   const B=sessionBasis();
   const pctUp=(v)=>((v-a.px)/a.px*100).toFixed(1);
   const kwHtml=a.kw.map(k=>`<span class="ai-kw ${k[1]}">${k[0]}</span>`).join('');
-  /* ══ [v17.11] 성격 고지를 화면 맨 위로 올린다 ═══════════════════════
-     [왜] 이 화면은 오해받기 쉽다. 숫자가 가격 단위로 나오니 '이 값에
-     사고 팔라'는 안내처럼 읽힌다. 실제로는 과거 가격·거래량으로 계산한
-     기술적 지표일 뿐이고, 이 서비스는 모의투자 학습용이다.
-     [무엇이 문제였나] 같은 뜻의 고지가 페이지 맨 아래 작은 글씨로만 있었다.
-     숫자를 다 읽고 스크롤을 끝까지 내려야 나오는 자리라, 읽는 사람 기준으로는
-     없는 것과 같다. 고지는 오해가 생기기 '전에' 보여야 뜻이 있다.
-     [고침] 숫자보다 위, 화면 첫 줄에 놓는다. 국내·해외 화면 모두 동일. */
   el.innerHTML=`<div class="ai-wrap">
-    <div class="ai-lead">과거 가격·거래량으로 계산한 <b>기술적 지표</b>입니다. 모의투자 학습용 참고 자료이며 <b>투자자문·매매 권유가 아닙니다.</b></div>
     <div class="ai-head">
       <div class="ai-score"><div class="ai-sc-n num">${a.sc}</div><div class="ai-sc-l">종합 점수</div></div>
       <div class="ai-hd-b">
@@ -15455,24 +15358,18 @@ function renderAiStock(el,force){
         ${a.sec?`<span class="ai-kw ${a.sec.rate>=0?'up':'down'}" style="margin-left:auto">이 종목 섹터: ${a.sec.name} ${pctS(a.sec.rate)}</span>`:''}</div>
       <div class="ai-gauge"><i style="width:${a.rg.score}%"></i></div>
       ${(a.rg.mood&&a.rg.mood.drivers&&a.rg.mood.drivers.length)?`<div class="ai-mood-drv">${a.rg.mood.drivers.map(dv=>`<span class="ai-kw ${dv[1]}">${dv[0]}</span>`).join('')}</div>`:''}
-      <div class="ai-prob-d">이 분위기 점수가 종합 점수·매수 참고 구간·단기/장기 저항가에 실시간 반영됩니다${moodCache&&moodCache.sent?'':' · 뉴스 심리 수집 중'}.</div>
+      <div class="ai-prob-d">이 분위기 점수가 종합 점수·추천 매수밴드·단기/장기 목표에 실시간 반영됩니다${moodCache&&moodCache.sent?'':' · 뉴스 심리 수집 중'}.</div>
     </div>
     <div class="ai-sec-t">종목 키워드</div>
     <div class="ai-kws">${kwHtml}</div>
     <div class="ai-sec-t">가격 전략 <span>현재가 ${KRW(a.px)}원 기준</span></div>
     <div class="ai-cards">
-      <!-- ══ [v17.11] 이름에서 '행동 지시'를 걷어낸다 ═══════════════════════
-           '추천'·'목표'·'손절'은 서비스가 사람에게 무엇을 하라고 시키는 말이다.
-           같은 숫자라도 이 이름을 달면 투자자문처럼 읽힌다.
-           계산식은 그대로 두고, 관찰한 사실을 가리키는 차트 용어로 바꾼다.
-           지지·저항은 원래 기술적 분석의 기본 용어라 뜻도 더 정확하다.
-           (매수·매도는 거래 행위를 가리키는 중립 용어이므로 그대로 쓴다) -->
-      <div class="ai-card buy"><div class="k">매수 참고 구간</div><div class="v num">${KRW(a.buyLo)}~${KRW(a.buyHi)}</div><div class="s num">${pctUp(a.buyHi)}% ~ ${pctUp(a.buyLo)}% 매물 밀집</div></div>
-      <div class="ai-card tgt1"><div class="k">단기 저항가</div><div class="v num">${KRW(a.st)}</div><div class="s num up">+${pctUp(a.st)}% · 3~10거래일</div></div>
-      <div class="ai-card tgt2"><div class="k">장기 저항가</div><div class="v num">${KRW(a.lt)}</div><div class="s num up">+${pctUp(a.lt)}% · 1~6개월${a.consT?' · 컨센서스 반영':''}</div></div>
-      <div class="ai-card stop"><div class="k">지지 이탈가</div><div class="v num">${KRW(a.stop)}</div><div class="s num down">${pctUp(a.stop)}% · 하향 이탈 시 변동성 확대</div></div>
+      <div class="ai-card buy"><div class="k">추천 매수가</div><div class="v num">${KRW(a.buyLo)}~${KRW(a.buyHi)}</div><div class="s num">${pctUp(a.buyHi)}% ~ ${pctUp(a.buyLo)}% 눌림 분할</div></div>
+      <div class="ai-card tgt1"><div class="k">단기 매도 목표</div><div class="v num">${KRW(a.st)}</div><div class="s num up">+${pctUp(a.st)}% · 3~10거래일</div></div>
+      <div class="ai-card tgt2"><div class="k">장기 매도 목표</div><div class="v num">${KRW(a.lt)}</div><div class="s num up">+${pctUp(a.lt)}% · 1~6개월${a.consT?' · 컨센서스 반영':''}</div></div>
+      <div class="ai-card stop"><div class="k">손절 라인</div><div class="v num">${KRW(a.stop)}</div><div class="s num down">${pctUp(a.stop)}% · 이탈 시 리스크 관리</div></div>
     </div>
-    <div class="ai-sec-t">상승 확률 <span>기술적 추정 · 3거래일 내 +5% 도달</span></div>
+    <div class="ai-sec-t">상승 확률 <span>3거래일 내 +5% 도달 추정</span></div>
     <div class="ai-prob"><div class="ai-prob-bar"><i style="width:${a.p}%"></i></div><b class="num ${a.p>=55?'up':a.p<=35?'down':''}">${a.p.toFixed(1)}%</b></div>
     <div class="ai-prob-d">기술 신호 ${a.sc}점을 과거 유사 신호 통계와 시장 국면(${a.rg.label} ×${a.rg.mult})으로 보정한 값입니다.</div>
     ${a.vp?vpSectionHtml(a.vp,a.px,'aiVp'):''}
@@ -16451,10 +16348,7 @@ async function pollIpo(){
   for(let tryN=0;tryN<2&&!items.length;tryN++){
     try{const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),20000);
       try{const r=await fetch('/api/ipo',{cache:'no-store',signal:ac.signal});const j=await r.json();
-        if(j&&j.ok&&Array.isArray(j.items)&&j.items.length){
-          j.items.forEach(x=>{ if(x&&x.demand===0)x.demand=null; if(x&&x.subRate===0)x.subRate=null;
-            if(x&&x.lockup===0&&x.demand==null)x.lockup=null; });   /* [v17.8] 구버전 캐시 방어 */
-          items=j.items;stale=!!j.stale;gotAt=+j.at||0;}
+        if(j&&j.ok&&Array.isArray(j.items)&&j.items.length){items=j.items;stale=!!j.stale;gotAt=+j.at||0;}
       }finally{clearTimeout(tm);}
     }catch(e){}
     if(!items.length&&tryN===0)await new Promise(r=>setTimeout(r,1200));
@@ -16506,24 +16400,14 @@ function ipoCardHtml(it,idx){
       const today=new Date(); today.setHours(0,0,0,0);
       const sd=it.subStart?new Date(it.subStart):null;
       const before=sd&&sd>today;
-      /* ══ [v17.8] 0 은 경쟁률이 아니다 — 화면에서도 마지막으로 한 번 거른다 ═══
-         서버가 세 출구 모두 정화하지만, 옛 배포의 CDN 캐시·중간 캐시로 0 이
-         실려 올 길이 남는다. "수요예측 0:1" 은 세상에 없는 수치이므로
-         그 값이 어디서 오든 화면에는 절대 내보내지 않는다. */
-      const demand=(it.demand===0)?null:it.demand;
-      const subRate=(it.subRate===0)?null:it.subRate;
-      const lockup=(it.lockup===0&&demand==null)?null:it.lockup;
-      const ended=(function(){const e=it.subEnd?new Date(it.subEnd):null;return e&&e<today;})();
       const cells=[];
-      if(demand!=null)cells.push(`<div class="ipo-rt"><span>수요예측</span><b class="num ${demand>=1000?'up':''}">${Number(demand).toLocaleString()}:1</b></div>`);
+      if(it.demand!=null)cells.push(`<div class="ipo-rt"><span>수요예측</span><b class="num ${it.demand>=1000?'up':''}">${Number(it.demand).toLocaleString()}:1</b></div>`);
       else if(isSpac)cells.push(`<div class="ipo-rt none"><span>수요예측</span><b>해당 없음<i>스팩은 수요예측을 하지 않습니다</i></b></div>`);
       else if(before)cells.push(`<div class="ipo-rt none"><span>수요예측</span><b>예정<i>보통 청약 1주 전 공개</i></b></div>`);
-      else cells.push(`<div class="ipo-rt none"><span>수요예측</span><b>집계 중<i>결과 공표 후 자동 반영</i></b></div>`);
-      if(subRate!=null)cells.push(`<div class="ipo-rt"><span>청약</span><b class="num ${subRate>=1000?'up':''}">${Number(subRate).toLocaleString()}:1</b></div>`);
+      if(it.subRate!=null)cells.push(`<div class="ipo-rt"><span>청약</span><b class="num ${it.subRate>=1000?'up':''}">${Number(it.subRate).toLocaleString()}:1</b></div>`);
       else if(before)cells.push(`<div class="ipo-rt none"><span>청약</span><b>예정<i>청약 마감 후 공개</i></b></div>`);
-      else if(ended)cells.push(`<div class="ipo-rt none"><span>청약</span><b>집계 중<i>마감 당일~익일 공표</i></b></div>`);
-      if(lockup!=null)cells.push(`<div class="ipo-rt"><span>확약</span><b class="num">${lockup}%</b></div>`);
-      else if(demand!=null)cells.push(`<div class="ipo-rt none"><span>확약</span><b>미공시</b></div>`);
+      if(it.lockup!=null)cells.push(`<div class="ipo-rt"><span>확약</span><b class="num">${it.lockup}%</b></div>`);
+      else if(it.demand!=null)cells.push(`<div class="ipo-rt none"><span>확약</span><b>미공시</b></div>`);
       return cells.length?`<div class="ipo-rates">${cells.join('')}</div>`:'';
     })()}
     <div class="ipo-kv"><span>청약일</span><b>${fmtDot(it.subStart)}${it.subEnd?'~'+fmtDot(it.subEnd).slice(5):''}</b></div>
@@ -17353,7 +17237,7 @@ document.querySelectorAll('.ord-tabs button').forEach(b=>b.onclick=()=>{
 // 거래소구분 / 주문유형 선택 (SOR·KRX·NXT)
 const ORDER_TYPES={
   SOR:['보통지정가','시장가','최유리지정가','최우선지정가','보통지정가 IOC','시장가 IOC','최유리 IOC','최우선 IOC','보통지정가 FOK','시장가 FOK','최유리 FOK'],
-  KRX:['보통지정가','시장가','조건부지정가','최유리','최우선','중간가','스톱지정가','시간외종가','시간외단일가','보통지정가 IOC','시장가 IOC','최유리 IOC','중간가 IOC','보통지정가 FOK','시장가 FOK','최유리 FOK','중간가 FOK'],
+  KRX:['보통지정가','시장가','조건부지정가','최유리','최우선','중간가','스톱지정가','시간외종가','보통지정가 IOC','시장가 IOC','최유리 IOC','중간가 IOC','보통지정가 FOK','시장가 FOK','최유리 FOK','중간가 FOK'],
   NXT:['보통지정가','시장가','중간가','스톱지정가','최유리','최우선','KRX종가매매','보통지정가 IOC','시장가 IOC','최유리 IOC','중간가 IOC','보통지정가 FOK','시장가 FOK','최유리 FOK','중간가 FOK'],
 };
 let ordExchange='KRX',ordTypeName='보통지정가',otTabEx='KRX';
@@ -17397,7 +17281,7 @@ async function loadKrxAlerts(){
      '조건 감지'를 표시한다(공식 발동·해제는 거래소 공시 기준). */
 let stockFlags={};                       // code -> {at, margin, badges[]}
 async function loadStockFlags(code){
-  const c=String(code||''); if(!/^\d{6}$/.test(c))return;
+  const c=String(code||'').toUpperCase(); if(!/^\d[0-9A-Z]{5}$/.test(c))return;
   const hit=stockFlags[c];
   if(hit&&Date.now()-hit.at<10*60*1000){renderAdvFlags();return;}
   try{
@@ -17540,7 +17424,7 @@ function availableExchanges(){
   return ['SOR','KRX','NXT'];
 }
 /* [v3.8] 예전엔 정규장(15:30) 이후 KRX 를 통째로 잠갔다. 그런데 15:40~18:00 은
-   시간외 종가·시간외 단일가로 KRX 주문이 실제로 가능한 시간이다.
+   시간외 종가·애프터마켓으로 KRX 주문이 가능한 시간이다.
    → '어떤 KRX 세션도 없는 시간'에만 잠근다. */
 function krxLocked(){const av=availableExchanges();return av.includes('NXT')&&!krxTradable();}
 /* 지금 이 순간 실제로 낼 수 있는 KRX 주문유형만 남긴다 */
@@ -17549,14 +17433,12 @@ function krxTypesNow(){
   /* [v4.0.1] KRX 세션이 아예 없는 시간에는 빈 목록을 돌려 모델을 자기모순 없이 유지한다.
      (탭이 잠겨 화면엔 안 뜨지만, 다른 코드가 이 함수를 참조할 때 오해가 없도록) */
   if(!k.krx.tradable)return [];
-  /* [v4.0] NXT 거래 종목은 KRX 시간외 단일가를 쓸 수 없다(넥스트레이드 애프터마켓과 배타).
-     예전엔 16:00~18:00 에 NXT 종목도 시간외단일가를 고를 수 있어 실제로는 불가능한 주문이었다. */
+  /* 2026-09-14 이후 KRX 시간외 단일가 주문은 폐지되어 선택지에서 제거한다. */
   const isNxt=!!(byCode[selected]&&byCode[selected].nxt===true);
-  if(isNxt)all=all.filter(t=>!/시간외단일가/.test(t));
-  if(isNxt&&ph===KRS.AFT_SINGLE)return [];
+  all=all.filter(t=>!/시간외단일가/.test(t));
   if(ph===KRS.PRE_CLOSE)return all.filter(t=>/시간외종가/.test(t)||(k.krx.alsoAuction&&/^보통지정가$|^시장가$/.test(t)));
   if(ph===KRS.AFT_CLOSE)return all.filter(t=>/시간외종가/.test(t));
-  if(ph===KRS.AFT_SINGLE)return all.filter(t=>/시간외단일가/.test(t));
+  if(ph===KRS.AFT_MARKET)return all.filter(t=>!/시간외/.test(t));
   if(ph===KRS.PRE_AUC||ph===KRS.CLOSE_AUC)return all.filter(t=>/^보통지정가$|^시장가$/.test(t));
   if(ph===KRS.REG)return all.filter(t=>!/시간외/.test(t));
   return all;
@@ -17603,7 +17485,7 @@ function renderTradeGate(){
     ? `이 종목은 <b>${_sus.label}</b>으로 NXT 매매가 일시 제외되어(넥스트레이드 규정 · 해제 시 자동 복귀) KRX 주문 시간에만 거래할 수 있습니다.`
     : st.nxt
       ? 'KRX·NXT 모두 주문을 받지 않는 시간입니다. (NXT 휴지 08:50~09:00:30 · 15:20~15:30)'
-      : '이 종목은 NXT 미지원이라 KRX 주문 시간(08:30~18:00)에만 거래할 수 있습니다.';
+      : '이 종목은 NXT 미지원이라 KRX 주문 시간(08:30~15:30, 15:40~20:00)에만 거래할 수 있습니다.';
   box.innerHTML=`<div class="tg tg-shut">
     <div class="tg-ic">🔒</div>
     <div class="tg-tx">
@@ -17640,7 +17522,7 @@ function renderOtList(){
     if(lock&&b.dataset.ex==='KRX'){
       const nx=nextTradeOpenText(selected);
       toast('warn','🔒 KRX 주문 불가 · '+marketSession().label,
-        'KRX는 평일 08:30~18:00(장전 시간외~시간외 단일가)에만 주문을 받습니다.'+(nx?` KRX 재개 ${nx}.`:'')+' 지금은 NXT 또는 SOR로 주문해 주세요.');return;}
+        'KRX는 평일 08:30~15:30, 15:40~20:00(정규장·애프터마켓)에 주문을 받습니다.'+(nx?` KRX 재개 ${nx}.`:'')+' 지금은 NXT 또는 SOR로 주문해 주세요.');return;}
     otTabEx=b.dataset.ex;renderOtList();});
   const cur=otTabEx===ordExchange;
   /* [v4.0] NXT 프리·애프터마켓은 지정가 주문만 받는다 */
@@ -17671,12 +17553,12 @@ function renderOtList(){
           '넥스트레이드(NXT) 미지원 종목이라 거래소 선택 없이 <b>KRX</b>로만 주문할 수 있어요.');
   }else if(lock){
     note=alertCard('block','🔒','지금은 KRX로 주문할 수 없습니다',
-      `현재 <b>${marketSession().label}</b> — KRX는 <b>08:30 장전 시간외</b>부터 <b>18:00 시간외 단일가</b>까지만 주문을 받습니다.`,
+      `현재 <b>${marketSession().label}</b> — KRX는 <b>08:30 장전</b>부터 <b>20:00 애프터마켓</b>까지 주문을 받습니다.`,
       `아래 <b>NXT</b> 또는 <b>SOR</b> 탭에서 주문해 주세요.${reopen?` · KRX 재개 ${reopen}`:''}`);
   }else if(otTabEx==='KRX'&&types.length===0){
-    note=alertCard('block','🔒','이 종목은 KRX 시간외 단일가를 쓸 수 없습니다',
-      'NXT에서 거래되는 종목은 KRX 시간외 단일가(16:00~18:00)가 제한됩니다.',
-      '같은 시간대에 열려 있는 <b>NXT 애프터마켓</b>으로 주문해 주세요.');
+    note=alertCard('block','🔒','현재 KRX 주문을 접수할 수 없습니다',
+      'KRX 시간외 단일가는 폐지됐습니다. KRX 애프터마켓은 16:00~20:00에 운영됩니다.',
+      '애프터마켓 시간에 KRX 또는 SOR로 주문해 주세요.');
   }else if(otTabEx==='NXT'&&_k.nxt.limitOnly){
     note=alertCard('warn','⚠️',`NXT ${_k.nxt.phase} — 지정가 주문만 가능`,
       '프리마켓·애프터마켓에서는 시장가 계열 주문을 받지 않습니다. 가격제한폭은 전일 종가 ±30%로 정규장과 같습니다.');
@@ -17708,8 +17590,8 @@ function canTradeNow(code){                       // 실제 시장 시간 판단
   /* [v3.9 · 모순 해소] 주문유형 모달은 15:40~18:00 시간외 KRX 주문을 허용하는데
      이 게이트는 정규장만 통과시켰다. 시간외단일가를 고르고 주문을 넣으면
      '장 마감 · 주문 불가'로 거절되는 앞뒤가 안 맞는 상태였다.
-     → KRX 주문이 가능한 모든 세션(장전 시간외~시간외 단일가)을 인정한다. */
-  if(krxTradable())return true;                  // 08:30~09:00 동시호가 · 09:00~15:30 · 15:40~18:00 시간외
+     → KRX 주문이 가능한 모든 세션(장전부터 애프터마켓까지)을 인정한다. */
+  if(krxTradable())return true;                  // 08:30~09:00 동시호가 · 09:00~15:30 · 15:40~20:00 시간외
   if(st&&st.nxt&&!nxtSuspendInfo(code)&&nxtActive())return true; // 그 밖 시간: NXT 종목만([v4.8] 시장경보 일시제외는 KRX 시간만 인정)
   return false;
 }
@@ -17717,8 +17599,8 @@ function canTradeNow(code){                       // 실제 시장 시간 판단
    '지금 안 된다'만 알려 주고 끝내면 사용자는 언제 다시 오라는 건지 알 수 없다.
    종목이 NXT 취급인지에 따라 창구가 달라지므로 창(window)을 종목별로 고른다.
    ═════════════════════════════════════════════════════════════════════════ */
-const KRX_WINDOWS=[[510,930],[940,1080]];      // 08:30~15:30 · 15:40~18:00 (KST 분)
-const NXT_WINDOWS=[[480,530],[540,920],[930,1200]]; // 08:00~08:50 · 09:00~15:20 · 15:30~20:00
+const KRX_WINDOWS=[[510,930],[940,1200]];      // 08:30~15:30 · 15:40~20:00 (KST 분)
+const NXT_WINDOWS=[[480,530],[540,920],[930,1200]]; // 08:00~08:50 · 09:00~15:20 · 15:30 종가매매/16:00~20:00 애프터
 function krTradingDayAt(kstDate){
   const wd=kstDate.getUTCDay(); if(wd===0||wd===6)return false;
   try{ return !KR_HOLIDAYS[kstDate.toISOString().slice(0,10)]; }catch(e){ return true; }
@@ -17757,7 +17639,7 @@ $('submitBtn').onclick=()=>{
     const _st=byCode[s.code];
     const _nx=nextTradeOpenText(s.code);
     const _why=(_st&&_st.nxt)?'KRX·NXT 모두 거래시간이 아니에요 (NXT 휴지 08:50~09:00:30 · 15:20~15:30)'
-      :'지금은 KRX 거래시간이 아니에요 (08:30~18:00). 이 종목은 NXT 미지원이라 KRX 시간에만 주문할 수 있어요';
+      :'지금은 KRX 거래시간이 아니에요 (08:30~15:30, 15:40~20:00). 이 종목은 NXT 미지원이라 KRX 시간에만 주문할 수 있어요';
     toast('warn','🔒 주문 불가 · '+marketSession().label,
       _why+(_nx?` · 다음 주문 가능 ${_nx}`:'')+' · 주문 폼 위 배너에서 제한을 바로 끌 수 있습니다.');
     try{renderTradeGate();}catch(e){}
@@ -18396,7 +18278,7 @@ function acEnsureUniverse(){
 }
 function acUniverse(){
   const out=[],seen=new Set();
-  const add=(c,n,mk)=>{c=String(c||'');if(!/^\d{6}$/.test(c)||seen.has(c))return;seen.add(c);
+  const add=(c,n,mk)=>{c=String(c||'');if(!/^\d[0-9A-Z]{5}$/.test(c)||seen.has(c))return;seen.add(c);
     if(n&&!acNames[c])acNames[c]=n; out.push({c,n:n||acNames[c]||'',mk:mk||''});};
   (Array.isArray(stockAll)?stockAll:[]).forEach(x=>x&&add(x.code,x.name,x.market));
   (Array.isArray(etfList)?etfList:[]).forEach(x=>x&&add(x.code,x.name,'ETF'));
@@ -18633,7 +18515,7 @@ async function acScan(){
   if(acScanBusy)return; 
   const sel=$('acScanSel').value;
   let codes=sel==='watch'?watchlist.slice():sel==='hold'?holdings.map(h=>h.code):acCustom.slice();
-  codes=[...new Set(codes)].filter(c=>/^\d{6}$/.test(c));   // [v4.10] 시세 캐시 없어도 스캔 가능
+  codes=[...new Set(codes)].filter(c=>/^\d[0-9A-Z]{5}$/.test(c));   // [v4.10] 시세 캐시 없어도 스캔 가능
   const body=$('acBody');
   if(!codes.length){body.innerHTML=`<div class="empty">${sel==='watch'?'관심종목이 비어 있습니다. ⭐로 담아 주세요.':sel==='hold'?'보유종목이 없습니다.':'목록이 비어 있습니다 — 검색으로 종목을 고른 뒤 ＋ 목록에 담기를 눌러 주세요.'}</div>`;return;}
   if(codes.length>40){toast('warn','스캔 대상 40종목 제한','호출량 보호를 위해 앞 40종목만 스캔합니다.');codes=codes.slice(0,40);}
@@ -22181,7 +22063,7 @@ function wireAdmTools(){
           }
         }
         const src=(stockAll&&stockAll.length)?stockAll
-          :Object.values(byCode).filter(x=>x&&x.name&&!x.us&&/^\d{6}$/.test(String(x.code||'')));
+          :Object.values(byCode).filter(x=>x&&x.name&&!x.us&&/^\d[0-9A-Z]{5}$/.test(String(x.code||'')));
         /* [v16.1.1] 인기 보통주가 맨 위에 — 점수 정렬:
            완전일치 ≫ 이름 시작일치 ≫ 보통주(코드 끝 0) ≫ 비ETF ≫ 짧은 이름 순 */
         const isEtfNm=(n)=>/^(KODEX|TIGER|ACE|SOL|RISE|PLUS|KOSEF|ARIRANG|HANARO|TIMEFOLIO|KIWOOM|WOORI|BNK|KoAct|1Q|히어로즈|마이다스|파워|FOCUS|트루|마이티|UNICORN|VITA|WON)\b/i.test(n||'');
@@ -23258,16 +23140,7 @@ function renderUsAi(el){
   const kwHtml=a.kw.map(k=>`<span class="ai-kw ${k[1]}">${htmlEsc(k[0])}</span>`).join('');
   const now=new Date();
 
-  /* ══ [v17.11] 성격 고지를 화면 맨 위로 올린다 ═══════════════════════
-     [왜] 이 화면은 오해받기 쉽다. 숫자가 가격 단위로 나오니 '이 값에
-     사고 팔라'는 안내처럼 읽힌다. 실제로는 과거 가격·거래량으로 계산한
-     기술적 지표일 뿐이고, 이 서비스는 모의투자 학습용이다.
-     [무엇이 문제였나] 같은 뜻의 고지가 페이지 맨 아래 작은 글씨로만 있었다.
-     숫자를 다 읽고 스크롤을 끝까지 내려야 나오는 자리라, 읽는 사람 기준으로는
-     없는 것과 같다. 고지는 오해가 생기기 '전에' 보여야 뜻이 있다.
-     [고침] 숫자보다 위, 화면 첫 줄에 놓는다. 국내·해외 화면 모두 동일. */
   el.innerHTML=`<div class="ai-wrap">
-    <div class="ai-lead">과거 가격·거래량으로 계산한 <b>기술적 지표</b>입니다. 모의투자 학습용 참고 자료이며 <b>투자자문·매매 권유가 아닙니다.</b></div>
     <div class="ai-head">
       <div class="ai-score"><div class="ai-sc-n num">${a.sc}</div><div class="ai-sc-l">종합 점수</div></div>
       <div class="ai-hd-b">
@@ -23289,18 +23162,18 @@ function renderUsAi(el){
 
     <div class="ai-sec-t">가격 전략 <span>현재가 ${D(a.px)} 기준 · 변동성 ${a.vola.toFixed(2)}% 반영</span></div>
     <div class="ai-cards">
-      <div class="ai-card buy"><div class="k">매수 참고 구간</div>
+      <div class="ai-card buy"><div class="k">추천 매수가</div>
         <div class="v num">${D(a.buyLo)}~${D(a.buyHi)}</div>
-        <div class="s num">${pctUp(a.buyHi)}% ~ ${pctUp(a.buyLo)}% 매물 밀집</div></div>
-      <div class="ai-card tgt1"><div class="k">단기 저항가</div>
+        <div class="s num">${pctUp(a.buyHi)}% ~ ${pctUp(a.buyLo)}% 눌림 분할</div></div>
+      <div class="ai-card tgt1"><div class="k">단기 매도 목표</div>
         <div class="v num">${D(a.st)}${W(a.st)}</div>
         <div class="s num up">+${pctUp(a.st)}% · 3~10거래일</div></div>
-      <div class="ai-card tgt2"><div class="k">장기 저항가</div>
+      <div class="ai-card tgt2"><div class="k">장기 매도 목표</div>
         <div class="v num">${D(a.lt)}${W(a.lt)}</div>
         <div class="s num up">+${pctUp(a.lt)}% · 1~6개월</div></div>
-      <div class="ai-card stop"><div class="k">지지 이탈가</div>
+      <div class="ai-card stop"><div class="k">손절 라인</div>
         <div class="v num">${D(a.stop)}</div>
-        <div class="s num down">${pctUp(a.stop)}% · 하향 이탈 시 변동성 확대</div></div>
+        <div class="s num down">${pctUp(a.stop)}% · 이탈 시 리스크 관리</div></div>
     </div>
 
     <div class="ai-sec-t">상승 확률 <span>3거래일 내 +5% 도달 추정</span></div>
@@ -23334,7 +23207,7 @@ function renderUsAi(el){
 
     <div class="ai-sec-t">해외 주식에서 함께 볼 것</div>
     <div class="ai-note us">
-      <p>· 미국 주식은 <b>상·하한가가 없습니다.</b> 하루에 30% 넘게 움직이는 일도 있어, 스스로 정한 매도 기준을 미리 세워 두는 편이 안전합니다.</p>
+      <p>· 미국 주식은 <b>상·하한가가 없습니다.</b> 하루에 30% 넘게 움직이는 일도 있어, 손절 라인을 미리 정해 두는 편이 안전합니다.</p>
       <p>· 원화 손익은 <b>환율</b>에 함께 좌우됩니다. 주가가 올라도 환율이 내리면 원화 수익은 줄어듭니다${fx>0?` (현재 ${KRW(Math.round(fx))}원)`:''}.</p>
       <p>· 지금은 <b>${sess.label}</b>입니다. ${sess.phase==='regular'?'정규장에는 거래가 활발해 위 지표가 가장 잘 맞습니다.':'정규장 밖에는 거래가 적어 가격이 크게 튈 수 있습니다.'}</p>
       <p>· 매도 대금은 <b>T+1 정산</b> 뒤에 원화로 환전할 수 있습니다.</p>
