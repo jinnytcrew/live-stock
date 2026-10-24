@@ -12587,17 +12587,26 @@ var nxtrefresh_default = async (req2) => {
     const baseCodes = NXT_UNIVERSE && NXT_UNIVERSE.codes || {};
     const baseNames = NXT_UNIVERSE && NXT_UNIVERSE.names || {};
     const all = Object.keys(baseCodes);
-    const from = Math.max(0, parseInt(url.searchParams.get("from") || "0", 10) || 0);
-    const n = Math.min(120, Math.max(1, parseInt(url.searchParams.get("n") || "80", 10) || 80));
-    const part = all.slice(from, from + n);
+    /* Workers 무료 요금제는 한 번 호출에 외부 요청 50회까지 — 넘으면 나머지가 전부 실패한다.
+       그래서 한 번에 22종목, 재시도 포함 총 46회 이하로 묶는다. */
+    const MAXN = 22;
+    let part;
+    let from = 0;
+    const explicit = String(url.searchParams.get("codes") || "").split(",").map((x) => x.trim().toUpperCase()).filter((x) => baseCodes[x]);
+    if (explicit.length) part = explicit.slice(0, MAXN);
+    else {
+      from = Math.max(0, parseInt(url.searchParams.get("from") || "0", 10) || 0);
+      part = all.slice(from, from + MAXN);
+    }
     const items = new Array(part.length);
-    let idx = 0;
+    let idx = 0, used = 0;
     const work = async () => {
       while (idx < part.length) {
         const i = idx++;
         const c = part[i];
         let m = -1;
-        for (let t = 0; t < 2 && m === -1; t++) {
+        for (let t = 0; t < 2 && m === -1 && used < 48; t++) {
+          used++;
           const j = await getJson(`https://polling.finance.naver.com/api/realtime/domestic/stock/${c}`, 4e3);
           const arr = j && (j.datas || j.result && j.result.areas && j.result.areas.flatMap((a) => a.datas || []));
           const d = Array.isArray(arr) ? arr[0] : null;
@@ -12606,8 +12615,8 @@ var nxtrefresh_default = async (req2) => {
         items[i] = { c, k: baseCodes[c], n: baseNames[c] || "", m };
       }
     };
-    await Promise.all(Array.from({ length: Math.min(12, part.length) }, work));
-    return J({ ok: true, total: all.length, from, next: from + part.length < all.length ? from + part.length : null, items, target: AUDIT.q4 });
+    await Promise.all(Array.from({ length: Math.min(8, part.length) }, work));
+    return J({ ok: true, total: all.length, from, next: !explicit.length && from + part.length < all.length ? from + part.length : null, items, target: AUDIT.q4 });
   }
   let 기동 = null;
   if (run) {
@@ -17195,7 +17204,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.7.3";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.7.4";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -17492,7 +17501,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["NXT 명단 관리자 갱신 '실패: 200' 표시 수정", "NXT 명단 2026년 4분기 공식 개수(606종목) 대조·반영", "NXT 명단 상태에 공식 개수와의 차이 표시"]; } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-24"; BUNDLED_VERSION.notes = ["NXT 명단 관리자 갱신 '실패: 200' 표시 수정", "NXT 명단 2026년 4분기 공식 개수(606종목) 대조·반영", "NXT 명단 상태에 공식 개수와의 차이 표시", "NXT 명단 대조 중 조회 실패 214종목 발생 수정"]; } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

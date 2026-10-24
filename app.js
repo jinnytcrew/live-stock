@@ -5956,7 +5956,7 @@ async function refreshNxtStatusRow(force){
 }
 
 /* ===== [v17.8] NXT 명단 관리자 갱신 — 4분기 공식 개수에 맞춰 대조·반영 =====
-   · 서버는 번들 명단(610)을 80종목씩 네이버 시세로 조회해 '통합시세(KRX+NXT)' 유무를 돌려준다.
+   · 서버는 번들 명단(610)을 22종목씩 네이버 시세로 조회해 '통합시세(KRX+NXT)' 유무를 돌려준다.
    · 통합시세가 없는 종목을 빼서 공식 개수(606 / 코스피 335 / 코스닥 271)와 정확히 같을 때만 반영한다.
    · 하나라도 조회 실패가 남거나 개수가 다르면 아무것도 바꾸지 않고, 의심 종목을 그대로 보여 준다. */
 async function nxtReconcileRun(tok,say){
@@ -5969,13 +5969,21 @@ async function nxtReconcileRun(tok,say){
   const target=(k.j['4분기목표'])||{total:606,kospi:335,kosdaq:271,asOf:'2026-10-01',quarter:'2026Q4'};
   /* 2) 번들 명단 대조 */
   const rows=[];let from=0,guard=0;
-  while(from!==null&&guard++<20){
-    say(`2/3 명단 대조 중… ${from}/${(rows.length&&rows._total)||'?'}`);
-    const p=await jget('/api/nxtrefresh?probe=1&from='+from+'&n=80');
+  while(from!==null&&guard++<80){
+    say(`2/3 명단 대조 중… ${rows.length}/${rows._total||'?'}`);
+    const p=await jget('/api/nxtrefresh?probe=1&from='+from);
     if(!p.r.ok||!p.j||!p.j.ok){say('대조 실패: '+((p.j&&p.j.err)||('HTTP '+p.r.status)));return false;}
     rows._total=p.j.total;for(const it of p.j.items)rows.push(it);from=p.j.next;
   }
-  /* 조회 실패(-1)는 서버가 이미 2회 재시도한 뒤의 값이다 */
+  /* 조회 실패(-1)는 종목만 모아 최대 4번 다시 묻는다 */
+  for(let round=1;round<=4;round++){
+    const bad=rows.filter(x=>x.m===-1);if(!bad.length)break;
+    for(let i=0;i<bad.length;i+=22){
+      say(`2/3 실패분 재조회 ${round}/4회차 · 남은 ${bad.length-i}종목`);
+      const q=await jget('/api/nxtrefresh?probe=1&codes='+bad.slice(i,i+22).map(x=>x.c).join(','));
+      if(q.r.ok&&q.j&&q.j.ok)for(const it of q.j.items){const t=rows.find(x=>x.c===it.c);if(t&&it.m!==-1)t.m=it.m;}
+    }
+  }
   const unsure=rows.filter(x=>x.m===-1);
   const dropped=rows.filter(x=>x.m===0);
   const kept=rows.filter(x=>x.m===1);
@@ -5986,7 +5994,7 @@ async function nxtReconcileRun(tok,say){
   if(!ok){
     say(`반영하지 않았습니다 — 공식 ${target.total}(코스피 ${target.kospi}·코스닥 ${target.kosdaq}) vs 대조 결과 ${cnt.total}(${cnt.kospi}·${cnt.kosdaq}).`
       +(unsure.length?` 조회 실패 ${unsure.length}종목: ${brief(unsure.slice(0,8))}.`:'')
-      +` 통합시세 없음 ${dropped.length}종목: ${brief(dropped.slice(0,12))}`);
+      +` 통합시세 없음 ${dropped.length}종목 — 코스피: ${brief(dropped.filter(x=>x.k==='KOSPI'))} / 코스닥: ${brief(dropped.filter(x=>x.k==='KOSDAQ'))}`);
     return false;
   }
   /* 3) 서버 감사(공식 개수 재검증) 후 반영 */
