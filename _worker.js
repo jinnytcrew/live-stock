@@ -17765,9 +17765,17 @@ async function oauth_google_default(req2, ctx){
        (게다가 setJSON 은 세 번째 인자를 받지 않아 만료 설정도 무시되고 있었다)
        [고침] 쿠키로 건네준다. 쿠키는 같은 응답에 실려 오므로 시차가 없다.
        HttpOnly 라 자바스크립트가 훔쳐볼 수 없고, 3분 뒤 저절로 사라진다. */
+    /* ══ [v17.8.25] 쿠키는 한 개에 약 4KB 까지만 받아 준다 ═══════════════════════
+       [무엇이 문제였나] 사용자 데이터(보유·거래내역·계좌장부)를 통째로 이 쿠키에 실었다.
+       거래가 쌓여 데이터가 커지면 쿠키가 4KB 를 넘고, 브라우저는 그 쿠키를 말없이 버린다.
+       그러면 앱이 표를 못 받아(nocookie) 구글 인증이 성공해도 로그인 창으로 되돌아간다.
+       [고침] 쿠키에는 신원 정보만 싣고, 커서 넘치는 사용자 데이터는 뺀다.
+       앱이 받은 아이디·비밀번호로 서버에서 직접 데이터를 가져온다(app.js oaConsume). */
     const payload={id:uid,pass,name:acc.name,email:acc.email,
       created:!!created,user:guser,at:Date.now()};
-    const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const mkCk=(pl)=>btoa(unescape(encodeURIComponent(JSON.stringify(pl))));
+    let b64=mkCk(payload);
+    if(encodeURIComponent(b64).length>2400){ payload.user=null; payload.userOmitted=true; b64=mkCk(payload); }
     const h=new Headers();
     h.set("location",origin+"/?glogin=ok");
     h.append("set-cookie","oa_t="+encodeURIComponent(b64)

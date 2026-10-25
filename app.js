@@ -4561,7 +4561,19 @@ async function oaConsume(){
       acctPass:(accs[j.id]&&accs[j.id].acctPass)||legacyHash('0000'),
       created:(accs[j.id]&&accs[j.id].created)||Date.now(),google:1};
     store.set('accounts',accs);
-    if(j.user&&!store.get('user:'+j.id))store.set('user:'+j.id,j.user);
+    /* [v17.8.25] 사용자 데이터가 커서 쿠키에 못 실렸으면(userOmitted) 서버에서 직접 받아 온다.
+       쿠키가 4KB 를 넘으면 브라우저가 통째로 버려 구글 로그인이 계속 되돌아오던 문제의 짝이다. */
+    let srvUser=(j.user&&typeof j.user==='object')?j.user:null;
+    if(!srvUser){
+      try{
+        const lj=await cloudCall({action:'login',id:j.id,pass:j.pass});
+        if(lj&&lj.ok&&lj.user&&typeof lj.user==='object')srvUser=lj.user;
+      }catch(e){}
+    }
+    if(srvUser){
+      const locU=store.get('user:'+j.id);
+      if(!locU||(!hasUserContent(locU)&&hasUserContent(srvUser)))store.set('user:'+j.id,srvUser);
+    }
     applyUser(j.id); unlockApp(); initApp();
     /* ══ [v6.9] 발급된 아이디를 반드시 보여 준다 ═══════════════════════════
        [왜] 구글이 준 이메일을 소문자로 통일해 아이디로 쓴다. 대문자로 쓰던 분은
