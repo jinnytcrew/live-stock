@@ -8989,34 +8989,27 @@ html[data-color="global"] .pf-cert .down{color:#ff6b73}
 /* 창이 떠 있는 동안 뒤의 패널은 눌리지 않는다(포커스·탭 이동 차단은 JS 의 inert 가 맡는다) */
 body.ask-open .stock-side-panel{pointer-events:none}
 
-/* ── [v17.8.24] 태블릿 폭에서 보유 종목명이 'SK하', '삼성ᄌ' 로 잘리던 문제 ──────────
-   [원인] 561px 이상에서 숫자 칸 8개가 11% 씩(88%) 차지해 종목명 칸이 12% 남짓만 받았다.
-     거기에 칸마다 overflow:hidden·nowrap 이 걸려 있어 로고를 뺀 폭에서 이름이 잘렸다.
-   [고침] 종목명 칸에 넓은 몫을 주고, 이름은 잘라 내지 않고 줄바꿈으로 흘린다.
-     (560px 이하 폰 규칙은 그대로 둔다.) */
+/* ── [v17.8.25] 보유 종목 표 — 561px 이상에서 어떤 글자도 잘리지 않게 ─────────────
+   [원인] 칸 폭을 % 로 고정하고(table-layout:fixed) 칸마다 overflow:hidden·말줄임을 걸어 두어,
+     카드가 좁은 태블릿(약 600px)에서 '1,263,0…', '보…' 처럼 숫자·머리글이 잘렸다.
+     폭을 아무리 나눠도 종목명·금액이 길어지면 다시 잘린다 — 고정 폭이 근본 원인이다.
+   [고침] 내용 폭에 맞춰 칸이 정해지는 자동 레이아웃으로 바꾼다.
+     · 숫자·머리글은 줄바꿈 없이 자기 폭만큼 반드시 확보한다(잘림 없음).
+     · 남는 폭은 종목명 칸이 받고, 이름은 넘치면 줄바꿈으로 흘린다.
+     · 그래도 모자라는 극단적인 경우에는 잘라 내지 않고 표 안에서 가로로 밀 수 있다. */
 @media (min-width:561px){
-  .hold-wrap th:nth-child(1),.hold-wrap td:nth-child(1){width:27%;overflow:visible;white-space:normal}
-  .hold-wrap th:nth-child(2),.hold-wrap td:nth-child(2){width:6%}
-  .hold-wrap th:nth-child(3),.hold-wrap td:nth-child(3){width:10%}
-  .hold-wrap th:nth-child(4),.hold-wrap td:nth-child(4){width:10%}
-  .hold-wrap th:nth-child(5),.hold-wrap td:nth-child(5){width:11%}
-  .hold-wrap th:nth-child(6),.hold-wrap td:nth-child(6){width:11%}
-  .hold-wrap th:nth-child(7),.hold-wrap td:nth-child(7){width:9%}
-  .hold-wrap th:nth-child(8),.hold-wrap td:nth-child(8){width:11%}
-  .hold-wrap th:nth-child(9),.hold-wrap td:nth-child(9){width:5%}
-  .hold-wrap td.num,.hold-wrap th:not(:first-child){font-size:12px}
-  .hold-wrap td:first-child .td-l{min-width:0;gap:8px}
+  .hold-wrap{overflow-x:auto!important}
+  .hold-wrap table{table-layout:auto!important;width:100%;min-width:0!important}
+  .hold-wrap th,.hold-wrap td{overflow:visible!important;text-overflow:clip!important;
+    white-space:nowrap;padding:9px 3px;font-size:11.5px;width:auto!important}
+  .hold-wrap th{font-size:11px}
+  .hold-wrap th:first-child,.hold-wrap td:first-child{white-space:normal;min-width:132px;padding-left:8px}
+  .hold-wrap th:not(:first-child),.hold-wrap td:not(:first-child){text-align:right}
+  .hold-wrap td:first-child .td-l{min-width:0;gap:6px}
+  .hold-wrap td:first-child .lgo{width:32px;height:32px}
   .hold-wrap td:first-child .td-t{min-width:0;flex:1 1 0}
   .hold-wrap td:first-child .td-t .nm{display:inline;white-space:normal;overflow:visible;
     text-overflow:clip;word-break:keep-all;overflow-wrap:anywhere;line-height:1.3}
-}
-/* 561~900px: 비중·봉 칸이 접히므로 남은 7칸이 100%가 되게 다시 나눈다 */
-@media (min-width:561px) and (max-width:900px){
-  .hold-wrap th:nth-child(1),.hold-wrap td:nth-child(1){width:30%}
-  .hold-wrap th:nth-child(2),.hold-wrap td:nth-child(2){width:8%}
-  .hold-wrap th:nth-child(3),.hold-wrap td:nth-child(3){width:12%}
-  .hold-wrap th:nth-child(4),.hold-wrap td:nth-child(4){width:12%}
-  .hold-wrap th:nth-child(5),.hold-wrap td:nth-child(5){width:14%}
-  .hold-wrap th:nth-child(6),.hold-wrap td:nth-child(6){width:13%}
-  .hold-wrap th:nth-child(7),.hold-wrap td:nth-child(7){width:11%}
+  .hold-wrap td.hw-cell{min-width:0;padding-left:6px}
+  .hold-wrap .hw-bar{min-width:40px}
 }
