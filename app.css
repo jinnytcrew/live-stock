@@ -8654,3 +8654,180 @@ input:focus,select:focus,textarea:focus{border-color:#8ca8db;box-shadow:0 0 0 3p
   .etf-hold-w .num{flex-basis:42px;width:42px;font-size:11.5px}
   .etf-hold-n{gap:5px}
 }
+
+/* [v17.8.15] 종목 미리보기 — MTS 요약(시가총액·체결강도·PER·EPS·당일추정치)과 관심 별 */
+.stock-side-head-btns{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.stock-side-star{width:38px;height:38px;border-radius:12px;background:var(--border-soft);font-size:22px;line-height:1;color:var(--sub);display:grid;place-items:center}
+.stock-side-star:hover{background:var(--border);color:var(--text)}
+.stock-side-star.on{color:#f59e0b;background:#fff4dc}
+html[data-theme="dark"] .stock-side-star.on{background:#33280f}
+.ssp-mts{margin:14px 0 6px;padding:4px 14px 10px;border:1px solid var(--border-soft);border-radius:14px;background:var(--surface,transparent)}
+.ssp-kv{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0}
+.ssp-kv>span{font-size:13px;color:var(--sub)}
+.ssp-kv>b{font-size:15px;font-weight:800;letter-spacing:-.3px}
+.ssp-kv-sep{height:1px;background:var(--border-soft);margin:2px 0}
+.ssp-mts-t{display:flex;align-items:baseline;gap:8px;margin:10px 0 2px;padding-top:10px;border-top:1px solid var(--border-soft);font-size:15px;font-weight:900}
+.ssp-mts-t small{font-size:11px;font-weight:600;color:var(--sub-2)}
+.ssp-mts-note{margin-top:8px}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.16] MY 포트폴리오 — 기간 성과 리포트 · AI 성과 평가 스탬프
+   - 인증서(.pf-cert)는 테마와 무관하게 늘 짙은 남색 + 금장 선. 스탬프 색이 가장 잘 살기 때문.
+   - 기본(애니메이션 없는) 상태가 곧 '완성된 모습'이다. 숨김은 JS 가 .arm/.pf-arm 을 붙였을 때만.
+     (전역 prefers-reduced-motion 규칙이 animation 을 꺼도 화면이 비지 않게)
+   ══════════════════════════════════════════════════════════════════════════════ */
+.pf-panel{padding:14px 14px 12px}
+.pf-presets{display:flex;gap:6px;overflow-x:auto;margin:0 -2px 12px;padding:2px;scrollbar-width:none}
+.pf-presets::-webkit-scrollbar{display:none}
+.pf-presets button{flex:0 0 auto;font-size:12px;font-weight:800;padding:7px 13px;border-radius:99px;border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer;transition:.15s}
+.pf-presets button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.pf-range{display:flex;align-items:flex-end;gap:8px}
+.pf-range label{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.pf-range label span{font-size:11px;font-weight:700;color:var(--sub-2)}
+.pf-range input{display:block;width:100%;min-width:0;box-sizing:border-box;height:42px;padding:0 10px;border-radius:11px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-weight:700;font-family:inherit;text-align:left;-webkit-appearance:none;appearance:none}
+.pf-range input:focus{outline:2px solid #d9a72a;outline-offset:1px}
+.pf-range i{font-style:normal;color:var(--sub-2);padding-bottom:11px;font-weight:700}
+.pf-go{position:relative;overflow:hidden;width:100%;margin-top:12px;height:50px;border:0;border-radius:14px;cursor:pointer;font-size:15px;font-weight:900;letter-spacing:-.2px;color:#2a1c00;background:linear-gradient(135deg,#f9e29b 0%,#e0b64a 45%,#b8860b 100%);box-shadow:0 8px 20px rgba(184,134,11,.32),inset 0 1px 0 rgba(255,255,255,.6);transition:transform .12s}
+.pf-go span{position:relative;z-index:1}
+.pf-go em{position:absolute;top:0;bottom:0;width:60px;left:-80px;background:linear-gradient(105deg,transparent,rgba(255,255,255,.65),transparent);animation:pfShine 3.2s ease-in-out infinite}
+.pf-go:active{transform:translateY(1px) scale(.995)}
+@keyframes pfShine{0%,60%{left:-80px}100%{left:110%}}
+.pf-hint{margin-top:10px;font-size:11px;line-height:1.55;color:var(--sub-2)}
+.pf-hint b{color:var(--sub)}
+#pfOut:not(:empty){margin-top:12px}
+
+/* ── 인증서 ── */
+.pf-cert{--g1:#f6df9a;--g2:#d9a72a;--g3:#8a6410;--glow:rgba(246,200,80,.5);
+  position:relative;overflow:hidden;border-radius:20px;padding:16px 16px 18px;color:#e9eefb;scroll-margin-top:72px;
+  background:radial-gradient(130% 70% at 50% 0%,#22345f 0%,#0f1733 52%,#080c1c 100%);
+  border:1px solid rgba(214,178,94,.38);box-shadow:0 18px 40px rgba(6,10,28,.38)}
+.pf-cert[data-g="B"]{--g1:#8ef0c8;--g2:#19b57f;--g3:#056b49;--glow:rgba(25,181,127,.45)}
+.pf-cert[data-g="C"]{--g1:#9edcff;--g2:#3aa6f0;--g3:#0b5a99;--glow:rgba(58,166,240,.45)}
+.pf-cert[data-g="D"]{--g1:#dccbff;--g2:#8b6cf0;--g3:#4a2fa8;--glow:rgba(139,108,240,.45)}
+.pf-cert[data-g="E"]{--g1:#ffc29a;--g2:#f46a2a;--g3:#a8330a;--glow:rgba(244,106,42,.45)}
+.pf-cert[data-g="F"]{--g1:#ffb0b0;--g2:#e5484d;--g3:#8c1217;--glow:rgba(229,72,77,.5)}
+.pf-cert::before{content:"";position:absolute;inset:6px;border:1px solid rgba(214,178,94,.26);border-radius:15px;pointer-events:none;z-index:1}
+.pf-cert::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,rgba(255,255,255,.022) 0 1px,transparent 1px 8px);pointer-events:none;z-index:0}
+.pf-cert-top,.pf-hero,.pf-stage,.pf-verdict{position:relative;z-index:1}
+.pf-cert .up{color:#ff6b7a}
+.pf-cert .down{color:#6ea4ff}
+html[data-color="global"] .pf-cert .up{color:#34d399}
+html[data-color="global"] .pf-cert .down{color:#ff6b73}
+.pf-cert-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:2px 8px;padding:2px 4px 6px}
+.pf-cert-k{font-size:10px;letter-spacing:.24em;font-weight:800;color:#d9b45b}
+.pf-cert-range{font-size:10.5px;font-weight:700;color:rgba(233,238,251,.55);white-space:nowrap}
+.pf-hero{text-align:center;padding:8px 0 2px}
+.pf-hero-k{font-size:11.5px;letter-spacing:.14em;font-weight:800;color:rgba(233,238,251,.6)}
+.pf-hero-v{display:flex;justify-content:center;align-items:baseline;gap:4px;margin:6px 0 4px;max-width:100%}
+.pf-big{font-size:clamp(30px,9.4vw,46px);font-weight:900;letter-spacing:-1px;line-height:1.1;text-shadow:0 0 22px rgba(255,255,255,.12)}
+.pf-hero-v u{text-decoration:none;font-size:17px;font-weight:800;color:rgba(233,238,251,.7)}
+.pf-hero-r{font-size:13px;font-weight:700;color:rgba(233,238,251,.7)}
+.pf-hero-r b{font-size:15px;font-weight:900}
+
+/* ── 스탬프 무대 ── */
+.pf-stage{height:calc(min(272px,76vw) + 24px);display:flex;align-items:center;justify-content:center}
+.pf-slot{position:absolute;left:50%;top:50%;width:min(232px,64vw);height:min(232px,64vw);transform:translate(-50%,-50%);border-radius:50%;border:2px dashed rgba(255,255,255,.13);display:flex;align-items:center;justify-content:center;transition:opacity .4s}
+.pf-slot span{font-size:11px;letter-spacing:.34em;font-weight:800;color:rgba(255,255,255,.22)}
+.pf-cert.hit1 .pf-slot{opacity:0}
+.pf-stamp{position:relative;width:min(272px,76vw);aspect-ratio:1/1;transform:rotate(-11deg);z-index:2;filter:drop-shadow(0 0 0 transparent);transition:filter .7s}
+.pf-stamp svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;will-change:transform,opacity;transform-origin:50% 50%}
+.pf-cert.arm:not(.hit1) .st-ring{opacity:0}
+.pf-cert.arm:not(.hit2) .st-letter{opacity:0}
+.pf-cert.hit1 .st-ring{animation:pfRing .66s cubic-bezier(.2,.85,.25,1) both}
+.pf-cert.hit2 .st-letter{animation:pfLetter .78s cubic-bezier(.2,.85,.25,1) both}
+.pf-cert.settled .pf-stamp{filter:drop-shadow(0 0 14px var(--glow))}
+@keyframes pfRing{
+  0%{opacity:0;transform:scale(2.5) rotate(-18deg)}
+  40%{opacity:1;transform:scale(.93) rotate(0)}
+  56%{transform:scale(1.035)}
+  74%{transform:scale(.99)}
+  100%{opacity:1;transform:scale(1)}}
+@keyframes pfLetter{
+  0%{opacity:0;transform:scale(3.3) rotate(12deg)}
+  36%{opacity:1;transform:scale(.86) rotate(-2deg)}
+  50%{transform:scale(1.08) rotate(1deg)}
+  66%{transform:scale(.97)}
+  82%{transform:scale(1.015)}
+  100%{opacity:1;transform:scale(1) rotate(0)}}
+
+/* 충격파 · 섬광 · 화면 흔들림 · 불꽃 */
+.pf-shock{position:absolute;left:50%;top:50%;width:min(250px,70vw);height:min(250px,70vw);margin:calc(min(250px,70vw)/-2) 0 0 calc(min(250px,70vw)/-2);border-radius:50%;border:3px solid var(--g1);opacity:0;pointer-events:none;z-index:1}
+.pf-cert.hit1 .pf-shock.s1{animation:pfShock .7s ease-out both}
+.pf-cert.hit2 .pf-shock.s2{animation:pfShock .95s ease-out both}
+@keyframes pfShock{0%{opacity:.75;transform:scale(.55);border-width:6px}100%{opacity:0;transform:scale(1.75);border-width:1px}}
+.pf-flash{position:absolute;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(60% 40% at 50% 58%,rgba(255,255,255,.6),transparent 70%)}
+.pf-cert.hit2 .pf-flash{animation:pfFlash .55s ease-out both}
+@keyframes pfFlash{0%{opacity:.9}100%{opacity:0}}
+.pf-cert.shake1{animation:pfShake1 .32s linear both}
+.pf-cert.shake2{animation:pfShake2 .5s linear both}
+@keyframes pfShake1{0%,100%{transform:translate(0,0)}20%{transform:translate(-2px,3px)}40%{transform:translate(2px,-2px)}60%{transform:translate(-1px,1px)}80%{transform:translate(1px,0)}}
+@keyframes pfShake2{0%,100%{transform:translate(0,0)}12%{transform:translate(-5px,6px)}26%{transform:translate(5px,-5px)}40%{transform:translate(-4px,3px)}54%{transform:translate(3px,-3px)}68%{transform:translate(-2px,2px)}82%{transform:translate(1px,-1px)}}
+.pf-sparks{position:absolute;left:50%;top:50%;width:0;height:0;z-index:4;pointer-events:none}
+.pf-sparks i{position:absolute;left:0;top:0;width:var(--s);height:var(--s);margin:calc(var(--s)/-2) 0 0 calc(var(--s)/-2);border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c);animation:pfSpark var(--t) cubic-bezier(.15,.7,.3,1) both}
+@keyframes pfSpark{0%{transform:translate(0,0) scale(1);opacity:1}70%{opacity:.9}100%{transform:translate(var(--dx),var(--dy)) scale(.2);opacity:0}}
+
+/* 판정 문구 */
+.pf-verdict{text-align:center;margin-top:-2px;transition:opacity .5s .35s,transform .5s .35s}
+.pf-cert.arm:not(.hit2) .pf-verdict{opacity:0;transform:translateY(8px)}
+.pf-vt{display:inline-block;font-size:21px;font-weight:900;letter-spacing:-.4px;background:linear-gradient(90deg,var(--g1),var(--g2));-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+.pf-verdict span{display:block;margin-top:3px;font-size:12px;font-weight:700;color:rgba(233,238,251,.62)}
+.pf-verdict em{font-style:normal;font-weight:900;color:#fff}
+
+/* ── 아래 리포트 ── */
+.pf-rest{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+.pf-sec{padding:14px 14px 12px}
+.pf-sec-h{font-size:14px;font-weight:900;letter-spacing:-.3px;margin-bottom:10px;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.pf-sec-h span{font-size:11px;font-weight:600;color:var(--sub-2)}
+.pf-axes{display:flex;flex-direction:column;gap:9px}
+.pf-axis{display:grid;grid-template-columns:104px minmax(0,1fr) 28px;align-items:center;gap:10px;font-size:12.5px;font-weight:700}
+.pf-axis span em{font-style:normal;font-size:10px;color:var(--sub-2);margin-left:4px;font-weight:600}
+.pf-axis div{height:8px;border-radius:99px;background:var(--border-soft);overflow:hidden}
+.pf-axis i{display:block;height:100%;width:var(--w);border-radius:99px;background:linear-gradient(90deg,#d9a72a,#f6df9a)}
+.pf-axis.lo i{background:linear-gradient(90deg,#e5484d,#ff9a9a)}
+.pf-axis b{text-align:right}
+.pf-cms{display:flex;flex-direction:column;gap:10px}
+.pf-cm{display:flex;gap:10px;align-items:flex-start}
+.pf-cm-i{font-size:16px;line-height:1.5;flex:0 0 auto}
+.pf-cm em{font-style:normal;font-size:10.5px;font-weight:800;color:var(--sub-2);letter-spacing:.06em}
+.pf-cm p{margin:2px 0 0;font-size:13px;line-height:1.6;font-weight:600;color:var(--text);word-break:keep-all}
+.pf-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+@media(min-width:760px){.pf-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.pf-tile{border:1px solid var(--border-soft);background:var(--bg);border-radius:12px;padding:10px 11px;min-width:0}
+.pf-tile span{display:block;font-size:11px;font-weight:700;color:var(--sub-2)}
+.pf-tile b{display:block;margin-top:3px;font-size:16px;font-weight:900;letter-spacing:-.4px;overflow-wrap:anywhere}
+.pf-tile i{display:block;margin-top:2px;font-size:10.5px;font-style:normal;color:var(--sub-2);overflow-wrap:anywhere}
+.pf-tile u{text-decoration:none;font-weight:800}
+.pf-curve{display:block;width:100%;height:auto;overflow:visible}
+.pf-c-foot{display:flex;justify-content:space-between;align-items:baseline;margin-top:4px;font-size:12px;color:var(--sub-2);font-weight:700}
+.pf-c-foot b{font-size:14px;font-weight:900}
+.pf-sts{display:flex;flex-direction:column;gap:9px}
+.pf-st{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) auto;align-items:center;gap:10px;font-size:12.5px}
+.pf-st-n{font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf-st-n em{display:block;font-style:normal;font-size:10.5px;color:var(--sub-2);font-weight:600}
+.pf-st-bar{height:8px;border-radius:99px;background:var(--border-soft);overflow:hidden}
+.pf-st-bar i{display:block;height:100%;border-radius:99px}
+.pf-st-bar i.up{background:var(--up)}
+.pf-st-bar i.down{background:var(--down)}
+.pf-st b{font-weight:900;text-align:right;white-space:nowrap}
+.pf-foot{font-size:10.5px;line-height:1.65;color:var(--sub-2);padding:2px 4px 6px}
+.pf-empty{margin-top:12px;border:1px dashed var(--border);border-radius:16px;padding:22px 16px;text-align:center;display:flex;flex-direction:column;gap:7px}
+.pf-empty b{font-size:14px;font-weight:900}
+.pf-empty span{font-size:12px;line-height:1.6;color:var(--sub-2)}
+.pf-empty .pf-empty-n{color:var(--sub)}
+.pf-stale{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;padding:10px 12px;border-radius:12px;background:var(--down-bg);color:var(--text);font-size:12px;font-weight:700}
+.pf-stale button{flex:0 0 auto;border:0;border-radius:8px;padding:7px 11px;font-size:11.5px;font-weight:800;background:var(--text);color:var(--bg);cursor:pointer}
+
+/* 펼침 연출 — 스탬프가 찍힌 뒤 아래 리포트가 차례로 올라온다 */
+.pf-arm .pf-rev{opacity:0;transform:translateY(16px)}
+.pf-shown .pf-rev{animation:pfUp .6s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i)*110ms)}
+@keyframes pfUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.pf-arm .pf-axis i{width:0}
+.pf-shown .pf-axis i{animation:pfBar .9s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i)*90ms + .25s)}
+@keyframes pfBar{from{width:0}to{width:var(--w)}}
+.pf-arm .pf-c-line{stroke-dasharray:1;stroke-dashoffset:1}
+.pf-arm .pf-c-area,.pf-arm .pf-c-dot{opacity:0}
+.pf-shown .pf-c-line{stroke-dasharray:1;animation:pfDraw 1.3s ease-out .55s both}
+.pf-shown .pf-c-area{animation:pfFade 1s ease-out 1s both}
+.pf-shown .pf-c-dot{animation:pfFade .4s ease-out 1.75s both}
+@keyframes pfDraw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes pfFade{from{opacity:0}to{opacity:1}}

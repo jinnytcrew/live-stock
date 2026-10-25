@@ -18081,7 +18081,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.14";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.16";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18424,12 +18424,76 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["ETF 구성종목·비중 조회 오류 수정(구성종목 0건으로 읽히던 문제)", "시장 표기를 KOSPI·KOSDAQ·ETF 영문으로 통일", "구성종목이 원래 없는 상품은 안내 문구 표시", "투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 14:30"; } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["종목 미리보기 패널에 시가총액·체결강도·PER·EPS·당일추정치 추가", "종목 미리보기 패널에 관심종목 ☆ 버튼 추가", "투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 15:10"; } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
 ROUTES["themestocks"] = themestocks_v2;
 ROUTES["investors"] = investors_v2;
+
+/* ── [v17.8.15] 종목 미리보기 측면 패널용 요약 — 시가총액·PER·EPS·체결강도·투자자 당일 추정치 ──────
+   · 시가총액·PER·EPS : 네이버 통합(integration) 지표를 그대로 옮긴다. 값이 없으면 null(지어내지 않는다).
+   · 투자자(외국인·기관계) : 네이버 투자자별 매매동향의 가장 최근 거래일 행(주 단위).
+   · 체결강도 : 네이버 시간별 체결(sise_time)의 최근 체결을 호가와 비교해 매수/매도 체결량을 센 값.
+       체결가 ≥ 매도호가 → 매수 체결, 체결가 ≤ 매수호가 → 매도 체결, 그 사이는 제외. 100 이 중립.
+       증권사 MTS 는 당일 누적 전체 체결로 계산하므로 '최근 체결 N건 기준'임을 함께 내려 준다. */
+async function nv2Strength(code) {
+  const k = new Date(Date.now() + 9 * 3600e3);
+  const ymd = k.getUTCFullYear() + String(k.getUTCMonth() + 1).padStart(2, "0") + String(k.getUTCDate()).padStart(2, "0");
+  const thistime = ymd + "235959";
+  const PAGES = 12;
+  const pages = await Promise.all(Array.from({ length: PAGES }, (_, i) => (async () => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 2500);
+    try {
+      const r = await fetch(`https://finance.naver.com/item/sise_time.naver?code=${code}&thistime=${thistime}&page=${i + 1}`,
+        { headers: { "User-Agent": UA8, "Referer": "https://finance.naver.com/item/sise.naver?code=" + code, "Accept-Language": "ko-KR,ko;q=0.9" }, signal: ctl.signal });
+      if (!r.ok) return "";
+      return await r.text();
+    } catch (e) { return ""; } finally { clearTimeout(t); }
+  })()));
+  let buy = 0, sell = 0, n = 0, used = 0;
+  for (const html of pages) {
+    for (const tr of String(html).split(/<tr/i).slice(1)) {
+      if (!/\d{2}:\d{2}/.test(tr)) continue;
+      const nums = [...tr.matchAll(/<span class="tah p11[^"]*">\s*([\d,]+)\s*<\/span>/g)].map((m) => Number(m[1].replace(/,/g, "")));
+      if (nums.length < 6) continue;
+      const price = nums[0], ask = nums[2], bid = nums[3], vol = nums[5];
+      if (!(price > 0) || !(vol > 0)) continue;
+      n++;
+      if (ask > 0 && price >= ask) { buy += vol; used++; }
+      else if (bid > 0 && price <= bid) { sell += vol; used++; }
+    }
+  }
+  if (!n) return { value: null, n: 0 };
+  return { value: sell > 0 ? Math.round(buy / sell * 10000) / 100 : (buy > 0 ? null : null), buy, sell, n, used };
+}
+var sidestats_v1 = async (req2) => {
+  const url = new URL(req2.url);
+  const code = nv2Code(url.searchParams.get("code") || "");
+  if (!code) return NV2_J({ ok: false, error: "no-code" }, "no-store");
+  const [ig, tr, st] = await Promise.all([settle(naverIntegration(code)), settle(nv2StockTrend(code)), settle(nv2Strength(code))]);
+  const stats = normStats(ig.v || null);
+  const find = (keys) => { for (const x of stats) { const lb = String(x.label || "").replace(/\s/g, ""); if (keys.some((q) => lb.includes(q))) return x.value; } return null; };
+  /* '1,248조 1,805억' · '12,481,805억원' 같은 값을 억 단위 숫자로 */
+  const toEok = (v) => {
+    if (v == null) return null;
+    const t = String(v).replace(/,/g, "");
+    const jo = t.match(/([0-9.]+)\s*조/), eok = t.match(/([0-9.]+)\s*억/);
+    if (jo || eok) return Math.round((jo ? Number(jo[1]) * 10000 : 0) + (eok ? Number(eok[1]) : 0));
+    const n = Number(t.replace(/[^0-9.]/g, "")); return isFinite(n) && n > 0 ? n : null;
+  };
+  const numOf = (v) => { if (v == null) return null; const n = Number(String(v).replace(/[^0-9.\-]/g, "")); return isFinite(n) && String(v).trim() !== "" ? n : null; };
+  const row = tr.v && Array.isArray(tr.v.rows) && tr.v.rows.length ? tr.v.rows[0] : null;
+  return NV2_J({
+    ok: true, code,
+    marketCapEok: toEok(find(["시총", "시가총액"])),
+    per: numOf(find(["PER"] )), eps: numOf(find(["EPS"])), pbr: numOf(find(["PBR"])),
+    investor: row ? { date: row.date, foreign: row.values["외국인"], inst: row.values["기관계"], person: row.values["개인"], unit: "주" } : null,
+    strength: st.v || null,
+    diag: { stats: stats.length, inv: tr.e || (tr.v && tr.v.error) || "ok", str: st.e || (st.v && st.v.n ? "rows:" + st.v.n : "no-rows") }
+  }, "s-maxage=30");
+};
+ROUTES["sidestats"] = sidestats_v1;
 ROUTES["invtrend"] = invtrend_v2;
 
 export {

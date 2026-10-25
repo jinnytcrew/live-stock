@@ -12675,7 +12675,7 @@ function openFolderPop(code,btn){
     const after=watchlist.includes(code);
     if(!before&&after){feed&&feed.addCode(code);toast('buy','관심종목 추가',`${(byCode[code]&&byCode[code].name)||code} → ${f.icon?f.icon+' ':''}${f.name}`);}
     if(before&&!after)toast('warn','관심종목 해제','모든 폴더에서 빠졌습니다');
-    if(typeof updateStar==='function'&&selected===code)updateStar();
+    if(typeof updateStar==='function'&&selected===code)updateStar();try{updateSideStar();}catch(e){}
     saveState();
     renderWatch();
     const nb=document.querySelector(`.wl-fd[data-fd="${code}"]`);
@@ -12756,6 +12756,46 @@ function updateWatchRow(code){
    종목 목록은 먼저 요약 패널을 열고, 사용자가 '종목 상세' 또는 '매수/매도'를
    선택했을 때 기존 상세/주문 엔진으로 이동한다. 기존 시세·주문 로직은 재사용한다. */
 let stockSideCode='';
+/* [v17.8.15] MTS 측면 요약 — 시가총액·체결강도·PER·EPS·당일추정치. 서버(/api/sidestats)가 준 값만 그린다. */
+const sideExtra={};
+function loadSideExtra(code){
+  const c=sideExtra[code];
+  if(c&&(c.loading||Date.now()-c.at<30000))return;
+  sideExtra[code]=Object.assign({at:Date.now()},c||{},{loading:true,at:Date.now()});
+  try{fnBump();}catch(e){}
+  fetch('/api/sidestats?code='+encodeURIComponent(code),{cache:'default'}).then(r=>r.json()).then(j=>{
+    sideExtra[code]={at:Date.now(),data:j&&j.ok?j:null,err:j&&j.ok?null:'fail'};
+  }).catch(()=>{sideExtra[code]={at:Date.now(),data:null,err:'fail'};})
+  .then(()=>{if(stockSideCode===code)renderStockSidePanel(code,true);});
+}
+function sideExtraHtml(code){
+  const fund=isFundLike(code);
+  const c=sideExtra[code]||{};
+  const d=c.data||null;
+  const loading=!!c.loading&&!d&&!c.err;
+  const dash=loading?'…':'—';
+  const sg=(v)=>v==null||!Number.isFinite(Number(v))?null:(Number(v)>0?'+':Number(v)<0?'-':'')+KRW(Math.abs(Number(v)));
+  const cls=(v)=>v==null?'':(Number(v)>0?'up':Number(v)<0?'down':'');
+  const cap=d&&d.marketCapEok>0?KRW(d.marketCapEok)+'억원':dash;
+  const st=d&&d.strength&&d.strength.value!=null?Number(d.strength.value):null;
+  const stCls=st==null?'':(st>=100?'up':'down');
+  const stTip=d&&d.strength&&d.strength.n?` title="최근 체결 ${d.strength.n}건 기준 — 매수체결량÷매도체결량×100 · MTS 의 당일 누적값과 다를 수 있습니다"`:'';
+  const per=fund?'—':(d&&d.per!=null?Number(d.per).toFixed(2):dash);
+  const eps=fund?'—':(d&&d.eps!=null?KRW(d.eps):dash);
+  const inv=d&&d.investor;
+  const fv=inv?sg(inv.foreign):null, iv=inv?sg(inv.inst):null;
+  return `<div class="ssp-mts">
+      <div class="ssp-kv"><span>시가총액</span><b class="num">${cap}</b></div>
+      <div class="ssp-kv"><span>체결강도</span><b class="num ${stCls}"${stTip}>${st!=null?st.toFixed(2):dash}</b></div>
+      <div class="ssp-kv-sep"></div>
+      <div class="ssp-kv"><span>PER</span><b class="num">${per}</b></div>
+      <div class="ssp-kv"><span>EPS</span><b class="num">${eps}</b></div>
+      <div class="ssp-mts-t">당일추정치${inv&&inv.date?`<small>${htmlEsc(inv.date)} 기준</small>`:''}</div>
+      <div class="ssp-kv"><span>외국인</span><b class="num ${cls(inv&&inv.foreign)}">${fv||dash}</b></div>
+      <div class="ssp-kv"><span>기관계</span><b class="num ${cls(inv&&inv.inst)}">${iv||dash}</b></div>
+      <div class="ssp-note ssp-mts-note">${c.err?'지표를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.':'값이 없는 항목은 —로 표시합니다. 투자자 수치는 거래소 집계 기준 최근 거래일 순매수(주)이며, 체결강도는 최근 체결 기준 산출값입니다.'}</div>
+    </div>`;
+}
 function renderStockSidePanel(code,preserveScroll=false){
   const panel=$('stockSidePanel'),body=$('stockSideBody');
   if(!panel||!body||!code||stockSideCode!==code||panel.hidden)return;
@@ -12812,8 +12852,29 @@ function renderStockSidePanel(code,preserveScroll=false){
       <div class="ssp-stat"><span>저가</span><b class="down">${fmt(Number(s.low))}</b></div>
       <div class="ssp-stat"><span>전일 종가</span><b>${fmt(Number(s.prevClose||q.prevClose))}</b></div>
     </div>
+    ${sideExtraHtml(code)}
     <div class="ssp-note">시세·통계는 수신된 데이터만 표시합니다. LIVE증권은 실제 주문을 전송하지 않는 모의투자 서비스입니다.</div>`;
   if(preserveScroll)body.scrollTop=oldTop;
+  updateSideStar();
+}
+function updateSideStar(){
+  const b=$('stockSideStar');if(!b)return;
+  const on=!!stockSideCode&&watchlist.includes(stockSideCode);
+  b.classList.toggle('on',on);b.textContent=on?'★':'☆';
+  b.setAttribute('aria-pressed',on?'true':'false');
+  b.setAttribute('aria-label',on?'관심종목 폴더 변경':'관심종목에 추가');
+}
+async function sideStarClick(){
+  const code=stockSideCode;if(!code)return;
+  try{ensureStock(code,(byCode[code]&&byCode[code].name)||code,'');}catch(e){}
+  if(!watchFolders.length){
+    const f=await newFolderFlow([code]);
+    if(f){syncWatchUnion();feed&&feed.addCode(code);saveState();
+      toast('buy','관심종목 추가',`${(byCode[code]&&byCode[code].name)||code} → ${f.icon?f.icon+' ':''}${f.name}`);
+      updateSideStar();try{renderWatch();}catch(e){}safeRun('mysum',renderMySum);safeRun('mysumtidy',tidyMySum);}
+    return;
+  }
+  openFolderPop(code,$('stockSideStar'));
 }
 function closeStockSidePanel(){
   const panel=$('stockSidePanel'),veil=$('stockSideVeil');
@@ -12830,6 +12891,7 @@ function openStockSidePanel(code,name='',market=''){
   const panel=$('stockSidePanel'),veil=$('stockSideVeil');if(!panel||!veil){openTrade(code);return;}
   stockSideCode=code;panel.hidden=false;veil.hidden=false;document.body.classList.add('stock-side-open');
   renderStockSidePanel(code,false);
+  loadSideExtra(code);
   requestAnimationFrame(()=>{if(stockSideCode!==code)return;panel.classList.add('open');veil.classList.add('open');$('stockSideClose')?.focus({preventScroll:true});});
   try{feed&&feed.addCode(code,{pin:true});}catch(e){}
   try{ensureQuote(code).then(()=>renderStockSidePanel(code,true));}catch(e){}
@@ -12877,6 +12939,7 @@ $('starBtn').onclick=async()=>{
   openFolderPop(code,$('starBtn'));
 };
 function updateStar(){
+  try{updateSideStar();}catch(e){}
   /* [v10.9] 버튼이 [별][글자] 두 조각이라 textContent 를 통째로 바꾸면 글자가
      사라진다. 별만 갈아 끼우고 라벨은 따로 손댄다. */
   const on=watchlist.includes(selected);
@@ -16418,10 +16481,403 @@ function foPlanModal(code){
 }
 
 /* ── 화면 그리기 ── */
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.16] MY 포트폴리오 — 기간 성과 리포트 + AI 성과 평가 스탬프
+   ─────────────────────────────────────────────────────────────────────────────
+   [무엇을 하나] 사용자가 시작일·종료일을 직접 정하면, 그 기간에 확정된(매도로 끝난)
+   손익과 수익률·승률·손익비·최대 낙폭 등을 계산해 보여 주고, 6개 항목으로 채점한
+   AI 성과 등급(A~F)을 스탬프로 '쾅쾅' 찍어 준다.
+   [원칙] ① 값은 전부 tradeLog 의 실제 체결 기록에서만 만든다. 없는 값은 지어내지 않는다.
+          ② 평가손익(보유 중)은 등급에 넣지 않는다 — 아직 확정되지 않은 값이므로 참고로만 보여 준다.
+          ③ 표본이 적으면(매도 5건 미만) 점수를 중간값 쪽으로 당긴다. 한두 번의 운으로 A가 나오지 않게.
+          ④ renderFolio 는 시세가 갱신될 때마다 불린다. 여기서는 화면을 한 번만 만들고,
+             이후 호출은 '기록이 바뀌었는지'만 확인한다 — 애니메이션이 도중에 끊기지 않게.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var PF_GRADES=[
+  {g:'A',min:85,t:'탁월한 운용',s:5},
+  {g:'B',min:72,t:'우수한 성과',s:4},
+  {g:'C',min:58,t:'무난한 흐름',s:3},
+  {g:'D',min:44,t:'보완이 필요해요',s:2},
+  {g:'E',min:30,t:'경고 신호',s:1},
+  {g:'F',min:0, t:'전략 재점검',s:0}
+];
+var PF_AXES=[
+  {k:'profit',n:'수익성',w:.30},
+  {k:'pf',    n:'손익비',w:.20},
+  {k:'win',   n:'승률',  w:.15},
+  {k:'risk',  n:'리스크 관리',w:.15},
+  {k:'cost',  n:'비용 효율',w:.10},
+  {k:'spread',n:'분산',  w:.10}
+];
+var _pfTok=0, _pfTimers=[], _pfSig='', _pfUser=null;
+
+function pfDay(t){ return String((t&&t.date)||kstDay(t&&t.ts)); }
+function pfClamp(v,a,b){ return Math.max(a==null?0:a,Math.min(b==null?100:b,v)); }
+function pfDaysBetween(a,b){ return Math.max(1,Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/86400e3)+1); }
+
+/* ── ① 기간 안의 체결을 모아 지표를 낸다 ── */
+function pfCompute(from,to){
+  const all=(Array.isArray(tradeLog)?tradeLog:[]).filter(t=>t&&t.code&&(t.side==='buy'||t.side==='sell'));
+  const rows=all.filter(t=>{ const d=pfDay(t); return d>=from&&d<=to; }).sort((a,b)=>(a.ts||0)-(b.ts||0));
+  let fxNow=0; try{ fxNow=+usFx()||0; }catch(e){}
+  const toKRW=(t,v)=>t.us?v*(+t.fxAt||fxNow||1):v;     /* 해외는 달러 값 → 체결 때 환율로 원화 환산 */
+  const buys=rows.filter(t=>t.side==='buy'), sells=rows.filter(t=>t.side==='sell');
+  const ev=sells.map(t=>{
+    const qty=+t.qty||0, avg=+t.avg||0;
+    return {ts:t.ts,date:pfDay(t),code:t.code,name:t.name||t.code,us:!!t.us,
+      cost:Math.round(toKRW(t,avg*qty)), pnl:Math.round(+t.pnl||0), fee:Math.round((+t.fee||0)+(+t.tax||0))};
+  });
+  const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+  const realized=sum(ev,e=>e.pnl);
+  const base=sum(ev,e=>e.cost);
+  const wins=ev.filter(e=>e.pnl>0), losses=ev.filter(e=>e.pnl<0);
+  const grossW=sum(wins,e=>e.pnl), grossL=-sum(losses,e=>e.pnl);
+  const fees=sum(rows,t=>Math.round((+t.fee||0)+(+t.tax||0)));
+  const buyAmt=Math.round(sum(buys,t=>toKRW(t,+t.amount||((+t.price||0)*(+t.qty||0)))));
+  /* 누적 곡선 · 최대 낙폭 · 연승/연패 */
+  let cum=0, peak=0, mdd=0, run=0, maxW=0, maxL=0;
+  const curve=[{v:0,d:from}];
+  ev.forEach(e=>{
+    cum+=e.pnl; peak=Math.max(peak,cum); mdd=Math.max(mdd,peak-cum);
+    curve.push({v:cum,d:e.date});
+    if(e.pnl>0){ run=run>0?run+1:1; maxW=Math.max(maxW,run); }
+    else if(e.pnl<0){ run=run<0?run-1:-1; maxL=Math.max(maxL,-run); }
+    else run=0;
+  });
+  /* 종목별 기여 */
+  const byC={};
+  ev.forEach(e=>{ const o=byC[e.code]||(byC[e.code]={code:e.code,name:e.name,us:e.us,pnl:0,n:0}); o.pnl+=e.pnl; o.n++; });
+  const stocks=Object.values(byC).sort((a,b)=>b.pnl-a.pnl);
+  const distinct=new Set(rows.map(t=>t.code)).size;
+  const best=ev.length?ev.reduce((a,b)=>b.pnl>a.pnl?b:a):null;
+  const worst=ev.length?ev.reduce((a,b)=>b.pnl<a.pnl?b:a):null;
+  /* 보유 중 평가손익 — 종료일이 오늘 이후일 때만 '참고'로 */
+  let unreal=null;
+  if(to>=kstDay()){
+    try{
+      const hs=(Array.isArray(holdings)?holdings:[]).filter(h=>h&&(+h.qty||0)>0);
+      if(hs.length) unreal={n:hs.length,pnl:Math.round(hs.reduce((s,h)=>s+hEvalKRW(h)-hCostKRW(h),0))};
+    }catch(e){}
+  }
+  return {from,to,days:pfDaysBetween(from,to),rows,buys,sells,ev,
+    realized,base,rate:base>0?realized/base*100:null,
+    wins,losses,grossW,grossL,winRate:ev.length?wins.length/ev.length:0,
+    avgW:wins.length?grossW/wins.length:0, avgL:losses.length?grossL/losses.length:0,
+    pf:grossL>0?grossW/grossL:(grossW>0?Infinity:0),
+    mdd,curve,maxW,maxL,fees,buyAmt,stocks,distinct,best,worst,unreal};
+}
+
+/* ── ② 6개 항목 채점 → 종합 점수 → 등급 ── */
+function pfScore(m){
+  const ax={};
+  ax.profit=m.rate==null?50:pfClamp(50+m.rate*5);                                   /* 수익률 10% → 100점, 0% → 50점 */
+  const decided=m.wins.length+m.losses.length;                                      /* 본전(0원) 매도는 이기지도 지지도 않은 것으로 본다 */
+  ax.win=decided?pfClamp((m.wins.length/decided-.2)/.5*100):50;                      /* 승률 20% → 0점, 70% → 100점 */
+  ax.pf=m.grossL>0?pfClamp(m.pf<1?m.pf*50:50+(m.pf-1)*35):(m.grossW>0?100:50);       /* 손익비 1 → 50점, 2 → 85점 */
+  ax.risk=m.mdd<=0?100:pfClamp(100-(m.base>0?m.mdd/m.base*100:100)*6);              /* 원가 대비 낙폭 1%p 당 6점 감점 */
+  ax.cost=m.grossW>0?pfClamp(100-(m.fees/m.grossW)*150):40;                         /* 비용이 총이익을 잠식하는 비율 (이익이 없으면 중립보다 약간 낮게) */
+  ax.spread=[0,35,55,70,85,95][Math.min(5,m.distinct)];                             /* 거래 종목 수 */
+  const raw=PF_AXES.reduce((s,a)=>s+ax[a.k]*a.w,0);
+  const conf=Math.min(1,.4+.12*m.ev.length);                                        /* 매도 5건이면 1.0 */
+  const score=Math.round(pfClamp(50+(raw-50)*conf));
+  const gr=PF_GRADES.find(x=>score>=x.min)||PF_GRADES[PF_GRADES.length-1];
+  return {ax,raw,conf,score,gr};
+}
+
+/* ── ③ 코멘트 — 관찰한 사실만 말한다 (조언·권유 문구 금지) ── */
+function pfComments(m,sc){
+  const pct=(v,d)=>(v==null?'—':v.toFixed(d==null?1:d)+'%');
+  const list=PF_AXES.map(a=>({a,v:sc.ax[a.k]}));
+  const top=list.slice().sort((x,y)=>y.v-x.v||y.a.w-x.a.w)[0];
+  const low=list.slice().sort((x,y)=>x.v-y.v||y.a.w-x.a.w)[0];
+  const strong={
+    profit:()=>`수익률 ${pct(m.rate)}로 수익성이 가장 돋보여요.`,
+    pf:()=>m.grossL>0?`번 돈이 잃은 돈의 ${m.pf.toFixed(1)}배예요. 이익 구간을 잘 살렸어요.`:`이 기간에는 손실로 끝난 매도가 없었어요.`,
+    win:()=>`매도 ${m.ev.length}건 중 ${m.wins.length}건이 이익이라 승률 ${pct(m.winRate*100,0)}예요.`,
+    risk:()=>m.mdd>0?`확정 손익이 고점에서 밀린 폭이 ${KRW(m.mdd)}원으로 작게 관리됐어요.`:`확정 손익이 고점 아래로 밀린 구간이 없었어요.`,
+    cost:()=>`수수료·세금이 총이익의 ${m.grossW>0?pct(m.fees/m.grossW*100,0):'—'} 수준으로 가벼워요.`,
+    spread:()=>`${m.distinct}개 종목에 나눠 거래해 한 종목 결과에 덜 흔들렸어요.`
+  };
+  const weak={
+    profit:()=>`수익률이 ${pct(m.rate)}로, 매도한 원가 대비 남긴 몫이 작아요.`,
+    pf:()=>m.avgL>m.avgW?`평균 손실(${KRW(m.avgL)}원)이 평균 이익(${KRW(m.avgW)}원)보다 커요. 이익은 짧게, 손실은 길게 가져간 흔적이에요.`:`번 돈이 잃은 돈의 ${m.pf===Infinity?'—':m.pf.toFixed(1)}배에 그쳐요.`,
+    win:()=>m.losses.length?`승률이 ${pct(m.winRate*100,0)}예요. 손실로 끝난 매도가 ${m.losses.length}건이에요.`:`이익으로 끝난 매도가 없었어요. 본전 매도가 ${m.ev.length-m.wins.length}건이에요.`,
+    risk:()=>`확정 손익이 고점에서 ${KRW(m.mdd)}원까지 되밀린 구간이 있었어요.`,
+    cost:()=>`수수료·세금이 총이익의 ${m.grossW>0?pct(m.fees/m.grossW*100,0):'—'}를 차지해요. 매매 비용이 이익을 깎고 있어요.`,
+    spread:()=>`거래 종목이 ${m.distinct}개뿐이라 한두 종목 결과에 점수가 크게 좌우돼요.`
+  };
+  const out=[
+    {i:'📋',k:'총평',t:`매도 ${m.ev.length}건에서 ${signed(m.realized)}원${m.rate==null?'':`(${m.rate>0?'+':''}${pct(m.rate)})`}을 확정했어요. 종합 ${sc.score}점으로 <b>${sc.gr.g}등급</b>(${sc.gr.t})이에요.`},
+    {i:'👍',k:'강점',t:top.v>=60?strong[top.a.k]():'뚜렷하게 앞서는 항목은 아직 없어요. 가장 나은 항목은 '+top.a.n+`(${Math.round(top.v)}점)이에요.`},
+    {i:'🔍',k:'보완점',t:low.v<70?weak[low.a.k]():'뚜렷한 약점은 보이지 않아요. 가장 낮은 항목은 '+low.a.n+`(${Math.round(low.v)}점)이에요.`}
+  ];
+  if(m.maxL>=3) out.push({i:'📉',k:'흐름',t:`최대 ${m.maxL}연패 구간이 있었어요. 연패 직후 매매를 따로 돌아볼 만해요.`});
+  else if(m.maxW>=3) out.push({i:'📈',k:'흐름',t:`최대 ${m.maxW}연승 구간이 있었어요. 같은 방식이 반복됐는지 복기해 볼 만해요.`});
+  if(m.ev.length<5) out.push({i:'ℹ️',k:'참고',t:`매도 ${m.ev.length}건뿐이라 표본이 적어요. 점수를 중간값 쪽으로 보정해 반영했어요.`});
+  return out;
+}
+
+/* ── ④ 화면 조각 ── */
+function pfStampSVG(gr,score,k){
+  /* 잉크 질감: 가장자리 일렁임(displacement) + 미세한 얼룩 구멍(noise → alpha) */
+  const filt=id=>`<filter id="${id}" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="4" result="warp"/>
+      <feDisplacementMap in="SourceGraphic" in2="warp" scale="3.2" xChannelSelector="R" yChannelSelector="G" result="d"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" result="grain"/>
+      <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -8 6.1" result="holes"/>
+      <feComposite in="d" in2="holes" operator="in"/>
+    </filter>`;
+  const grad=id=>`<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" style="stop-color:var(--g1)"/><stop offset=".5" style="stop-color:var(--g2)"/><stop offset="1" style="stop-color:var(--g3)"/></linearGradient>`;
+  /* 번진 잉크 방울 — 고정 시드라 매번 같은 자리 */
+  let seed=7; const rnd=()=>{ seed=(seed*9301+49297)%233280; return seed/233280; };
+  let dots=''; for(let i=0;i<9;i++){ const a=rnd()*Math.PI*2, r=120+rnd()*14, s=1.2+rnd()*2.6;
+    dots+=`<circle cx="${(140+Math.cos(a)*r).toFixed(1)}" cy="${(140+Math.sin(a)*r).toFixed(1)}" r="${s.toFixed(1)}"/>`; }
+  const stars=gr.s>0?Array(gr.s).fill('★').join(' '):'· · ·';
+  const ringTxt='LIVE SECURITIES ✦ AI PERFORMANCE REVIEW ✦';
+  return `<div class="pf-stamp" id="pfStamp" aria-hidden="true">
+    <svg class="st-ring" viewBox="0 0 280 280">
+      <defs>${filt('pfInkR'+k)}${grad('pfGR'+k)}
+        <path id="pfArc${k}" d="M 140,140 m -90,0 a 90,90 0 1,1 180,0 a 90,90 0 1,1 -180,0"/></defs>
+      <g filter="url(#pfInkR${k})" fill="url(#pfGR${k})" stroke="url(#pfGR${k})">
+        <circle cx="140" cy="140" r="118" fill="none" stroke-width="7"/>
+        <circle cx="140" cy="140" r="108" fill="none" stroke-width="1.6"/>
+        <circle cx="140" cy="140" r="78" fill="none" stroke-width="1.6"/>
+        <text stroke="none" font-size="15.5" font-weight="800" font-family="Georgia,'Times New Roman',serif" letter-spacing="2"><textPath href="#pfArc${k}" xlink:href="#pfArc${k}" startOffset="0" textLength="562" lengthAdjust="spacing">${ringTxt}</textPath></text>
+        <text stroke="none" x="140" y="92" text-anchor="middle" font-size="13" font-weight="700" letter-spacing="3">${stars}</text>
+        <text stroke="none" x="140" y="208" text-anchor="middle" font-size="13.5" font-weight="800" letter-spacing="4" font-family="Georgia,'Times New Roman',serif">SCORE ${score}</text>
+        <g stroke="none">${dots}</g>
+      </g>
+    </svg>
+    <svg class="st-letter" viewBox="0 0 280 280">
+      <defs>${filt('pfInkL'+k)}${grad('pfGL'+k)}</defs>
+      <g filter="url(#pfInkL${k})">
+        <text x="140" y="181" text-anchor="middle" font-size="112" font-weight="900" font-family="Georgia,'Times New Roman',serif" fill="url(#pfGL${k})">${gr.g}</text>
+      </g>
+    </svg>
+  </div>`;
+}
+function pfCurveSVG(curve,up){
+  const W=320,H=130,pl=8,pr=8,pt=14,pb=18;
+  const vs=curve.map(p=>p.v), lo=Math.min(0,...vs), hi=Math.max(0,...vs), span=(hi-lo)||1;
+  const X=i=>pl+(curve.length>1?i/(curve.length-1):0)*(W-pl-pr);
+  const Y=v=>pt+(1-(v-lo)/span)*(H-pt-pb);
+  const pts=curve.map((p,i)=>[X(i),Y(p.v)]);
+  const line=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area=line+` L ${X(curve.length-1).toFixed(1)} ${Y(0).toFixed(1)} L ${X(0).toFixed(1)} ${Y(0).toFixed(1)} Z`;
+  const col=up?'var(--up)':'var(--down)';
+  const last=pts[pts.length-1];
+  return `<svg class="pf-curve" viewBox="0 0 ${W} ${H}" role="img" aria-label="누적 실현손익 곡선">
+    <defs><linearGradient id="pfCA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <line x1="${pl}" x2="${W-pr}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="var(--border)" stroke-dasharray="3 4"/>
+    <path d="${area}" fill="url(#pfCA)" class="pf-c-area"/>
+    <path d="${line}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" pathLength="1" class="pf-c-line"/>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4.2" fill="${col}" class="pf-c-dot"/>
+  </svg>`;
+}
+function pfReportHtml(m,sc){
+  const up=m.realized>=0, cls=up?'up':'down';
+  const gr=sc.gr, rate=m.rate;
+  const pfTxt=m.pf===Infinity?'∞':m.pf.toFixed(2);
+  const tile=(k,v,sub,c)=>`<div class="pf-tile"><span>${k}</span><b class="num ${c||''}">${v}</b>${sub?`<i>${sub}</i>`:''}</div>`;
+  const nm=e=>e?htmlEsc(e.name):'—';
+  const tiles=[
+    tile('실현 수익률',rate==null?'—':(rate>0?'+':'')+rate.toFixed(2)+'%',`매도 원가 ${KRW(m.base)}원 기준`,rate==null?'':(rate>=0?'up':'down')),
+    tile('승률',(m.winRate*100).toFixed(0)+'%',`${m.wins.length}승 ${m.losses.length}패${m.ev.length-m.wins.length-m.losses.length?` · 무 ${m.ev.length-m.wins.length-m.losses.length}`:''}`),
+    tile('손익비',pfTxt,'총이익 ÷ 총손실'),
+    tile('평균 이익 · 손실',`<span class="up">+${KRW(m.avgW)}</span>`,`평균 손실 <u class="down">-${KRW(m.avgL)}원</u>`),
+    tile('최대 이익 거래',m.best&&m.best.pnl>0?signed(m.best.pnl)+'원':'—',nm(m.best&&m.best.pnl>0?m.best:null),'up'),
+    tile('최대 손실 거래',m.worst&&m.worst.pnl<0?signed(m.worst.pnl)+'원':'—',nm(m.worst&&m.worst.pnl<0?m.worst:null),'down'),
+    tile('최대 낙폭',m.mdd>0?'-'+KRW(m.mdd)+'원':'없음','확정 손익 고점 대비',m.mdd>0?'down':''),
+    tile('수수료 · 세금',KRW(m.fees)+'원',`총이익의 ${m.grossW>0?(m.fees/m.grossW*100).toFixed(0)+'%':'—'}`),
+    tile('거래 건수',`${m.rows.length}건`,`매수 ${m.buys.length} · 매도 ${m.sells.length} · ${m.distinct}종목`),
+    tile('연승 · 연패',`${m.maxW}연승`,`최대 ${m.maxL}연패`),
+    tile('총 매수금액',KRW(m.buyAmt)+'원','기간 내 매수 합계'),
+    m.unreal?tile('보유 평가손익(참고)',signed(m.unreal.pnl)+'원',`현재 ${m.unreal.n}종목 · 등급에는 미반영`,m.unreal.pnl>=0?'up':'down'):''
+  ].join('');
+  const axes=PF_AXES.map((a,i)=>{ const v=Math.round(sc.ax[a.k]);
+    return `<div class="pf-axis${v<45?' lo':''}" style="--i:${i};--w:${v}%"><span>${a.n}<em>${Math.round(a.w*100)}%</em></span><div><i></i></div><b class="num">${v}</b></div>`; }).join('');
+  const comments=pfComments(m,sc).map((c,i)=>`<div class="pf-cm" style="--i:${i}"><span class="pf-cm-i">${c.i}</span><div><em>${c.k}</em><p>${c.t}</p></div></div>`).join('');
+  const stk=m.stocks, mx=Math.max(1,...stk.map(s=>Math.abs(s.pnl)));
+  const stkRows=stk.slice(0,6).map(s=>`<div class="pf-st"><span class="pf-st-n">${htmlEsc(s.name)}${s.us?' <i>🇺🇸</i>':''}<em>${s.n}회 매도</em></span>
+      <div class="pf-st-bar"><i class="${s.pnl>=0?'up':'down'}" style="width:${Math.max(4,Math.abs(s.pnl)/mx*100).toFixed(0)}%"></i></div>
+      <b class="num ${s.pnl>=0?'up':'down'}">${signed(s.pnl)}</b></div>`).join('');
+  return `
+  <div class="pf-cert" id="pfCert" data-g="${gr.g}">
+    <i class="pf-flash"></i>
+    <div class="pf-cert-top"><span class="pf-cert-k">LIVE AI PERFORMANCE REPORT</span><span class="pf-cert-range">${m.from} ~ ${m.to} · ${m.days}일</span></div>
+    <div class="pf-hero">
+      <span class="pf-hero-k">최종 누적 실현손익</span>
+      <div class="pf-hero-v"><b class="num pf-big ${cls}" id="pfBig">${signed(m.realized)}</b><u>원</u></div>
+      <span class="pf-hero-r">실현 수익률 <b class="num ${cls}" id="pfBigRate">${rate==null?'—':(rate>0?'+':'')+rate.toFixed(2)+'%'}</b></span>
+    </div>
+    <div class="pf-stage">
+      <div class="pf-slot"><span>AI GRADE</span></div>
+      <i class="pf-shock s1"></i><i class="pf-shock s2"></i>
+      ${pfStampSVG(gr,sc.score,'')}
+      <div class="pf-sparks" id="pfSparks"></div>
+    </div>
+    <div class="pf-verdict"><b class="pf-vt">${gr.t}</b><span>AI 종합 점수 <em class="num" id="pfScoreN">${sc.score}</em> / 100</span></div>
+  </div>
+  <div class="pf-rest">
+    <div class="panel pf-sec pf-rev" style="--i:0"><div class="pf-sec-h">AI 평가 근거<span>6개 항목 점수</span></div><div class="pf-axes">${axes}</div></div>
+    <div class="panel pf-sec pf-rev" style="--i:1"><div class="pf-sec-h">AI 코멘트</div><div class="pf-cms">${comments}</div></div>
+    <div class="panel pf-sec pf-rev" style="--i:2"><div class="pf-sec-h">핵심 지표</div><div class="pf-tiles">${tiles}</div></div>
+    <div class="panel pf-sec pf-rev" style="--i:3"><div class="pf-sec-h">누적 실현손익 흐름<span>${m.from} → ${m.to}</span></div>${pfCurveSVG(m.curve,up)}
+      <div class="pf-c-foot"><span>시작 0원</span><b class="num ${cls}">${signed(m.realized)}원</b></div></div>
+    <div class="panel pf-sec pf-rev" style="--i:4"><div class="pf-sec-h">종목별 기여<span>매도로 확정된 손익 기준</span></div><div class="pf-sts">${stkRows}</div></div>
+    <div class="pf-foot pf-rev" style="--i:5">AI 성과 평가는 이 기기에 저장된 거래 기록만으로 6개 항목을 채점하는 분석 엔진의 결과이며 서버로 보내지 않습니다.
+      매도 5건 미만이면 점수를 중간값 쪽으로 보정합니다. 보유 중 평가손익은 아직 확정되지 않아 등급에 넣지 않았습니다.
+      모의투자 기록을 바탕으로 한 참고용이며 투자 권유가 아닙니다.</div>
+  </div>`;
+}
+function pfEmptyHtml(m){
+  const hasAny=m.rows.length>0;
+  return `<div class="pf-empty"><b>${hasAny?'이 기간에는 확정된 매도 기록이 없어요':'이 기간의 거래 기록이 없어요'}</b>
+    <span>${hasAny?`매수 ${m.buys.length}건만 있어 아직 손익이 확정되지 않았어요. 매도로 끝난 거래가 1건 이상 있어야 AI 평가를 받을 수 있어요.`
+      :'기간을 넓혀 다시 조회해 보세요. 매도로 끝난 거래가 1건 이상 있어야 AI 평가를 받을 수 있어요.'}</span>
+    ${m.unreal?`<span class="pf-empty-n">참고 · 현재 보유 ${m.unreal.n}종목 평가손익 <b class="num ${m.unreal.pnl>=0?'up':'down'}">${signed(m.unreal.pnl)}원</b></span>`:''}</div>`;
+}
+
+/* ── ⑤ 연출 — 숫자 → 1차 쾅(테두리) → 2차 쾅(등급 글자) → 리포트 펼침 ── */
+function pfClearTimers(){ _pfTimers.forEach(clearTimeout); _pfTimers=[]; ++_pfTok; }
+function pfAfter(ms,fn){ _pfTimers.push(setTimeout(fn,ms)); }
+function pfCount(el,to,dur,fmt,tok){
+  if(!el)return; const t0=performance.now();
+  (function f(now){ if(tok!==_pfTok)return;
+    const p=Math.min(1,(now-t0)/dur), e=1-Math.pow(1-p,3);
+    el.textContent=fmt(to*e); if(p<1)requestAnimationFrame(f); })(t0);
+}
+function pfSparks(host,n){
+  if(!host)return; host.innerHTML='';
+  const w=host.parentElement.clientWidth||320;
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, d=(.28+Math.random()*.34)*w, s=2.5+Math.random()*5;
+    const el=document.createElement('i');
+    el.style.cssText=`--dx:${(Math.cos(a)*d).toFixed(0)}px;--dy:${(Math.sin(a)*d*.8).toFixed(0)}px;--s:${s.toFixed(1)}px;--t:${(520+Math.random()*620).toFixed(0)}ms;--c:${['var(--g1)','var(--g2)','#fff'][i%3]}`;
+    host.appendChild(el);
+  }
+}
+function pfPlay(root,m,sc){
+  pfClearTimers(); const tok=_pfTok;
+  const cert=root.querySelector('#pfCert'); if(!cert)return;
+  const rm=!!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const show=()=>{ root.classList.remove('pf-arm'); root.classList.add('pf-shown'); };
+  if(rm){ cert.classList.add('settled'); show(); return; }
+  try{
+    root.classList.add('pf-arm'); root.classList.remove('pf-shown');
+    cert.classList.add('arm');
+    const big=cert.querySelector('#pfBig'), rt=cert.querySelector('#pfBigRate'), sn=cert.querySelector('#pfScoreN');
+    big.textContent=signed(0); if(rt&&m.rate!=null)rt.textContent='0.00%'; sn.textContent='0';
+    setTimeout(()=>{ try{ cert.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){} },60);
+    pfCount(big,m.realized,1100,v=>signed(Math.round(v)),tok);
+    if(m.rate!=null)pfCount(rt,m.rate,1100,v=>(v>0?'+':'')+v.toFixed(2)+'%',tok);
+    const v=(p)=>{ try{ if(navigator.vibrate)navigator.vibrate(p); }catch(e){} };
+    /* 1차 쾅 — 테두리 */
+    pfAfter(1250,()=>{ cert.classList.add('hit1','shake1'); v(18); });
+    /* 2차 쾅 — 등급 글자 */
+    pfAfter(1950,()=>{
+      cert.classList.remove('shake1'); void cert.offsetWidth;
+      cert.classList.add('hit2','shake2'); pfSparks(cert.querySelector('#pfSparks'),30); v([30,40,18]);
+      pfCount(sn,sc.score,900,v2=>String(Math.round(v2)),tok);
+    });
+    pfAfter(2650,()=>{ cert.classList.remove('shake2'); cert.classList.add('settled'); show(); });
+    /* 어떤 이유로든 끝까지 못 가도 리포트는 반드시 보이게 */
+    pfAfter(4200,()=>{ cert.classList.add('hit1','hit2','settled'); show(); sn.textContent=String(sc.score); });
+  }catch(e){ show(); cert.classList.add('hit1','hit2','settled'); }
+}
+
+/* ── ⑥ 입력 · 조회 ── */
+function pfSigNow(){
+  const L=Array.isArray(tradeLog)?tradeLog:[];
+  return [currentUser||'',acctActive||'',L.length,(L[0]||{}).ts||0,(L[L.length-1]||{}).ts||0].join('|');
+}
+function pfDefaultRange(){
+  let r=null; try{ r=JSON.parse(localStorage.getItem('foPerfRange:'+(currentUser||''))||'null'); }catch(e){}
+  if(r&&/^\d{4}-\d{2}-\d{2}$/.test(r.f)&&/^\d{4}-\d{2}-\d{2}$/.test(r.t)&&r.f<=r.t)return r;
+  return {f:kstDayAgo(29),t:kstDay()};
+}
+function pfPresetRange(p){
+  const t=kstDay();
+  if(p==='ytd')return {f:t.slice(0,4)+'-01-01',t};
+  if(p==='all'){
+    const ds=(Array.isArray(tradeLog)?tradeLog:[]).map(pfDay).filter(Boolean).sort();
+    return {f:ds[0]||kstDayAgo(29),t};
+  }
+  return {f:kstDayAgo((+p||30)-1),t};
+}
+function pfBuild(el){
+  const d=pfDefaultRange(), today=kstDay();
+  el.innerHTML=`
+    <div class="panel pf-panel">
+      <div class="pf-presets" id="pfPre">
+        <button type="button" data-pre="7">1주</button><button type="button" data-pre="30">1개월</button>
+        <button type="button" data-pre="90">3개월</button><button type="button" data-pre="180">6개월</button>
+        <button type="button" data-pre="ytd">올해</button><button type="button" data-pre="all">전체</button>
+      </div>
+      <div class="pf-range">
+        <label><span>시작일</span><input type="date" id="pfFrom" value="${d.f}" max="${today}"></label>
+        <i aria-hidden="true">~</i>
+        <label><span>종료일</span><input type="date" id="pfTo" value="${d.t}" max="${today}"></label>
+      </div>
+      <button type="button" class="pf-go" id="pfGo"><em></em><span>성과 조회 · AI 평가 받기</span></button>
+      <div class="pf-hint" id="pfHint"></div>
+    </div>
+    <div id="pfOut" aria-live="polite"></div>`;
+  el.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{
+    const r=pfPresetRange(b.dataset.pre); $('pfFrom').value=r.f; $('pfTo').value=r.t; pfMarkPreset(); });
+  ['pfFrom','pfTo'].forEach(id=>$(id).addEventListener('change',pfMarkPreset));
+  $('pfGo').onclick=pfRun;
+  pfMarkPreset(); pfHint();
+}
+function pfMarkPreset(){
+  const f=$('pfFrom')&&$('pfFrom').value, t=$('pfTo')&&$('pfTo').value;
+  document.querySelectorAll('#pfPre [data-pre]').forEach(b=>{
+    const r=pfPresetRange(b.dataset.pre); b.classList.toggle('on',r.f===f&&r.t===t); });
+}
+function pfHint(){
+  const h=$('pfHint'); if(!h)return;
+  const L=(Array.isArray(tradeLog)?tradeLog:[]).filter(t=>t&&t.code);
+  const sells=L.filter(t=>t.side==='sell').length;
+  if(!L.length){ h.innerHTML='아직 거래 기록이 없어요. 매수·매도를 하면 이곳에서 기간별 성과를 조회할 수 있어요.'; return; }
+  const ds=L.map(pfDay).sort(); let note='';
+  try{ if(tradeArchive&&Object.keys(tradeArchive).length) note=' · 1,000건을 넘은 오래된 기록은 연도 요약으로 접혀 조회에서 빠져요'; }catch(e){}
+  h.innerHTML=`조회 가능한 기록 <b>${L.length.toLocaleString()}건</b>(매도 ${sells}건) · 가장 이른 기록 ${ds[0]}${note}`;
+}
+function pfRun(){
+  const f=$('pfFrom').value, t=$('pfTo').value, out=$('pfOut');
+  if(!f||!t){ toast('warn','기간을 정해 주세요','시작일과 종료일을 모두 고르세요'); return; }
+  if(f>t){ toast('warn','기간을 확인해 주세요','시작일이 종료일보다 늦어요'); return; }
+  try{ localStorage.setItem('foPerfRange:'+(currentUser||''),JSON.stringify({f,t})); }catch(e){}
+  pfClearTimers(); pfHint();
+  let m; try{ m=pfCompute(f,t); }catch(e){ toast('warn','조회하지 못했어요','기록을 읽는 중 문제가 생겼어요'); return; }
+  _pfSig=pfSigNow(); _pfUser=currentUser||'';
+  if(!m.ev.length){ out.className=''; out.innerHTML=pfEmptyHtml(m); return; }
+  const sc=pfScore(m);
+  out.className=''; out.innerHTML=pfReportHtml(m,sc);
+  pfPlay(out,m,sc);
+}
+/* renderFolio 에서 불린다 — 시세가 갱신될 때마다 와도 화면을 다시 그리지 않는다 */
+function foPerfInit(){
+  const el=$('foPerf'); if(!el)return;
+  if(!el.dataset.built){ el.dataset.built='1'; pfBuild(el); _pfUser=currentUser||''; return; }
+  const out=$('pfOut'); if(!out)return;
+  if(_pfSig&&(currentUser||'')!==_pfUser){        /* 다른 계정으로 바뀌면 이전 결과를 지운다 */
+    pfClearTimers(); out.className=''; out.innerHTML=''; _pfSig=''; _pfUser=currentUser||'';
+    const d=pfDefaultRange(); $('pfFrom').value=d.f; $('pfTo').value=d.t; pfMarkPreset(); pfHint(); return;
+  }
+  if(_pfSig&&_pfSig!==pfSigNow()&&!out.querySelector('.pf-stale')){
+    const b=document.createElement('div'); b.className='pf-stale';
+    b.innerHTML='<span>거래 기록이 바뀌었어요. 최신 기록으로 다시 계산할까요?</span><button type="button">다시 조회</button>';
+    b.querySelector('button').onclick=pfRun; out.insertBefore(b,out.firstChild);
+  }
+}
+
 function renderFolio(){
   const list=foAll();
   safeRun('foTodo',()=>foRenderTodo(list));
   safeRun('foSum',()=>foRenderSum(list));
+  safeRun('foPerf',foPerfInit);                /* [v17.8.16] 기간 성과 · AI 평가 (한 번만 그리고 이후엔 변경 여부만 확인) */
   safeRun('foCards',()=>foRenderCards(list));
   safeRun('foRisk',()=>foRenderRisk(list));
   safeRun('foHabit',foRenderHabit);
@@ -24499,6 +24955,7 @@ try{(function(){
   const veil=$('stockSideVeil'),panel=$('stockSidePanel');
   if(!veil||!panel)return;
   $('stockSideClose')?.addEventListener('click',closeStockSidePanel);
+  $('stockSideStar')?.addEventListener('click',sideStarClick);
   veil.addEventListener('click',closeStockSidePanel);
   $('stockSideDetail')?.addEventListener('click',()=>{const c=stockSideCode;if(!c)return;closeStockSidePanel();openTrade(c);});
   $('stockSideTrade')?.addEventListener('click',()=>{const c=stockSideCode;if(!c)return;openStockOrderFromPanel(c);});
