@@ -5656,17 +5656,21 @@ function triesOf(db, id, acc) {
   if (!db.tries) db.tries = {};
   return db.tries[id] || [];
 }
-function tooManyTries(db, id, acc) {
+/* [v17.8.19] 동기화 실패는 로그인 잠금과 따로 센다(kind==="sync" → _stries).
+   예전에는 한 통에 섞여, 낡은 값을 든 기기의 자동 동기화 실패가 로그인까지 막았다. */
+function tooManyTries(db, id, acc, kind) {
   const now = Date.now();
-  const list = triesOf(db, id, acc).filter((t) => now - t < TRY_WINDOW);
+  const fld = kind === "sync" ? "_stries" : "_tries";
   const a = acc || (db.accounts && db.accounts[id]);
-  if (a) a._tries = list; else { if (!db.tries) db.tries = {}; db.tries[id] = list; }
+  const list = (a && Array.isArray(a[fld]) ? a[fld] : (kind === "sync" ? [] : triesOf(db, id, acc))).filter((t) => now - t < TRY_WINDOW);
+  if (a) a[fld] = list; else { if (!db.tries) db.tries = {}; db.tries[id] = list; }
   return list.length >= TRY_MAX;
 }
-function noteFail(db, id, acc) {
+function noteFail(db, id, acc, kind) {
   const a = acc || (db.accounts && db.accounts[id]);
   const now = Date.now();
-  if (a) { a._tries = (Array.isArray(a._tries) ? a._tries : []).concat(now); return; }
+  const fld = kind === "sync" ? "_stries" : "_tries";
+  if (a) { a[fld] = (Array.isArray(a[fld]) ? a[fld] : []).concat(now); return; }
   if (!db.tries) db.tries = {};
   (db.tries[id] = db.tries[id] || []).push(now);
 }
@@ -5816,7 +5820,7 @@ var accounts_default = async (req2) => {
     if (!k2) return false;
     return await usrSave(store, k2, db.users[k2] || {});
   };
-  if (["login", "sync", "profile"].includes(action) && id && tooManyTries(db, id))   // [v4.24] ensure(복구)는 잠금 대상에서 제외
+  if (["login", "sync", "profile"].includes(action) && id && tooManyTries(db, id, null, action === "sync" ? "sync" : ""))   // [v4.24] ensure(복구)는 잠금 대상에서 제외
     return json({ ok: false, err: "toomany", retryAfterMin: 15 });
   try {
     if (action === "signup") {
@@ -5898,12 +5902,12 @@ var accounts_default = async (req2) => {
     if (action === "sync") {
       const v = await verify(acc, pass, legacy);
       if (!v.ok) {
-        noteFail(db, id);
+        noteFail(db, id, null, "sync");
         await saveAcc(id);       /* [v9.75] 잠금 카운트는 계정 키에 남는다 */
         return json({ ok: false, err: "invalid" });
       }
       if (v.upgraded || v.rehash) { await setPassword(acc, pass); await saveAcc(id); }   /* [v9.75] */
-      clearTries(db, id); await saveAcc(id);          /* [v9.75] */
+      clearTries(db, id); try { delete (db.accounts[id] || {})._stries; } catch (e) {} await saveAcc(id);          /* [v9.75] */
       /* ══ [v13.1] 4겹 — 내용 있는 기록을 빈 것으로 덮지 않는다 ═══════════════
          화면이 어떤 이유로든 빈 상태를 보내오면(초기화 사고, 잘못된 복원 등)
          서버 사본까지 함께 사라져 되돌릴 길이 없어진다. 서버는 마지막 방어선이므로,
@@ -17534,6 +17538,27 @@ function oaRand(n){
   const b=new Uint8Array(n||24); crypto.getRandomValues(b);
   return [...b].map(x=>x.toString(16).padStart(2,"0")).join("");
 }
+/* ══ [v17.8.19] 구글 로그인이 비밀번호를 매번 바꿔 다른 기기를 쫓아내던 문제 ═══════════
+   [무엇이 일어났나] 구글 계정은 서버가 비밀번호를 대신 정해 앱에 건네준다. 그런데 로그인할 때마다
+     새 무작위 값으로 바꿨다. 기기 A 에서 구글로 로그인한 뒤 기기 B(또는 브라우저·홈화면 앱)에서
+     다시 구글로 로그인하면, A 가 들고 있던 값은 즉시 무효가 된다. 그 순간부터 A 의 모든
+     동기화가 'invalid' 로 거절되고, 서버는 그때마다 실패를 세어 15분에 10번이면 계정을 잠근다
+     — "서버에 저장하지 못했어요 / 로그인 확인이 너무 잦아 잠시 막혔어요"가 바로 이것이다.
+   [고침] 계정마다 '항상 같은' 값을 쓴다. 서버만 아는 비밀(GOOGLE_CLIENT_SECRET)로 아이디에서
+     계산하므로 다른 사람이 알아낼 수 없고, 로그인을 몇 번 하든 모든 기기의 값이 같다.
+     비밀이 없는 환경이면 예전처럼 무작위로 돌아간다. */
+async function oaPassFor(csec, uid) {
+  if (!csec) return "s" + oaRand(32);
+  return "s" + await sha2562(csec + "|gpass|" + String(uid).trim().toLowerCase());
+}
+async function oaApplyPass(acc, pass) {
+  /* 이미 이 값으로 맞춰져 있으면 손대지 않는다(불필요한 KV 쓰기도 없다) */
+  try { if (acc.salt && acc.hash && await sha2562(acc.salt + "|" + pass) === acc.hash) { delete acc.pass; return false; } } catch (e) {}
+  acc.salt = oaRand(16);
+  acc.hash = await sha2562(acc.salt + "|" + pass);
+  delete acc.pass;
+  return true;
+}
 async function oauth_google_default(req2, ctx){
   const env=(ctx&&ctx.env)||_ENV||{};
   const CID=env.GOOGLE_CLIENT_ID||"";
@@ -17559,7 +17584,7 @@ async function oauth_google_default(req2, ctx){
     db2.accounts=db2.accounts||{}; db2.users=db2.users||{};
     const uid2=String(pend.email);
     /* 그 사이 같은 계정이 생겼으면 그것을 그대로 쓴다 */
-    const pass2="s"+oaRand(32);
+    const pass2=await oaPassFor(CSEC,uid2);
     let acc2=null;
     try{ acc2=await accLoad(st.acc,uid2,db2); }catch(e){}
     acc2=acc2||db2.accounts[uid2]||{created:Date.now()};
@@ -17570,9 +17595,8 @@ async function oauth_google_default(req2, ctx){
     acc2.birth=clip(body.birth,10);
     acc2.phone=clip(body.phone,16);
     acc2.terms={...(body.terms||{}),at:Date.now()};
-    acc2.salt=oaRand(16);
-    acc2.hash=await sha2562(acc2.salt+"|"+pass2);
-    delete acc2.pass;
+    await oaApplyPass(acc2,pass2);
+    delete acc2._tries; delete acc2._stries;
     db2.accounts[uid2]=acc2;
     await accSave(st.acc,uid2,acc2);      /* [v9.75] */
     /* [v9.74] 가입 마무리도 계정별 키를 먼저 본다 — 재가입 시 기존 데이터를
@@ -17707,16 +17731,15 @@ async function oauth_google_default(req2, ctx){
     }
     /* (신규 계정 생성은 위 보류 흐름과 아래 finish 에서 처리한다) */
     /* 서버가 보관하는 무작위 비밀번호 — 사용자는 몰라도 되고, 앱이 서버와 통신할 때만 쓴다 */
-    const pass="s"+oaRand(32);
+    const pass=await oaPassFor(CSEC,uid);
     let acc=null;
     try{ acc=await accLoad(st.acc,uid,db); }catch(e){}
     acc=acc||db.accounts[uid]||{name:gname,email,created:Date.now()};
     acc.name=acc.name||gname;
     acc.email=acc.email||email;
     acc.googleSub=gsub;
-    acc.salt=oaRand(16);
-    acc.hash=await sha2562(acc.salt+"|"+pass);
-    delete acc.pass;
+    await oaApplyPass(acc,pass);
+    delete acc._tries; delete acc._stries;     /* 구글이 본인임을 확인했으니 잠금도 푼다 */
     db.accounts[uid]=acc;
     await accSave(st.acc,uid,acc);        /* [v9.75] 계정별 키에 */
     /* ══ [v9.74] 구글 로그인도 사용자 데이터는 계정별 키에서 읽고 쓴다 ═══════
@@ -18135,7 +18158,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.19";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.20";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
