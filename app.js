@@ -6795,7 +6795,7 @@ function _askEl(){
     <div class="ask-btns"><button class="ask-cancel" id="askCancel">취소</button><button class="ask-ok" id="askOk">확인</button></div>
   </div>`;
   document.body.appendChild(ov);
-  const done=(v)=>{ov.hidden=true;const r=_askRes;_askRes=null;if(r)r(v);};
+  const done=(v)=>{ov.hidden=true;_askBg(false);const r=_askRes;_askRes=null;if(r)r(v);};
   $('askOk').onclick=()=>{const inp=$('askInput'),ta=$('askArea'),fm=$('askForm');
     if(fm&&!fm.hidden){ const v=_askFormCollect(fm); if(v===null)return; done(v); return; }
     done(!inp.hidden?inp.value:!ta.hidden?ta.value:true);};
@@ -6808,8 +6808,18 @@ function _askEl(){
   });
   return ov;
 }
+/* [v17.8.18] 입력창이 떠 있는 동안 뒤의 미리보기 패널을 잠근다(inert: 클릭·탭 이동·스크린리더 모두 차단).
+   창은 항상 body 맨 끝으로 옮겨, z-index 가 같아져도 DOM 순서로 위에 놓인다. */
+function _askBg(on){
+  try{
+    document.body.classList.toggle('ask-open',!!on);
+    const p=document.getElementById('stockSidePanel');
+    if(p){ if(on)p.setAttribute('inert',''); else p.removeAttribute('inert'); }
+  }catch(e){}
+}
 function _askShow(cfg){
   const ov=_askEl();
+  if(ov.parentNode===document.body&&document.body.lastElementChild!==ov)document.body.appendChild(ov);
   $('askTitle').textContent=cfg.title||'';
   /* [v4.92] 설명에 강조가 필요한 경우가 있어 html 옵션을 둔다.
      기본은 여전히 글자 그대로 넣는다(태그가 섞여도 안전하게). */
@@ -6824,19 +6834,21 @@ function _askShow(cfg){
   $('askOk').textContent=cfg.okLabel||'확인';
   $('askOk').classList.toggle('danger',!!cfg.danger);
   $('askCancel').hidden=cfg.mode==='choice';
+  /* 이미 열린 입력창이 있으면 먼저 취소로 닫아 Promise 가 매달리지 않게 한다 */
+  if(_askRes){const r=_askRes;_askRes=null;try{r(null);}catch(e){}}
   return new Promise(res=>{
     _askRes=res;
     if(cfg.mode==='choice'){
       (cfg.options||[]).forEach(o=>{
         const b=document.createElement('button');b.className='ask-opt';b.innerHTML=o.label;
-        b.onclick=()=>{ov.hidden=true;const r=_askRes;_askRes=null;if(r)r(o.v);};
+        b.onclick=()=>{ov.hidden=true;_askBg(false);const r=_askRes;_askRes=null;if(r)r(o.v);};
         op.appendChild(b);});
       $('askOk').hidden=true;
       const c=document.createElement('button');c.className='ask-opt ask-opt-cancel';c.textContent='취소';
-      c.onclick=()=>{ov.hidden=true;const r=_askRes;_askRes=null;if(r)r(null);};
+      c.onclick=()=>{ov.hidden=true;_askBg(false);const r=_askRes;_askRes=null;if(r)r(null);};
       op.appendChild(c);
     }else{$('askOk').hidden=false;}
-    ov.hidden=false;
+    ov.hidden=false;_askBg(true);
     setTimeout(()=>{if(cfg.mode==='text')inp.focus();if(cfg.mode==='area')ta.focus();},30);
   });
 }
@@ -12773,7 +12785,7 @@ function openFolderPop(code,btn){
   });
   d.querySelector('.fd-new').onclick=async()=>{
     const f=await newFolderFlow([code]);
-    if(f){renderWatch();closeFolderPop();}};
+    if(f){renderWatch();closeFolderPop();try{updateSideStar();}catch(e){}if(typeof updateStar==='function'&&selected===code)updateStar();}};
   setTimeout(()=>document.addEventListener('click',closeFolderPop),0);
 }
 /* 관심종목 한 줄의 표시값을 한 곳에서 계산한다(전체 렌더·증분 갱신이 반드시 같은 값을 쓰도록).
@@ -25049,6 +25061,12 @@ try{(function(){
   veil.addEventListener('click',closeStockSidePanel);
   $('stockSideDetail')?.addEventListener('click',()=>{const c=stockSideCode;if(!c)return;closeStockSidePanel();openTrade(c);});
   $('stockSideTrade')?.addEventListener('click',()=>{const c=stockSideCode;if(!c)return;openStockOrderFromPanel(c);});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&stockSideCode)closeStockSidePanel();});
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||!stockSideCode)return;
+    /* 입력창·폴더 팝오버가 떠 있으면 ESC 는 그것만 닫고, 패널은 그대로 둔다 */
+    const ask=document.getElementById('askOv');
+    if(ask&&!ask.hidden)return;
+    if(typeof _fdPop!=='undefined'&&_fdPop)return;
+    closeStockSidePanel();});
 })();
 

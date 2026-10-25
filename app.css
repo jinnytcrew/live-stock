@@ -8970,3 +8970,21 @@ html[data-color="global"] .pf-cert .down{color:#ff6b73}
 @media(prefers-reduced-motion:reduce){
   .hello-bot,.hello-bubble,.hello-bot::before,.hello-bot::after{animation:none!important}
 }
+
+/* ══ [v17.8.18] 겹침 순서 확정 — 종목 미리보기 패널(1410/1411) 위에 모든 창이 뜬다 ═══════════
+   [증상] 미리보기 패널에서 ☆ 를 눌러 '새 폴더 이름' 창이 뜨면, 창이 패널·veil 뒤에 깔려
+     흐릿하게 보이고 입력도 할 수 없었다.
+   [원인] 패널 z-index 는 1410/1411 인데 확인·입력창(.ask-ov)은 1320, 폴더 팝오버(.fd-pop)는
+     1280 이었다. 층 번호를 올릴 때마다 이런 역전이 생겼다.
+   [고침] 사용자가 패널 안에서 연 모든 창·팝오버를 패널 위로 올리고, 창끼리의 상하 관계
+     (확인창 > 일반창)는 그대로 둔다. 패널을 더 올릴 일이 생기면 이 블록의 값도 함께 올린다.
+     업데이트·권한 게이트(9999)·토스트(100000)·로그인 게이트는 원래 더 위라 건드리지 않는다. */
+.overlay{z-index:1500}
+.acct-gate{z-index:1540}
+.xfer-gate{z-index:1550}
+.gw-gate{z-index:1560}
+.fd-pop{z-index:1580}
+.ask-ov{z-index:1620}
+.ob-ov{z-index:1630}
+/* 창이 떠 있는 동안 뒤의 패널은 눌리지 않는다(포커스·탭 이동 차단은 JS 의 inert 가 맡는다) */
+body.ask-open .stock-side-panel{pointer-events:none}
