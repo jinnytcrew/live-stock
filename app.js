@@ -4002,13 +4002,34 @@ async function cloudCall(body){
   if(!CLOUD&&body.action!=='login'&&body.action!=='signup'&&body.action!=='ensure')return null;  // [v4.18] 가입·복구도 항상 시도
   const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);   // 8초 넘으면 포기(무한 '확인 중' 방지)
   try{const r=await fetch('/api/accounts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctrl.signal});
-    if(!r.ok)return null;const j=await r.json();if(j&&j.err==='nostore'){CLOUD=false;return null;}
+    /* [v17.8.18] 서버가 뭐라고 답했는지 기억해 둔다 — '실패' 두 글자로는 원인을 알 수 없었다 */
+    const _kvw=(()=>{try{return r.headers.get('x-kvw')||'';}catch(e){return '';}})();
+    if(!r.ok){window.__srvLast={at:Date.now(),action:body.action,status:r.status,err:'http'+r.status,kvw:_kvw};return null;}
+    const j=await r.json();
+    window.__srvLast={at:Date.now(),action:body.action,status:r.status,err:(j&&j.ok)?'':(j&&j.err)||'?',detail:(j&&j.detail)||'',stored:(j&&j.stored)||'',kvw:_kvw};
+    if(j&&j.err==='nostore'){CLOUD=false;return null;}
     /* [v11.0] 로그인·동기화 응답에 담긴 등급을 여기 한 곳에서 받는다.
        호출부마다 챙기면 한 곳만 빠져도 등급이 안 바뀌므로 입구를 하나로 둔다. */
     try{ if(j&&j.ok&&(j.tier!=null||j.lv!=null))tierSet(j); }catch(e){}
     return j;}
-  catch{return null;}
+  catch(e){window.__srvLast={at:Date.now(),action:body.action,status:0,err:(e&&e.name==='AbortError')?'timeout':'net'};return null;}
   finally{clearTimeout(to);}
+}
+/* [v17.8.18] 서버 응답 코드를 사람이 읽는 말로 */
+function srvWhy(l){
+  l=l||window.__srvLast||{};
+  const d=String(l.detail||'');
+  if(/limit exceeded/i.test(d)||(l.stored==='fail'))return '오늘 서버 저장 한도를 다 썼어요(내일 오전 9시경 자동 복구)';
+  switch(l.err){
+    case 'invalid':return '이 기기의 로그인 정보가 서버와 달라요 — 로그아웃 후 다시 로그인해 주세요';
+    case 'toomany':return '로그인 확인이 너무 잦아 잠시 막혔어요(15분 뒤 자동 해제)';
+    case 'nouser':return '서버에 이 아이디가 없어요';
+    case 'store':return '서버 저장소 오류'+(d?' · '+d.slice(0,60):'');
+    case 'nostore':return '서버 저장소에 연결하지 못했어요';
+    case 'timeout':return '서버 응답이 늦어요';
+    case 'net':return '네트워크에 연결되어 있지 않아요';
+    default:return l.err?('서버 응답 '+l.err):'';
+  }
 }
 function cloudSync(){
   if(!currentUser)return;const acc=accounts()[currentUser];if(!acc)return;
@@ -4043,12 +4064,28 @@ function syncOnce(acc){
   .then(j=>{
     if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept')){ _syncFail=0; return; }
     if(j&&j.ok&&j.guarded){ _syncFail=0; return; }      // 서버가 지켜 준 경우 — 정상
+    /* ══ [v17.8.18] 비밀번호·잠금 오류는 다시 두드려도 낫지 않는다 ═══════════════
+       이전에는 어떤 실패든 1.5초·3초·4.5초 뒤 재시도하고 이후 1분마다 계속했다.
+       그런데 서버는 틀린 인증이 올 때마다 실패 횟수를 센다(15분에 10회면 잠금).
+       즉 '서버 저장 실패' 알림 하나가, 재시도 때문에 로그인까지 막는 연쇄로 이어질 수 있었다.
+       이 경우만은 15분 쉬고, 원인을 정확히 알려 준다. */
+    if(j&&(j.err==='invalid'||j.err==='toomany')){ syncPause(acc,_cur,j); return; }
     syncRetry(acc,_cur);
   })
   .catch(()=>{ syncRetry(acc,_cur); });
 }
 /* 실패했을 때 — 짧게 세 번 다시 시도하고, 그 뒤에는 알린 다음 천천히 계속 시도한다.
    포기하지 않는 것이 중요하다. 연결이 돌아오면 저절로 올라간다. */
+function syncPause(acc,uid,j){
+  _syncFail=0;
+  const now=Date.now();
+  if(now-_syncWarnAt>60000){
+    _syncWarnAt=now;
+    try{ toast('warn','서버에 저장하지 못했어요',srvWhy({err:j&&j.err})+' · 이 기기에는 그대로 남아 있어요'); }catch(e){}
+  }
+  clearTimeout(syncT);
+  syncT=setTimeout(()=>{ try{ if(currentUser===uid)syncOnce(acc); }catch(e){} }, 16*60*1000);
+}
 function syncRetry(acc,uid){
   _syncFail++;
   const wait = _syncFail<=3 ? 1500*_syncFail : 60000;   // 1.5초·3초·4.5초 → 이후 1분마다
@@ -4056,8 +4093,8 @@ function syncRetry(acc,uid){
     const now=Date.now();
     if(now-_syncWarnAt>60000){
       _syncWarnAt=now;
-      try{ toast('warn','서버에 저장하지 못했어요',
-        '이 기기에는 남아 있습니다. 연결이 돌아오면 자동으로 다시 저장돼요'); }catch(e){}
+      try{ const why=srvWhy(); toast('warn','서버에 저장하지 못했어요',
+        (why?why+' · ':'')+'이 기기에는 남아 있습니다. 연결이 돌아오면 자동으로 다시 저장돼요'); }catch(e){}
     }
   }
   if(_syncFail>200)return;                              // 무한히 붙들지는 않는다
@@ -4867,10 +4904,8 @@ async function pullFromServer(manual){
     const acc=accounts()[currentUser];
     if(!acc||!acc.pass){ if(manual)toast('warn','계정 정보를 찾지 못했어요',''); return false; }
     if(manual)toast('ok','서버에서 확인하는 중…','');
-    const r=await fetch('/api/accounts',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({action:'login',id:currentUser,pass:acc.pass})});
-    const j=await r.json();
-    if(!j||!j.ok){ if(manual)toast('warn','서버에서 확인하지 못했어요','잠시 후 다시 시도해 주세요'); return false; }
+    const j=await cloudCall({action:'login',id:currentUser,pass:acc.pass});
+    if(!j||!j.ok){ if(manual)toast('warn','서버에서 확인하지 못했어요',srvWhy()||'잠시 후 다시 시도해 주세요'); return false; }
     const srv=(j.user&&typeof j.user==='object')?j.user:null;
     /* 깨졌던 경우에는 지금 로컬(방금 만들어진 기본값)을 없는 것으로 본다 */
     const loc=_localBroken?null:store.get('user:'+currentUser);

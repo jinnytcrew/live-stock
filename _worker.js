@@ -7112,9 +7112,13 @@ async function accLoad(st, id, legacyDb) {
 /* 구글 로그인이 쓰는 되찾기용 키 — 계정마다 따로라 서로 부딪히지 않는다 */
 async function accIndex(st, id, acc) {
   if (!id || !acc) return;
+  const put1 = async (k) => {
+    const body = JSON.stringify({ id });
+    await kvPutIfChanged((kk, b) => st.set(kk, b), (kk) => st.get(kk), k, body);   /* [v17.8.18] 같으면 쓰지 않는다 */
+  };
   try {
-    if (acc.googleSub) await st.setJSON("gsub:" + acc.googleSub, { id });
-    if (acc.email) await st.setJSON("mail:" + String(acc.email).trim().toLowerCase(), { id });
+    if (acc.googleSub) await put1("gsub:" + acc.googleSub);
+    if (acc.email) await put1("mail:" + String(acc.email).trim().toLowerCase());
   } catch (e) {}
 }
 
@@ -7188,14 +7192,50 @@ function tierPayload(acc) {
            from: (acc && acc.tierFrom) || null, at: (acc && acc.tierAt) || null };
 }
 
+/* ══ [v17.8.18] 계정 저장은 '바뀐 것만' 쓴다 ═══════════════════════════════════
+   [무엇이 낭비였나] 로그인·동기화 요청마다 saveAcc 가 불렸고, 한 번 부를 때
+     ① acc:<id> 쓰기 ② 반대 접두사 거울 쓰기 + (같은 키를 한 번 더) ③ mail:/gsub: 색인 쓰기
+     — 내용이 하나도 안 바뀌었어도 KV 쓰기를 최대 5번 했다. 무료 한도(하루 1,000회)에서
+     동기화 몇 번이면 한도가 녹고, 한도를 넘으면 usr: 저장이 막혀 '서버에 저장하지 못했어요'가 뜬다.
+   [고침] 쓰기 전에 지금 저장된 값과 비교해 같으면 건너뛴다(읽기는 한도가 100배 넉넉하다).
+     같은 키를 두 번 쓰던 중복도 없앴다. */
+var _accSig = {};
+async function kvPutIfChanged(put, getCur, key, body) {
+  try {
+    const cur = await getCur(key);
+    const curS = (cur == null) ? null : (typeof cur === "string" ? cur : JSON.stringify(cur));
+    if (curS === body) return true;
+  } catch (e) { /* 읽지 못하면 안전하게 쓴다 */ }
+  await put(key, body);
+  return true;
+}
 async function accSave(st, id, acc) {
   const key = String(id == null ? "" : id).trim().toLowerCase();
   if (!key) return false;
   _accCache[key] = { v: acc, at: Date.now() };
-  try { await st.setJSON(accKeyOf(key), acc); } catch (e) { return false; }
-  /* [v16.8] 반대 접두사에도 같은 내용을 남겨 두 라우트가 항상 같은 등급을 본다 */
-  try { if (KV) await accMirrorWrite(KV, key, acc); } catch (e) {}
+  let body = "";
+  try { body = JSON.stringify(acc); } catch (e) { return false; }
+  /* 이 인스턴스가 방금 같은 내용을 저장했고, 거울도 그대로라면 KV 를 건드리지 않는다 */
+  const mk = ACC_KEYS(key);
+  try {
+    if (_accSig[key] === body) {
+      if (!KV) return true;
+      const m = await KV.get(mk[1]);
+      if (m === body) return true;
+    }
+  } catch (e) {}
+  try {
+    const pk = accKeyOf(key);
+    await kvPutIfChanged((k, b) => st.set(k, b), (k) => st.get(k), pk, body);
+  } catch (e) { return false; }
+  /* [v16.8] 반대 접두사에도 같은 내용을 남겨 두 라우트가 항상 같은 등급을 본다.
+     첫 번째 키는 위에서 이미 썼으므로 건너뛴다(예전에는 같은 키를 한 번 더 썼다). */
+  try {
+    if (KV) await kvPutIfChanged((k, b) => KV.put(k, b), (k) => KV.get(k), mk[1], body);
+  } catch (e) {}
   await accIndex(st, key, acc);
+  _accSig[key] = body;
+  try { const ks = Object.keys(_accSig); if (ks.length > 200) ks.slice(0, 100).forEach((k) => delete _accSig[k]); } catch (e) {}
   return true;
 }
 /* ══ [v14.2] 삭제는 성공 여부를 반드시 확인한다 ═══════════════════════════════
@@ -7214,6 +7254,7 @@ async function accDelete(st, id, acc) {
   const key = String(id == null ? "" : id).trim().toLowerCase();
   if (!key) return false;
   delete _accCache[key];
+  try { delete _accSig[key]; } catch (e) {}
   let ok = await delKey(st, accKeyOf(key));
   try {
     if (acc && acc.googleSub) await delKey(st, "gsub:" + acc.googleSub);
@@ -7247,6 +7288,10 @@ async function usrLoad(st, id, legacyDb) {
   if (c && Date.now() - c.at < USR_CACHE_MS) return c.v;
   let v = null;
   try { v = await st.get("usr:" + id, { type: "json" }); } catch (e) { v = null; }
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { v = null; } }
+  /* [v17.8.18] KV 에 실제로 저장돼 있는 내용의 지문을 기억한다(저장 시각은 제외) —
+     화면이 보낸 값이 이것과 같으면 usrSave 가 KV 쓰기를 건너뛴다. 인스턴스가 새로 떠도 통한다. */
+  if (v != null) { try { _usrSig[id] = usrSigOf(v); } catch (e) {} }
   if (v == null && legacyDb && legacyDb.users && legacyDb.users[id]) {
     v = legacyDb.users[id];               // 아직 안 옮겨진 계정 — 옛 자리에서 읽는다
     try { await st.setJSON("usr:" + id, v); } catch (e) {}   // 읽는 김에 옮겨 둔다
@@ -7255,6 +7300,15 @@ async function usrLoad(st, id, legacyDb) {
   return v;
 }
 var _usrSig = {};
+/* [v17.8.18] 지문에서 savedAt 을 뺀다. 화면은 동기화 때마다 savedAt:Date.now() 를 실어 보내므로
+   이것을 포함하면 내용이 똑같아도 매번 '다른 값'이 되어 중복 쓰기 방어(v9.97)가 한 번도 듣지 않았다. */
+function usrSigOf(val) {
+  if (val && typeof val === "object" && !Array.isArray(val) && "savedAt" in val) {
+    const c = Object.assign({}, val); delete c.savedAt;
+    return JSON.stringify(c);
+  }
+  return JSON.stringify(val);
+}
 /* ══ [v13.3] 서버 최후 방어 — 내용 있는 기록을 빈 것으로 덮지 않는다 ═══════════
    usrSave 는 여러 곳에서 불린다(sync·login·profile·ensure…). 그중 saveUser 헬퍼는
    db.users[id] 가 없으면 {} 를 그대로 저장한다. usrLoad 가 순간 실패하면
@@ -7292,8 +7346,8 @@ async function usrSave(st, id, val, force) {
      KV 쓰기는 무료 한도가 하루 1,000회뿐이라, 같은 내용을 다시 쓰는 것만
      막아도 실사용 인원이 몇 배로 늘어난다. 지문을 비교해 같으면 건너뛴다. */
   let sig = "";
-  try { sig = JSON.stringify(val); } catch (e) { sig = ""; }
-  if (sig && _usrSig[id] === sig) return true;          // 이미 같은 내용이 저장돼 있다
+  try { sig = usrSigOf(val); } catch (e) { sig = ""; }
+  if (sig && _usrSig[id] === sig) return true;          // 이미 같은 내용이 저장돼 있다(저장 시각 제외)
   /* ══ [v13.6] 캐시는 저장에 성공한 뒤에 채운다 ═══════════════════════════════
      예전에는 KV 에 쓰기 '전에' 캐시를 채웠다. 그러면 쓰기가 실패해도 이후 읽기가
      캐시에서 답을 주므로 아무 문제 없어 보인다. 그런데 그 값은 어디에도 저장되지
@@ -18081,7 +18135,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.18";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.19";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
