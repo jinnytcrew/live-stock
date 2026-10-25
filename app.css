@@ -2722,6 +2722,7 @@ tbody td .td-l .lgo{margin:1px 0}
 .cdl rect{fill:currentColor}
 .cdl.cup{color:var(--up)}
 .cdl.cdn{color:var(--down)}
+.cdl.cflat{color:#98a2b3}
 .cdl-td{text-align:center;width:44px;padding:6px 4px!important;vertical-align:middle}
 .cdl-th{text-align:center!important;width:44px}
 .cdl-na{color:var(--sub-2);font-size:11px;font-weight:700}

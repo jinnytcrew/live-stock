@@ -5820,7 +5820,7 @@ var accounts_default = async (req2) => {
     if (!k2) return false;
     return await usrSave(store, k2, db.users[k2] || {});
   };
-  if (["login", "sync", "profile"].includes(action) && id && tooManyTries(db, id, null, action === "sync" ? "sync" : ""))   // [v4.24] ensure(복구)는 잠금 대상에서 제외
+  if (["login", "sync", "pull", "profile"].includes(action) && id && tooManyTries(db, id, null, (action === "sync" || action === "pull") ? "sync" : ""))   // [v4.24] ensure(복구)는 잠금 대상에서 제외
     return json({ ok: false, err: "toomany", retryAfterMin: 15 });
   try {
     if (action === "signup") {
@@ -5898,6 +5898,17 @@ var accounts_default = async (req2) => {
       /* [v11.0] 등급을 함께 보낸다 — 화면은 이 값만 믿는다(위조 불가) */
       return json({ ok: true, name: acc.name, email: acc.email, created: acc.created,
         user: db.users[id] || {}, ...tierPayload(acc) });
+    }
+    /* ══ [v17.8.25] pull — 다른 기기에서 저장한 최신 내용을 '읽기만' 한다 ══════════
+       [왜 필요한가] 이 기기들은 로그인할 때와 로컬이 텅 비었을 때만 서버에서 받아 왔다.
+       이미 로그인해 둔 기기는 다른 기기가 바꾼 관심종목·폴더·거래를 영영 받지 못했다.
+       login 은 호출할 때마다 KV 쓰기(saveAcc·saveDb)를 하므로 자주 부를 수 없다.
+       pull 은 인증만 확인하고 아무것도 쓰지 않는다 — 자주 불러도 쓰기 한도를 쓰지 않는다. */
+    if (action === "pull") {
+      if (!acc) return json({ ok: false, err: "nouser" });
+      const v = await verify(acc, pass, legacy);
+      if (!v.ok) return json({ ok: false, err: "invalid" });
+      return json({ ok: true, user: db.users[id] || null, ...tierPayload(acc) });
     }
     if (action === "sync") {
       const v = await verify(acc, pass, legacy);
@@ -18166,7 +18177,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.25";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.26";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -3985,6 +3985,8 @@ function sessRefresh(){
   try{if(currentView==='trade'&&typeof renderDetail==='function'){renderDetail();renderGlance();}}catch(e){}
   try{if(currentView==='us'){renderUsBreadthChip&&renderUsBreadthChip();if(typeof usPane!=='undefined'&&usPane==='rank')renderUsRankBody();}}catch(e){}
   try{if(currentView==='account')renderHoldings();}catch(e){}
+  try{srCandlesPaint(document);}catch(e){}   /* [v17.8.26] 초기화 경계에서 순위 목록 봉도 즉시 다시 */
+  try{usCandlesPaint(document);}catch(e){}
 }
 window.__sessRefresh=sessRefresh;                       /* 검증용 노출 */
 if(!window._sessWatch){
@@ -4060,11 +4062,12 @@ function cloudSync(){
 var _syncFail=0, _syncWarnAt=0;
 function syncOnce(acc){
   const _cur=currentUser;
+  const _sa=Date.now();
   cloudCall({action:'sync',id:_cur,pass:acc.pass,
     /* 폴더·종목메모·개인설정까지 자동 저장 — 기기를 바꿔 로그인해도 그대로 복원된다(수동 내보내기 불필요) */
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()}})
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:_sa}})
   .then(j=>{
-    if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept')){ _syncFail=0; return; }
+    if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept')){ _syncFail=0; lsMarkPushed(_cur,_sa); return; }
     if(j&&j.ok&&j.guarded){ _syncFail=0; return; }      // 서버가 지켜 준 경우 — 정상
     /* ══ [v17.8.18] 비밀번호·잠금 오류는 다시 두드려도 낫지 않는다 ═══════════════
        이전에는 어떤 실패든 1.5초·3초·4.5초 뒤 재시도하고 이후 1분마다 계속했다.
@@ -4131,9 +4134,57 @@ try{
 }catch(e){}
 function cloudSyncNow(){
   if(!currentUser)return; const acc=accounts()[currentUser]; if(!acc)return;
-  try{ cloudCall({action:'sync',id:currentUser,pass:acc.pass,
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()}}); }catch(e){}
+  const _u=currentUser, _sa=Date.now();
+  try{ cloudCall({action:'sync',id:_u,pass:acc.pass,
+    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:_sa}})
+    .then(j=>{ if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept'))lsMarkPushed(_u,_sa); }).catch(()=>{}); }catch(e){}
 }
+/* ══ [v17.8.25] 다른 기기에서 바꾼 관심종목·거래가 이 기기에 오지 않던 문제 ═════════
+   [무엇이 문제였나] 서버로 올리는 길(sync)만 있고 받아 오는 길이 없었다. 받아 오는 때는
+     ① 로그인할 때 ② 이 기기의 데이터가 텅 비었을 때 두 가지뿐이라, 이미 로그인해 둔
+     기기는 다른 기기가 바꾼 내용을 영영 받지 못했다(같은 계정인데 관심종목이 다름).
+   [고침] 앱을 열 때·화면으로 돌아올 때·켜 두는 동안 30초마다 서버에 '읽기 전용'으로 묻는다
+     (pull — 쓰기가 없어 KV 쓰기 한도를 쓰지 않는다). 서버 것이 더 새것이고, 이 기기에
+     아직 올리지 못한 변경이 없을 때만 서버 내용으로 맞춘다. */
+var _lsBusy=false,_lsAt=0;
+function lsMarkPushed(u,sa){
+  try{
+    const l=store.get('user:'+u);
+    if(l&&typeof l==='object'&&(+l.savedAt||0)<sa){ l.savedAt=sa; localStorage.setItem('user:'+u,JSON.stringify(l)); }
+  }catch(e){}
+}
+async function liveSyncPull(reason){
+  if(_lsBusy)return false;
+  try{
+    if(!currentUser||syncT)return false;                 // 올릴 변경이 남아 있으면 그쪽이 먼저다
+    const uid=currentUser, acc=accounts()[uid];
+    if(!acc||!acc.pass)return false;
+    const now=Date.now(); if(now-_lsAt<3000)return false; _lsAt=now;
+    _lsBusy=true;
+    const j=await cloudCall({action:'pull',id:uid,pass:acc.pass});
+    if(!j||!j.ok||currentUser!==uid||syncT)return false;
+    const srv=(j.user&&typeof j.user==='object')?j.user:null;
+    if(!srv)return false;
+    const sAt=+srv.savedAt||0;
+    const loc=store.get('user:'+uid)||null;
+    const lAt=loc?(+loc.savedAt||0):0;
+    if(!(sAt>lAt))return false;                          // 서버 것이 더 새것일 때만
+    if(!hasRealData(srv)&&!(Array.isArray(srv.watchlist)&&srv.watchlist.length))return false;   // 빈 것으로 덮지 않는다
+    store.set('user:'+uid,srv);
+    try{ revSet(uid,revGet(uid)+1); }catch(e){}
+    applyUser(uid);
+    try{ renderAll&&renderAll(); }catch(e){}
+    return true;
+  }catch(e){ return false; }
+  finally{ _lsBusy=false; }
+}
+try{
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)liveSyncPull('visible'); });
+  window.addEventListener('focus',()=>{ liveSyncPull('focus'); });
+  window.addEventListener('online',()=>{ liveSyncPull('online'); });
+  window.addEventListener('pageshow',()=>{ liveSyncPull('pageshow'); });
+  setInterval(()=>{ if(!document.hidden)liveSyncPull('tick'); },30000);
+}catch(e){}
 function saveState(){ if(!currentUser)return; try{acctSnap();}catch(e){}   // [v4.40] 활성 계좌 장부 반영
   /* [v13.9] 저장 시각을 함께 남긴다 — 로컬과 서버 중 어느 쪽이 새것인지 가리는 근거 */
   const _next={watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()};
@@ -6615,17 +6666,33 @@ function closeOverlay(ov){
     return true;
   }catch(e){ return false; }
 }
+/* ══ [v17.8.25] 뒤로 가기가 계속 사이트를 닫아 버리던 진짜 원인 ═══════════════════
+   [원인 ①] navPush() 첫 줄이 `if(_navGuard)return;` 였다. 그런데 navInit() 이 _navGuard 를
+     true 로 만든 '다음에' navPush() 를 불렀으므로, 표식은 한 번도 쌓이지 않았다.
+     표식이 없으니 뒤로 가기는 처리될 곳 없이 곧장 브라우저를 빠져나갔다.
+   [원인 ②] 표식을 페이지가 뜨자마자(사용자가 아직 아무것도 누르지 않았을 때) 쌓으면,
+     크롬 계열은 '조작 없이 쌓은 기록'으로 보고 뒤로 가기 때 건너뛴다(기록 조작 방지).
+   [고침] 표식은 첫 터치·클릭·키 입력 뒤에 쌓는다. 그때는 사용자 조작이 있었으므로 건너뛰지
+     않는다. 쌓이기 전에는 우리가 가로채지 않는다. 종목 미리보기 창도 뒤로 가기로 닫는다. */
+var _navArmed=false;
 function navPush(){
-  if(_navGuard)return;
   try{ history.pushState({lv:'guard',t:Date.now()},''); }catch(e){}
 }
 function navInit(){
   if(_navGuard)return; _navGuard=true;
-  navPush();                       // 뒤로 가기가 소비할 표식을 하나 쌓아 둔다
-  window.addEventListener('popstate',()=>{
+  const EVS=['pointerup','touchend','click','keydown'];
+  const arm=()=>{
+    if(_navArmed)return; _navArmed=true;
+    EVS.forEach(ev=>{ try{ window.removeEventListener(ev,arm,true); }catch(e){} });
+    navPush();                     // 뒤로 가기가 소비할 표식을 하나 쌓아 둔다
+  };
+  EVS.forEach(ev=>{ try{ window.addEventListener(ev,arm,{capture:true,passive:true}); }catch(e){} });
+  window.addEventListener('popstate',(e)=>{
+    if(!_navArmed)return;          // 표식을 쌓기 전에는 가로채지 않는다
+    if(e&&e.state&&e.state.lv==='guard')return;   // 표식 위로 돌아온 것 — 처리할 일이 없다
     if(_navBusy)return;
     _navBusy=true;
-    try{ handleBack(); }catch(e){}
+    try{ handleBack(); }catch(err){}
     setTimeout(()=>{_navBusy=false;},60);
   });
 }
@@ -6633,6 +6700,11 @@ function handleBack(){
   /* ① 열린 창 먼저 닫는다 */
   const ov=topOverlay();
   if(ov&&closeOverlay(ov)){ navPush(); return; }
+  /* [v17.8.25] 종목 미리보기 창 — .overlay 가 아니라 위 판정에 걸리지 않았다 */
+  try{
+    const sp=document.getElementById('stockSidePanel');
+    if(sp&&!sp.hidden&&stockSideCode){ closeStockSidePanel(); navPush(); return; }
+  }catch(e){}
 
   /* ② 이전 화면으로 */
   if(_navStack.length){
@@ -7298,6 +7370,19 @@ function resetDueKR(code){
   let krxOnly=false;
   try{ krxOnly=(nxtCapability(code)===false); }catch(e){}
   return resetDueKRX(krxOnly);
+}
+/* ══ [v17.8.26] 봉차트도 주가 초기화와 같은 시각에 함께 초기화한다 ═════════════════
+   [무엇이 어긋났나 — 실기 사진 07:21] 가격은 04:00 에 전 종목 0 · 0.00% 로 돌아갔는데
+   목록의 미니 봉은 어제 확정 봉(시·고·저·종 + 꼬리)을 그대로 그렸다. 숫자는 '오늘 아직
+   아무 일 없음'인데 그림은 '어제 크게 움직임'이라 한 칸 안에서 서로 모순이었다.
+   [고침] 초기화 구간(국내 04:00~개장, 해외 00:00~04:00 ET)에는 봉도 같은 판정으로
+   '변동 없는 평봉'(꼬리 없음·중립색 가로 막대)을 그린다. 구간이 끝나 실제 시세가 오면
+   원래 봉으로 즉시 돌아간다. 판정은 dispQuote 와 같은 함수를 지나므로 어긋날 수 없다. */
+function candleResetNow(code){
+  try{
+    if(typeof usMeta!=='undefined'&&usMeta[code])return !!usResetDueNow();
+    return !!resetDueKR(code);
+  }catch(e){ return false; }
 }
 /* ETF·순위처럼 '원천이 준 등락률'을 그대로 쓰는 목록에서 부른다 */
 function preFlatRate(v,code){
@@ -11549,6 +11634,19 @@ function srCandlePaint(code){
     }
   }catch(e){}
   if(window.__sessToneOverride)tone=window.__sessToneOverride;   /* 하네스 전용 훅 */
+  /* [v17.8.26] 초기화 구간 — 가격이 0.00% 인 동안 봉도 평봉 */
+  if(candleResetNow(code)){
+    cv.style.display='';
+    const dprF=Math.min(2,window.devicePixelRatio||1);
+    const WF=cv.clientWidth||26, HF=cv.clientHeight||44;
+    cv.width=WF*dprF; cv.height=HF*dprF;
+    const xf=cv.getContext('2d'); if(!xf)return;
+    xf.setTransform(dprF,0,0,dprF,0,0); xf.clearRect(0,0,WF,HF);
+    const bwF=Math.max(6,Math.min(10,Math.round(WF*0.52)));
+    xf.fillStyle='#98a2b3';
+    xf.fillRect(Math.round(WF/2-bwF/2),Math.round(HF/2-1),bwF,2);
+    return;
+  }
   const R=srCandleRange(st,px,prev,tone);
   let {o,hi,lo}=R;
   if(R.prevBar&&R.px>0)px=R.px;   /* [v15.4.6] 전일 확정 봉 — 몸통은 전일 종가까지 */
@@ -12904,6 +13002,12 @@ function miniCandle(code,w,h){
      이때 예전 식은 항상 y=pad 가 나와 막대가 맨 위에 붙었다 → 세로 중앙에 그린다. */
   const y=(v)=>+(rng>0?(pad+(hi-v)/rng*H):(h/2)).toFixed(1);
   const cx=w/2;
+  /* [v17.8.26] 초기화 구간 — 가격이 0.00% 인 동안 관심·보유 표의 봉도 평봉(꼬리 없음·중립색) */
+  if(candleResetNow(code)){
+    const bwF=Math.max(6,Math.round(w*0.56));
+    return `<svg class="cdl cflat" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img"><title>초기화 · 변동 없음</title>`
+      +`<rect x="${((w-bwF)/2).toFixed(1)}" y="${(h/2-1).toFixed(1)}" width="${bwF}" height="2" rx="1"/></svg>`;
+  }
   const bt=y(Math.max(o,px)), bb=y(Math.min(o,px));
   const bh=Math.max(1.8,+(bb-bt).toFixed(1));
   const bw=Math.max(6,Math.round(w*0.56));
@@ -18813,6 +18917,8 @@ function __bootMain(){
       }
       /* [v13.0] 관리자가 보낸 이용권 안내가 있으면 띄운다 */
       setTimeout(()=>{ try{ checkTierInbox(); }catch(e){} }, 2500);
+      /* [v17.8.25] 열자마자 다른 기기의 최신 내용을 받아 온다 */
+      setTimeout(()=>{ try{ liveSyncPull('open'); }catch(e){} }, 1200);
     }catch(e){}
   }
   else if(backFromGoogle){
@@ -21048,6 +21154,18 @@ function usCandlePaint(t){
   if(!(lo>0))lo=Math.min(px,o);
   hi=Math.max(hi,px,o); lo=Math.min(lo,px,o);
   cv.style.display='';
+  /* [v17.8.26] 해외 초기화 구간(00:00~04:00 ET) — 등락률 0.00% 와 같이 평봉 */
+  if(usResetDueNow()){
+    const dprF=Math.min(2,window.devicePixelRatio||1);
+    const WF=cv.clientWidth||22, HF=cv.clientHeight||42;
+    cv.width=WF*dprF; cv.height=HF*dprF;
+    const xf=cv.getContext('2d'); if(!xf)return;
+    xf.setTransform(dprF,0,0,dprF,0,0); xf.clearRect(0,0,WF,HF);
+    const bwF=Math.max(6,Math.min(10,Math.round(WF*0.52)));
+    xf.fillStyle='#98a2b3';
+    xf.fillRect(Math.round(WF/2-bwF/2),Math.round(HF/2-1),bwF,2);
+    return;
+  }
 
   const dpr=Math.min(2,window.devicePixelRatio||1);
   const W=cv.clientWidth||22, H=cv.clientHeight||42;
