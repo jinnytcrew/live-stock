@@ -3971,11 +3971,13 @@ function sessSignature(){
   let a='',b='';
   try{const m=marketSession();a=(m.label||'')+'|'+(m.tone||'');}catch(e){}
   try{const u=usSession();b=u?(u.phase||''):'';}catch(e){}
-  return a+'|'+b;
+  let c='';try{c=(resetDueKRX(false)?'k':'')+(resetDueKRX(true)?'K':'')+(usResetDueNow()?'u':'');}catch(e){}   /* [v17.8.22] 초기화 구간 경계도 화면 갱신 신호 */
+  return a+'|'+b+'|'+c;
 }
 window.__sessRefreshN=0;
 function sessRefresh(){
   window.__sessRefreshN++;
+  try{usReflatAll();}catch(e){}
   try{renderConnPill();renderMktPill();}catch(e){}
   try{if(currentView==='search')renderSearch();}catch(e){}
   try{if(currentView==='home'){renderHeroMarket();try{renderHomeHot();}catch(e2){}}}catch(e){}
@@ -7262,15 +7264,38 @@ function preOpenKR(code){
   try{ krxOnly=(nxtCapability(code)===false); }catch(e){}
   return preOpenKRX(krxOnly);
 }
+/* ══ [v17.8.21] 다음 개장을 위한 주가 초기화는 프리마켓 시작 4시간 전 ═══════════════
+   [예전] 거래일 00:00 이 되자마자 전 종목을 0 · 0.00% 로 돌렸다. 자정부터 새벽 내내
+     직전 장 결과가 사라져, 밤늦게 들어오면 어제 등락을 볼 수 없었다.
+   [지금] 초기화는 '개장 시각 − 4시간'부터 시작한다.
+     · 국내 전 종목 : 프리마켓 08:00 → 04:00 (KRX 전용 종목도 같은 04:00, 개장 전까지 유지)
+     · 해외 종목   : 프리마켓 04:00 ET → 00:00 ET (usResetDueNow)
+     그 전(자정~04:00/04:30)에는 직전 거래일의 현재가·등락을 그대로 보여 준다.
+   '오늘 장이 아직 안 열렸다'는 판정(preOpenKRX — 순위 카드의 '전 거래일' 표기 등)은
+   그대로 두고, 값을 0 으로 돌리는 시점만 이 함수가 따로 정한다. */
+const PRE_RESET_LEAD_MIN=240;
+function resetDueKRX(krxOnly){
+  const c=_poNow();
+  if(c.w===0||c.w===6||c.hol)return false;   // 휴장일은 전 거래일 등락을 그대로 둔다
+  /* [v17.8.22] 종목 구분 없이 하나로 통일 — 프리마켓(08:00) 4시간 전인 04:00 부터 08:00 까지.
+     KRX 전용 종목도 같은 시각에 초기화하고, 개장(08:30) 전까지 0 을 유지한다. */
+  const open=krxOnly?510:480;
+  return c.hm>=480-PRE_RESET_LEAD_MIN&&c.hm<open;
+}
+function resetDueKR(code){
+  let krxOnly=false;
+  try{ krxOnly=(nxtCapability(code)===false); }catch(e){}
+  return resetDueKRX(krxOnly);
+}
 /* ETF·순위처럼 '원천이 준 등락률'을 그대로 쓰는 목록에서 부른다 */
 function preFlatRate(v,code){
   if(v==null)return v;
-  return (code?preOpenKR(code):preOpenKRX(true))?0:v;
+  return (code?resetDueKR(code):resetDueKRX(true))?0:v;
 }
 function dispQuote(code){
   const q=dispQuoteRaw(code);
   if(!q||q.us||q.price==null)return q;
-  if(!preOpenKR(code))return q;
+  if(!resetDueKR(code))return q;
   /* 전일 종가를 현재가와 같게 둔다 → 차이 0 → 0.00%. 가격 자체는 건드리지 않는다. */
   return {...q,prevClose:q.price,preflat:1};
 }
@@ -11885,7 +11910,7 @@ function usPopRestore(){
     if(Date.now()-(c.at||0)>24*3600e3)return false;      // 하루 지난 건 쓰지 않는다
     Object.keys(c.meta||{}).forEach(t=>{ if(!usMeta[t]){ const mm=c.meta[t];
       usRegister({t,sfx:mm.sfx||'O',kr:mm.kr||t,en:mm.en||t,etf:mm.etf?1:0}); } });
-    Object.keys(c.q||{}).forEach(t=>{ if(!usQ[t])usQ[t]=Object.assign({},c.q[t],{stale:1}); });
+    Object.keys(c.q||{}).forEach(t=>{ if(!usQ[t]){usQ[t]=Object.assign({},c.q[t],{stale:1}); try{usReflat(t);}catch(e){}} });
     usPop=c.list; usPopAt=0; usPopBasis=c.basis||null; usByVal=Array.isArray(c.byVal)?c.byVal:[];
     _usPopStale=true;          // [v4.69] 저장분 표시 — 새 목록이 오면 반드시 갈아 끼운다
     return true;
@@ -20209,9 +20234,25 @@ function usSession(now){
   if(!hol&&wd>=1&&wd<=5){
     if(mins>=240&&mins<570)phase='pre';           // 04:00~09:30 ET
     else if(mins>=570&&mins<960)phase='regular';  // 09:30~16:00 ET
-    else if(mins>=960&&mins<1080)phase='after';   // 16:00~18:00 ET (국내 증권사 제공 기준)
+    else if(mins>=960&&mins<1170)phase='after';   // 16:00~19:30 ET — 미래에셋 공지(2026.10.21) 기준: 애프터 05:00~08:30(서머) / 06:00~09:30(표준) KST
   }
-  const kst={pre:dst?'17:00':'18:00',open:dst?'22:30':'23:30',close:dst?'05:00':'06:00',aft:dst?'07:00':'08:00'};
+  /* ══ [v17.8.23] 거래시간표 — 미래에셋증권 '서머타임 해제에 따른 해외주식 거래시간 변경 안내'(2026.10.21) ══
+     북미는 2026-11-02(월·한국시간)부터, 유럽은 2026-10-26(월)부터 표준시.
+                       서머타임(변경 전)      표준시(변경 후)
+       미국 정규장     22:30 ~ 익일 05:00     23:30 ~ 익일 06:00
+       미국 프리마켓   17:00 ~ 22:30          18:00 ~ 23:30
+       미국 애프터     05:00 ~ 08:30          06:00 ~ 09:30
+       미국 데이마켓   09:00 ~ 16:15          10:00 ~ 17:15
+       유럽(독일·영국) 16:00 ~ 익일 00:30     17:00 ~ 익일 01:30
+       소수점 거래     (표준시) 18:00 ~ 익일 05:40 — 서머타임은 프리마켓 시작~정규장 마감 20분 전(17:00 ~ 익일 04:40)
+     유럽 서머타임은 3월 마지막 일요일 ~ 10월 마지막 일요일(01:00 UTC)이다. */
+  const lastSun=(m)=>{const d=new Date(Date.UTC(y,m+1,0));return d.getUTCDate()-d.getUTCDay();};
+  const euStart=Date.UTC(y,2,lastSun(2),1), euEnd=Date.UTC(y,9,lastSun(9),1);
+  const euDst=t>=euStart&&t<euEnd;
+  const kst={pre:dst?'17:00':'18:00',open:dst?'22:30':'23:30',close:dst?'05:00':'06:00',aft:dst?'08:30':'09:30',
+    day:dst?'09:00 ~ 16:15':'10:00 ~ 17:15',
+    frac:dst?'17:00 ~ 익일 04:40':'18:00 ~ 익일 05:40',
+    eu:euDst?'16:00 ~ 익일 00:30':'17:00 ~ 익일 01:30', euDst};
   /* ══ [v6.4] '휴장'과 '장 종료'는 다른 말이다 ═══════════════════════════════
      평일 밤에 애프터까지 끝난 것을 '휴장'이라고 하면, 오늘 아예 장이 안 열린
      것처럼 읽힌다. 주말·공휴일만 휴장이고, 평일 장 밖은 '장 종료'다. */
@@ -20221,9 +20262,37 @@ function usSession(now){
   let dAdd=0, base=new Date(et);
   if(!(wd>=1&&wd<=5)||mins>=960){ dAdd=1; let w=(wd+1)%7; while(w===0||w===6){dAdd++;w=(w+1)%7;} }
   const nx=(dAdd===0?'오늘':dAdd===1?'내일':['일','월','화','수','목','금','토'][(wd+dAdd)%7]+'요일')+' '+kst.open;
-  return {phase,label,dst,kst,next:nx,mins,wd,hol};   // [v4.49] 마켓 클록 트랙용 ET 분·요일
+  /* 서머타임 해제일(한국 기준 = 미국 일요일의 다음 날 월요일) — 안내문용 */
+  const dstOff=`${y}년 11월 ${nthSun(10,1)+1}일(월)`;
+  return {phase,label,dst,kst,next:nx,mins,wd,hol,dstOff};   // [v4.49] 마켓 클록 트랙용 ET 분·요일
 }
 
+/* ══ [v17.8.22] 해외 주식도 프리마켓 4시간 전에 초기화한다 ═══════════════════════
+   미국 프리마켓은 04:00 ET(한국 17:00/18:00)에 열린다. 그 4시간 전인 00:00 ET
+   (한국 13:00/14:00)부터 프리마켓이 열릴 때까지는 거래일이라도 '오늘 등락'이 아직 없으므로
+   전일 종가 = 현재가로 보아 0.00% 로 표시한다. (국내와 같은 규칙 — 주말·미국 휴장일은 건드리지 않는다)
+   시세 응답의 원래 전일 종가는 prevRaw 에 보관하고, 초기화 구간이 끝나면 즉시 되돌린다.
+   모든 해외 화면이 usQ[t].prev 로 등락을 계산하므로 이 한 곳만 바꾸면 전부 맞는다. */
+function usResetDueNow(){
+  try{
+    const s=usSession();
+    if(s.hol||s.wd<1||s.wd>5)return false;
+    return s.mins>=240-PRE_RESET_LEAD_MIN&&s.mins<240;   // 00:00 ~ 04:00 ET
+  }catch(e){ return false; }
+}
+function usReflat(t,due){
+  const q=usQ[t]; if(!q)return;
+  if(q.prevRaw==null&&q.prev!=null&&!q.preflat)q.prevRaw=q.prev;
+  if(q.prevRaw==null)return;
+  if(due==null)due=usResetDueNow();
+  const want=(due&&q.price!=null)?q.price:q.prevRaw;
+  q.prev=want; q.preflat=due?1:0;
+  const b=byCode[t]; if(b&&b.us)b.prevClose=want;
+}
+function usReflatAll(){
+  const due=usResetDueNow();
+  Object.keys(usQ).forEach(t=>usReflat(t,due));
+}
 /* ── 4. 시세 수집 ── */
 var usQ={}, _usLoadBusy=false, _usPollT=null, _usPollSet=[];
 /* [v4.48] ① 부분 성공 병합: 어떤 원천은 52주·시가총액을 안 준다. 새 응답의 null 이
@@ -20238,6 +20307,7 @@ function usApplyQuote(reu,q){
   const keep=usQ[t]||{};
   const nn={}; Object.keys(q).forEach(k=>{ if(q[k]!=null)nn[k]=q[k]; });
   usQ[t]={...keep,...nn,t,at:Date.now()}; delete usQ[t].stale;   // [v4.65] 새 값이 오면 '저장분' 표시 해제
+  if(nn.prev!=null){usQ[t].prevRaw=nn.prev;}                      // [v17.8.22] 응답이 준 진짜 전일 종가
   /* ══ [v4.75] 한글 종목명을 시세 응답에서 가져온다 ═══════════════════════════
      [놓치고 있던 것] 서버는 네이버에서 시세를 받을 때 한글 이름(stockName)도 함께
      받아 name 으로 넘겨주고 있었다. 그런데 화면은 그걸 쓰지 않고 영문명을 그대로
@@ -20256,6 +20326,7 @@ function usApplyQuote(reu,q){
     open:usQ[t].open,high:usQ[t].high,low:usQ[t].low,vol:usQ[t].vol,cap:usQ[t].cap,
     w52h:usQ[t].w52h,w52l:usQ[t].w52l,ex:usMeta[t].sfx};
   ohlSanitize(byCode[t]);   /* [v15.4.8] 해외 시세도 같은 위생 */
+  usReflat(t);              /* [v17.8.22] 초기화 구간이면 전일 종가 = 현재가 */
   return true;
 }
 /* [v4.62] cap 은 필요한 화면에서만 요청한다 — 목록에서는 시가총액을 쓰지 않으므로
@@ -20887,7 +20958,7 @@ function usBandMini(){ return ''; }
    자리에 같은 크기(px-src)로 달되, 미국 장 시간표에 맞춘 말을 쓴다.
      프리   04:00~09:30 ET  — 정규장 전 거래
      정규   09:30~16:00 ET  — 본장
-     애프터 16:00~18:00 ET  — 마감 후 거래(국내 증권사 제공 구간)
+     애프터 16:00~19:30 ET  — 마감 후 거래(미래에셋 공지 기준 구간)
      장 종료 / 휴장          — 그 밖
    거래소 표기(나스닥·뉴욕)는 로고 배지가 이미 알려 주므로 여기서는 반복하지 않는다.
    국내와 색 규칙을 맞춘다 — 본장이 가장 진하고, 시간외는 옅게, 닫힌 장은 회색. */
@@ -21008,13 +21079,13 @@ function usChipList(){ return US_THEMES.concat(US_ETF_GROUPS); }
 
 /* ══ 시그니처: 마켓 클록 ═════════════════════════════════════════════════
    한국에서 미국장을 볼 때 가장 먼저 궁금한 건 '지금 열렸나, 안 열렸으면 언제'다.
-   프리(04:00 ET) ~ 애프터 종료(18:00 ET) 840분을 한 줄 트랙으로 펴고,
+   프리(04:00 ET) ~ 애프터 종료(19:30 ET) 930분을 한 줄 트랙으로 펴고,
    현재 시각을 마커로 얹어 한눈에 답한다. 휴장이면 트랙을 재우고 개장 시각만 남긴다. */
 function renderUsHero(){
   const box=$('usHero'); if(!box)return;
   const ses=usSession(), fx=usFx();
-  const T0=240, TW=840;                                   // 04:00 ET 시작 · 14시간 폭
-  const seg=[['pre',240,570,'프리'],['regular',570,960,'정규장'],['after',960,1080,'애프터']];
+  const T0=240, TW=930;                                   // 04:00 ET 시작 ~ 19:30 ET 끝 · 15시간 30분 폭
+  const seg=[['pre',240,570,'프리'],['regular',570,960,'정규장'],['after',960,1170,'애프터']];
   const live=ses.phase!=='closed';
   const pos=Math.max(0,Math.min(100,(ses.mins-T0)/TW*100));
   const track=`<div class="uz-track ${live?'':'off'}">
@@ -21382,7 +21453,7 @@ function renderUsRules(){
        ['🧾','수수료 0.25% + SEC Fee',`매수·매도 각 0.25%, 매도 시 미국 증권거래위원회 수수료 ${(US_SEC_FEE*100).toFixed(4)}%가 추가 차감됩니다. 거래세는 없습니다.`],
        ['📅','T+1 결제','매도 대금(달러)은 <b>즉시 재매수</b>에 쓸 수 있지만, 원화 환전은 <b>다음 영업일</b>부터 가능합니다 (2024년부터 미국 T+1 시행).'],
        ['🔢','소수점 매매','0.01주 단위로 살 수 있어 고가 주식도 소액으로 연습할 수 있습니다. 호가는 $0.01, 상·하한가 제도는 없습니다.'],
-       ['🕒','장 시간 (한국 시각)',`프리 ${ses.kst.pre} · 정규 ${ses.kst.open}~${ses.kst.close} · 애프터 ${ses.kst.aft}까지. 서머타임은 자동 반영되며, 미국 휴장일은 반영되지 않을 수 있습니다.`],
+       ['🕒','장 시간 (한국 시각)',`프리마켓 ${ses.kst.pre}~${ses.kst.open} · 정규장 ${ses.kst.open}~${ses.kst.close} · 애프터마켓 ${ses.kst.close}~${ses.kst.aft}<br>데이마켓 ${ses.kst.day} · 소수점 거래 ${ses.kst.frac}<br>유럽(독일·영국) ${ses.kst.eu} (${ses.kst.euDst?'서머타임':'표준시'})<br>${ses.dst?'미국 서머타임은 '+ses.dstOff+'부터 해제되어 모든 시각이 한 시간씩 늦춰집니다. ':''}서머타임은 자동 반영되며, 미국 휴장일은 반영되지 않을 수 있습니다.`],
        ['📊','환차익 · 환차손','주가가 올라도 환율이 내리면 원화 수익이 줄 수 있습니다. 주문 화면에서 주가손익과 환손익을 나눠 보여 드립니다.'],
        ['🧾','세금 (참고)','연 실현손익 250만원까지 비과세, 초과분 22% 양도소득세 — 내 자산 탭의 세금 도우미가 자동 계산합니다.']
       ].map(([ic,t,d])=>`<div class="uz-g"><span class="uz-gi">${ic}</span>
