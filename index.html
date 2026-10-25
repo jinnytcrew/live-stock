@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
 <link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
-<link rel="stylesheet" href="/app.css?v=672">
+<link rel="stylesheet" href="/app.css?v=673">
 </head>
 <body>
 
@@ -631,13 +631,13 @@ body.needs-auth #authGate{z-index:2000001}
     <nav class="main-nav" id="mainNav">
       <button data-view="home" class="on">홈</button>
       <button data-view="search">종목검색</button>
-      <button data-view="sector">주도 섹터</button>
+      <button data-view="watch">관심종목</button>
+      <button data-view="account">내 계좌</button>
+      <button data-view="trade">거래·주문</button>
       <button data-view="etf">ETF</button>
       <button data-view="us">해외 주식</button>
       <button data-view="pro">고급 서비스</button>
-      <button data-view="watch">관심종목</button>
-      <button data-view="trade">거래·주문</button>
-      <button data-view="account">내 계좌</button>
+      <button data-view="sector">주도 섹터</button>
       <button data-view="folio">MY 포트폴리오<i class="nav-dot" id="folioDot" hidden></i></button>
       <button data-view="clan">클랜<i class="nav-dot" id="clanDot" hidden></i></button>
       <button data-view="friend">친구<i class="nav-dot" id="frDot" hidden></i></button>
@@ -660,27 +660,22 @@ body.needs-auth #authGate{z-index:2000001}
 <main class="container">
   <!-- HOME -->
   <section class="view" id="view-home">
+    <!-- [v17.8.17] 인사말은 AI 브리핑의 캐릭터 '리비'가 직접 건넨다(마운트: helloMountBot). 단축키 줄은 걷어냈다. -->
     <div class="home-head">
-      <div><div class="page-title" id="homeGreet">홈</div>
-      <div class="page-sub">지수·환율과 투자 캘린더를 한눈에 보고, 공모주 청약도 미리 계획해 보세요.</div></div>
-      <div class="home-sess" id="homeSess"></div>
+      <div class="home-hello" id="homeHello">
+        <button type="button" class="hello-bot" id="helloBot" aria-label="리비가 인사해요 · 누르면 한마디 더"></button>
+        <div class="hello-bubble">
+          <div class="hello-title" id="homeGreet">홈</div>
+          <div class="hello-sub" id="homeSub">오늘의 시장을 한눈에 확인해 보세요.</div>
+          <div class="home-sess" id="homeSess"></div>
+        </div>
+      </div>
     </div>
     <div class="mysum" id="myWatchSum" hidden></div>
     <div class="home-strip">
-    <!-- [v4.96] 국기 탭을 단축키 줄 맨 오른쪽으로 옮겼다.
-         전에는 인기 목록과 같은 줄에 있어 목록 폭을 뺏었고(해외 종목이 잘렸다),
-         단축키 줄은 오른쪽이 허전했다. 한 번에 두 문제가 풀린다. -->
-    <div class="home-jump" id="homeJump">
-      <button data-j="idxGrid">📈 지수·선물</button>
-      <button data-j="aiBrief">🤖 AI 브리핑</button>
-      <button data-j="homeNews">📰 뉴스</button>
-      <button data-j="fxRow">💱 환율</button>
-      <button data-j="calGrid">📅 캘린더</button>
-      <button data-j="ipoCards">🎯 공모주</button>
-      <div class="hh-mkt" id="homeHotMkt"><button data-hmkt="kr" class="on">🇰🇷</button><button data-hmkt="us">🇺🇸</button></div>
-    </div>
-    <!-- [v4.41] 인기 순위 · 국내/해외 -->
+    <!-- [v17.8.17] 인기 줄 하나로 합쳤다: 국기 토글은 줄 맨 앞의 작은 알약, 단축키 줄은 삭제 -->
     <div class="home-hot-wrap" id="homeHotWrap" hidden>
+      <div class="hh-mkt" id="homeHotMkt" role="group" aria-label="인기 종목 시장 선택"><button type="button" data-hmkt="kr" class="on" aria-label="국내">🇰🇷</button><button type="button" data-hmkt="us" aria-label="해외">🇺🇸</button></div>
       <div class="home-hot" id="homeHot"></div>
     </div>
     </div>
@@ -1656,20 +1651,23 @@ body.needs-auth #authGate{z-index:2000001}
 
 <!-- 모바일 하단 내비게이션: 한 줄 가로 스크롤, 모든 주요 화면 접근 가능 -->
 <nav class="tabbar" id="tabbar" aria-label="주요 화면 이동">
-  <button type="button" id="mobileMenuToggle" class="tabbar-menu" aria-label="전체 메뉴 열기" aria-expanded="false"><i>☰</i><span>메뉴</span></button>
+  <button type="button" id="mobileMenuToggle" class="tabbar-menu" aria-label="전체 메뉴 열기" aria-expanded="false"><i>🗂️</i><span>메뉴</span></button>
   <span class="tabbar-divider" aria-hidden="true"></span>
-  <button data-bv="home" class="on"><i>⌂</i><span>홈</span></button>
-  <button data-bv="watch"><i>♡</i><span>관심종목</span></button>
-  <button data-bv="pro"><i>◈</i><span>투자NOW</span></button>
-  <button data-bv="account"><i>▣</i><span>내 자산</span></button>
-  <button data-bv="search"><i>⌕</i><span>종목검색</span></button>
-  <button data-bv="trade"><i>↗</i><span>거래·주문</span></button>
-  <button data-bv="ustrade"><i>◎</i><span>해외주식</span></button>
-  <button data-bv="sector"><i>▥</i><span>시장·섹터</span></button>
-  <button data-bv="etf"><i>▦</i><span>ETF/ETN</span></button>
-  <button data-bv="folio"><i>◇</i><span>포트폴리오</span></button>
-  <button data-bv="event"><i>✦</i><span>이벤트</span></button>
+  <button data-bv="home" class="on"><i>🏠</i><span>홈</span></button>
+  <button data-bv="search"><i>🔍</i><span>종목검색</span></button>
+  <button data-bv="watch"><i>💖</i><span>관심종목</span></button>
+  <button data-bv="account"><i>💼</i><span>MY 자산</span></button>
+  <button data-bv="trade"><i>💸</i><span>거래/주문</span></button>
+  <button data-bv="etf"><i>🧺</i><span>ETF</span></button>
+  <button data-bv="ustrade"><i>🌎</i><span>해외주식</span></button>
+  <button data-bv="pro"><i>🔥</i><span>투자 NOW</span></button>
+  <button data-bv="sector"><i>🧭</i><span>주도 섹터</span></button>
+  <button data-bv="folio"><i>📊</i><span>포트폴리오</span></button>
+  <button data-bv="clan"><i>🛡️</i><span>클랜</span></button>
+  <button data-bv="friend"><i>👥</i><span>친구</span></button>
+  <button data-bv="tier"><i>💎</i><span>멤버십</span></button>
+  <button data-bv="event"><i>🎁</i><span>이벤트</span></button>
 </nav>
-<script type="module" src="/app.js?v=681"></script>
+<script type="module" src="/app.js?v=682"></script>
 </body>
 </html>

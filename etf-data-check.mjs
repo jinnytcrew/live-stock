@@ -238,8 +238,8 @@ assert.doesNotMatch(etfRoute, /holdSrc = "(?:dom-proxy|peer-proxy|index-proxy)"/
 assert.match(etfRoute, /holdSrc === "mstock-api" && apiHoldingsComplete === true/, 'only fully paginated, count-validated ETFComponent rows can be called complete');
 assert.doesNotMatch(etfRoute, /htmlCountMatches/, 'a top-10 HTML table cannot certify itself as a full list');
 assert.match(etfRoute, /a\.length \* 100/, 'more verified constituent rows outrank a top-10 list merely summing near 100%');
-assert.match((read('index.html')), /app\.js\?v=681/, 'updated client JS gets a new cache-busting key');
-assert.match((read('index.html')), /app\.css\?v=672/, 'updated CSS gets a new cache-busting key');
+assert.match((read('index.html')), /app\.js\?v=682/, 'updated client JS gets a new cache-busting key');
+assert.match((read('index.html')), /app\.css\?v=673/, 'updated CSS gets a new cache-busting key');
 assert.match((read('app.css')), /\.etf-hold-n b\{[^}]*white-space:normal/, 'ETF constituent names are configured to wrap instead of truncate');
 pass('audit retry/reconciliation, fresh-client loading and empty-state source diagnostics are present');
 

@@ -8831,3 +8831,142 @@ html[data-color="global"] .pf-cert .down{color:#ff6b73}
 .pf-shown .pf-c-dot{animation:pfFade .4s ease-out 1.75s both}
 @keyframes pfDraw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
 @keyframes pfFade{from{opacity:0}to{opacity:1}}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.17] 홈 인사(캐릭터) · 인기 줄 · 관심종목 한 줄 · 하단 메뉴바 · 모바일 창 높이
+   ─────────────────────────────────────────────────────────────────────────────
+   이 블록은 파일 맨 끝에 둔다 — 위쪽에 겹겹이 쌓인 같은 이름의 규칙들을 순서로 이긴다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 0. 보이는 화면 높이 ──────────────────────────────────────────────────────
+   --appvh = '지금 실제로 보이는 높이의 1%'. app.js(viewportGuard)가 px 로 덮어쓴다.
+   JS 가 늦거나 실패해도 dvh → vh 순으로 물러나게 해 둔다.
+   ※ 예전 규칙 `max-height:92dvh; max-height:92vh;` 는 뒤의 vh 가 앞의 dvh 를 덮어써
+     dvh 를 쓰나 마나였다. 같은 속성에 두 값을 줄 땐 '낡은 단위 → 새 단위' 순서여야 한다. */
+:root{--appvh:1vh}
+@supports (height:1dvh){:root{--appvh:1dvh}}
+
+/* ── 1. 홈 인사 ── */
+.home-head{display:block;margin:0 0 10px}
+.home-hello{position:relative;display:flex;align-items:center;gap:4px;max-width:620px}
+.home-hot-wrap[hidden],.mysum[hidden]{display:none!important}
+.hello-bot{flex:0 0 auto;width:92px;height:101px;min-height:0;padding:0;border:0;background:none;cursor:pointer;
+  position:relative;margin:-4px 0 -2px -6px;-webkit-tap-highlight-color:transparent;display:block}
+.hello-bot .mib{width:100%;height:100%;display:block;overflow:visible}
+.hello-bot:active{transform:scale(.94)}
+.hello-bot .mib-arm{animation:mibWave 6s ease-in-out infinite}
+.hello-bot::before,.hello-bot::after{position:absolute;font-size:15px;opacity:0;pointer-events:none}
+.hello-bot::after{content:'✨';right:2px;top:4px}
+.hello-bot::before{content:'💕';left:2px;top:12px}
+.hello-bubble{position:relative;flex:1 1 auto;min-width:0;background:var(--panel);border:1px solid var(--border);
+  border-radius:18px;padding:11px 14px 10px;box-shadow:var(--shadow);transform-origin:0 60%}
+.hello-bubble::before{content:"";position:absolute;left:-7px;top:50%;width:13px;height:13px;margin-top:-7px;
+  background:var(--panel);border-left:1px solid var(--border);border-bottom:1px solid var(--border);transform:rotate(45deg)}
+.hello-title{font-size:18px;font-weight:900;letter-spacing:-.6px;line-height:1.3;min-height:1.3em;word-break:keep-all;overflow-wrap:anywhere}
+.hello-sub{margin-top:2px;font-size:12px;font-weight:600;color:var(--sub);line-height:1.5;word-break:keep-all}
+.home-hello .home-sess{display:inline-flex;margin-top:7px;padding:4px 10px;font-size:11px;background:var(--bg);box-shadow:none}
+/* 등장 → 손 흔들기 → 말풍선 → 글자 */
+.hello-go .hello-bot{animation:helloPop .8s cubic-bezier(.2,1.3,.4,1) both}
+.hello-go .hello-bot .mib-arm{animation:helloWave .8s .85s ease-in-out 3,mibWave 6s 3.8s ease-in-out infinite}
+.hello-go .hello-bot::after{animation:helloSpark 1.7s .95s ease-out both}
+.hello-go .hello-bot::before{animation:helloSpark 1.7s 1.25s ease-out both}
+.hello-go .hello-bubble{animation:helloBub .55s .45s cubic-bezier(.2,1.2,.4,1) both}
+.hello-go:not(.hello-done) .hello-title::after{content:"";display:inline-block;width:2px;height:1em;margin-left:2px;
+  vertical-align:-.12em;background:#f5a30d;animation:helloCaret .7s steps(1) infinite}
+.hello-bot.jump .mib-float{animation:mibJump .6s ease}
+.hello-bot.jump .mib-arm{animation:helloWave .7s ease-in-out 2}
+@keyframes helloPop{
+  0%{opacity:0;transform:translateY(26px) scale(.3) rotate(-14deg)}
+  55%{opacity:1;transform:translateY(-8px) scale(1.08) rotate(5deg)}
+  78%{transform:translateY(2px) scale(.97) rotate(-2deg)}
+  100%{opacity:1;transform:none}}
+@keyframes helloBub{0%{opacity:0;transform:scale(.55) translateX(-10px)}100%{opacity:1;transform:none}}
+@keyframes helloWave{
+  0%,100%{transform:rotate(0)}
+  25%{transform:translate(-3px,-9px) rotate(-30deg)}
+  50%{transform:translate(-1px,-4px) rotate(8deg)}
+  75%{transform:translate(-3px,-9px) rotate(-26deg)}}
+@keyframes helloSpark{
+  0%{opacity:0;transform:translate(0,8px) scale(.4)}
+  30%{opacity:1;transform:translate(4px,-4px) scale(1.1)}
+  100%{opacity:0;transform:translate(10px,-22px) scale(.8)}}
+@keyframes helloCaret{50%{opacity:0}}
+@media(max-width:380px){
+  .hello-bot{width:80px;height:88px}
+  .hello-title{font-size:16.5px}
+}
+
+/* ── 2. 인기 줄 — 국기 토글은 줄 맨 앞의 작은 알약 ── */
+.home-strip{display:block;padding:0;margin:0 0 10px}
+.home-hot-wrap{display:flex;align-items:center;flex-wrap:nowrap;gap:8px;margin:0;position:relative;min-width:0;max-width:100%}
+.home-hot-wrap .hh-mkt{flex:0 0 auto;margin:0;padding:2px;gap:2px}
+.home-hot-wrap .hh-mkt button{min-height:30px;padding:3px 8px;font-size:14px;line-height:1;border-radius:99px}
+.home-hot-wrap .home-hot{flex:1 1 auto;min-width:0;padding:2px 0!important;justify-content:flex-start!important}
+.home-hot-wrap .hh-c{height:32px}
+
+/* ── 3. MY 관심종목 — 낮게 ── */
+.mysum{padding:9px 12px;margin:0 0 10px;border-radius:14px;gap:6px 10px;font-size:12.5px}
+.mysum.ms-compact{flex-wrap:nowrap}
+.mysum.ms-compact .ms-empty{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mysum .ms-go{margin-left:auto;flex:0 0 auto;padding:5px 11px;font-size:11.5px;white-space:nowrap}
+
+/* ── 4. 하단 메뉴바 — 이모지 아이콘 · 선택 칸이 떠오르는 필 ── */
+@media(max-width:768px){
+  .tabbar{min-height:66px;gap:2px;padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+    background:var(--panel);border-top:1px solid var(--border);box-shadow:0 -10px 28px rgba(18,30,50,.10)}
+  html[data-theme="dark"] .tabbar{box-shadow:0 -10px 28px rgba(0,0,0,.45)}
+  .tabbar button{flex:0 0 68px;min-width:68px;max-width:86px;min-height:54px;gap:2px;padding:6px 2px 5px;border-radius:16px;
+    color:var(--sub);scroll-snap-align:center;transition:background .18s,color .18s,transform .12s}
+  .tabbar button i{font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif;
+    font-size:23px;line-height:1.1;filter:grayscale(.6) opacity(.75);color:currentColor;
+    transition:filter .2s,transform .28s cubic-bezier(.2,1.5,.4,1)}
+  .tabbar button span{font-size:10.5px;font-weight:750;letter-spacing:-.3px}
+  .tabbar button.on{color:var(--text);background:color-mix(in srgb,#f5a30d 15%,var(--panel))}
+  .tabbar button.on i{filter:none;transform:translateY(-2px) scale(1.16);color:currentColor}
+  .tabbar button.on span{font-weight:900}
+  .tabbar button.on::before{top:auto;bottom:2px;width:16px;height:3px;border-radius:99px;
+    background:linear-gradient(90deg,#f3ad28,#ffd46d);box-shadow:0 1px 5px rgba(243,173,40,.45)}
+  .tabbar button:active{transform:scale(.95);background:var(--border-soft)}
+  .tabbar .tabbar-menu{flex-basis:56px;min-width:56px;max-width:56px;color:var(--sub)}
+  .tabbar .tabbar-menu i{font-size:21px}
+  .tabbar .tabbar-divider{background:var(--border);margin:0 4px}
+  /* 오른쪽 끝에 '더 있어요' 페이드 */
+  .tabbar::after{content:"";position:sticky;right:0;flex:0 0 14px;margin-left:-14px;align-self:stretch;
+    background:linear-gradient(90deg,transparent,var(--panel));pointer-events:none}
+}
+
+/* ── 5. 모바일 창 — 보이는 높이 안에 반드시 들어오게 ──────────────────────────
+   원인: 창 높이를 vh 로 잡았다. vh 는 주소창·하단 바가 없는 화면 기준이라, 실제 보이는
+   영역보다 크다. 창 맨 아래에 있던 [다음] 버튼이 화면 밖에 걸려 스크롤로도 닿지 않았다.
+   고침: ① 모든 창 높이를 --appvh(보이는 높이)로 잡는다. ② 창 본문은 어떤 이름이든
+   '남는 칸'만 스크롤한다. ③ 단계·저장 버튼 줄은 스크롤 안에서도 바닥에 붙어 따라온다. */
+@media(max-width:900px){
+  .overlay .modal,.overlay .profile-modal,.overlay .ot-modal,.overlay .set-modal,
+  .modal,.profile-modal,.ot-modal,.set-modal,#setGate .modal,#profileGate .modal,
+  .acct-gate-box,.xfer-box{max-height:calc(var(--appvh,1vh)*92)!important}
+  .upd-box.gate{max-height:min(calc(var(--appvh,1vh)*84),720px)!important}
+  .fd-pop{max-height:calc(var(--appvh,1vh)*60)!important}
+  .lite-body{max-height:calc(var(--appvh,1vh)*70)}
+  .ask-form{max-height:calc(var(--appvh,1vh)*50)}
+  .ot-list{max-height:calc(var(--appvh,1vh)*50)}
+  .ug-body{max-height:calc(var(--appvh,1vh)*40)}
+  .acct-pick{max-height:min(320px,calc(var(--appvh,1vh)*42))}
+}
+@media(max-width:720px){
+  /* 창의 직계 본문은 이름과 무관하게 남는 칸만 스크롤 */
+  .overlay .modal>:is(.modal-body,.lite-body,.set-body,.pm-body,.jd-body,.ug-body,.ot-list,.ask-form){
+    flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  /* 계좌 개설 시트는 안쪽 상자가 아니라 바깥 본문(.lite-body)이 스크롤을 맡는다 —
+     안쪽 상자도 스크롤 칸이면 sticky 버튼이 안쪽 상자에 묶여 따라오지 않는다. */
+  .overlay .ae-sheet{overflow:visible!important;padding-bottom:0}
+}
+/* 다음/저장/개설 버튼 줄 — 길어도 늘 보이게 바닥에 붙인다 (모든 창 공통) */
+.overlay .modal :is(.ae-nav,.lg-row,.ae-acts,.backup-actions,.su-nav){
+  position:sticky;bottom:0;z-index:5;background:var(--panel);
+  padding-top:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom));
+  box-shadow:0 -12px 12px -8px var(--panel)}
+.overlay .lite-modal .ae-nav{margin-left:-24px;margin-right:-24px;padding-left:24px;padding-right:24px}
+.overlay .lite-modal .lg-row{margin-left:-22px;margin-right:-22px;padding-left:22px;padding-right:22px}
+@media(prefers-reduced-motion:reduce){
+  .hello-bot,.hello-bubble,.hello-bot::before,.hello-bot::after{animation:none!important}
+}

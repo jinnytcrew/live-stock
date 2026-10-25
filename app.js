@@ -6628,11 +6628,15 @@ function _showView(name){
      (탭을 눌러 새로 들어간 경우는 맨 위가 맞다) */
   try{ if(currentView&&currentView!==name)_scrollPos[currentView]=window.scrollY||0; }catch(e){}
   const _back=_navBusy;
+  const _prevV=currentView;
   currentView=name;
   document.querySelectorAll('.view').forEach(v=>v.hidden=(v.id!=='view-'+name));
+  if(name==='home'&&_prevV!=='home'){ try{ helloRender(true); }catch(e){} }   /* [v17.8.17] 홈에 들어올 때마다 인사 */
   const navName=(name==='ustrade')?'us':name;   // [v4.28] 해외 거래 화면도 '해외 주식' 탭 유지
   document.querySelectorAll('.main-nav button').forEach(b=>b.classList.toggle('on',b.dataset.view===navName));
-  document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.bv===name));   // 모바일 하단 내비 동기화
+  document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.bv===name||(name==='us'&&b.dataset.bv==='ustrade')));   // 모바일 하단 내비 동기화
+  /* [v17.8.17] 선택된 탭이 항상 레일 가운데 근처에 오게 — 뒤로 가기·다른 경로로 이동해도 현재 위치가 보인다 */
+  try{ const tb=$('tabbar'), on=tb&&tb.querySelector('button.on'); if(on&&tb.scrollWidth>tb.clientWidth)tb.scrollTo({left:Math.max(0,on.offsetLeft-(tb.clientWidth-on.offsetWidth)/2),behavior:'smooth'}); }catch(e){}
   $('mainNav').classList.remove('open');
   if(_back&&_scrollPos[name]>0){
     const y=_scrollPos[name];
@@ -8766,6 +8770,7 @@ function miniRow(s){
 /* [D6] 내 관심종목 오늘 요약 — [수정] 개장 전·접속 직후처럼 시세가 아직 없을 때
    '표시할 종목이 없어요'라고 잘못 말하던 것을 '시세 수신 중'으로 바꾸고, 시세가 오면 자동으로 채운다. */
 function renderMySum(){const el=$('myWatchSum'); if(!el)return;
+    el.classList.remove('ms-compact');
     let tab=userPrefs.homeSumTab||'all';
     if(tab!=='all'&&!watchFolders.some(f=>f.id===tab)){tab='all';userPrefs.homeSumTab='all';}
     const src=tab==='all'?watchlist:(watchFolders.find(f=>f.id===tab)||{codes:[]}).codes.filter(c=>watchlist.includes(c));
@@ -8800,9 +8805,9 @@ function renderMySum(){const el=$('myWatchSum'); if(!el)return;
          원인 둘: ① .mysum 의 display:flex 가 hidden 속성의 display:none 을 이겨서
          숨겨지지도 않았고 ② 숨기는 것 자체가 답이 아니었다 — 뭘 해야 할지 알려 줘야 한다. */
       if(!watchFolders.length&&!watchlist.length){
-        el.hidden=false;
-        el.innerHTML=`<b>MY 관심종목</b> <span class="ms-empty">아직 담은 종목이 없어요. 종목을 담으면 여기서 등락을 한눈에 볼 수 있어요.</span>`
-          +`<button class="ms-go" id="msGo">종목 담으러 가기 →</button>`;
+        el.hidden=false; el.classList.add('ms-compact');   /* [v17.8.17] 빈 상태는 한 줄로 */
+        el.innerHTML=`<b>MY 관심종목</b> <span class="ms-empty">아직 담은 종목이 없어요</span>`
+          +`<button class="ms-go" id="msGo">담으러 가기 →</button>`;
         const gb=$('msGo'); if(gb)gb.onclick=()=>showView('search');
         return;
       }
@@ -10569,11 +10574,96 @@ function renderHomeHotUs(){
 }
 /* [v2.5.1] 내용이 비어 있는 관심 요약 카드가 빈 흰 상자로 남던 문제 */
 function tidyMySum(){const el=$('myWatchSum');if(el&&!el.hidden&&!String(el.textContent||'').trim())el.hidden=true;}
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.17] 홈 인사 — AI 브리핑의 캐릭터 '리비'가 직접 인사한다
+   ─────────────────────────────────────────────────────────────────────────────
+   · 캐릭터는 브리핑 카드(#aiBot)의 SVG 를 복제해 쓴다. 따로 그리면 두 캐릭터가 달라진다.
+     복제본의 id(rkB 등)는 뒤에 H 를 붙여 문서에 같은 id 가 두 벌 생기지 않게 한다.
+   · 홈에 들어올 때마다 한 번: 톡 튀어나옴 → 손 흔들기 3번 → 말풍선에 인사말이 한 글자씩.
+   · 시세 갱신으로 renderHomeHead 가 자주 불려도 글이 같으면 다시 재생하지 않는다.
+   · 캐릭터를 누르면 폴짝 뛰며 한마디. 동작 줄이기 설정이면 애니메이션 없이 바로 표시.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var _helloKey='', _helloTok=0, _helloTimer=null, _helloI=0;
+var HELLO_LINES=['오늘도 차근차근 가요 💪','손익보다 원칙이 먼저예요 🧭','관심종목부터 살펴볼까요? 💖','물 한 잔 마시고 시작해요 💧','급할수록 한 박자 쉬어가요 ☕','작은 기록이 큰 복기가 돼요 📝'];
+function helloMountBot(){
+  const host=$('helloBot'); if(!host||host.firstChild)return;
+  const src=document.querySelector('#aiBot svg.mib'); if(!src)return;
+  host.innerHTML=src.outerHTML.replace(/id="(rk\w+)"/g,'id="$1H"').replace(/url\(#(rk\w+)\)/g,'url(#$1H)');
+  host.addEventListener('click',helloPoke);
+}
+function helloText(){
+  const h=kstNow().getUTCHours();
+  const t=h<5?['🌙','좋은 새벽이에요']:h<12?['☀️','좋은 아침이에요']:h<18?['🌤️','좋은 오후예요']:['🌆','좋은 저녁이에요'];
+  let nm=''; try{ const u=$('uName'); const v=u&&String(u.textContent||'').trim(); if(v&&v!=='게스트')nm=v; }catch(e){}
+  return {emoji:t[0],text:t[1]+(nm?`, ${nm}님`:'')};
+}
+function helloSub(){
+  switch(marketSessionKST()){
+    case 'holiday': return '오늘은 휴장일이에요. 쉬어가며 다음 장을 준비해요.';
+    case 'pre':     return '곧 장이 열려요. 관심종목을 미리 살펴볼까요?';
+    case 'post':    return '오늘 장이 끝났어요. 하루를 돌아볼 시간이에요.';
+    default:        return '장이 열려 있어요. 시장 흐름을 확인해 보세요.';
+  }
+}
+function helloReduced(){ try{ return !!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(e){ return false; } }
+function helloType(el,str,speed,tok,done){
+  const chars=Array.from(str); let i=0;
+  const step=()=>{ if(tok!==_helloTok)return; i++; el.textContent=chars.slice(0,i).join('');
+    if(i<chars.length)_helloTimer=setTimeout(step,speed); else if(done)done(); };
+  step();
+}
+function helloPlay(){
+  const g=$('homeGreet'), root=$('homeHello'); if(!g||!root)return;
+  helloMountBot();
+  const {emoji,text}=helloText(), full=text+' '+emoji;
+  const sub=$('homeSub'); if(sub)sub.textContent=helloSub();
+  clearTimeout(_helloTimer); const tok=++_helloTok;
+  root.classList.remove('hello-go','hello-done'); void root.offsetWidth;
+  _helloKey=full;
+  if(helloReduced()||document.hidden){ g.textContent=full; root.classList.add('hello-done'); return; }
+  g.textContent=''; root.classList.add('hello-go');
+  _helloTimer=setTimeout(()=>helloType(g,full,46,tok,()=>root.classList.add('hello-done')),720);
+}
+function helloRender(replay){
+  const {emoji,text}=helloText(), key=text+' '+emoji;
+  const sub=$('homeSub'); if(sub){ const s=helloSub(); if(sub.textContent!==s)sub.textContent=s; }
+  const bot=$('helloBot');
+  if(replay||key!==_helloKey||(bot&&!bot.firstChild))helloPlay();
+}
+function helloPoke(){
+  const bot=$('helloBot'), g=$('homeGreet'), root=$('homeHello'); if(!bot||!g)return;
+  bot.classList.remove('jump'); void bot.offsetWidth; bot.classList.add('jump');
+  const line=HELLO_LINES[_helloI++%HELLO_LINES.length];
+  clearTimeout(_helloTimer); const tok=++_helloTok;
+  const back=()=>{ if(tok!==_helloTok)return; const t=helloText(); g.textContent=t.text+' '+t.emoji; };
+  if(helloReduced()){ g.textContent=line; _helloTimer=setTimeout(back,3200); return; }
+  g.textContent=''; if(root)root.classList.add('hello-done');
+  helloType(g,line,34,tok,()=>{ _helloTimer=setTimeout(back,3000); });
+}
+
+/* ══ [v17.8.17] 보이는 화면 높이를 CSS 변수로 넘긴다 (--appvh = 보이는 높이의 1%) ═══════════
+   [무엇이 문제였나] 모바일 창(바텀시트)의 최대 높이가 vh 였다. vh 는 주소창·하단 바가
+   '없는' 화면 기준이라, 실제로 보이는 영역보다 커서 창의 맨 아래(다음 버튼)가 화면 밖에
+   걸렸다 — 스크롤을 끝까지 해도 닿을 수 없는 자리였다. 카카오톡 같은 앱 내 브라우저는
+   dvh 마저 어긋나는 경우가 있어, 실제로 보이는 높이(visualViewport)를 직접 잰다.
+   키보드가 올라오면 이 값도 줄어들어, 입력창이 있는 창도 키보드 위에 맞게 줄어든다. */
+(function viewportGuard(){
+  const root=document.documentElement;
+  const set=()=>{ try{
+    const vv=window.visualViewport, h=Math.round((vv&&vv.height)||window.innerHeight||0);
+    if(h>0){ root.style.setProperty('--appvh',(h/100)+'px'); root.style.setProperty('--app-h',h+'px'); }
+  }catch(e){} };
+  set();
+  window.addEventListener('resize',set,{passive:true});
+  window.addEventListener('orientationchange',()=>setTimeout(set,250));
+  window.addEventListener('pageshow',set);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)set(); });
+  if(window.visualViewport){ visualViewport.addEventListener('resize',set); visualViewport.addEventListener('scroll',set); }
+  setTimeout(set,400); setTimeout(set,1500);      /* 주소창이 접히는 시점 보정 */
+})();
+
 function renderHomeHead(){
-  const g=$('homeGreet');
-  if(g){const k=kstNow(),h=k.getUTCHours();
-    const nm=(currentUser&&(currentUser.name||currentUser.nick))?`, ${currentUser.name||currentUser.nick}님`:'';
-    g.textContent=(h<5?'좋은 새벽이에요':h<12?'좋은 아침이에요':h<18?'좋은 오후예요':'좋은 저녁이에요')+nm;}
+  try{ helloRender(false); }catch(e){}            /* [v17.8.17] 인사말은 캐릭터가 건넨다 */
   const c=$('homeSess');
   if(c){const ses=marketSessionKST();
     const lab=ses==='holiday'?['hol','휴장일']:ses==='pre'?['prem','장 시작 전']:ses==='post'?['post','장 종료']:(nxtLiveBandKST()?['nxt','NXT 세션 진행 중']:['uni','정규장 진행 중']);
