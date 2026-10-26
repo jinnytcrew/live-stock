@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=341';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=342';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -14026,7 +14026,7 @@ const BIZ_DESC={
 '251270':'모바일 게임을 개발·퍼블리싱하는 게임기업으로, 다양한 IP 기반 신작을 출시합니다.',
 '068760':'셀트리온 그룹의 국내 의약품 제조·판매 계열사로 바이오시밀러와 케미컬 의약품을 담당합니다.',
 '402340':'SK그룹의 반도체·ICT 투자 전문 중간지주회사로 SK하이닉스 등을 자회사로 둡니다.'};
-/* ══ [v17.8.29] 사업요약 업그레이드 — 업종 키워드 + 쉬운 설명 ═════════════════════
+/* ══ [v17.8.30] 사업요약 누락 보완 — 전 종목 업종 정규화 + 쉬운 설명 후단 배치 ═════
    기업을 잘 모르는 사람도 "뭐 하는 회사인지" 바로 알 수 있도록
    ① 사업 분야 키워드(#반도체 #자동차 #로봇 …)를 여러 개 뽑고
    ② 분야마다 '쉽게 말해 무엇인지·무엇이 주가를 움직이는지'를 풀어 쓴다.
@@ -14084,7 +14084,15 @@ const BIZ_TAG_INFO={
 '부동산':['건물·토지를 개발·임대·운영하며 수익을 얻는 분야입니다.','금리와 임대율'],
 '교육':['학원·출판·온라인 교육 서비스를 제공하는 분야입니다.','학령인구와 신규 서비스 흥행'],
 '환경':['폐기물 처리·재활용·수처리 등 환경 인프라를 운영하는 분야입니다.','환경 규제와 처리 단가'],
-'우주':['위성·발사체 등 우주 인프라를 다루는 분야입니다.','발사 성공 여부와 정부 예산']
+'우주':['위성·발사체 등 우주 인프라를 다루는 분야입니다.','발사 성공 여부와 정부 예산'],
+'반도체장비':['반도체를 만들고 검사·포장하는 데 필요한 제조·검사 장비를 공급하는 분야입니다.','반도체 업황과 고객사의 설비투자'],
+'비철금속':['아연·연·구리 등 철이 아닌 금속을 제련·가공해 산업용 소재로 공급하는 분야입니다.','국제 금속 가격, 제련 수수료와 전력비'],
+'정유':['원유를 정제해 휘발유·경유·항공유 등 연료와 석유제품을 만드는 분야입니다.','국제 유가와 정제마진'],
+'상사':['해외 원자재·식량·제품을 조달·판매하고 자원 개발과 프로젝트를 중개하는 종합 무역 분야입니다.','원자재 가격, 환율과 해외 프로젝트'],
+'발전':['발전소를 운영하거나 전기를 생산하는 설비·서비스를 공급하는 분야입니다.','전력 수요, 연료비와 발전 설비 수주'],
+'철도':['전동차·고속열차와 철도 신호·제어 등 철도 운송에 필요한 차량·장비를 공급하는 분야입니다.','철도 운영기관 발주와 국내외 수주'],
+'IT':['기업 시스템 구축·운영, 소프트웨어와 디지털 서비스를 제공하는 정보기술 분야입니다.','기업 IT 투자와 클라우드·AI 전환 수요'],
+'지주':['여러 자회사의 지분을 보유해 그룹을 관리하고 배당·투자수익 등을 얻는 회사입니다.','자회사 실적, 순자산가치 대비 할인율과 주주환원']
 };
 /* 종목명·원문에서 키워드를 찾는 규칙 — 앞에서부터 많이 걸릴수록 앞쪽에 나온다 */
 const BIZ_TAG_RULES=[
@@ -14094,7 +14102,7 @@ const BIZ_TAG_RULES=[
 ['전기차',/전기차|EV\b|전동화|xEV/i],
 ['자동차',/자동차|완성차|승용차|자동차\s*부품|차량/],
 ['자율주행',/자율주행|ADAS|라이다|LiDAR/i],
-['로봇',/로봇|로보틱스|휴머노이드|협동\s*로봇|자동화\s*설비/],
+['로봇',/로봇|로보티즈|로보스타|로보틱스|휴머노이드|협동\s*로봇|자동화\s*설비/],
 ['우주항공',/우주|항공우주|위성|발사체|누리호|항공기|UAM|드론|항공엔진/],
 ['방산',/방산|방위|국방|무기|유도|미사일|전차|전투기|함정|군수|레이더|탄약|K9|K2/],
 ['원전',/원전|원자력|SMR|소형모듈|핵연료|원자로/i],
@@ -14136,6 +14144,13 @@ const BIZ_TAG_RULES=[
 ['유통',/유통|백화점|편의점|대형마트|할인점|이커머스|홈쇼핑/],
 ['여행',/여행|호텔|카지노|리조트|면세/],
 ['기계',/기계|건설기계|공작기계|굴착기|공조|산업기계/],
+['반도체장비',/반도체장비|반도체\s*제조장비|반도체\s*검사장비|TC본더|프로브핀/],
+['비철금속',/비철금속|아연|연제련|제련소|고려아연/],
+['정유',/정유|원유정제|정제마진|정유사/],
+['상사',/종합상사|무역상사|자원개발|포스코인터내셔널/],
+['발전',/발전설비|발전사업|발전소|가스터빈|두산에너빌리티/],
+['철도',/철도차량|전동차|고속열차|철도신호|철도사업/],
+['IT',/IT서비스|정보기술|시스템통합|디지털전환|IT\s*서비스/i],
 ['부동산',/부동산|리츠|REIT|임대|개발\s*사업/i],
 ['환경',/환경|폐기물|재활용|수처리|소각/],
 ['교육',/교육|학원|출판|에듀|교과서/]
@@ -14199,6 +14214,39 @@ const BIZ_PROFILE={
 '009150':[['전자부품','소재'],'MLCC·카메라모듈·반도체 기판'],
 '402340':[['지주회사','반도체','AI','2차전지'],'SK하이닉스 등 반도체·ICT 투자 중간지주']
 };
+function bizSectorTag(value){
+  const raw=String(value||'').trim();
+  if(!raw)return '';
+  const flat=raw.replace(/[\s·()（）]/g,'').toUpperCase();
+  /* 실제 업종 통계는 공급처마다 'IT서비스업', '반도체장비'처럼 표기가 다르다.
+     업종명은 세부 별칭을 먼저 정규화해 설명 누락을 막는다. */
+  const aliases=[
+    [/반도체.*장비|TC본더|프로브핀/,'반도체장비'],
+    [/비철금속|아연제련|연제련/,'비철금속'],
+    [/정유|원유정제|석유정제/,'정유'],
+    [/종합상사|무역상사|상사|무역업/,'상사'],
+    [/발전설비|발전사업|발전소|발전업/,'발전'],
+    [/철도차량|철도|전동차|고속열차/,'철도'],
+    [/IT서비스|정보기술|시스템통합|디지털전환/,'IT'],
+    [/지주|홀딩스|HOLDINGS?|HOLDING/,'지주'],
+    [/로봇|로보티즈|로보스타|로보틱/,'로봇'],
+    [/반도체|메모리|파운드리/,'반도체'],
+    [/자동차|완성차|자동차부품/,'자동차'],
+    [/전자부품|전기전자|전자장비/,'전자부품'],
+    [/금융|은행|증권|보험|카드/,'금융'],
+    [/제약|의약품|신약/,'제약'],
+    [/바이오|생명공학/,'바이오'],
+    [/조선|선박|해양플랜트/,'조선'],
+    [/건설|토목|플랜트/,'건설'],
+    [/통신|이동통신/,'통신'],
+    [/게임|게임소프트웨어/,'게임'],
+    [/화장품|코스메틱|뷰티/,'화장품'],
+    [/식품|음료|제과|음식료/,'음식료']
+  ];
+  for(const [re,tag] of aliases){if(re.test(flat)&&BIZ_TAG_INFO[tag])return tag;}
+  if(BIZ_TAG_INFO[raw])return raw;
+  return '';
+}
 function bizDetectTags(code,s,sector,text){
   const prof=BIZ_PROFILE[code];
   const tags=[];
@@ -14216,33 +14264,51 @@ function bizDetectTags(code,s,sector,text){
   hits.sort((a,b)=>b[1]-a[1]);
   const drop=new Set();
   hits.forEach(([t,c])=>{ if(c>=2||(s.name||'').length&&new RegExp(BIZ_TAG_RULES.find(r=>r[0]===t)[1].source,'i').test(s.name||''))push(t); });
-  /* 섹터 기본 분류가 있으면 하나는 보장 */
-  const sec=String(sector||'').replace(/\s/g,'');
-  if(sec&&BIZ_TAG_INFO[sec])push(sec);
-  else if(sec&&!tags.length)push(sec);
-  /* 원문이 거의 없어 하나도 못 찾았으면 테마 태그를 키워드로 */
-  if(!tags.length)(s.tags||[]).slice(0,3).forEach(push);
+  /* 실제 업종 분류를 우선 정규화한다. 수기 테마가 있어도 기업 업종을 놓치지 않는다. */
+  const sec=String(sector||'').trim();
+  const sectorTag=bizSectorTag(sec);
+  /* 수기 복합기업 프로필이 없는 종목은 공식 업종 태그를 먼저 둔다.
+     검색어에 반도체·AI 같은 단어가 많이 섞여도 실제 업종 풀이가 뒤로 밀리지 않게 한다. */
+  if(sectorTag){
+    if(!prof&&!tags.includes(sectorTag))tags.unshift(sectorTag);
+    else push(sectorTag);
+  }else if(sec&&BIZ_TAG_INFO[sec.replace(/\s/g,'')]){
+    const exact=sec.replace(/\s/g,'');
+    if(!prof&&!tags.includes(exact))tags.unshift(exact);else push(exact);
+  }
+  /* 원문이 빈 동적 종목은 종목 테마라도 활용하되, 설명 사전의 표준 태그로 바꾼다. */
+  if(!tags.length)(s.tags||[]).slice(0,3).forEach(t=>push(bizSectorTag(t)||t));
   return tags.filter(t=>!drop.has(t)).slice(0,10);
 }
-/* 쉬운 설명 문장 — 분야별로 '쉽게 말해 무엇인지'와 '주가를 움직이는 요인' */
-function bizEasySentences(nm,tags,code){
+/* 쉬운 설명 문장 — 반드시 요약의 마지막 블록에 배치한다. */
+function bizEasySentences(nm,tags,code,sector,overviewText){
   const out=[];
   const prof=BIZ_PROFILE[code];
-  const eun=josaEun(nm);
-  const known=tags.filter(t=>BIZ_TAG_INFO[t]);
+  const known=[...new Set((tags||[]).filter(t=>BIZ_TAG_INFO[t]))];
+  const sectorTag=bizSectorTag(sector);
   if(prof&&prof[1])out.push(`${nm}의 주요 사업 축은 ${prof[1]}입니다.`);
-  else if(tags.length>=2)out.push(`${nm}의 사업 분야는 ${tags.slice(0,5).join('·')} 등으로 구분됩니다.`);
+  else if(tags&&tags.length>=2&&known.length>=2)out.push(`${nm}의 사업 분야는 ${known.slice(0,5).join('·')} 등으로 구분됩니다.`);
   known.slice(0,3).forEach((t,i)=>{
     const [what]=BIZ_TAG_INFO[t];
     out.push(i===0?`쉽게 말해 ${t} 분야는 ${what}`:`또한 ${t} 분야는 ${what}`);
   });
+  /* 키워드가 하나도 잡히지 않은 신규·소형·해외 종목도 풀이가 비지 않게 한다. */
+  if(!known.length){
+    const t=sectorTag||(tags||[]).find(x=>BIZ_TAG_INFO[x])||'';
+    if(t&&BIZ_TAG_INFO[t])out.push(`쉽게 말해 ${t} 분야는 ${BIZ_TAG_INFO[t][0]}`);
+    else if(sector&&SECTOR_DESC[String(sector).replace(/\s/g,'')])out.push(`쉽게 말해 ${sector} 분야는 ${SECTOR_DESC[String(sector).replace(/\s/g,'')]} 분야입니다.`);
+    else if(sector)out.push(`쉽게 말해 ${sector} 업종은 관련 제품·서비스를 고객에게 제공하고 그 대가로 매출을 얻는 분야입니다. 세부 사업은 ${nm}의 최신 기업개요와 공시를 기준으로 확인해야 합니다.`);
+    else out.push(`쉽게 말해 ${nm}은(는) 공개된 기업개요와 공시에서 확인되는 제품·서비스를 고객에게 제공해 매출을 얻는 기업입니다. 업종 분류가 확인되지 않아 특정 산업으로 단정하지 않았습니다.`);
+  }
   const drivers=known.slice(0,3).map(t=>BIZ_TAG_INFO[t][1]).filter(Boolean);
-  if(drivers.length)out.push(`이 때문에 ${nm}의 주가는 ${drivers.slice(0,3).join(', ')} 같은 요인에 영향을 받는 경우가 많습니다.`);
-  if(tags.length>=3)out.push(`사업 분야가 여러 갈래라 한쪽이 부진해도 다른 쪽이 보완할 수 있지만, 분야마다 주가에 반영되는 시점과 속도가 달라 흐름이 한 방향으로만 움직이지는 않습니다.`);
-  return out;
+  if(drivers.length)out.push(`이 때문에 ${nm}의 주가는 ${drivers.join(', ')} 같은 요인에 영향을 받는 경우가 많습니다.`);
+  if(known.length>=3)out.push(`사업 분야가 여러 갈래라 한쪽이 부진해도 다른 쪽이 보완할 수 있지만, 분야마다 주가에 반영되는 시점과 속도가 달라 흐름이 한 방향으로만 움직이지는 않습니다.`);
+  return [...new Set(out.map(x=>String(x||'').trim()).filter(Boolean))];
 }
 function buildBizSummary(){
-  const s=byCode[selected]||{},code=selected,sector=(s.tags&&s.tags[0])||'';   /* [v10.6] */
+  const s=byCode[selected]||{},code=selected;
+  /* 실제 기업 업종(재무/통계의 업종·섹터)을 우선하고, 없을 때만 기본 테마를 사용한다. */
+  const sector=String(sumStat(['업종','섹터'])||((s.tags&&s.tags[0])||'')).trim();
   // ETF는 기업 설명 대신 상품 개요(기초지수·운용사·분류)를 사업요약으로 사용
   if(isFundLike(code)&&curEtf){
     /* [v2.5.4] ETF·ETN도 최소 5문장 서술형 — 기초지수·운용사·순자산·보수·성과·유의사항 */
@@ -14285,21 +14351,38 @@ function buildBizSummary(){
      사업 내용과 무관한 UI·안내 문구는 원천에서 걸러낸다. */
   const _uiNoise=/MY\s*STOCK|마이\s*스톡|그룹(?:을|이)?\s*추가|관심\s*(?:종목|그룹)|로그인|즐겨찾기|더보기|화면\s*번호|종목\s*토론|인쇄|클릭|바로가기|안내\s*닫기|팝업|배너|이벤트\s*참여/i;
   const ovp=(curFund&&Array.isArray(curFund.overview))?curFund.overview.filter(x=>x&&x.length>=10&&!/\uFFFD/.test(x)&&!_uiNoise.test(x)):null;
-  let sents=[];
-  if(ovp&&ovp.length){ try{ sents=smoothBizText(ovp.join(' '),s.name)||[]; }catch(e){ sents=[]; } }
-  if(!sents.length&&BIZ_DESC[code])sents=[String(BIZ_DESC[code]).replace(/<[^>]*>/g,'').trim()];
-  const _ovText=(curFund&&Array.isArray(curFund.overview))?curFund.overview.join(' '):'';
+  let overviewSents=[];
+  if(ovp&&ovp.length){ try{ overviewSents=smoothBizText(ovp.join(' '),s.name)||[]; }catch(e){ overviewSents=[]; } }
+  if(!overviewSents.length&&BIZ_DESC[code])overviewSents=[String(BIZ_DESC[code]).replace(/<[^>]*>/g,'').trim()];
+  /* 기업개요 원문·수기 설명 모두 키워드 분석에 넣는다. 신규 종목도 같은 엔진을 탄다. */
+  const _ovText=[(curFund&&Array.isArray(curFund.overview))?curFund.overview.join(' '):'',
+    curFund&&curFund.desc||'',BIZ_DESC[code]||''].filter(Boolean).join(' ');
   const bizTags=bizDetectTags(code,s,sector,_ovText);
-  const easy=bizEasySentences(s.name||code,bizTags,code);
-  const facts=bizDataSentences(code,s,sector,!sents.length);
-  const seen=new Set(sents.map(x=>x.slice(0,12)));
-  /* 원문(무엇을 하는 회사) → 사업 분야 쉬운 설명 → 실적·주가·밸류 데이터 순 */
-  easy.concat(facts).forEach(f=>{ if(!seen.has(f.slice(0,12))){ sents.push(f); seen.add(f.slice(0,12)); } });
-  if(sents.length<6)sents=sents.concat(bizFillerSentences(code,s,sector).filter(f=>!seen.has(f.slice(0,12))));
-  sents=sents.slice(0,14);
+  const easy=bizEasySentences(s.name||code,bizTags,code,sector,_ovText);
+  const facts=bizDataSentences(code,s,sector,!overviewSents.length);
+  const fillers=bizFillerSentences(code,s,sector);
+  /* 중복 판정은 문장 앞 12자 잘라 비교하지 않는다. 서로 다른 분야 문장이 같은 접두어를
+     가진다는 이유로 빠지던 문제를 막는다. 본문 → 실적·시세 → 보조 안내 → 분야별 풀이 순. */
+  const sentenceKey=x=>String(x||'').replace(/\s+/g,' ').trim().toLowerCase();
+  const base=[],seen=new Set();
+  [...overviewSents,...facts,...fillers].forEach(f=>{
+    const k=sentenceKey(f);if(k&&!seen.has(k)){base.push(String(f).trim());seen.add(k);}
+  });
+  const easyTail=[],easySeen=new Set();
+  easy.forEach(f=>{const k=sentenceKey(f);if(k&&!seen.has(k)&&!easySeen.has(k)){easyTail.push(String(f).trim());easySeen.add(k);}});
+  /* 최대 14문장 안에서도 분야별 풀이는 항상 맨 뒤에 남도록 먼저 자리를 확보한다. */
+  const tail=easyTail.slice(0,6);
+  const coreLimit=Math.max(0,14-tail.length);
+  let sents=base.slice(0,coreLimit).concat(tail).slice(0,14);
+  if(!sents.length)sents=tail.length?tail:[`${s.name||code}의 사업 정보는 최신 기업개요와 공시를 기준으로 확인해야 합니다.`];
   const P_=(t)=>`<p class="biz-p">${t}</p>`;
   const fullTxt=sents.map(P_).join('');
-  let main=sents.slice(0,7).map(P_).join('');
+  /* 접힌 미리보기에서도 분야별 풀이가 보이도록, 긴 요약은 앞 5문장 + 끝 2문장으로 표시한다.
+     전문 보기에는 원문·실적·분야 풀이가 모두 올바른 순서로 들어간다. */
+  const preview=(sents.length>7&&tail.length)
+    ?sents.slice(0,Math.max(1,7-Math.min(2,tail.length))).concat(sents.slice(-Math.min(2,tail.length)))
+    :sents.slice(0,7);
+  let main=preview.map(P_).join('');
   if(sents.length>7)main+=`<button class="biz-more" id="bizMore">사업요약 전문 보기 (${sents.length}문장) ›</button>`;
   const bits=[];
   const inc=curFund.finance&&curFund.finance.income;

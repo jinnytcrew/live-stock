@@ -18177,7 +18177,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.27";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.30";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18520,7 +18520,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-25"; BUNDLED_VERSION.notes = ["종목 미리보기 패널에 시가총액·체결강도·PER·EPS·당일추정치 추가", "종목 미리보기 패널에 관심종목 ☆ 버튼 추가", "투자 캘린더: 모든 종목을 공시로 확인(배치 호출)", "투자 캘린더: 이미 실적을 공시한 종목을 공시일로 바로잡고 지난 추정일 제거", "친구 신청 시 실제 존재하는 아이디가 '그런 아이디가 없어요'로 실패하던 문제 수정", "ETF 구성종목 조회 호스트를 stock.naver.com으로 전환(모바일 호스트는 예비)", "투자자별 합계·행을 최근 1개월·거래소(KRX) 기준으로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-25 15:10"; } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-26 23:05"; BUNDLED_VERSION.notes = ["사업요약 분야별 풀이 누락 보완 — 신규·비표준 업종 종목에도 공통 생성 경로 적용", "기업개요·실적·시세 뒤에 분야별 쉬운 풀이를 배치하고 문장 중복 판정 개선"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-26 23:05"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
