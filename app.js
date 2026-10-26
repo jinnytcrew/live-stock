@@ -13074,6 +13074,60 @@ function sideExtraHtml(code){
       <div class="ssp-note ssp-mts-note">${c.err?'지표를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.':'값이 없는 항목은 —로 표시합니다. 투자자 수치는 거래소 집계 기준 최근 거래일 순매수(주)이며, 체결강도는 최근 체결 기준 산출값입니다.'}</div>
     </div>`;
 }
+/* [v17.8.28] 미리보기 그래프 — 당일 1분봉을 시간축(가로=실제 시각)으로 그린다.
+   예전에는 최근 틱 36개를 같은 간격으로 이어 붙여 계단처럼 보였다. */
+const sideIntra={};
+function loadSideIntraday(code){
+  const c=sideIntra[code];
+  if(c&&(c.loading||Date.now()-c.at<45000))return;
+  sideIntra[code]=Object.assign({arr:[]},c||{},{loading:true,at:Date.now()});
+  const mkt=(byCode[code]&&byCode[code].market==='코스닥')?'KOSDAQ':'KOSPI';
+  fetch(`/api/chart?code=${encodeURIComponent(code)}&tf=MIN&m=1&mkt=${mkt}`,{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    let arr=(j.candles||[]).map(x=>{const cl=+x.c;if(!(cl>0))return null;const t=dtToMs(x.d);if(isNaN(t))return null;return{t,c:cl,h:+x.h>0?+x.h:cl,l:+x.l>0?+x.l:cl};}).filter(Boolean).sort((a,b)=>a.t-b.t);
+    sideIntra[code]={arr,at:Date.now(),loading:false};
+  }).catch(()=>{sideIntra[code]={arr:(sideIntra[code]&&sideIntra[code].arr)||[],at:Date.now(),loading:false};})
+  .then(()=>{if(stockSideCode===code)renderStockSidePanel(code,true);});
+}
+function sideChartPoints(code,px){
+  const day=(t)=>{const d=new Date(t);return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();};
+  const pts=[];
+  const base=(sideIntra[code]&&sideIntra[code].arr)||[];
+  base.forEach(c=>pts.push({t:c.t,v:c.c}));
+  const ticks=(byCode[code]&&byCode[code].ticks)||[];
+  ticks.forEach(k=>{const p=Number(k&&k.p),t=Number(k&&k.t);if(p>0&&t>0)pts.push({t,v:p});});
+  if(!pts.length)return[];
+  pts.sort((a,b)=>a.t-b.t);
+  /* 가장 최근 거래일 데이터만 사용 */
+  const last=day(pts[pts.length-1].t);
+  let out=pts.filter(q=>day(q.t)===last);
+  /* 분봉(과거)과 실시간 틱이 같은 시각이면 실시간 값이 우선 */
+  const m=new Map();out.forEach(q=>m.set(q.t,q));out=[...m.values()].sort((a,b)=>a.t-b.t);
+  /* 이상치(가격대 절반 미만·2배 초과) 제거 */
+  const sv=out.map(q=>q.v).sort((a,b)=>a-b),md=sv[Math.floor(sv.length/2)];
+  if(md>0)out=out.filter(q=>q.v>=md*.5&&q.v<=md*2);
+  /* 헤더 현재가와 그래프 끝점을 일치시킨다 */
+  if(px>0&&out.length&&out[out.length-1].v!==px)out.push({t:Math.max(Date.now(),out[out.length-1].t+1),v:px});
+  return out;
+}
+function sideChartSvg(pts,prev,stroke){
+  if(pts.length<2)return'';
+  const W=100,H=40,top=4,bot=36;
+  let lo=Math.min(...pts.map(q=>q.v)),hi=Math.max(...pts.map(q=>q.v));
+  if(prev>0){lo=Math.min(lo,prev);hi=Math.max(hi,prev);}
+  let span=hi-lo;if(!(span>0)){span=Math.max(1,hi*.002);lo-=span/2;hi+=span/2;span=hi-lo;}
+  const pad=span*.08;lo-=pad;hi+=pad;span=hi-lo;
+  const t0=pts[0].t,t1=pts[pts.length-1].t,dt=Math.max(1,t1-t0);
+  const X=(t)=>((t-t0)/dt*W).toFixed(2),Y=(v)=>(top+(hi-v)/span*(bot-top)).toFixed(2);
+  const path=pts.map((q,i)=>(i?'L':'M')+X(q.t)+','+Y(q.v)).join(' ');
+  const area=path+` L ${W},${bot+3} L 0,${bot+3} Z`;
+  const pl=prev>0?`<line x1="0" x2="${W}" y1="${Y(prev)}" y2="${Y(prev)}" stroke="#98a2b3" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity=".7"></line>`:'';
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="당일 분봉 흐름"><path d="${area}" fill="${stroke}" opacity=".10"></path>${pl}<path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
+}
+function sideChartTimes(pts){
+  if(pts.length<2)return'';
+  const f=(t)=>{const d=new Date(t);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
+  return `<div class="ssp-chart-times"><span>${f(pts[0].t)}</span><span>${f(pts[pts.length-1].t)}</span></div>`;
+}
 function renderStockSidePanel(code,preserveScroll=false){
   const panel=$('stockSidePanel'),body=$('stockSideBody');
   if(!panel||!body||!code||stockSideCode!==code||panel.hidden)return;
@@ -13090,16 +13144,12 @@ function renderStockSidePanel(code,preserveScroll=false){
   const name=s.name||code;
   const market=s.market||mktCache[String(code).toUpperCase()]||'KRX';
   const nxt=nxtCapability(code)===true;
-  const ticks=(Array.isArray(s.ticks)?s.ticks:[]).slice(-36).map(t=>Number(t&&t.p)).filter(v=>Number.isFinite(v)&&v>0);
-  let chart='';
-  if(ticks.length>1){
-    const lo=Math.min(...ticks),hi=Math.max(...ticks),span=hi-lo||Math.max(1,hi*.001);
-    const pts=ticks.map((v,i)=>`${(i/(ticks.length-1)*100).toFixed(2)},${(5+(hi-v)/span*27).toFixed(2)}`);
-    const path=pts.map((p,i)=>(i?'L':'M')+p).join(' ');
-    const area=path+' L 100,39 L 0,39 Z';
-    const stroke=diff==null||diff===0?'#98a2b3':(diff>0?'#df5864':'#3478e8');
-    chart=`<svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="최근 수신 시세 흐름"><path d="${area}" fill="${stroke}" opacity=".10"></path><path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
-  }else chart='<div class="ssp-chart-empty">실시간 시세를 받으면 흐름이 표시됩니다</div>';
+  loadSideIntraday(code);
+  const cpts=sideChartPoints(code,hasPx?px:0);
+  const stroke=diff==null||diff===0?'#98a2b3':(diff>0?'#df5864':'#3478e8');
+  let chart=sideChartSvg(cpts,hasPrev?prev:0,stroke);
+  let chartTimes=chart?sideChartTimes(cpts):'';
+  if(!chart){const ld=sideIntra[code]&&sideIntra[code].loading;chart=`<div class="ssp-chart-empty">${ld?'분봉 불러오는 중…':'실시간 시세를 받으면 흐름이 표시됩니다'}</div>`;}
   const low=Number(s.low||0),high=Number(s.high||0);
   const rangeOk=hasPx&&low>0&&high>=low&&high>0;
   const rangePct=rangeOk?Math.max(0,Math.min(100,(px-low)/(high-low||1)*100)):50;
@@ -13119,7 +13169,7 @@ function renderStockSidePanel(code,preserveScroll=false){
       <div class="ssp-price num ${dir}">${hasPx?KRW(px):'시세 확인 중'}</div>
       <div class="ssp-change ${dir}">${diff==null?'전일 대비 —':`${diff>0?'▲':diff<0?'▼':'—'} ${KRW(Math.abs(diff))}원 <span>${rate>0?'+':''}${rate.toFixed(2)}%</span>`}</div>
       <div class="ssp-live-label">${liveTag||'통합 시세 기준'} · 실제 주문이 아닌 모의투자</div>
-      <div class="ssp-chart">${chart}</div>
+      <div class="ssp-chart">${chart}</div>${chartTimes}
       ${rangeOk?`<div class="ssp-range"><div class="ssp-range-labels"><span>저가 ${KRW(low)}</span><span>고가 ${KRW(high)}</span></div><div class="ssp-range-track"><i style="left:${rangePct}%"></i></div></div>`:''}
     </div>
     <div class="ssp-stats">
@@ -13976,6 +14026,221 @@ const BIZ_DESC={
 '251270':'모바일 게임을 개발·퍼블리싱하는 게임기업으로, 다양한 IP 기반 신작을 출시합니다.',
 '068760':'셀트리온 그룹의 국내 의약품 제조·판매 계열사로 바이오시밀러와 케미컬 의약품을 담당합니다.',
 '402340':'SK그룹의 반도체·ICT 투자 전문 중간지주회사로 SK하이닉스 등을 자회사로 둡니다.'};
+/* ══ [v17.8.29] 사업요약 업그레이드 — 업종 키워드 + 쉬운 설명 ═════════════════════
+   기업을 잘 모르는 사람도 "뭐 하는 회사인지" 바로 알 수 있도록
+   ① 사업 분야 키워드(#반도체 #자동차 #로봇 …)를 여러 개 뽑고
+   ② 분야마다 '쉽게 말해 무엇인지·무엇이 주가를 움직이는지'를 풀어 쓴다.
+   키워드는 종목명·기업개요 원문·수기 설명·테마 태그에서 찾고, 대형 복합기업은 수기 지정값을 우선한다. */
+const BIZ_TAG_INFO={
+'반도체':['컴퓨터·스마트폰·서버·자동차에 들어가 데이터를 저장하고 계산하는 핵심 부품(칩)을 설계·생산하는 산업입니다.','AI 서버 투자, 메모리 가격과 업황 사이클'],
+'AI':['사람처럼 학습·판단하는 인공지능 기술과 AI 반도체·서비스를 만드는 분야입니다.','AI 투자 규모와 신규 서비스 수요'],
+'2차전지':['충전해서 반복 사용하는 배터리로, 전기차와 에너지저장장치(ESS)의 핵심 부품입니다.','전기차 판매량과 배터리 소재 가격'],
+'전기차':['휘발유 대신 전기로 달리는 자동차와 관련 부품을 만드는 분야입니다.','전기차 보급 속도와 각국 보조금 정책'],
+'자동차':['승용차·SUV·상용차 등 완성차와 자동차 부품을 만들어 파는 산업입니다.','판매 대수, 환율, 관세·무역 정책'],
+'자율주행':['운전자 없이 차가 스스로 달리도록 하는 센서·소프트웨어 기술입니다.','기술 상용화 시점과 규제 변화'],
+'로봇':['공장·물류·서비스 현장에서 사람의 일을 대신하는 산업·협동·휴머노이드 로봇을 개발·생산하는 분야입니다.','로봇 상용화 기대와 정부·대기업 투자 뉴스'],
+'우주항공':['항공기·위성·발사체 등 하늘과 우주로 나가는 장비와 서비스를 다루는 산업입니다.','정부 우주 예산, 수출 계약, 발사 성공 소식'],
+'방산':['전투기·미사일·전차·함정 같은 무기와 군사 장비를 만들어 정부와 해외 군에 공급하는 산업입니다.','해외 수출 계약과 국방 예산, 지정학적 긴장'],
+'원전':['우라늄 핵분열로 전기를 만드는 원자력발전소의 설계·기자재·정비를 맡는 분야입니다.','원전 신규 수주와 각국의 원전 확대 정책'],
+'전력':['전기를 만들어 송전·배전해 공급하는 데 필요한 변압기·전선·발전 설비와 전력 서비스 분야입니다.','AI 데이터센터 전력 수요와 노후 전력망 교체 투자'],
+'전기':['전력기기·전선·배전반 등 전기를 안전하게 보내고 쓰게 하는 장비 분야입니다.','전력망 투자와 해외 수주'],
+'에너지':['석유·가스·전력 등 사회가 쓰는 에너지를 생산·정제·유통하는 분야입니다.','국제 유가와 정제 마진, 에너지 정책'],
+'신재생에너지':['태양광·풍력처럼 고갈되지 않는 자원으로 전기를 만드는 분야입니다.','각국의 탄소중립 정책과 금리'],
+'수소':['물이나 가스에서 얻는 수소를 연료로 쓰는 연료전지·수소차·충전 인프라 분야입니다.','정부 보급 정책과 수소차 판매'],
+'정유화학':['원유를 정제해 휘발유·나프타를 만들고 이를 플라스틱·합성소재 등으로 가공하는 산업입니다.','국제 유가와 제품 스프레드(판매가-원료가)'],
+'화학':['플라스틱·합성섬유·정밀화학 소재 등 다른 산업의 원료를 만드는 산업입니다.','원료 가격과 중국 등 글로벌 수요'],
+'소재':['반도체·배터리·디스플레이 등 제품의 재료가 되는 핵심 소재를 만드는 분야입니다.','고객사 생산량과 원재료 가격'],
+'철강':['철광석으로 쇳물과 강판을 만들어 자동차·건설·조선 등에 공급하는 산업입니다.','철강 가격, 중국산 공급 과잉과 건설·자동차 경기'],
+'제약':['사람의 병을 치료하는 의약품을 개발·생산·판매하는 산업입니다.','신약 임상 결과, 허가 소식, 기술 수출'],
+'바이오':['생명공학 기술로 항체·백신·세포치료제 등 바이오의약품을 개발·생산하는 분야입니다.','임상 단계 진척, 기술이전(라이선스 아웃) 계약'],
+'의료기기':['진단·수술·치료에 쓰는 의료장비와 소모품을 만드는 분야입니다.','수출 증가와 신제품 인허가'],
+'헬스케어':['건강관리·진단·디지털 의료 서비스를 아우르는 분야입니다.','고령화 수요와 규제 변화'],
+'조선':['LNG운반선·컨테이너선·군함 등 선박을 설계·건조하는 산업입니다.','신조선 수주 물량과 선가, 강재 가격'],
+'해운':['선박으로 화물을 실어 나르며 운임으로 돈을 버는 산업입니다.','컨테이너 운임지수(SCFI)와 글로벌 물동량'],
+'항공':['여객·화물을 비행기로 수송하는 항공운송 산업입니다.','여행 수요, 유가, 환율'],
+'건설':['아파트·플랜트·인프라를 짓는 산업으로 수주 후 공사 진행에 따라 매출이 잡힙니다.','부동산 경기, 해외 수주, 원자재 가격'],
+'인터넷':['검색·쇼핑·콘텐츠 등 온라인 플랫폼을 운영하고 광고·수수료로 돈을 버는 산업입니다.','광고 경기와 이용자 수, 신규 AI 서비스'],
+'게임':['PC·모바일·콘솔 게임을 개발·서비스하는 산업으로, 신작 흥행에 실적이 좌우됩니다.','신작 출시 일정과 흥행 여부'],
+'엔터':['음악·공연·드라마·영화 등 콘텐츠와 아티스트를 기획·유통하는 산업입니다.','아티스트 활동 일정과 앨범·콘서트 흥행'],
+'미디어':['방송·영화·광고 등 콘텐츠를 만들고 전달하는 산업입니다.','광고 경기와 콘텐츠 흥행'],
+'통신':['이동통신·인터넷·IPTV 등 통신망 서비스를 제공하고 월 요금으로 안정적 수익을 얻는 산업입니다.','가입자 수, 요금 정책, 배당'],
+'소프트웨어':['기업·개인이 쓰는 프로그램과 IT 서비스를 개발·공급하는 분야입니다.','신규 계약과 클라우드·AI 전환 수요'],
+'클라우드':['서버와 저장 공간을 인터넷으로 빌려주는 서비스로, 데이터센터 사업과 연결됩니다.','기업 클라우드 전환과 AI 인프라 투자'],
+'보안':['해킹·정보유출에서 기업과 개인을 지키는 보안 솔루션 분야입니다.','사이버 위협 증가와 정부·기업 보안 투자'],
+'금융':['예금·대출·결제 등 돈을 중개하고 이자·수수료로 수익을 얻는 산업입니다.','기준금리, 대손비용, 배당·주주환원 정책'],
+'은행':['예금을 받아 대출해 주고 이자 차이로 돈을 버는 대표적 금융 업종입니다.','기준금리와 연체율, 배당'],
+'증권':['주식·채권 거래 중개와 투자은행(IB) 업무로 수익을 얻는 업종입니다.','증시 거래대금과 시장 분위기'],
+'보험':['위험을 대신 떠안는 대가로 보험료를 받아 운용해 수익을 얻는 업종입니다.','금리, 손해율, 배당'],
+'지주회사':['여러 계열사의 지분을 들고 그룹을 지배·관리하며 배당과 브랜드 수수료 등을 받는 회사입니다.','자회사 실적과 지배구조 개편 소식'],
+'디스플레이':['스마트폰·TV·노트북 화면(OLED·LCD)을 만드는 산업입니다.','IT·TV 수요와 신규 패널 채택'],
+'전자부품':['스마트폰·자동차·가전에 들어가는 카메라모듈·MLCC·기판 등 부품을 만드는 분야입니다.','고객사 신제품 출시와 재고 사이클'],
+'가전':['TV·냉장고·세탁기·에어컨 등 가정용 전자제품을 만들어 파는 산업입니다.','소비 경기, 신제품과 프리미엄 가전 판매'],
+'스마트폰':['스마트폰 완제품과 관련 서비스를 만드는 분야입니다.','신제품 출시와 글로벌 점유율'],
+'화장품':['스킨케어·메이크업 제품을 만들어 국내외에 판매하는 산업입니다.','중국·미국 등 수출 동향과 신흥 브랜드 성장'],
+'음식료':['식품·음료·주류를 만들어 파는 필수 소비재 산업입니다.','원재료 가격과 해외 판매 성장'],
+'유통':['백화점·마트·편의점·온라인몰을 통해 상품을 파는 산업입니다.','소비 심리와 온라인 경쟁'],
+'여행':['여행·호텔·카지노 등 관광 수요를 다루는 산업입니다.','입국자 수와 환율'],
+'기계':['공장 설비·건설기계·공작기계 등 산업용 기계를 만드는 산업입니다.','설비 투자와 수주 잔고'],
+'부동산':['건물·토지를 개발·임대·운영하며 수익을 얻는 분야입니다.','금리와 임대율'],
+'교육':['학원·출판·온라인 교육 서비스를 제공하는 분야입니다.','학령인구와 신규 서비스 흥행'],
+'환경':['폐기물 처리·재활용·수처리 등 환경 인프라를 운영하는 분야입니다.','환경 규제와 처리 단가'],
+'우주':['위성·발사체 등 우주 인프라를 다루는 분야입니다.','발사 성공 여부와 정부 예산']
+};
+/* 종목명·원문에서 키워드를 찾는 규칙 — 앞에서부터 많이 걸릴수록 앞쪽에 나온다 */
+const BIZ_TAG_RULES=[
+['반도체',/반도체|DRAM|D램|낸드|NAND|HBM|파운드리|웨이퍼|메모리/i],
+['AI',/\bAI\b|인공지능|생성형|거대언어|LLM|HyperCLOVA|GPU|NPU/i],
+['2차전지',/2차전지|이차전지|배터리|양극재|음극재|전해질|분리막|리튬/],
+['전기차',/전기차|EV\b|전동화|xEV/i],
+['자동차',/자동차|완성차|승용차|자동차\s*부품|차량/],
+['자율주행',/자율주행|ADAS|라이다|LiDAR/i],
+['로봇',/로봇|로보틱스|휴머노이드|협동\s*로봇|자동화\s*설비/],
+['우주항공',/우주|항공우주|위성|발사체|누리호|항공기|UAM|드론|항공엔진/],
+['방산',/방산|방위|국방|무기|유도|미사일|전차|전투기|함정|군수|레이더|탄약|K9|K2/],
+['원전',/원전|원자력|SMR|소형모듈|핵연료|원자로/i],
+['전력',/전력|변압기|송배전|전력망|발전소|발전\s*설비|가스터빈/],
+['전기',/전선|케이블|배전|전기\s*설비|전력기기|전기장비|일렉트릭|ELECTRIC/i],
+['에너지',/에너지|정유|석유|가스|LNG|도시가스|발전/],
+['신재생에너지',/태양광|풍력|신재생|재생에너지|연료전지|ESS/],
+['수소',/수소|연료전지|FCEV/],
+['정유화학',/정유|나프타|석유화학|NCC/],
+['화학',/화학|케미칼|화성|플라스틱|합성|정밀화학/],
+['소재',/소재|첨단소재|전자재료|특수강|동박|실리콘/],
+['철강',/철강|제철|강판|스틸|STEEL|POSCO|포스코/i],
+['제약',/제약|의약품|신약|제네릭|전문의약품|파마|PHARM/i],
+['바이오',/바이오|BIO|항체|백신|세포치료|CDMO|유전자|임상|시밀러/i],
+['의료기기',/의료기기|임플란트|초음파|진단기기|의료장비|수술/],
+['조선',/조선|선박|LNG선|컨테이너선|해양플랜트|함정|조선소|중공업/],
+['해운',/해운|해상\s*운송|컨테이너\s*운임|벌크선|해운업/],
+['항공',/항공사|여객|화물\s*운송|항공\s*운송|항공/],
+['건설',/건설|시공|토목|플랜트|인프라|EPC|주택|분양/],
+['인터넷',/검색|포털|플랫폼|커머스|쇼핑몰|온라인|메신저|핀테크/],
+['게임',/게임|MMORPG|RPG|모바일\s*게임|퍼블리싱/],
+['엔터',/엔터|엔터테인먼트|아티스트|음반|콘서트|K-?POP|연예/i],
+['미디어',/방송|드라마|영화|콘텐츠|광고|웹툰|OTT/],
+['통신',/통신|이동통신|5G|IPTV|네트워크\s*서비스|인터넷\s*망/],
+['소프트웨어',/소프트웨어|SW\b|솔루션|SI\b|시스템\s*통합|IT\s*서비스|ERP/i],
+['클라우드',/클라우드|데이터센터|IDC|NCP|서버\s*호스팅/],
+['보안',/보안|해킹|사이버|백신\s*소프트|암호/],
+['금융',/금융|은행|증권|보험|카드|캐피탈|자산운용/],
+['은행',/은행|예금|대출|여신/],
+['증권',/증권|브로커리지|위탁매매|투자은행|IB\b/],
+['보험',/보험|손해보험|생명보험|재보험/],
+['지주회사',/지주|홀딩스|HOLDINGS|HOLDING/i],
+['디스플레이',/디스플레이|OLED|LCD|디스플레이\s*패널|\bLED\b/i],
+['전자부품',/전자부품|MLCC|카메라\s*모듈|PCB|기판|커넥터|전자\s*소재/],
+['가전',/가전|\bTV\b|냉장고|세탁기|에어컨|생활가전/],
+['스마트폰',/스마트폰|갤럭시|휴대폰|모바일\s*기기/],
+['화장품',/화장품|코스메틱|뷰티|스킨케어|메이크업/],
+['음식료',/식품|음료|제과|라면|주류|맥주|소주|유업|식음료/],
+['유통',/유통|백화점|편의점|대형마트|할인점|이커머스|홈쇼핑/],
+['여행',/여행|호텔|카지노|리조트|면세/],
+['기계',/기계|건설기계|공작기계|굴착기|공조|산업기계/],
+['부동산',/부동산|리츠|REIT|임대|개발\s*사업/i],
+['환경',/환경|폐기물|재활용|수처리|소각/],
+['교육',/교육|학원|출판|에듀|교과서/]
+];
+/* 대형·복합 기업은 수기 지정(여러 분야를 최대한 많이). [분야…, 사업 축 한 줄] */
+const BIZ_PROFILE={
+'005930':[['반도체','스마트폰','가전','디스플레이','AI','소프트웨어','전자부품'],'반도체(DS)·모바일/가전(DX)·디스플레이·하만(전장·오디오)'],
+'000660':[['반도체','AI','클라우드'],'DRAM·NAND·HBM(AI 메모리)·낸드 자회사 솔리다임'],
+'005380':[['자동차','전기차','로봇','수소','자율주행','우주항공','금융'],'승용·SUV·제네시스·상용차·전기차(아이오닉)·로보틱스(보스턴다이내믹스)·수소(HTWO)·UAM·현대캐피탈'],
+'000270':[['자동차','전기차','자율주행','수소'],'승용·SUV·RV·전기차(EV)·PBV(목적기반차량)·수소차'],
+'012330':[['자동차','전기차','자율주행','전자부품'],'자동차 핵심 모듈·전동화 부품·램프·제동·조향·A/S 부품'],
+'373220':[['2차전지','전기차','신재생에너지','소재'],'전기차 배터리·ESS·원통형/파우치형 셀'],
+'006400':[['2차전지','전기차','신재생에너지','전자부품','소재'],'전기차 배터리·ESS·소형 전지·전자재료'],
+'096770':[['에너지','정유화학','2차전지','소재'],'정유·석유화학·배터리(SK온)·소재·윤활유'],
+'051910':[['화학','2차전지','소재','바이오','정유화학'],'석유화학·첨단소재·양극재·팜한농·생명과학'],
+'003670':[['2차전지','소재','철강'],'양극재·음극재 등 배터리 소재(포스코퓨처엠)'],
+'005490':[['철강','2차전지','소재','건설','에너지'],'철강·리튬·니켈·이차전지소재·에너지·인프라'],
+'207940':[['바이오','제약'],'바이오의약품 위탁생산(CDMO)·바이오시밀러(삼성바이오에피스)'],
+'068270':[['바이오','제약'],'바이오시밀러(램시마 등)·신약·케미컬 의약품'],
+'326030':[['제약','바이오'],'뇌전증 신약(세노바메이트) 등 중추신경계 신약'],
+'000100':[['제약','바이오'],'전문의약품·신약 개발·기술수출(렉라자 등)'],
+'035420':[['인터넷','AI','클라우드','소프트웨어','금융','엔터','미디어','유통'],'검색·커머스(스마트스토어)·핀테크(네이버페이)·콘텐츠(웹툰)·클라우드(NCP)·AI(하이퍼클로바X)'],
+'035720':[['인터넷','게임','엔터','금융','AI','미디어','유통'],'카카오톡·모빌리티·페이·뱅크·콘텐츠(멜론·웹툰)·AI'],
+'034730':[['지주회사','반도체','에너지','2차전지','바이오','통신','AI','클라우드'],'SK하이닉스·SK이노베이션·SK텔레콤·SK바이오팜 등 계열사 지배'],
+'003550':[['지주회사','가전','화학','2차전지','바이오','통신'],'LG전자·LG화학·LG에너지솔루션·LG유플러스 등 계열사 지배'],
+'066570':[['가전','자동차','AI','전자부품','로봇','디스플레이'],'생활가전·TV·전장(자동차 부품)·B2B(HVAC)·AI·로봇'],
+'034020':[['원전','전력','에너지','수소','신재생에너지','기계','방산'],'원전·가스터빈·풍력·수소·SMR·건설기계(두산밥캣)'],
+'012450':[['방산','우주항공','로봇','전력','조선'],'지상방산(K9)·항공엔진·유도무기·위성·발사체·방산 수출'],
+'047810':[['방산','우주항공','항공'],'KF-21 전투기·FA-50 경공격기·헬기(수리온)·위성·UAM'],
+'064350':[['방산','철도','기계','자동차'],'K2 전차·철도차량·방산·수소전기트램'],
+'079550':[['방산','전자부품'],'유도무기·레이더 등 방산 전자·정밀유도'],
+'272210':[['방산','우주항공','전자부품'],'방산 전자장비·레이더·위성·UAM'],
+'042660':[['조선','방산','에너지'],'LNG운반선·군함·잠수함·해양플랜트'],
+'329180':[['조선','에너지','로봇'],'LNG선·컨테이너선·해양플랜트·엔진'],
+'009540':[['조선','로봇','에너지'],'조선·해양·엔진·지주 기능(HD한국조선해양)'],
+'010140':[['조선','에너지','방산'],'상선·특수선·플랜트·엔진'],
+'267260':[['전력','전기','에너지'],'변압기·차단기·배전반 등 전력기기'],
+'010120':[['전력','전기','2차전지','자동화'],'전력기기·배전·자동화·배터리 설비'],
+'298040':[['전력','전기'],'변압기·전력기기'],
+'454910':[['로봇','자동화'],'협동로봇·산업용 로봇'],
+'277810':[['로봇','자동화','AI'],'휴머노이드·협동로봇·로봇 부품'],
+'015760':[['전력','에너지','원전'],'전력 생산·송배전·원전 운영'],
+'086520':[['2차전지','소재','지주회사'],'배터리 소재 지주회사(에코프로비엠 등)'],
+'247540':[['2차전지','소재','전기차'],'하이니켈 양극재'],
+'105560':[['금융','은행','증권','보험'],'KB국민은행·증권·손보·카드 등 종합금융'],
+'055550':[['금융','은행','증권','보험'],'신한은행·카드·증권·라이프 등 종합금융'],
+'086790':[['금융','은행','증권','보험'],'하나은행·증권·카드 등 종합금융'],
+'316140':[['금융','은행','증권','보험'],'우리은행·카드·증권 등 종합금융'],
+'032830':[['보험','금융'],'생명보험·자산운용'],
+'000810':[['보험','금융'],'손해보험·자동차보험'],
+'028260':[['건설','지주회사','유통','바이오','소프트웨어'],'건설·상사·패션·리조트와 삼성바이오로직스 등 지분'],
+'018260':[['소프트웨어','클라우드','AI','보안'],'IT서비스·클라우드·물류 솔루션·AI'],
+'017670':[['통신','AI','클라우드','보안'],'이동통신·AI 서비스·데이터센터'],
+'030200':[['통신','미디어','클라우드'],'이동통신·인터넷·IPTV·기업 솔루션'],
+'036570':[['게임'],'리니지 등 MMORPG 개발·서비스'],
+'251270':[['게임'],'모바일 게임 개발·퍼블리싱'],
+'352820':[['엔터','미디어'],'BTS 등 아티스트 음반·콘서트·플랫폼(위버스)'],
+'090430':[['화장품','음식료'],'아모레퍼시픽 브랜드 화장품'],
+'003490':[['항공','우주항공'],'국제선 여객·화물'],
+'011200':[['해운'],'컨테이너·벌크 해상 운송'],
+'009150':[['전자부품','소재'],'MLCC·카메라모듈·반도체 기판'],
+'402340':[['지주회사','반도체','AI','2차전지'],'SK하이닉스 등 반도체·ICT 투자 중간지주']
+};
+function bizDetectTags(code,s,sector,text){
+  const prof=BIZ_PROFILE[code];
+  const tags=[];
+  const push=(t)=>{if(t&&!tags.includes(t))tags.push(t);};
+  if(prof)prof[0].forEach(push);
+  /* 이름·원문·수기설명·섹터·테마 태그를 한 덩어리로 놓고, 규칙에 걸린 빈도 순으로 정렬 */
+  const hay=[s.name||'',sector||'',(s.tags||[]).join(' '),BIZ_DESC[code]||'',text||''].join(' ');
+  const hits=[];
+  BIZ_TAG_RULES.forEach(([t,re])=>{
+    const g=new RegExp(re.source,re.flags.includes('g')?re.flags:re.flags+'g');
+    const m=hay.match(g);
+    const nameHit=re.test(s.name||'');
+    if(m&&m.length)hits.push([t,m.length+(nameHit?3:0)]);
+  });
+  hits.sort((a,b)=>b[1]-a[1]);
+  const drop=new Set();
+  hits.forEach(([t,c])=>{ if(c>=2||(s.name||'').length&&new RegExp(BIZ_TAG_RULES.find(r=>r[0]===t)[1].source,'i').test(s.name||''))push(t); });
+  /* 섹터 기본 분류가 있으면 하나는 보장 */
+  const sec=String(sector||'').replace(/\s/g,'');
+  if(sec&&BIZ_TAG_INFO[sec])push(sec);
+  else if(sec&&!tags.length)push(sec);
+  /* 원문이 거의 없어 하나도 못 찾았으면 테마 태그를 키워드로 */
+  if(!tags.length)(s.tags||[]).slice(0,3).forEach(push);
+  return tags.filter(t=>!drop.has(t)).slice(0,10);
+}
+/* 쉬운 설명 문장 — 분야별로 '쉽게 말해 무엇인지'와 '주가를 움직이는 요인' */
+function bizEasySentences(nm,tags,code){
+  const out=[];
+  const prof=BIZ_PROFILE[code];
+  const eun=josaEun(nm);
+  const known=tags.filter(t=>BIZ_TAG_INFO[t]);
+  if(prof&&prof[1])out.push(`${nm}의 주요 사업 축은 ${prof[1]}입니다.`);
+  else if(tags.length>=2)out.push(`${nm}의 사업 분야는 ${tags.slice(0,5).join('·')} 등으로 구분됩니다.`);
+  known.slice(0,3).forEach((t,i)=>{
+    const [what]=BIZ_TAG_INFO[t];
+    out.push(i===0?`쉽게 말해 ${t} 분야는 ${what}`:`또한 ${t} 분야는 ${what}`);
+  });
+  const drivers=known.slice(0,3).map(t=>BIZ_TAG_INFO[t][1]).filter(Boolean);
+  if(drivers.length)out.push(`이 때문에 ${nm}의 주가는 ${drivers.slice(0,3).join(', ')} 같은 요인에 영향을 받는 경우가 많습니다.`);
+  if(tags.length>=3)out.push(`사업 분야가 여러 갈래라 한쪽이 부진해도 다른 쪽이 보완할 수 있지만, 분야마다 주가에 반영되는 시점과 속도가 달라 흐름이 한 방향으로만 움직이지는 않습니다.`);
+  return out;
+}
 function buildBizSummary(){
   const s=byCode[selected]||{},code=selected,sector=(s.tags&&s.tags[0])||'';   /* [v10.6] */
   // ETF는 기업 설명 대신 상품 개요(기초지수·운용사·분류)를 사업요약으로 사용
@@ -14023,22 +14288,26 @@ function buildBizSummary(){
   let sents=[];
   if(ovp&&ovp.length){ try{ sents=smoothBizText(ovp.join(' '),s.name)||[]; }catch(e){ sents=[]; } }
   if(!sents.length&&BIZ_DESC[code])sents=[String(BIZ_DESC[code]).replace(/<[^>]*>/g,'').trim()];
+  const _ovText=(curFund&&Array.isArray(curFund.overview))?curFund.overview.join(' '):'';
+  const bizTags=bizDetectTags(code,s,sector,_ovText);
+  const easy=bizEasySentences(s.name||code,bizTags,code);
   const facts=bizDataSentences(code,s,sector,!sents.length);
   const seen=new Set(sents.map(x=>x.slice(0,12)));
-  facts.forEach(f=>{ if(!seen.has(f.slice(0,12))){ sents.push(f); seen.add(f.slice(0,12)); } });
-  if(sents.length<5)sents=sents.concat(bizFillerSentences(code,s,sector).filter(f=>!seen.has(f.slice(0,12))));
-  sents=sents.slice(0,9);
+  /* 원문(무엇을 하는 회사) → 사업 분야 쉬운 설명 → 실적·주가·밸류 데이터 순 */
+  easy.concat(facts).forEach(f=>{ if(!seen.has(f.slice(0,12))){ sents.push(f); seen.add(f.slice(0,12)); } });
+  if(sents.length<6)sents=sents.concat(bizFillerSentences(code,s,sector).filter(f=>!seen.has(f.slice(0,12))));
+  sents=sents.slice(0,14);
   const P_=(t)=>`<p class="biz-p">${t}</p>`;
   const fullTxt=sents.map(P_).join('');
-  let main=sents.slice(0,5).map(P_).join('');
-  if(sents.length>5)main+=`<button class="biz-more" id="bizMore">사업요약 전문 보기 (${sents.length}문장) ›</button>`;
+  let main=sents.slice(0,7).map(P_).join('');
+  if(sents.length>7)main+=`<button class="biz-more" id="bizMore">사업요약 전문 보기 (${sents.length}문장) ›</button>`;
   const bits=[];
   const inc=curFund.finance&&curFund.finance.income;
   if(inc&&inc.rows&&inc.periods&&inc.periods.length){const last=inc.periods[inc.periods.length-1];const fr=(kw)=>inc.rows.find(r=>r.title&&r.title.replace(/\s/g,'').includes(kw));const nm=(row)=>row&&row.values&&row.values[last.key]!=null?numish2(row.values[last.key]):null;const sv=nm(fr('매출액')||fr('매출')),ov=nm(fr('영업이익'));if(sv)bits.push(`매출 ${fmtEokJo(sv)}`);if(ov)bits.push(`영업이익 ${fmtEokJo(ov)}`);}
   const per=sumStat(['PER']),pbr=sumStat(['PBR']);if(per)bits.push(`PER ${per}`);if(pbr)bits.push(`PBR ${pbr}`);
   const d=calcConsensus();if(d&&d.target&&d.upside!=null)bits.push(`목표주가 ${KRW(d.target)}원(${pctS(d.upside*100)})`);
   else if(d&&d.est&&d.est.target&&d.price)bits.push(`AI 추정 적정가 ${KRW(d.est.target)}원(${pctS((d.est.target-d.price)/d.price*100)}) · 참고용`);
-  return {txt:main,full:fullTxt,live:bits.join(' · '),tags:[sector].filter(Boolean)};
+  return {txt:main,full:fullTxt,live:bits.join(' · '),tags:(bizTags.length?bizTags:[sector].filter(Boolean)),axis:(BIZ_PROFILE[code]&&BIZ_PROFILE[code][1])||''};
 }
 /* ── [v2.5.4] 원화 문자열(1조 2,345억원) → 억원 숫자 ── */
 function eokFromKr(v){
@@ -15303,10 +15572,11 @@ function renderSummary(el,extraTop,extraBottom){
   // AI 사업요약 (맨 위)
   const biz=buildBizSummary();
   html+=`<div class="sum-card biz-card"><div class="sum-h">사업요약 <span class="ai-badge">AI</span></div>
+    ${biz.axis?`<div class="biz-axis">${htmlEsc(biz.axis.replace(/·/g,' · '))}</div>`:''}
     <div class="biz-txt">${biz.txt}</div>
     ${biz.live?`<div class="biz-live"><b>실시간</b> ${biz.live}</div>`:''}
-    ${biz.tags.length?`<div class="biz-tags">${biz.tags.map(t=>`<span>#${t}</span>`).join('')}</div>`:''}
-    <div class="sum-note" style="text-align:left">기업 개요 원문에 실시간 시세·실적을 결합해 자연스러운 문장으로 재구성한 요약입니다.</div></div>`;
+    ${biz.tags.length?`<div class="biz-tags-h">사업 분야</div><div class="biz-tags">${biz.tags.map(t=>`<span>#${htmlEsc(t)}</span>`).join('')}</div>`:''}
+    <div class="sum-note" style="text-align:left">기업 개요 원문에 사업 분야 설명과 실시간 시세·실적을 결합해 재구성한 요약입니다. 투자 판단 전 최신 공시를 함께 확인하세요.</div></div>`;
   _bizFull=biz.full;
   if(extraTop)html+=extraTop;
 

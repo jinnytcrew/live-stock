@@ -8430,6 +8430,7 @@ html.dark .ssp-badge.nxt{background:#422033;color:#ff9cc8}
 .ssp-live-label:before{content:'';width:6px;height:6px;border-radius:50%;background:#24b47e;box-shadow:0 0 0 3px rgba(36,180,126,.12)}
 .ssp-chart{height:91px;display:flex;align-items:center;margin-top:17px;padding:8px 10px;border-radius:15px;background:linear-gradient(135deg,var(--border-soft),color-mix(in srgb,var(--panel) 92%,var(--brand-2,#f5a30d) 8%));overflow:hidden}
 .ssp-chart svg{display:block;width:100%;height:100%;overflow:visible}
+.ssp-chart-times{display:flex;justify-content:space-between;margin-top:5px;padding:0 4px;font-size:10.5px;font-weight:700;color:var(--sub-2)}
 .ssp-chart-empty{font-size:11.5px;color:var(--sub-2);font-weight:700;width:100%;text-align:center}
 .ssp-range{margin-top:13px}
 .ssp-range-labels{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--sub);font-weight:750;font-variant-numeric:tabular-nums}
@@ -9028,3 +9029,11 @@ body.ask-open .stock-side-panel{pointer-events:none}
 .pend-box .pb-k.buy{background:var(--up,#e5484d)}
 .pend-box .pb-k.sell{background:var(--down,#3b82f6)}
 .pend-box .pb-x{border:1px solid var(--line,rgba(127,127,127,.3));background:transparent;color:var(--text);border-radius:8px;font-size:11.5px;font-weight:700;padding:4px 10px;cursor:pointer}
+
+/* [v17.8.29] 사업요약 업그레이드 */
+.biz-axis{margin:2px 0 10px;font-size:12.5px;font-weight:700;color:var(--sub);line-height:1.6}
+.biz-tags-h{margin-top:14px;font-size:11.5px;font-weight:800;color:var(--sub-2);letter-spacing:.02em}
+.biz-tags{gap:7px!important;margin-top:7px!important}
+.biz-tags span{font-size:13px!important;padding:6px 12px!important;border:1px solid rgba(124,58,237,.18)}
+html[data-theme="dark"] .biz-axis{color:var(--sub)}
+html[data-theme="dark"] .biz-tags span{background:rgba(139,92,246,.18);color:#ddd6fe;border-color:rgba(139,92,246,.35)}
