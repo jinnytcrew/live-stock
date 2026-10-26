@@ -10243,7 +10243,7 @@ function openHoldGate(){
 function renderAutoCard(){
   const el=$('autoCard');if(!el)return;
   const rows=[];
-  bookOrders.forEach(o=>rows.push(`<div class="au-r"><span class="au-k ${o.side}">${o.side==='buy'?'예약 매수':'예약 매도'}</span><b>${o.name}</b><span class="num">${KRW(o.qty)}주 · ${KRW(o.price)}원</span><i data-bo="${o.id}">✕</i></div>`));
+  bookActive().forEach(o=>rows.push(`<div class="au-r"><span class="au-k ${o.side}">${o.side==='buy'?'미체결 매수':'미체결 매도'}</span><b>${o.name}</b><span class="num">${o.us?fmtQty(o.qty)+'주 · $'+USD2(o.price):KRW(o.qty)+'주 · '+KRW(o.price)+'원'}</span><i data-bo="${o.id}">✕</i></div>`));
   holdings.forEach(h=>{
     if(h.stopPx)rows.push(`<div class="au-r"><span class="au-k down">손절</span><b>${(byCode[h.code]&&byCode[h.code].name)||h.code}</b><span class="num">${KRW(h.stopPx)}원 이하 전량</span><i data-sl="${h.code}">✕</i></div>`);
     if(h.takePx)rows.push(`<div class="au-r"><span class="au-k up">익절</span><b>${(byCode[h.code]&&byCode[h.code].name)||h.code}</b><span class="num">${KRW(h.takePx)}원 이상 전량</span><i data-tk="${h.code}">✕</i></div>`);
@@ -10252,9 +10252,9 @@ function renderAutoCard(){
     rows.push(`<div class="au-r"><span class="au-k on">알림</span><b>${a.name||c}</b><span class="num">${a.above?'↑'+KRW(a.above):''} ${a.below?'↓'+KRW(a.below):''}</span><i data-al="${c}">✕</i></div>`);});
   el.hidden=!rows.length;
   if(!rows.length)return;
-  el.innerHTML=`<div class="sec-title" style="margin:14px 0 10px">예약 · 자동 주문 · 알림 <span class="sec-sub">· 12초마다 감시 · 접속 중에만 작동</span></div>
+  el.innerHTML=`<div class="sec-title" style="margin:14px 0 10px">미체결 · 자동 주문 · 알림 <span class="sec-sub">· 4초마다 감시 · 접속 중에만 작동</span></div>
     <div class="panel au-panel">${rows.join('')}</div>`;
-  el.querySelectorAll('i[data-bo]').forEach(i=>i.onclick=()=>{bookOrders=bookOrders.filter(o=>o.id!==i.dataset.bo);saveState();renderAutoCard();toast('warn','예약 취소','');});
+  el.querySelectorAll('i[data-bo]').forEach(i=>i.onclick=()=>cancelPending(i.dataset.bo));
   el.querySelectorAll('i[data-sl]').forEach(i=>i.onclick=()=>{const h=holdings.find(x=>x.code===i.dataset.sl);if(h){delete h.stopPx;saveState();renderAutoCard();}});
   el.querySelectorAll('i[data-tk]').forEach(i=>i.onclick=()=>{const h=holdings.find(x=>x.code===i.dataset.tk);if(h){delete h.takePx;saveState();renderAutoCard();}});
   el.querySelectorAll('i[data-al]').forEach(i=>i.onclick=()=>{delete priceAlerts[i.dataset.al];saveState();renderAutoCard();});
@@ -10336,10 +10336,10 @@ function openStratStats(){
     <div class="pm-note">각 전략이 포착한 신호가 3거래일 내 +5%에 도달한 비율(자동 축적 · 표본 3건 이상부터 표시)</div>`);
 }
 /* ══ [v2.5] 자동 주문·가격 알림 엔진 ══
-   12초 시계로 예약 지정가·손절·익절·가격 알림을 감시한다(표시 시세와 같은 dispQuote 기준). */
+   4초 시계로 미체결 지정가·손절·익절·가격 알림을 감시한다(표시 시세와 같은 dispQuote 기준). */
 function autoWatchCodes(){
   const set=new Set();
-  bookOrders.forEach(o=>set.add(o.code));
+  bookOrders.forEach(o=>{ if(!o.us)set.add(o.code); });   /* [v17.8.27] 해외 주문의 티커로 국내 종목을 만들지 않는다 */
   holdings.forEach(h=>{const p=h.plan||{};
     if(h.stopPx||h.takePx||h.trailPct||p.autoStop||p.autoTake)set.add(h.code);});   /* [v9.82] */
   Object.keys(priceAlerts).forEach(c=>set.add(c));
@@ -10353,35 +10353,33 @@ function autoOrderTick(){
   if(!acctOpened())return;
   if(!currentUser)return;
   let changed=false;
-  /* 예약 지정가 */
+  /* ══ [v17.8.27] 미체결 주문 — 시세가 주문가에 닿는 순간 '현재가'로 체결한다 ═══════
+     매수는 현재가 ≤ 주문가, 매도는 현재가 ≥ 주문가일 때. 체결가는 주문가가 아니라 닿은 순간의
+     현재가다(매수는 주문가 이하, 매도는 주문가 이상이므로 항상 내 가격과 같거나 유리하다).
+     장이 닫혀 있으면 닿아 있어도 체결하지 않는다. */
+  const _usWant=[...new Set(bookActive().filter(o=>o.us).map(o=>o.code))];
+  if(_usWant.length&&!window._usBookBusy){ window._usBookBusy=true; try{ usEnsureQuotes(_usWant,false).catch(()=>{}).finally(()=>{window._usBookBusy=false;}); }catch(e){window._usBookBusy=false;} }
   for(const o of bookOrders.slice()){
+    if(o.acct&&o.acct!==acctActive)continue;       // 다른 계좌의 주문은 그 계좌로 바꿨을 때 처리
+    if(o.us){ if(usBookTick(o))changed=true; continue; }
     const q=dispQuote(o.code);if(!q||q.price==null)continue;
-    /* ══ [v9.90] 예약 주문의 체결가를 실제 거래소처럼 ═══════════════════════
-       [무엇이 달랐나] 조건에 닿으면 '지정가 그대로' 체결시켰다. 실제로는
-       시장이 내 지정가를 지나쳐 내려가면 그보다 좋은 값에 체결된다.
-         예) 5만원 매수 예약 → 시장이 49,000원까지 내려가면 49,000원에 산다
-       유리한 쪽을 버리고 있었던 셈이라, 실제보다 나쁜 결과가 기록됐다.
-       [고침] 매수는 지정가와 현재가 중 '싼 쪽', 매도는 '비싼 쪽'에 체결한다.
-       호가창 자료가 있으면 상대 호가를 우선해 더 정확하게 잡는다. */
     const hit=o.side==='buy'?q.price<=o.price:q.price>=o.price;
     if(!hit)continue;
     const st=byCode[o.code];if(!st)continue;
-    let fill=o.price;
-    try{
-      const ob=_obData[o.code];
-      const best=(ob&&ob.ok)?(o.side==='buy'?ob.bestAsk:ob.bestBid):null;
-      const mkt=(best>0)?best:q.price;
-      fill=(o.side==='buy')?Math.min(o.price,mkt):Math.max(o.price,mkt);
-      if(!(fill>0))fill=o.price;
-    }catch(e){ fill=o.price; }
-    /* [v4.5] 예전엔 체결을 시도하기 '전에' 예약을 지웠다. 예수금이 모자라 체결이
-       실패하면 예약이 아무 안내 없이 사라졌다. 성공했을 때만 목록에서 뺀다. */
-    const okd=executeOrderCore(st,{side:o.side,price:fill,qty:o.qty},
-      '예약 체결'+(fill!==o.price?` · ${KRW(fill)}원에 유리 체결`:''));
+    try{ if(settings.realHours&&!canTradeNow(o.code))continue; }catch(e){}
+    const fill=q.price;
+    const okd=executeOrderCore(st,{side:o.side,price:fill,qty:o.qty,bookId:o.id},
+      '미체결 주문 체결'+(fill!==o.price?` · 주문가 ${KRW(o.price)}원`:''));
     if(okd){bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;}
-    else if(o.side==='buy'&&orderCost('buy',o.price,o.qty).cost>cash){
+    else if(o.side==='buy'&&orderCost('buy',fill,o.qty).cost>availCash(o.id)){
       bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;
-      toast('warn','예약 주문 취소 · 예수금 부족',`${o.name} ${KRW(o.qty)}주 · ${KRW(o.price)}원 조건에 도달했지만 예수금이 모자라 체결하지 못했습니다.`);
+      toast('warn','미체결 주문 취소 · 예수금 부족',`${o.name} ${KRW(o.qty)}주 · ${KRW(o.price)}원 조건에 도달했지만 예수금이 모자라 체결하지 못했습니다.`);
+    }else if(o.side==='sell'){
+      const hh=holdings.find(x=>x.code===o.code&&!x.us);
+      if(!hh||intOf(hh.qty,0)<o.qty){
+        bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;
+        toast('warn','미체결 주문 취소 · 보유수량 부족',`${o.name} ${KRW(o.qty)}주 매도 조건에 도달했지만 보유 수량이 모자라 취소했습니다.`);
+      }
     }
   }
   /* ══ [v9.82] 손절·익절·트레일링 스탑 ═══════════════════════════════════════
@@ -10428,6 +10426,7 @@ function autoOrderTick(){
       }catch(e){}
       delete h.stopPx;delete h.takePx;delete h.trailPct;delete h.trailHi;
       if(h.plan){h.plan.autoStop=0;h.plan.autoTake=0;}
+      bookOrders=bookOrders.filter(x=>!(x.side==='sell'&&x.code===h.code&&!x.us&&(!x.acct||x.acct===acctActive)));   /* [v17.8.27] 손절은 전량 — 묶인 미체결 매도는 풀린다 */
       executeOrderCore(st,{side:'sell',price:px,qty:h.qty},tag);
       changed=true;continue;}
     if(takeAt!=null&&q.price>=takeAt){
@@ -10439,6 +10438,7 @@ function autoOrderTick(){
       }catch(e){}
       delete h.stopPx;delete h.takePx;delete h.trailPct;delete h.trailHi;
       if(h.plan){h.plan.autoStop=0;h.plan.autoTake=0;}
+      bookOrders=bookOrders.filter(x=>!(x.side==='sell'&&x.code===h.code&&!x.us&&(!x.acct||x.acct===acctActive)));
       executeOrderCore(st,{side:'sell',price:px,qty:h.qty},'익절 자동');changed=true;}
   }
   try{ fxAlertCheck(); }catch(e){}          /* [v9.87] 환율 알림도 같은 주기로 */
@@ -10450,7 +10450,7 @@ function autoOrderTick(){
     if(a.below&&q.price<=a.below){notifyPrice(nm,c,'하락 알림 ↓',a.below,q.price);delete a.below;changed=true;}
     if(!a.above&&!a.below)delete priceAlerts[c];
   }
-  if(changed){saveState();try{clanAutoSync(true);frAutoSync(true);}catch(e){}
+  if(changed){saveState();try{renderPendBox();syncMaxQty();}catch(e){}try{clanAutoSync(true);frAutoSync(true);}catch(e){}
     if(currentView==='account'){safeRun('holdings',renderHoldings);safeRun('autocard',renderAutoCard);}
     safeRun('mysum',renderMySum);safeRun('mysumtidy',tidyMySum);}
 }
@@ -10461,7 +10461,7 @@ function notifyPrice(nm,code,kind,target,cur){
       new Notification(`LIVE증권 · ${nm}`,{body:`${kind} — 설정 ${KRW(target)}원 · 현재 ${KRW(cur)}원`,icon:'/icon-192.png',tag:'px-'+code});
   }catch(e){}
 }
-setInterval(()=>{try{autoOrderTick();}catch(e){}},12e3);
+setInterval(()=>{try{autoOrderTick();}catch(e){}},4e3);   /* [v17.8.27] 미체결 주문 감시 — 4초 */
 /* [v5.01] 하루가 바뀌었는지 5분마다 확인해 이자를 정산한다(앱을 켜 둔 채 자정을 넘겨도 반영) */
 setInterval(()=>{try{acctInterestTick();}catch(e){}},300e3);
 /* ══ [v5.8] 받을 돈 확인 ═══════════════════════════════════════════════════
@@ -16719,7 +16719,7 @@ function foPlanModal(code){
         <input id="fpTrail" class="num" inputmode="decimal" value="${h.trailPct||''}" placeholder="예: 8"></div>
       <div class="fp-auto-n">오를 때는 손절선이 따라 올라가고, 내릴 때는 그대로 있습니다.
         ${h.trailHi?`현재 기준 고점 <b>${foMoney(st,h.trailHi)}</b>`:''}
-        <br><b>앱이 켜져 있을 때만</b> 작동하며, 12초마다 확인합니다. 실제 증권사의 자동주문과 달리 앱을 닫으면 실행되지 않습니다.</div>
+        <br><b>앱이 켜져 있을 때만</b> 작동하며, 4초마다 확인합니다. 실제 증권사의 자동주문과 달리 앱을 닫으면 실행되지 않습니다.</div>
     </div>
     <div class="lg-row"><button class="btn-primary" id="fpSave">저장</button><button class="btn-ghost" id="fpDel">계획 지우기</button></div>
     <div class="fo-help">계획은 <b>살 때 정해 두는 것</b>입니다. 값이 밀린 뒤에 손절가를 내리면 계획이 아니라 변명이 됩니다.</div>`);
@@ -18183,11 +18183,67 @@ function orderCost(side,price,qty){
 /* 지금 예수금으로 살 수 있는 최대 수량 — 수수료까지 감당 가능한 수량만 돌려준다 */
 function maxBuyQty(price){
   const p=intOf(price); if(p<=0)return 0;
-  let q=Math.floor(cash/(p*(1+FEE_RATE_OF())));
+  const av=availCash();                                   // [v17.8.27] 미체결 주문에 묶인 예수금은 뺀다
+  let q=Math.floor(av/(p*(1+FEE_RATE_OF())));
   if(q<0)q=0;
-  while(q>0&&orderCost('buy',p,q).cost>cash)q--;        // 반올림 오차 보정(최대 1~2회)
-  while(orderCost('buy',p,q+1).cost<=cash)q++;
+  while(q>0&&orderCost('buy',p,q).cost>av)q--;          // 반올림 오차 보정(최대 1~2회)
+  while(orderCost('buy',p,q+1).cost<=av)q++;
   return q;
+}
+/* ══ [v17.8.27] 지정가 주문은 '현재가에 닿아야' 체결된다 ═══════════════════════════
+   [무엇이 위험했나] 주문 버튼은 사용자가 적은 가격 그대로 즉시 체결시켰다. 현재가가
+     50,000원인 종목을 100,000원에 '매도'하면 곧바로 100,000원에 팔렸고, 1원에 '매수'하면
+     1원에 샀다. 시세와 무관하게 원하는 값에 체결되니 수익을 마음대로 만들 수 있다.
+   [실제 거래소] 지정가 주문은 '그 가격 이하(매수) · 이상(매도)'에서만 체결되고,
+     지금 시세가 이미 조건을 만족하면 내 가격이 아니라 "지금 시세"에 체결된다.
+       · 매수 : 현재가 ≤ 내 가격  → 현재가에 즉시 체결 / 현재가 > 내 가격 → 미체결 대기
+       · 매도 : 현재가 ≥ 내 가격  → 현재가에 즉시 체결 / 현재가 < 내 가격 → 미체결 대기
+     (현재가 = 내 가격이면 그 가격에 바로 체결)
+   [고침] 미체결 주문은 대기열(bookOrders)에 쌓고 4초마다 시세를 보며, 닿는 순간 체결한다.
+     미체결 매수는 예수금을, 미체결 매도는 보유 수량을 묶어 두어 같은 돈·주식으로
+     여러 주문을 동시에 걸 수 없다. 주문은 계좌별로 따로 관리한다. */
+function bookActive(){ return (Array.isArray(bookOrders)?bookOrders:[]).filter(o=>o&&(!o.acct||o.acct===acctActive)); }
+function reservedCash(exceptId){
+  let t=0;
+  bookActive().forEach(o=>{
+    if(o.side!=='buy'||o.id===exceptId)return;
+    if(o.us){ if(o.pay==='krw'){ try{ const c=usOrderCost('buy',o.price,o.qty,'krw'); if(c.krwCost>0)t+=c.krwCost; }catch(e){} } }
+    else t+=orderCost('buy',o.price,o.qty).cost;
+  });
+  return t;
+}
+function reservedUsd(exceptId){
+  let t=0;
+  bookActive().forEach(o=>{ if(o.us&&o.side==='buy'&&o.pay==='usd'&&o.id!==exceptId){ try{ t+=usOrderCost('buy',o.price,o.qty,null).netUsd; }catch(e){} } });
+  return +t.toFixed(2);
+}
+function reservedQty(code,exceptId){
+  let t=0;
+  bookActive().forEach(o=>{ if(o.side==='sell'&&o.code===code&&o.id!==exceptId)t+=(+o.qty||0); });
+  return t;
+}
+function availCash(exceptId){ return Math.max(0,cash-reservedCash(exceptId)); }
+function sellAvail(code){ const h=holdings.find(x=>x.code===code&&!x.us); return Math.max(0,(h?intOf(h.qty,0):0)-reservedQty(code)); }
+/* 지금 시세로 이 지정가가 체결되는가 — 체결되면 '체결가(=현재가)', 아니면 0 */
+function limitFillNow(side,limit,code){
+  const q=dispQuote(code)||{}, st=byCode[code]||{};
+  const cur=(q.price!=null)?q.price:st.price;
+  if(!(cur>0)||!(limit>0))return 0;
+  const hit=side==='buy'?cur<=limit:cur>=limit;
+  return hit?cur:0;
+}
+/* 가격제한폭(±30%) — 기준가는 '다음 체결의 전일 종가'. 장 시작 전·휴장에는 지금 표시 중인 종가가 기준이다. */
+function krPriceBand(code){
+  try{
+    const q=dispQuote(code)||{}, st=byCode[code]||{};
+    const cur=(q.price!=null)?q.price:st.price;
+    let base=0;
+    const closedNow=(marketSession().tone==='off');
+    if(closedNow||preOpenKR(code)||resetDueKR(code))base=cur;
+    else base=q.prevClose||st.prevClose||cur;
+    if(!(base>0))return null;
+    return [base*0.7,base*1.3];
+  }catch(e){ return null; }
 }
 /* ── 계좌 무결성 복구 ──
    불러온 계좌가 깨져 있으면(문자열·소수점·NaN·음수·잘못된 보유) 조용히 바로잡는다.
@@ -18284,7 +18340,8 @@ function syncPriceField(force){const inp=$('pxInput');if(force||userPrice===null
 function syncMaxQty(){const h=holdings.find(x=>x.code===selected);
   /* [v4.5] 수수료까지 감당 가능한 수량만 '가능'으로 표시한다. 예전엔 수수료를 빼먹어
      표시된 최대치를 그대로 주문하면 반드시 '예수금 부족'으로 거절됐다. */
-  if($('maxQty'))$('maxQty').textContent=ordSide==='buy'?'가능 '+KRW(maxBuyQty(getOrderPrice()))+'주':'보유 '+KRW(h?intOf(h.qty,0):0)+'주';}
+  if($('maxQty'))$('maxQty').textContent=ordSide==='buy'?'가능 '+KRW(maxBuyQty(getOrderPrice()))+'주':'매도 가능 '+KRW(sellAvail(selected))+'주';
+  try{renderPendBox();}catch(e){}}
 document.querySelectorAll('.ord-tabs button').forEach(b=>b.onclick=()=>{
   ordSide=b.dataset.side;document.querySelectorAll('.ord-tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
   const sub=$('submitBtn');sub.className='submit '+ordSide;sub.textContent=ordSide==='buy'?'매수 주문':'매도 주문';syncPriceField(false);});
@@ -18635,7 +18692,7 @@ function setQty(q){$('qtyInput').value=KRW(Math.max(0,q));updateOrderTotal();}
 $('qtyUp').onclick=()=>setQty(getQty()+1);$('qtyDown').onclick=()=>setQty(Math.max(0,getQty()-1));
 $('qtyInput').addEventListener('input',e=>{e.target.value=e.target.value.replace(/[^0-9,]/g,'');updateOrderTotal();});
 $('qtyQuick').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const r=+b.dataset.q/100;
-  if(ordSide==='buy')setQty(Math.floor(maxBuyQty(getOrderPrice())*r));else{const h=holdings.find(x=>x.code===selected);setQty(Math.floor(intOf(h&&h.qty,0)*r));}});
+  if(ordSide==='buy')setQty(Math.floor(maxBuyQty(getOrderPrice())*r));else{setQty(Math.floor(sellAvail(selected)*r));}});
 
 /* 주문 → 계좌 비밀번호 → 체결 */
 let pendingOrder=null,pwBuf='';
@@ -18706,31 +18763,33 @@ $('submitBtn').onclick=()=>{
   const price=getOrderPrice(),qty=getQty();if(qty<=0){toast('warn','수량을 확인하세요','1주 이상');return;}
   if(!(price>0)){toast('warn','주문가격을 확인하세요','1원 이상');return;}
   /* [v4.5] 체결 함수와 똑같은 orderCost 로 검증한다 — 화면 표시와 실제 판정이 어긋나지 않게. */
-  const _c=orderCost(ordSide,price,qty);
-  if(ordSide==='buy'&&_c.cost>cash){
+  const isMkt=(ordType==='market');
+  /* [v17.8.27] 가격제한폭 — 시세와 동떨어진 가격은 거래소가 접수하지 않는다 */
+  if(!isMkt){
+    const band=krPriceBand(s.code);
+    if(band&&(price<Math.ceil(band[0])||price>Math.floor(band[1]))){
+      toast('warn','가격제한폭 밖의 주문가격',`기준가 ±30% (${KRW(Math.ceil(band[0]))}원 ~ ${KRW(Math.floor(band[1]))}원) 안에서 주문하세요`);
+      return;}
+  }
+  /* 즉시 체결되면 체결가(현재가)로, 미체결로 접수되면 내 지정가로 예수금을 따진다 */
+  const fillNow=isMkt?price:limitFillNow(ordSide,price,s.code);
+  const effPx=fillNow>0?fillNow:price;
+  const _c=orderCost(ordSide,effPx,qty);
+  const _avail=availCash();
+  if(ordSide==='buy'&&_c.cost>_avail){
+    const held=cash-_avail;
     toast('warn','주문 불가 · 예수금 부족',
-      `필요 ${KRW(_c.cost)}원(주문 ${KRW(_c.amount)} + 수수료 ${KRW(_c.fee)}) · 예수금 ${KRW(cash)}원 · ${KRW(_c.cost-cash)}원 모자랍니다 · 최대 ${KRW(maxBuyQty(price))}주까지 가능`);
+      `필요 ${KRW(_c.cost)}원(주문 ${KRW(_c.amount)} + 수수료 ${KRW(_c.fee)}) · 주문 가능 ${KRW(_avail)}원`+(held>0?` (미체결 주문에 ${KRW(held)}원 묶임)`:'')+` · ${KRW(_c.cost-_avail)}원 모자랍니다 · 최대 ${KRW(maxBuyQty(effPx))}주까지 가능`);
     return;}
   const h=holdings.find(x=>x.code===s.code);
-  if(ordSide==='sell'&&(!h||h.qty<qty)){toast('warn','보유수량 부족',`보유 ${KRW(h?h.qty:0)}주`);return;}
-  /* [v2.5] 예약 주문 — 체크 시 조건 미충족 가격이면 대기열에 등록하고 도달 시 자동 체결 */
-  const bookOn=$('ordBook')&&$('ordBook').checked;
-  if(bookOn){
-    const q=dispQuote(s.code)||{},cur=q.price!=null?q.price:s.price;
-    const immediate=ordSide==='buy'?(cur!=null&&cur<=price):(cur!=null&&cur>=price);
-    if(!immediate){
-      /* [v11.2] 등급별 예약 주문 개수 — 감시 대상이 늘어나면 서버 부담도 는다 */
-      if(bookOrders.length>=tierLimit('book')){
-        tierBlockLimit('book',bookOrders.length+1,'예약 주문은'); return false;
-      }
-      bookOrders.push({id:'b'+Date.now().toString(36),code:s.code,name:s.name,side:ordSide,qty,price,createdAt:Date.now()});
-      subscribeAutoCodes();saveState();
-      toast('on','예약 주문 등록',`${s.name} ${ordSide==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 도달 시 자동 체결`);
-      if(currentView==='account')safeRun('autocard',renderAutoCard);
-      return;
-    }
-  }
-  pendingOrder={side:ordSide,price,qty};
+  const _free=sellAvail(s.code);
+  if(ordSide==='sell'&&(!h||_free<qty)){
+    const rq=h?intOf(h.qty,0)-_free:0;
+    toast('warn','보유수량 부족',`매도 가능 ${KRW(_free)}주`+(rq>0?` (미체결 매도 ${KRW(rq)}주 묶임)`:`· 보유 ${KRW(h?intOf(h.qty,0):0)}주`));return;}
+  /* 미체결로 접수될 주문이면 등급별 한도를 먼저 확인한다 */
+  if(!isMkt&&!(fillNow>0)&&bookOrders.length>=tierLimit('book')){
+    tierBlockLimit('book',bookOrders.length+1,'미체결 주문은'); return false;}
+  pendingOrder={side:ordSide,price,qty,market:isMkt};
   if(settings.orderPass){openPw();}                 // 비밀번호 확인 ON
   else{const o=pendingOrder;pendingOrder=null;executeOrder(o);}  // OFF: 즉시 주문
 };
@@ -18752,10 +18811,58 @@ $('keypad').addEventListener('click',e=>{const b=e.target.closest('button');if(!
       pwBuf='';setTimeout(renderPwDots,400);
     }});}});
 $('pwCancel').onclick=closePw;
-function executeOrder(o){return executeOrderCore(byCode[selected],o,'');}
+function executeOrder(o){
+  const s=byCode[selected];
+  if(!o||!s||o.market)return executeOrderCore(s,o,'');      // 시장가는 호가 기준가로 바로 체결
+  /* [v17.8.27] 지정가 — 비밀번호를 치는 사이 시세가 움직였을 수 있으니 '지금' 다시 판정한다 */
+  const fill=limitFillNow(o.side,o.price,s.code);
+  if(fill>0){
+    return executeOrderCore(s,{side:o.side,price:fill,qty:o.qty},
+      fill!==o.price?`지정가 ${KRW(o.price)}원 · 현재가 ${KRW(fill)}원에 체결`:'');
+  }
+  return placePendingOrder(s,o);
+}
+function placePendingOrder(s,o){
+  if(!acctRequire('주문'))return false;
+  const price=intOf(o&&o.price,0), qty=intOf(o&&o.qty,0);
+  if(!s||!s.code||price<=0||qty<=0){toast('warn','주문 실패','주문 정보를 확인하세요');return false;}
+  if(o.side==='buy'){
+    const c=orderCost('buy',price,qty);
+    if(c.cost>availCash()){toast('warn','주문 불가 · 예수금 부족',`필요 ${KRW(c.cost)}원 · 주문 가능 ${KRW(availCash())}원`);return false;}
+  }else{
+    if(sellAvail(s.code)<qty){toast('warn','주문 불가 · 매도 가능 수량 부족',`매도 가능 ${KRW(sellAvail(s.code))}주 · 주문 ${KRW(qty)}주`);return false;}
+  }
+  if(bookOrders.length>=tierLimit('book')){ tierBlockLimit('book',bookOrders.length+1,'미체결 주문은'); return false; }
+  bookOrders.push({id:'b'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),code:s.code,name:s.name,side:o.side,qty,price,acct:acctActive,createdAt:Date.now()});
+  subscribeAutoCodes();saveState();
+  const q=dispQuote(s.code)||{}, cur=(q.price!=null)?q.price:s.price;
+  toast('on','미체결 주문 접수',`${s.name} ${o.side==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 · 현재가 ${KRW(cur)}원 → ${KRW(price)}원에 닿으면 체결`);
+  setQty(0);syncMaxQty();
+  if(currentView==='account')safeRun('autocard',renderAutoCard);
+  return true;
+}
+function cancelPending(id){
+  const n=bookOrders.length;
+  bookOrders=bookOrders.filter(o=>o.id!==id);
+  if(bookOrders.length!==n){saveState();toast('warn','미체결 주문 취소','묶여 있던 예수금·수량이 풀렸습니다');}
+  try{renderPendBox();}catch(e){}
+  try{syncMaxQty();}catch(e){}
+  try{if(currentView==='ustrade')renderUsOrder();}catch(e){}
+  if(currentView==='account')safeRun('autocard',renderAutoCard);
+}
+function renderPendBox(){
+  const el=$('pendBox'); if(!el)return;
+  const list=bookActive().filter(o=>!o.us&&o.code===selected);
+  if(!list.length){ if(!el.hidden){el.hidden=true;el.innerHTML='';} return; }
+  const html=`<div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결</small></div>`
+    +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">${KRW(o.price)}원 · ${KRW(o.qty)}주</span><button class="pb-x" data-pbc="${o.id}" aria-label="미체결 주문 취소">취소</button></div>`).join('');
+  if(el.dataset.sig!==html){ el.dataset.sig=html; el.innerHTML=html;
+    el.querySelectorAll('[data-pbc]').forEach(b=>b.onclick=()=>cancelPending(b.dataset.pbc)); }
+  el.hidden=false;
+}
 /* [v2.5] 코어 분리 — 예약·손절·익절 자동 체결이 '보고 있지 않은 종목'에도 안전하게 작동 */
 let _settling=false;                 // [v4.5] 재진입 방지 — 연타·자동체결 겹침으로 잔고가 두 번 빠지는 것을 막는다
-function executeOrderCore(s,o,tag){
+function executeOrderCore(s,o,tag){   /* o.bookId: 미체결 주문이 닿아 체결되는 경우 — 자기 자신의 묶음은 제외하고 따진다 */
   /* [B3] 호출부 검증과 별개로 여기서 한 번 더 확인한다.
      비밀번호 입력 중 시세·보유가 바뀌었거나 호출 경로가 늘어나도 잔고가 깨지지 않게 한다.
      [v4.5] 성공 여부를 boolean 으로 돌려준다 — 예약주문이 실패를 알아채야 하기 때문. */
@@ -18771,14 +18878,15 @@ function executeOrderCore(s,o,tag){
   if(o.side==='buy'){
     /* 예수금 검증은 '주문금액 + 수수료' 기준. 주문 버튼·최대수량 계산도 같은 orderCost 를 쓰므로
        화면에서 가능하다고 표시된 주문은 여기서 절대 거절되지 않는다(반대도 마찬가지). */
-    if(c.cost>cash){
+    const _av=availCash(o&&o.bookId);                    // [v17.8.27] 다른 미체결 주문에 묶인 예수금은 쓸 수 없다
+    if(c.cost>_av){
       toast('warn','주문 불가 · 예수금 부족',
-        `필요 ${KRW(c.cost)}원(주문 ${KRW(c.amount)} + 수수료 ${KRW(c.fee)}) · 보유 예수금 ${KRW(cash)}원 · ${KRW(c.cost-cash)}원 모자랍니다`);
+        `필요 ${KRW(c.cost)}원(주문 ${KRW(c.amount)} + 수수료 ${KRW(c.fee)}) · 주문 가능 예수금 ${KRW(_av)}원 · ${KRW(c.cost-_av)}원 모자랍니다`);
       return false;
     }
   }else{
     const hh=holdings.find(x=>x.code===s.code);
-    if(!hh||intOf(hh.qty,0)<qty){toast('warn','주문 불가 · 보유수량 부족',`보유 ${KRW(hh?intOf(hh.qty,0):0)}주 · 주문 ${KRW(qty)}주`);return false;}
+    if(!hh||intOf(hh.qty,0)-reservedQty(s.code,o&&o.bookId)<qty){toast('warn','주문 불가 · 매도 가능 수량 부족',`보유 ${KRW(hh?intOf(hh.qty,0):0)}주 · 미체결 매도에 묶임 ${KRW(reservedQty(s.code,o&&o.bookId))}주 · 주문 ${KRW(qty)}주`);return false;}
   }
   _settling=true;
   try{
@@ -24788,13 +24896,64 @@ function usOrderCost(side,px,qty,pay){
 }
 function usAutoPay(px,qty){                                        // 자동: 달러가 충분하면 달러
   const need=+(px*qty*(1+US_FEE_OF())).toFixed(2);
-  return usdCash>=need?'usd':'krw';
+  return (usdCash-reservedUsd())>=need?'usd':'krw';
 }
 function usMaxQty(px,pay){
   if(!(px>0))return 0;
-  if(pay==='usd')return Math.max(0,Math.floor(usdCash/(px*(1+US_FEE_OF()))*100)/100);
+  if(pay==='usd')return Math.max(0,Math.floor(Math.max(0,usdCash-reservedUsd())/(px*(1+US_FEE_OF()))*100)/100);
   const f=usFxBuy(); if(!f)return 0;
-  return Math.max(0,Math.floor(cash/(px*f*(1+US_FEE_OF()))*100)/100);
+  return Math.max(0,Math.floor(availCash()/(px*f*(1+US_FEE_OF()))*100)/100);
+}
+/* ══ [v17.8.27] 해외 지정가도 같은 규칙 — 현재가에 닿아야 체결, 닿기 전엔 미체결 ═══════ */
+function usSellAvail(t){ const h=holdings.find(x=>x.code===t&&x.us); return Math.max(0,(h?h.qty:0)-reservedQty(t)); }
+function usRouteOrder(side,o){
+  const m=usMeta[usSel]; if(!m)return false;
+  const px=Math.round((+o.price||0)*100)/100, qty=Math.round((+o.qty||0)*100)/100;
+  if(!(px>0)||!(qty>=0.01)){toast('warn','주문 실패','가격과 수량(0.01주 이상)을 확인하세요');return false;}
+  const cur=+(usQ[usSel]||{}).price;
+  if(!(cur>0)){toast('warn','시세 수신 대기','현재가를 받은 뒤 주문하세요');return false;}
+  const hit=side==='buy'?cur<=px:cur>=px;
+  if(hit)return usExecuteOrder(side,{price:+cur.toFixed(2),qty});      // 지금 시세로 체결 — 내 가격이 아니라 현재가
+  /* ── 미체결 접수 ── */
+  if(!acctRequire('해외 주문'))return false;
+  {const a=ACCT_TYPES[acctType]; if(a&&a.usOk===0){toast('warn','이 계좌로는 해외 주식을 살 수 없습니다',`${a.n}는 해외 주식 직접매매를 지원하지 않습니다.`);return false;}}
+  if(!usFx()){toast('warn','주문 불가','환율을 아직 받지 못했습니다. 잠시 후 다시 시도하세요');return false;}
+  try{ if(userPrefs&&userPrefs.realGate!==false&&usSession().phase==='closed'){toast('warn','미국 증시 휴장','다음 개장 '+usSession().next+' (한국시간)');return false;} }catch(e){}
+  let pay='usd';
+  if(side==='buy'){
+    pay=usPay==='auto'?usAutoPay(px,qty):usPay;
+    const c=usOrderCost('buy',px,qty,pay==='krw'?'krw':null);
+    if(pay==='usd'){ const av=Math.max(0,usdCash-reservedUsd());
+      if(c.netUsd>av){toast('warn','달러 예수금 부족',`필요 $${USD2(c.netUsd)} · 주문 가능 $${USD2(av)}`);return false;} }
+    else{ const av=availCash();
+      if(c.krwCost>av){toast('warn','예수금 부족',`필요 ${KRW(c.krwCost)}원 · 주문 가능 ${KRW(av)}원`);return false;} }
+  }else if(usSellAvail(usSel)<qty-1e-9){
+    toast('warn','매도 가능 수량 부족',`매도 가능 ${fmtQty(usSellAvail(usSel))}주`);return false;
+  }
+  if(bookOrders.length>=tierLimit('book')){ tierBlockLimit('book',bookOrders.length+1,'미체결 주문은'); return false; }
+  bookOrders.push({id:'b'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),code:usSel,name:m.kr,side,qty,price:px,us:1,pay,acct:acctActive,createdAt:Date.now()});
+  saveState();
+  toast('on','미체결 주문 접수',`${m.kr} ${side==='buy'?'매수':'매도'} ${fmtQty(qty)}주 · $${USD2(px)} · 현재가 $${USD2(cur)} → $${USD2(px)}에 닿으면 체결`);
+  try{ $('usPassWrap').hidden=true; $('usPassIn').value=''; }catch(e){}
+  renderUsOrder(); try{renderPortfolioNumbers();}catch(e){}
+  return true;
+}
+function usBookTick(o){
+  const cur=+(usQ[o.code]||{}).price; if(!(cur>0))return false;
+  const hit=o.side==='buy'?cur<=o.price:cur>=o.price; if(!hit)return false;
+  try{ if(userPrefs&&userPrefs.realGate!==false&&usSession().phase==='closed')return false; }catch(e){}
+  const keepSel=usSel, keepPay=usPay; let ok=false;
+  try{ usSel=o.code; usPay=o.pay||'usd'; ok=usExecuteOrder(o.side,{price:+cur.toFixed(2),qty:o.qty,bookId:o.id}); }
+  finally{ usSel=keepSel; usPay=keepPay; }
+  try{ if(currentView==='ustrade'&&usSel)renderUsOrder(); }catch(e){}
+  if(ok){ bookOrders=bookOrders.filter(x=>x.id!==o.id); return true; }
+  /* 잔고·수량이 모자라 못 사는 주문은 접수를 취소한다(4초마다 같은 경고가 반복되지 않게) */
+  let short=false;
+  if(o.side==='buy'){ const c=usOrderCost('buy',cur,o.qty,o.pay==='krw'?'krw':null);
+    short=o.pay==='krw'?(c.krwCost>availCash(o.id)):(c.netUsd>Math.max(0,usdCash-reservedUsd(o.id))); }
+  else{ const h=holdings.find(x=>x.code===o.code&&x.us); short=!h||h.qty<o.qty-1e-9; }
+  if(short){ bookOrders=bookOrders.filter(x=>x.id!==o.id); toast('warn','미체결 주문 취소',`${o.name} 조건에 도달했지만 잔고·수량이 모자라 취소했습니다.`); return true; }
+  return false;
 }
 var usPay='auto';
 /* 하단 탭바는 화면 폭·글꼴·기기 안전영역에 따라 높이가 달라진다. 숫자로 박아 두면
@@ -24875,9 +25034,17 @@ function renderUsOrder(){
     <div class="us-pass us-fld" id="usPassWrap" hidden><label><span>계좌 비밀번호</span></label>
       <div class="us-inrow"><input id="usPassIn" type="password" inputmode="numeric" maxlength="4" placeholder="4자리" style="text-align:center"></div></div>
     <button class="us-submit ${usSide}" id="usSubmit">${fx?(usSide==='buy'?'매수 주문':'매도 주문'):'환율 확인 중 · 눌러서 다시 시도'}</button>
-    <div class="us-ord-note">※ 수수료 ${(US_FEE*100).toFixed(2)}%${usSide==='sell'?' + SEC Fee '+(US_SEC_FEE*100).toFixed(4)+'%':''} · 거래세 없음 · 소수점(0.01주) 매매 지원<br>
+    ${usPendHTML()}
+    <div class="us-ord-note">※ 지정가는 <b>현재가에 닿아야 체결</b>됩니다 — 닿기 전까지는 미체결로 대기해요.<br>
+    ※ 수수료 ${(US_FEE*100).toFixed(2)}%${usSide==='sell'?' + SEC Fee '+(US_SEC_FEE*100).toFixed(4)+'%':''} · 거래세 없음 · 소수점(0.01주) 매매 지원<br>
     ※ 모의 체결 — 실제 브로커의 원화주문은 가환율로 결제 후 익일 정산되지만, 여기서는 정식 환율을 즉시 적용합니다.</div>`;
   updateUsSum(); wireUsOrder();
+}
+function usPendHTML(){
+  const list=bookActive().filter(o=>o.us&&o.code===usSel);
+  if(!list.length)return '';
+  return `<div class="pend-box"><div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결</small></div>`
+    +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">$${USD2(o.price)} · ${fmtQty(o.qty)}주</span><button class="pb-x" data-uscancel="${o.id}">취소</button></div>`).join('')+'</div>';
 }
 function updateUsSum(){
   const el=$('usSum'); if(!el)return;
@@ -24903,6 +25070,7 @@ function updateUsSum(){
 function wireUsOrder(){
   document.querySelectorAll('[data-usside]').forEach(b=>b.onclick=()=>{usSide=b.dataset.usside;renderUsOrder();renderUsCta();});
   wireOrdAcct('usOrdAcctSel',()=>{ renderUsOrder(); try{renderUsHead();}catch(e){} });   // [v4.56]
+  document.querySelectorAll('[data-uscancel]').forEach(b=>b.onclick=()=>cancelPending(b.dataset.uscancel));
   document.querySelectorAll('[data-uspay]').forEach(b=>b.onclick=()=>{usPay=b.dataset.uspay;renderUsOrder();});
   const pxIn=$('usPxIn'),qIn=$('usQtyIn');
   const step=(d)=>{const v=Math.max(0.01,(parseFloat(pxIn.value)||0)+d*0.01);pxIn.value=v.toFixed(2);usOrdPx=v;updateUsSum();};
@@ -24934,7 +25102,7 @@ function wireUsOrder(){
       if(!ok){ toast('warn','비밀번호 오류',acctPwUnset()
         ?'이 계좌에는 비밀번호가 설정돼 있지 않습니다. 내 계좌에서 먼저 정해 주세요.'
         :'계좌 비밀번호 4자리를 확인하세요'); return; }
-      usExecuteOrder(usSide,{price:parseFloat(pxIn.value)||0,qty:Math.round((parseFloat(qIn.value)||0)*100)/100});
+      usRouteOrder(usSide,{price:parseFloat(pxIn.value)||0,qty:Math.round((parseFloat(qIn.value)||0)*100)/100});
     });
   };
 }
@@ -24962,12 +25130,12 @@ function usExecuteOrder(side,o){
     const c=usOrderCost('buy',px,qty,pay==='krw'?'krw':null);
     let fxPaid;                                                       // 이번 매수의 매입환율
     if(pay==='usd'){
-      if(c.netUsd>usdCash){toast('warn','달러 예수금 부족',
-        `필요 $${USD2(c.netUsd)} · 보유 $${USD2(usdCash)} — 환전하거나 원화 자동환전으로 바꿔 주세요`);return false;}
+      if(c.netUsd>Math.max(0,usdCash-reservedUsd(o.bookId))){toast('warn','달러 예수금 부족',
+        `필요 $${USD2(c.netUsd)} · 주문 가능 $${USD2(Math.max(0,usdCash-reservedUsd(o.bookId)))} — 환전하거나 원화 자동환전으로 바꿔 주세요`);return false;}
       usdCash=+(usdCash-c.netUsd).toFixed(2); fxPaid=fx;              // 이미 환전된 달러 — 현재환율로 근사 기록
     }else{
-      if(c.krwCost>cash){toast('warn','예수금 부족',
-        `필요 ${KRW(c.krwCost)}원 · 보유 ${KRW(cash)}원 · ${KRW(c.krwCost-cash)}원 모자랍니다`);return false;}
+      if(c.krwCost>availCash(o.bookId)){toast('warn','예수금 부족',
+        `필요 ${KRW(c.krwCost)}원 · 주문 가능 ${KRW(availCash(o.bookId))}원 · ${KRW(c.krwCost-availCash(o.bookId))}원 모자랍니다`);return false;}
       cash=intOf(cash-c.krwCost,0); fxPaid=c.fxBuy;
     }
     const h=holdings.find(x=>x.code===usSel&&x.us);
@@ -24984,7 +25152,7 @@ function usExecuteOrder(side,o){
       `${fmtQty(qty)}주 · $${USD2(px)} · ${pay==='usd'?'달러 결제 $'+USD2(c.netUsd)+' · 달러잔고 $'+USD2(usdCash):'원화 결제 '+KRW(c.krwCost)+'원 · 잔고 '+KRW(cash)+'원'}`);
   }else{
     const h=holdings.find(x=>x.code===usSel&&x.us);
-    if(!h||h.qty<qty-1e-9){toast('warn','보유수량 부족',`보유 ${h?fmtQty(h.qty):0}주`);return false;}
+    if(!h||h.qty-reservedQty(usSel,o.bookId)<qty-1e-9){toast('warn','매도 가능 수량 부족',`보유 ${h?fmtQty(h.qty):0}주 · 미체결 매도에 묶임 ${fmtQty(reservedQty(usSel,o.bookId))}주`);return false;}
     const c=usOrderCost('sell',px,qty,null);
     /* 매도 대금은 달러로 입금 + T+1 정산 예약 (재매수는 즉시 가능, 환전은 정산 후) */
     usdCash=+(usdCash+c.netUsd).toFixed(2);
@@ -25002,8 +25170,8 @@ function usExecuteOrder(side,o){
   try{sanitizeAccount(true);}catch(e){}
   saveState();
   try{renderPortfolioNumbers();}catch(e){}
-  $('usPassWrap').hidden=true; $('usPassIn').value='';
-  renderUsOrder(); renderUsMineSafe();
+  try{ $('usPassWrap').hidden=true; $('usPassIn').value=''; }catch(e){}   /* [v17.8.27] 다른 화면에서 미체결이 체결될 때는 이 칸이 없다 */
+  try{ if($('usOrder'))renderUsOrder(); }catch(e){} renderUsMineSafe();
   return true;
 }
 function renderUsMineSafe(){try{if(currentView==='us')renderUsMine();}catch(e){}}

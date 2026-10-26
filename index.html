@@ -1347,13 +1347,14 @@ body.needs-auth #authGate{z-index:2000001}
           <button class="ot-select" id="otSelect"><span id="otSelText">KRX · 보통지정가</span><span class="ot-caret">▾</span></button>
           <div class="field"><div class="lab"><span>주문가격</span><span id="priceHint" class="num"></span></div>
             <div class="stepper"><button id="pxDown" aria-label="주문가격 낮추기">−</button><input id="pxInput" class="num" inputmode="numeric" aria-label="주문가격"><button id="pxUp" aria-label="주문가격 올리기">+</button><span class="unit">원</span></div></div>
-          <label class="ord-book"><input type="checkbox" id="ordBook"> 예약 주문 <span>지정가 도달 시 자동 체결</span></label>
+          <div class="ord-book-note">지정가는 <b>현재가에 닿아야 체결</b>돼요 · 닿기 전까지는 미체결로 대기합니다</div>
           <div class="field"><div class="lab"><span>주문수량</span><span class="num" id="maxQty"></span></div>
             <div class="stepper"><button id="qtyDown" aria-label="수량 줄이기">−</button><input id="qtyInput" class="num" value="1" inputmode="numeric" aria-label="주문수량"><button id="qtyUp" aria-label="수량 늘리기">+</button><span class="unit">주</span></div>
             <div class="qty-quick" id="qtyQuick"><button data-q="10">10%</button><button data-q="25">25%</button><button data-q="50">50%</button><button data-q="100">최대</button></div></div>
           <div class="ord-summary"><span>주문금액</span><span class="amt num" id="ordTotal">0원</span></div>
           <button class="submit buy" id="submitBtn">매수 주문</button>
           <div class="ord-note">※ 주문 시 계좌 비밀번호 필요 · 로컬 모의 체결(실제 주문 아님) · 시세는 실제입니다.</div>
+          <div class="pend-box" id="pendBox" hidden></div>
         </div>
       </div>
     <div class="panel d-glance" id="dGlance" hidden>

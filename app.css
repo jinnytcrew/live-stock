@@ -9014,3 +9014,17 @@ body.ask-open .stock-side-panel{pointer-events:none}
   .hold-wrap td.hw-cell{min-width:0;padding-left:6px}
   .hold-wrap .hw-bar{min-width:40px}
 }
+
+/* [v17.8.27] 미체결 주문 */
+.ord-book-note{margin:2px 0 10px;padding:8px 10px;border-radius:9px;font-size:11.5px;line-height:1.5;color:var(--sub);background:rgba(127,127,127,.07)}
+.ord-book-note b{color:var(--text)}
+.pend-box{margin-top:12px;padding:10px 12px;border:1px solid var(--line,rgba(127,127,127,.25));border-radius:11px;background:rgba(127,127,127,.04)}
+.pend-box[hidden]{display:none}
+.pend-box .pb-t{font-size:12px;font-weight:800;color:var(--text);margin-bottom:6px}
+.pend-box .pb-t small{font-weight:600;color:var(--sub-2);margin-left:4px}
+.pend-box .pb-r{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;font-weight:700}
+.pend-box .pb-r .num{flex:1}
+.pend-box .pb-k{font-size:11px;font-weight:800;padding:2px 7px;border-radius:6px;color:#fff}
+.pend-box .pb-k.buy{background:var(--up,#e5484d)}
+.pend-box .pb-k.sell{background:var(--down,#3b82f6)}
+.pend-box .pb-x{border:1px solid var(--line,rgba(127,127,127,.3));background:transparent;color:var(--text);border-radius:8px;font-size:11.5px;font-weight:700;padding:4px 10px;cursor:pointer}
