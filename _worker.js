@@ -14772,12 +14772,12 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.32",
-  releasedAt: "2026-10-28 21:31",
+  version: "17.8.33",
+  releasedAt: "2026-10-28 22:02",
   notes: [
-    "차트 패턴 탐색기 신설 — 컵 위드 핸들·W바닥·역헤드앤숄더 등 33개 패턴 선택 지원",
-    "관심·보유·코스피·코스닥·ETF·전체 국내 종목의 일봉 패턴 검색과 점수순 결과 제공",
-    "일봉 없음·기간 부족·API 오류 진단, 검색 중지와 결과 CSV 내보내기 추가"
+    "차트 패턴 탐색기 시작 오류 수정 — PT_LABELS 초기화 전 참조 제거",
+    "패턴 선택 개수 계산의 초기화 순서 분리",
+    "앱 스크립트·서비스 워커 캐시 갱신 및 회귀 검사 추가"
   ]
 };
 
@@ -18213,7 +18213,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.32";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.33";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18556,7 +18556,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-28 12:00"; BUNDLED_VERSION.notes = ["기기 간 동기화 전면 수정 — 로그인 응답에 서버 데이터가 실리지 않던 오류 해소", "다른 기기 변경 받아 오기 복구 — 저장 직후 영구 차단되던 문제 해소", "서버 개정판 도입 — 두 기기의 변경을 덮어쓰지 않고 항목별로 병합", "예약주문·가격알림·목표가·정렬·검색기록까지 계정 동기화"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-28 12:00"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-28 22:02"; BUNDLED_VERSION.notes = ["차트 패턴 탐색기 시작 오류 수정 — PT_LABELS 초기화 전 참조 제거", "패턴 선택 개수 계산의 초기화 순서 분리", "앱 스크립트·서비스 워커 캐시 갱신 및 회귀 검사 추가"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-28 22:02"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

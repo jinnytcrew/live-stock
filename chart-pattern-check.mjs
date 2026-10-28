@@ -22,12 +22,28 @@ pass('NEW tab, page wiring, diagnostic UI, CSV control and tab visibility wiring
 const workerVersion = (worker.match(/var APP_VER\s*=\s*["']([^"']+)/) || [])[1];
 const uiVersion = (versionInfo.match(/version:\s*["']([^"']+)/) || [])[1];
 assert.equal(workerVersion, uiVersion, 'worker and UI release versions match');
-assert.match(html, /app\.js\?v=687/, 'client JavaScript cache key advanced');
+assert.match(html, /app\.js\?v=688/, 'client JavaScript cache key advanced');
 assert.match(html, /app\.css\?v=676/, 'stylesheet cache key advanced');
-assert.match(app, /version-info\.js\?v=343/, 'version metadata import cache key advanced');
-assert.match(read('sw.js'), /SW_VER\s*=\s*'v10\.27'/, 'service worker release key advanced');
+assert.match(app, /version-info\.js\?v=344/, 'version metadata import cache key advanced');
+assert.match(read('sw.js'), /SW_VER\s*=\s*'v10\.28'/, 'service worker release key advanced');
 assert.match(read('.assetsignore'), /^chart-pattern-check\.mjs\s*$/m, 'QA script remains excluded from public static assets');
 pass('release version and asset/service-worker cache keys are consistent');
+
+// Regression: the startup listener counts selected patterns before PT_LABELS is initialized.
+const selectedKindsMatch = app.match(/function ptSelectedKinds\(\)\{[^\n]*\}/);
+assert.ok(selectedKindsMatch, 'pattern selection count helper exists');
+assert.doesNotMatch(selectedKindsMatch[0], /PT_LABELS/, 'startup selection counter does not touch the later lexical const');
+const earlyCount = app.indexOf('ptUpdateSelectedCount();', app.indexOf("document.querySelectorAll('#proTabs"));
+const labelsDeclaration = app.indexOf('const PT_LABELS={');
+assert.ok(earlyCount >= 0 && labelsDeclaration > earlyCount, 'test covers the original startup-before-labels ordering');
+const bootCtx = { document: { querySelectorAll: (selector) => {
+  assert.equal(selector, '.pt-kind:checked');
+  return [{ value: 'cup' }, { value: 'doubleBottom' }, { value: '' }];
+} } };
+vm.createContext(bootCtx);
+vm.runInContext(selectedKindsMatch[0] + '\nglobalThis.__selected = ptSelectedKinds();', bootCtx, { timeout: 1000 });
+assert.deepEqual(Array.from(bootCtx.__selected), ['cup', 'doubleBottom']);
+pass('startup pattern selection counter runs safely before PT_LABELS initialization');
 
 const begin = app.indexOf('const PT_LABELS={');
 const end = app.indexOf('async function acFetchInvestors(code){', begin);
