@@ -1406,7 +1406,7 @@ function setProTab(t){
   if(need&&!tierAllow(need)){
     proTab=t;
     document.querySelectorAll('#proTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pt===t));
-    ['nxthist','surge','accum','screener','thermo','port','compare','bt','risk']
+    ['nxthist','surge','accum','patterns','screener','thermo','port','compare','bt','risk']
       .forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
     proLockShow(t,need);
     return;
@@ -1415,7 +1415,7 @@ function setProTab(t){
   if(PRO_NEED[t])proLockClear(t);
   proTab=t;
   document.querySelectorAll('#proTabs button').forEach(b=>b.classList.toggle('on',b.dataset.pt===t));
-  ['nxthist','surge','accum','screener','thermo','port','compare','bt','risk'].forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
+  ['nxthist','surge','accum','patterns','screener','thermo','port','compare','bt','risk'].forEach(k=>{const el=$('pro-'+k);if(el)el.hidden=(k!==t);});
   if(t==='accum')acInit();
   if(t==='nxthist')renderNxtHist();
   if(t==='thermo')renderThermo();
@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=342';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=343';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -12775,6 +12775,15 @@ function renderUsSector(){
       </div>`).join('')}</div>`;
 }
 document.querySelectorAll('#proTabs button').forEach(b=>b.onclick=()=>setProTab(b.dataset.pt));
+document.querySelectorAll('.pt-kind').forEach(b=>b.addEventListener('change',ptUpdateSelectedCount));
+if($('ptSelectAll'))$('ptSelectAll').onclick=()=>{document.querySelectorAll('.pt-kind').forEach(b=>b.checked=true);ptUpdateSelectedCount();};
+if($('ptClearAll'))$('ptClearAll').onclick=()=>{document.querySelectorAll('.pt-kind').forEach(b=>b.checked=false);ptUpdateSelectedCount();};
+document.querySelectorAll('[data-pt-group-all]').forEach(b=>b.onclick=()=>{const ids=PT_GROUPS[b.dataset.ptGroupAll]||[];const boxes=ids.map(id=>document.querySelector('.pt-kind[value="'+id+'"]')).filter(Boolean);const turnOn=boxes.some(x=>!x.checked);boxes.forEach(x=>x.checked=turnOn);ptUpdateSelectedCount();});
+if($('ptRun'))$('ptRun').onclick=ptRunScan;
+if($('ptStop'))$('ptStop').onclick=ptStopScan;
+if($('ptExport'))$('ptExport').onclick=ptExportCsv;
+ptUpdateSelectedCount();
+
 if($('picksRun'))$('picksRun').onclick=()=>loadPicks(!!picksCache);
 if($('nhRun'))$('nhRun').onclick=loadNxtHist;
 if($('csvExport'))$('csvExport').onclick=exportTradesCsv;
@@ -19948,6 +19957,299 @@ async function acFetchDaily(code){
   const bars=(j&&j.candles)||[];
   acChartCache[code]={at:Date.now(),bars};
   return bars;
+}
+/* ══ [v17.8.32] 차트 패턴 탐색기 — 실제 일봉 OHLCV 규칙 검사 ═══════════════
+   스크린은 시세 캐시를 무조건 신뢰하지 않는다. 최근 일봉을 검사하고, 데이터 없음·기간 부족·HTTP 오류를 분리해 보여 준다.
+   적합도는 패턴 형태와의 규칙 기반 유사도 점수이며 성공 확률이나 매매 신호가 아니다. */
+const PT_LABELS={
+  cup:'컵 위드 핸들',doubleBottom:'W바닥 · 이중바닥',ihs:'역헤드앤숄더',rounding:'원형 바닥',doubleTop:'이중천정 · M자',hs:'헤드앤숄더',
+  ascTriangle:'상승 삼각형',descTriangle:'하락 삼각형',symTriangle:'대칭 삼각형',fallWedge:'하락 쐐기',riseWedge:'상승 쐐기',bullFlag:'상승 깃발',bearFlag:'하락 깃발',vcp:'변동성 수축(VCP)',flatBase:'플랫 베이스',
+  break20:'20일 고점 돌파',break60:'60일 고점 돌파',volBreak:'거래량 동반 돌파',goldCross:'5·20일 골든크로스',goldCross60:'20·60일 골든크로스',deadCross:'5·20일 데드크로스',maAlign:'이동평균 정배열',maPullback:'20일선 눌림목',
+  hammer:'망치형',bullEngulf:'상승 장악형',bearEngulf:'하락 장악형',morningStar:'샛별형',shootingStar:'유성형',doji:'도지형',bullHarami:'상승 잉태형',bearHarami:'하락 잉태형',rsiBounce:'RSI 과매도 반등',rsiHot:'RSI 과열 구간'
+};
+const PT_GROUPS={reversal:['cup','doubleBottom','ihs','rounding','doubleTop','hs'],continuation:['ascTriangle','descTriangle','symTriangle','fallWedge','riseWedge','bullFlag','bearFlag','vcp','flatBase'],trend:['break20','break60','volBreak','goldCross','goldCross60','deadCross','maAlign','maPullback'],candle:['hammer','bullEngulf','bearEngulf','morningStar','shootingStar','doji','bullHarami','bearHarami','rsiBounce','rsiHot']};
+let ptRunId=0,ptBusy=false,ptAborters=new Set(),ptRows=[],ptStats={},ptDiagnostics=[],ptLastScope='';
+function ptAvg(a){return a&&a.length?a.reduce((s,v)=>s+v,0)/a.length:0;}
+function ptPct(a,b){return b>0?(a/b-1)*100:0;}
+function ptNormText(v){return String(v||'').toLowerCase().replace(/\s+/g,'');}
+function ptDateKey(v){
+  if(v==null||v==='')return NaN;
+  if(typeof v==='number'&&v>1e11)return v;
+  const s=String(v),d=s.replace(/\D/g,'');
+  if(d.length>=8){const y=+d.slice(0,4),m=+d.slice(4,6),day=+d.slice(6,8);if(y>1900&&m>=1&&m<=12&&day>=1&&day<=31)return Date.UTC(y,m-1,day);}
+  const t=Date.parse(s);return Number.isFinite(t)?t:NaN;
+}
+function ptOrderedBars(raw){
+  const a=(Array.isArray(raw)?raw:[]).filter(x=>x&&typeof x==='object').slice();
+  if(a.length>1&&a.every(x=>Number.isFinite(ptDateKey(x.d??x.date??x.t))))a.sort((x,y)=>ptDateKey(x.d??x.date??x.t)-ptDateKey(y.d??y.date??y.t));
+  return a;
+}
+function ptDateLabel(v){const d=String(v==null?'':v).replace(/\D/g,'');if(d.length>=8)return d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8);return String(v||'최근 일봉');}
+function ptSmaAt(a,p,end){if(end+1<p)return null;let z=0;for(let i=end-p+1;i<=end;i++)z+=a[i];return z/p;}
+function ptLinearSlope(points){
+  if(!points||points.length<2)return 0;const n=points.length,mean=ptAvg(points.map(p=>p.v))||1;
+  let sx=0,sy=0,sxy=0,sxx=0;points.forEach((p,i)=>{sx+=p.i;sy+=p.v;sxy+=p.i*p.v;sxx+=p.i*p.i;});
+  const den=n*sxx-sx*sx;if(!den)return 0;const slope=(n*sxy-sx*sy)/den;
+  const span=Math.max(1,points[points.length-1].i-points[0].i);return slope*span/mean*100;
+}
+function ptPivots(bars,kind,radius=2){
+  const out=[],n=bars.length,from=Math.max(radius,n-110);
+  for(let i=from;i<n-radius;i++){
+    const v=kind==='high'?bars[i].h:bars[i].l;if(!(v>0))continue;let ok=true,strict=false;
+    for(let j=i-radius;j<=i+radius;j++){if(j===i)continue;const q=kind==='high'?bars[j].h:bars[j].l;
+      if(kind==='high'&&q>v){ok=false;break;}if(kind==='low'&&q<v){ok=false;break;}if(q!==v)strict=true;}
+    if(ok&&strict)out.push({i,v});
+  }
+  return out.slice(-24);
+}
+function ptRsiAt(bars,end=null,period=14){
+  if(!bars||bars.length<period+1)return null;const e=end==null?bars.length-1:end;let g=0,l=0;
+  for(let i=e-period+1;i<=e;i++){const d=bars[i].c-bars[i-1].c;if(d>0)g+=d;else l-=d;}
+  g/=period;l/=period;return l===0?100:100-100/(1+g/l);
+}
+function ptPatternHits(rawBars){
+  const raw=ptOrderedBars(rawBars),bars=acBars(raw),n=bars.length;
+  if(n<35)return {bars,raw,missing:n,why:'일봉 데이터 부족: 최소 35개 봉이 필요합니다.',hits:[]};
+  const c=bars.map(x=>x.c),h=bars.map(x=>x.h),l=bars.map(x=>x.l),v=bars.map(x=>x.v||0),last=bars[n-1];
+  const found={};
+  const add=(id,score,detail)=>{score=Math.max(0,Math.min(98,Math.round(score)));if(!PT_LABELS[id]||score<48)return;
+    if(!found[id]||score>found[id].score)found[id]={id,name:PT_LABELS[id],score,detail:String(detail||'최근 일봉 형태 일치')};};
+  const segment=(arr,a,b)=>arr.slice(Math.max(0,a),Math.min(arr.length,b));
+  const minIdx=(arr,a,b)=>{let bi=-1,bv=Infinity;for(let i=Math.max(0,a);i<Math.min(arr.length,b);i++){if(arr[i]<bv){bv=arr[i];bi=i;}}return bi;};
+  const maxIdx=(arr,a,b)=>{let bi=-1,bv=-Infinity;for(let i=Math.max(0,a);i<Math.min(arr.length,b);i++){if(arr[i]>bv){bv=arr[i];bi=i;}}return bi;};
+  const maxV=(arr,a,b)=>{const i=maxIdx(arr,a,b);return i<0?0:arr[i];};
+  const minV=(arr,a,b)=>{const i=minIdx(arr,a,b);return i<0?0:arr[i];};
+  const highs=ptPivots(bars,'high'),lows=ptPivots(bars,'low');
+  const rsi=ptRsiAt(bars),rsiPrev=ptRsiAt(bars,n-2);
+  const ma5=ptSmaAt(c,5,n-1),ma20=ptSmaAt(c,20,n-1),ma60=ptSmaAt(c,60,n-1);
+  const ma5p=ptSmaAt(c,5,n-2),ma20p=ptSmaAt(c,20,n-2),ma60p=ptSmaAt(c,60,n-2);
+  const avg20=ptAvg(v.slice(-21,-1)),volRatio=avg20>0?v[n-1]/avg20:null;
+  // 컵 위드 핸들: 좌·우 림의 높이, 컵 깊이, 상단 절반 안의 짧은 손잡이를 함께 확인.
+  for(const w of [45,60,75,90,110,130,150])if(n>=w){
+    const s=n-w,le=Math.floor(w*.29),loA=Math.floor(w*.24),loB=Math.floor(w*.73),riA=Math.floor(w*.60),riB=Math.floor(w*.90);
+    const li=maxIdx(h,s,s+le),ci=minIdx(l,s+loA,s+loB),ri=maxIdx(h,s+Math.max(riA,ci-s+3),s+riB);
+    if(li<0||ci<0||ri<0||!(h[li]>0&&h[ri]>0))continue;
+    const rim=(h[li]+h[ri])/2,gap=Math.abs(h[li]-h[ri])/rim*100,depth=(rim-l[ci])/rim*100;
+    const hs=ri+2,handleLo=minV(l,hs,n),pb=handleLo>0?(h[ri]-handleLo)/h[ri]*100:99;
+    if(gap<=7&&depth>=7&&depth<=38&&pb>=1.5&&pb<=16&&handleLo>l[ci]+(rim-l[ci])*.52&&last.c>=rim*.90){
+      const sc=88-gap*1.5-Math.abs(depth-20)*.55-Math.abs(pb-7)*.8+(last.c>=rim?7:0);
+      add('cup',sc,`림 높이 차이 ${gap.toFixed(1)}% · 컵 깊이 ${depth.toFixed(1)}% · 손잡이 조정 ${pb.toFixed(1)}%${last.c>=rim?' · 림 돌파':''}`);
+    }
+  }
+  // 이중 바닥/W와 이중 천정/M: 저점·고점 간격 및 중간 넥라인을 확인.
+  let bestDB=null,bestDT=null;
+  for(let i=0;i<lows.length;i++)for(let j=i+1;j<lows.length;j++){
+    const a=lows[i],b=lows[j],gap=b.i-a.i;if(gap<5||gap>50||n-1-b.i>35)continue;
+    const eq=Math.abs(a.v-b.v)/((a.v+b.v)/2)*100,neck=maxV(h,a.i+1,b.i),lift=(neck-Math.max(a.v,b.v))/Math.max(1,Math.max(a.v,b.v))*100;
+    if(eq<=5.5&&lift>=3.5){const sc=86-eq*3+Math.min(10,lift*.5)+(last.c>=neck?7:0);if(!bestDB||sc>bestDB.score)bestDB={score:sc,detail:`두 저점 간격 ${gap}일 · 저점 차이 ${eq.toFixed(1)}% · 넥라인 상승폭 ${lift.toFixed(1)}%${last.c>=neck?' · 넥라인 돌파':''}`};}
+  }
+  if(bestDB)add('doubleBottom',bestDB.score,bestDB.detail);
+  for(let i=0;i<highs.length;i++)for(let j=i+1;j<highs.length;j++){
+    const a=highs[i],b=highs[j],gap=b.i-a.i;if(gap<5||gap>50||n-1-b.i>35)continue;
+    const eq=Math.abs(a.v-b.v)/((a.v+b.v)/2)*100,trough=minV(l,a.i+1,b.i),drop=(Math.min(a.v,b.v)-trough)/Math.max(1,Math.min(a.v,b.v))*100;
+    if(eq<=5.5&&drop>=3.5){const sc=84-eq*3+Math.min(10,drop*.5)+(last.c<trough?6:0);if(!bestDT||sc>bestDT.score)bestDT={score:sc,detail:`두 고점 간격 ${gap}일 · 고점 차이 ${eq.toFixed(1)}% · 중간 조정 ${drop.toFixed(1)}%`};}
+  }
+  if(bestDT)add('doubleTop',bestDT.score,bestDT.detail);
+  // 역헤드앤숄더 / 헤드앤숄더: 좌우 어깨 비슷함, 머리의 돌출, 두 넥라인 구간.
+  for(const kind of ['low','high']){
+    const piv=(kind==='low'?lows:highs).filter(p=>p.i>=n-100).slice(-15);
+    let best=null;
+    for(let i=0;i<piv.length-2;i++)for(let j=i+1;j<piv.length-1;j++)for(let k=j+1;k<piv.length;k++){
+      const a=piv[i],b=piv[j],d=piv[k];if(d.i-a.i<12||d.i-a.i>90||n-1-d.i>32)continue;
+      const shoulderDiff=Math.abs(a.v-d.v)/((a.v+d.v)/2)*100;
+      const headDiff=kind==='low'?((Math.min(a.v,d.v)-b.v)/((a.v+d.v)/2)*100):((b.v-Math.max(a.v,d.v))/((a.v+d.v)/2)*100);
+      if(shoulderDiff>8||headDiff<3.5||headDiff>22)continue;
+      const neck1=kind==='low'?maxV(h,a.i+1,b.i):minV(l,a.i+1,b.i),neck2=kind==='low'?maxV(h,b.i+1,d.i):minV(l,b.i+1,d.i);
+      if(!(neck1>0&&neck2>0))continue;
+      const neckTilt=Math.abs(neck1-neck2)/((neck1+neck2)/2)*100;if(neckTilt>10)continue;
+      const neck=(neck1+neck2)/2,atNeck=kind==='low'?(last.c/neck):(neck/last.c);
+      const sc=82-shoulderDiff*2-headDiff*.45-neckTilt*.8+(atNeck>=.97?5:0)+(kind==='low'&&last.c>neck?5:0)+(kind==='high'&&last.c<neck?5:0);
+      if(!best||sc>best.score)best={score:sc,detail:`좌우 어깨 차이 ${shoulderDiff.toFixed(1)}% · 머리 ${headDiff.toFixed(1)}% 돌출 · 넥라인 ${neck.toFixed(0)}원`};
+    }
+    if(best)add(kind==='low'?'ihs':'hs',best.score,best.detail);
+  }
+  // 원형 바닥: 중간 저점과 좌·우 구간의 점진적 회복 형태.
+  for(const w of [40,50,65,80,95])if(n>=w){const s=n-w,arr=segment(c,s,n),m=minIdx(arr,Math.floor(w*.28),Math.floor(w*.73));if(m<0)continue;
+    const left=ptAvg(arr.slice(0,Math.max(3,m))),right=ptAvg(arr.slice(Math.min(w-3,m+Math.max(3,Math.floor(w*.12)))));
+    const low=arr[m],liftL=(left-low)/left*100,liftR=(right-low)/right*100,skew=Math.abs(liftL-liftR);
+    const half=Math.floor(w/2),leftTrend=arr[half]-arr[0],rightTrend=arr[w-1]-arr[half];
+    if(liftL>=5&&liftR>=5&&skew<Math.max(liftL,liftR)*.8&&leftTrend<0&&rightTrend>0&&last.c>=low*1.04){
+      add('rounding',78-Math.min(22,skew)+Math.min(8,Math.min(liftL,liftR)*.3),`중앙 저점 대비 좌·우 평균 회복 ${liftL.toFixed(1)}% / ${liftR.toFixed(1)}%`);
+    }
+  }
+  // 삼각형·쐐기: 최근 고점/저점 피벗의 회귀 기울기와 수평선 안정도를 이용.
+  const h45=highs.filter(p=>p.i>=n-48),l45=lows.filter(p=>p.i>=n-48);
+  if(h45.length>=3&&l45.length>=3){
+    const H=h45.slice(-6),L=l45.slice(-6),hs=ptLinearSlope(H),ls=ptLinearSlope(L);
+    const hr=(Math.max(...H.map(p=>p.v))-Math.min(...H.map(p=>p.v)))/ptAvg(H.map(p=>p.v))*100;
+    const lr=(Math.max(...L.map(p=>p.v))-Math.min(...L.map(p=>p.v)))/ptAvg(L.map(p=>p.v))*100;
+    if(hr<=5&&ls>=2.5&&lr>=4)add('ascTriangle',79-Math.min(20,hr*2)+Math.min(8,ls*.3),`저항선 변동 ${hr.toFixed(1)}% · 저점 추세 +${ls.toFixed(1)}%`);
+    if(lr<=5&&hs<=-2.5&&hr>=4)add('descTriangle',78-Math.min(20,lr*2)+Math.min(8,Math.abs(hs)*.3),`지지선 변동 ${lr.toFixed(1)}% · 고점 추세 ${hs.toFixed(1)}%`);
+    if(hs<=-2.5&&ls>=2.5&&hr>=4&&lr>=4)add('symTriangle',76+Math.min(10,(Math.abs(hs)+ls)*.25),`고점 추세 ${hs.toFixed(1)}% · 저점 추세 +${ls.toFixed(1)}%`);
+    if(hs< -2&&ls< -1&&hs<ls-1.5&&hr>=4&&lr>=3)add('fallWedge',75+Math.min(12,Math.abs(hs-ls)*.5),`상단 ${hs.toFixed(1)}% · 하단 ${ls.toFixed(1)}% 수렴`);
+    if(hs>1&&ls>2&&ls>hs+1.5&&hr>=3&&lr>=3)add('riseWedge',74+Math.min(12,(ls-hs)*.5),`상단 +${hs.toFixed(1)}% · 하단 +${ls.toFixed(1)}% 수렴`);
+  }
+  // VCP와 플랫 베이스: 수축하는 최근 변동폭, 거래량 마름, 베이스 상단 위치.
+  if(n>=45){const r=[];for(let k=0;k<3;k++){const a=n-45+k*15,b=a+15,hh=maxV(h,a,b),ll=minV(l,a,b);r.push(hh>0?(hh-ll)/((hh+ll)/2)*100:99);}
+    const vA=ptAvg(v.slice(-15,-5)),vB=ptAvg(v.slice(-5));
+    if(r[0]>r[1]*1.08&&r[1]>r[2]*1.05&&last.c>=maxV(h,n-15,n)*.94&&vA>0&&vB<vA*.95){
+      add('vcp',81+Math.min(10,(r[0]/Math.max(.1,r[2])-1)*3),`변동폭 ${r.map(x=>x.toFixed(1)+'%').join(' → ')} · 최근 거래량 ${(vB/vA).toFixed(2)}배`);
+    }
+  }
+  for(const w of [20,30,40,50])if(n>=w){const hi=maxV(h,n-w,n),lo=minV(l,n-w,n),range=(hi-lo)/Math.max(1,(hi+lo)/2)*100,near=(hi-last.c)/hi*100;
+    if(range<=13&&near>=-1&&near<=5)add('flatBase',78-Math.max(0,range-5)*2+Math.max(0,5-near),`${w}일 범위 ${range.toFixed(1)}% · 고점까지 ${near.toFixed(1)}%`);
+  }
+  // 급등·급락 뒤 깃발형 조정.
+  if(n>=22){const impulse=segment(c,n-24,n-8),flag=segment(c,n-8,n),imin=minIdx(impulse,0,impulse.length),imax=maxIdx(impulse,0,impulse.length);
+    if(imin>=0&&imax>imin&&flag.length>=5){const up=(impulse[imax]-impulse[imin])/impulse[imin]*100,fb=(flag[flag.length-1]/flag[0]-1)*100,iw=(maxV(h,n-24,n-8)-minV(l,n-24,n-8))/Math.max(1,impulse[imin])*100;
+      if(up>=12&&fb>=-13&&fb<=3&&(maxV(h,n-8,n)-minV(l,n-8,n))<iw*.7)add('bullFlag',77+Math.min(12,up*.3)-Math.abs(fb)*.35,`선행 상승 +${up.toFixed(1)}% · 깃발 구간 ${fb>=0?'+':''}${fb.toFixed(1)}%`);
+      const down=(impulse[imin]-impulse[imax])/impulse[imax]*100;
+      if(down>=12&&fb>=-3&&fb<=13&&(maxV(h,n-8,n)-minV(l,n-8,n))<iw*.7)add('bearFlag',76+Math.min(12,down*.3)-Math.abs(fb)*.3,`선행 하락 ${down.toFixed(1)}% · 깃발 반등 ${fb>=0?'+':''}${fb.toFixed(1)}%`);
+    }
+  }
+  // 20/60일 고점 돌파(현재 봉 제외한 이전 고점과 비교).
+  for(const [id,w] of [['break20',20],['break60',60]])if(n>w){const level=maxV(h,n-w-1,n-1);if(level>0&&last.c>level){const over=(last.c/level-1)*100;add(id,78+Math.min(14,over*3)+(volRatio&&volRatio>=1.5?5:0),`${w}일 이전 고점 ${level.toFixed(0)}원 돌파 · 돌파폭 +${over.toFixed(2)}%`);}}
+  if(n>20){const level=maxV(h,n-21,n-1);if(level>0&&last.c>level&&volRatio!=null&&volRatio>=1.5)add('volBreak',82+Math.min(12,(volRatio-1.5)*5),`20일 고점 돌파 · 거래량 ${volRatio.toFixed(2)}배`);}
+  if(ma5!=null&&ma20!=null&&ma5p!=null&&ma20p!=null){if(ma5p<=ma20p&&ma5>ma20)add('goldCross',83,`5일선 ${ma5.toFixed(0)}원 · 20일선 ${ma20.toFixed(0)}원 교차`);
+    if(ma5p>=ma20p&&ma5<ma20)add('deadCross',82,`5일선 ${ma5.toFixed(0)}원 · 20일선 ${ma20.toFixed(0)}원 교차`);}
+  if(ma20!=null&&ma60!=null&&ma20p!=null&&ma60p!=null&&n>=61&&ma20p<=ma60p&&ma20>ma60)add('goldCross60',84,`20일선 ${ma20.toFixed(0)}원 · 60일선 ${ma60.toFixed(0)}원 교차`);
+  if(ma5!=null&&ma20!=null&&ma60!=null&&ma5>ma20&&ma20>ma60&&last.c>ma5)add('maAlign',80,`5일선 ${ma5.toFixed(0)} > 20일선 ${ma20.toFixed(0)} > 60일선 ${ma60.toFixed(0)}`);
+  if(ma20!=null&&ma60!=null&&ma20>ma60&&last.c>ma20){const low5=minV(l,n-5,n),touch=Math.abs(low5-ma20)/ma20*100;if(touch<=3.2&&last.c>=low5*1.012)add('maPullback',77+Math.max(0,3.2-touch)*2,`20일선 ${ma20.toFixed(0)}원 부근 조정 후 종가 회복`);}
+  // 최근 봉의 몸통·꼬리 비율로 기본 캔들 형태 판별.
+  const b=bars[n-1],p=bars[n-2],range=Math.max(1e-9,b.h-b.l),body=Math.abs(b.c-b.o),upper=b.h-Math.max(b.o,b.c),lower=Math.min(b.o,b.c)-b.l;
+  if(range>0&&body/range<=.10)add('doji',72,`몸통/전체 범위 ${(body/range*100).toFixed(1)}%`);
+  if(body/range<=.38&&lower>=body*2&&upper<=Math.max(body*.65,range*.12)&&b.c>=b.l+range*.58)add('hammer',75,`아래꼬리 ${lower.toFixed(0)}원 · 몸통 ${body.toFixed(0)}원`);
+  if(p&&p.c<p.o&&b.c>b.o&&b.c>=p.o&&b.o<=p.c&&Math.abs(p.c-p.o)>0)add('bullEngulf',84,`현재 양봉 몸통이 전일 음봉 몸통을 감쌈`);
+  if(p&&p.c>p.o&&b.c<b.o&&b.o>=p.c&&b.c<=p.o&&Math.abs(p.c-p.o)>0)add('bearEngulf',84,`현재 음봉 몸통이 전일 양봉 몸통을 감쌈`);
+  if(body/range<=.35&&upper>=body*2&&lower<=Math.max(body*.8,range*.12)&&b.c<=b.l+range*.42)add('shootingStar',74,`윗꼬리 ${upper.toFixed(0)}원 · 몸통 ${body.toFixed(0)}원`);
+  if(n>=3){const a=bars[n-3],m=bars[n-2],z=bars[n-1],ar=Math.max(1,a.h-a.l),mr=Math.max(1,m.h-m.l),ab=Math.abs(a.c-a.o),mb=Math.abs(m.c-m.o),zb=Math.abs(z.c-z.o);
+    if(a.c<a.o&&ab/ar>=.5&&mb/mr<=.35&&z.c>z.o&&z.c>=(a.o+a.c)/2)add('morningStar',82,`3봉 반전형 · 마지막 종가가 첫 음봉 몸통 중간 이상`);
+    if(p&&p.c<p.o&&b.c>b.o&&Math.max(b.o,b.c)<p.o&&Math.min(b.o,b.c)>p.c)add('bullHarami',76,`작은 양봉 몸통이 전일 음봉 몸통 안에 위치`);
+    if(p&&p.c>p.o&&b.c<b.o&&Math.max(b.o,b.c)<p.c&&Math.min(b.o,b.c)>p.o)add('bearHarami',76,`작은 음봉 몸통이 전일 양봉 몸통 안에 위치`);
+  }
+  if(rsi!=null&&rsiPrev!=null){const recent=[];for(let i=Math.max(15,n-6);i<n;i++){const x=ptRsiAt(bars,i);if(x!=null)recent.push(x);}
+    if(recent.some(x=>x<35)&&rsi>recent[recent.length-1]&&rsi>30)add('rsiBounce',78,`RSI(14) ${rsi.toFixed(1)} · 최근 5봉 내 과매도 구간 확인`);
+    if(rsi>=75)add('rsiHot',74,`RSI(14) ${rsi.toFixed(1)} · 과열 기준 75 이상`);
+  }
+  const hits=Object.values(found).sort((a,b)=>b.score-a.score);
+  return {bars,raw,missing:0,why:'',hits,last,date:ptDateLabel((raw[raw.length-1]||{}).d??(raw[raw.length-1]||{}).date)};
+}
+async function ptFetchDaily(code,runId){
+  const cache=acChartCache[code];if(cache&&Date.now()-cache.at<8*60*1000&&Array.isArray(cache.bars))return {bars:cache.bars,source:'cache'};
+  const ctrl=new AbortController();ptAborters.add(ctrl);let timer=null;
+  try{
+    timer=setTimeout(()=>ctrl.abort(),15000);fnBump();
+    const r=await fetch('/api/chart?code='+encodeURIComponent(code)+'&tf=D',{cache:'default',signal:ctrl.signal});
+    if(!r.ok)return {bars:[],error:'HTTP '+r.status};
+    let j;try{j=await r.json();}catch(e){return {bars:[],error:'응답 JSON 해석 실패'};}
+    if(j&&j.ok===false&&!Array.isArray(j.candles))return {bars:[],error:String(j.error||j.err||'일봉 API가 오류를 반환함').slice(0,80)};
+    const bars=Array.isArray(j&&j.candles)?j.candles:[];
+    acChartCache[code]={at:Date.now(),bars};
+    return {bars,source:'network'};
+  }catch(e){return {bars:[],error:ctrl.signal.aborted?'요청 시간 초과 또는 검색 중지':String(e&&e.message||e).slice(0,80)};}
+  finally{if(timer)clearTimeout(timer);ptAborters.delete(ctrl);}
+}
+function ptUniverse(scope,query){
+  let items=[],uni=(scope==='watch'||scope==='hold')?[]:acUniverse();
+  const etfCodes=new Set((Array.isArray(etfList)?etfList:[]).map(x=>String(x&&x.code||'')));
+  const isEtfItem=x=>!!x&&(etfCodes.has(String(x.c||''))||String(x.mk||'').toUpperCase()==='ETF'||isFundLike(x.c));
+  const byC=new Map(uni.map(x=>[x.c,x]));
+  Object.keys(byCode||{}).forEach(c=>{if(!byC.has(c)){const s=byCode[c]||{};byC.set(c,{c,n:s.name||acNames[c]||c,mk:s.market||''});}});
+  const add=(code)=>{const c=String(code||'');if(!c)return;const x=byC.get(c),s=byCode[c]||{};items.push({c,n:(x&&x.n)||s.name||acNames[c]||c,mk:(x&&x.mk)||s.market||''});};
+  if(scope==='watch')watchlist.forEach(add);
+  else if(scope==='hold')holdings.forEach(x=>add(x&&x.code));
+  else if(scope==='etf')uni.filter(isEtfItem).forEach(x=>items.push({c:x.c,n:x.n,mk:x.mk||'ETF'}));
+  else if(scope==='kospi'||scope==='kosdaq')uni.filter(x=>{const m=String(x.mk||'').toUpperCase();return !isEtfItem(x)&&(scope==='kospi'?/KOSPI|코스피/.test(m):/KOSDAQ|코스닥/.test(m));}).forEach(x=>items.push(x));
+  else if(scope==='stocks')uni.filter(x=>!isEtfItem(x)).forEach(x=>items.push(x));
+  else uni.forEach(x=>items.push(x));
+  const seen=new Set();items=items.filter(x=>x&&x.c&&!seen.has(x.c)&&seen.add(x.c));
+  const q=ptNormText(query);if(q)items=items.filter(x=>ptNormText(x.c).includes(q)||ptNormText(x.n).includes(q));
+  return items;
+}
+function ptSelectedKinds(){return [...document.querySelectorAll('.pt-kind:checked')].map(x=>x.value).filter(x=>PT_LABELS[x]);}
+function ptUpdateSelectedCount(){const el=$('ptSelectedCount');if(el)el.textContent=ptSelectedKinds().length+'개 선택';}
+function ptDiagAdd(item){if(ptDiagnostics.length<80)ptDiagnostics.push(item);}
+function ptSummaryRender(){
+  const el=$('ptSummary');if(!el)return;
+  const s=ptStats||{},n=ptRows.length,totalPatterns=ptRows.reduce((a,x)=>a+x.patterns.length,0);
+  el.innerHTML=`<div class="pt-stat-grid"><div class="pt-stat"><span>검사 완료</span><b>${(s.checked||0).toLocaleString()}<i> / ${(s.total||0).toLocaleString()}</i></b></div><div class="pt-stat"><span>패턴 일치 종목</span><b>${n.toLocaleString()}</b></div><div class="pt-stat"><span>패턴 신호 수</span><b>${totalPatterns.toLocaleString()}</b></div><div class="pt-stat"><span>데이터 문제</span><b>${((s.noData||0)+(s.shortData||0)+(s.errors||0)).toLocaleString()}</b></div></div>`;
+  const meta=$('ptProgressMeta');if(meta)meta.textContent=`일치 ${n.toLocaleString()}종목 · 신호 ${totalPatterns.toLocaleString()}건 · 일봉 없음 ${s.noData||0} · 기간 부족 ${s.shortData||0} · API/네트워크 오류 ${s.errors||0}`;
+}
+function ptRenderResults(){
+  const el=$('ptResultBody');if(!el)return;
+  if(!ptRows.length){el.innerHTML=ptStats&&ptStats.checked?'<div class="empty">선택한 패턴과 일치하는 종목이 없습니다. 다른 패턴을 선택하거나 진단 항목에서 일봉 데이터 상태를 확인하세요.</div>':'';return;}
+  const max=250,shown=ptRows.slice(0,max);
+  el.innerHTML=`<div class="pt-results-head"><b>탐색 결과</b><span>점수순 · ${ptRows.length.toLocaleString()}종목${ptRows.length>max?' 중 상위 '+max+'종 표시':''}</span></div>`+shown.map((x,i)=>`<div class="pt-result-row"><div class="pt-result-rank">${i+1}</div><div class="pt-result-stock"><b>${htmlEsc(x.name)}</b><span>${htmlEsc(x.code)} · ${htmlEsc(x.market||'시장 미확인')} · ${htmlEsc(x.date||'일자 미확인')} 종가 ${KRW(x.close)}</span></div><div class="pt-result-patterns">${x.patterns.map(p=>`<span class="pt-result-chip" title="${htmlEsc(p.detail)}"><b>${htmlEsc(p.name)}</b><i>${p.score}점</i></span>`).join('')}</div><button type="button" class="pt-open" data-pt-open="${htmlEsc(x.code)}">종목 상세 ↗</button></div>`).join('');
+  el.querySelectorAll('[data-pt-open]').forEach(b=>b.onclick=()=>openTrade(b.dataset.ptOpen));
+}
+function ptDiagnosticsRender(){
+  const el=$('ptDiagnosticBody');if(!el)return;const s=ptStats||{};
+  const samples=ptDiagnostics.slice(0,50);
+  el.innerHTML=`<div class="pt-diag-summary">대상 ${(s.total||0).toLocaleString()} · 검사 ${(s.checked||0).toLocaleString()} · 패턴 불일치 ${(s.noMatch||0).toLocaleString()} · 일봉 없음 ${(s.noData||0).toLocaleString()} · 35봉 미만 ${(s.shortData||0).toLocaleString()} · 요청/API 오류 ${(s.errors||0).toLocaleString()}</div>`+
+    (samples.length?`<div class="pt-diag-list">${samples.map(x=>`<div><b>${htmlEsc(x.name||x.code||'종목 미확인')}</b><span>${htmlEsc(x.code||'')}</span><i>${htmlEsc(x.reason||'원인 미확인')}</i></div>`).join('')}</div>${ptDiagnostics.length>samples.length?`<div class="pt-diag-more">최대 50건만 표시했습니다. 나머지는 요약 수치에 포함됩니다.</div>`:''}`:'<div class="empty sm">데이터 조회 오류나 기간 부족 항목이 없습니다. 패턴이 발견되지 않은 종목은 정상적인 미일치로 집계합니다.</div>');
+}
+function ptProgressUpdate(status){
+  const s=ptStats||{},el=$('ptStatus'),pct=$('ptProgressPct'),bar=$('ptProgress');
+  if(el)el.textContent=status||`일봉 검사 중… ${s.checked||0} / ${s.total||0}`;
+  const p=s.total?Math.min(100,Math.round((s.checked||0)/s.total*100)):0;if(pct)pct.textContent=p+'%';if(bar)bar.value=p;
+  ptSummaryRender();
+}
+async function ptPrepareUniverse(scope){
+  if(!['watch','hold'].includes(scope)){
+    if(!stockAll&&!stockLoading){const st=$('ptStatus');if(st)st.textContent='전체 상장 종목 명단을 불러오는 중…';try{await loadStockAll();}catch(e){}}
+    else if(stockLoading){try{await loadStockAll();}catch(e){}}
+  }
+  if(['etf','all'].includes(scope)&&!etfList){try{await loadEtfList();}catch(e){}}
+}
+async function ptRunScan(){
+  if(ptBusy)return;
+  const selected=ptSelectedKinds();if(!selected.length){toast('warn','패턴을 선택해 주세요','하나 이상의 차트 패턴을 선택해야 검색할 수 있습니다.');return;}
+  const id=++ptRunId;ptBusy=true;ptRows=[];ptDiagnostics=[];ptStats={total:0,checked:0,noMatch:0,noData:0,shortData:0,errors:0};
+  ptLastScope=$('ptScope').value;
+  $('ptProgressPanel').hidden=false;$('ptStop').disabled=false;$('ptRun').disabled=true;$('ptExport').disabled=true;
+  $('ptResultBody').innerHTML='';$('ptDiagnosticBody').innerHTML='';
+  ptProgressUpdate('검색 범위를 준비하는 중…');
+  try{
+    const scope=$('ptScope').value;await ptPrepareUniverse(scope);if(id!==ptRunId)return;
+    const query=$('ptQuery').value;
+    const uni=ptUniverse(scope,query);ptStats.total=uni.length;
+    if(!uni.length){ptProgressUpdate('검색 대상이 없습니다. 관심종목/보유종목 또는 종목명·코드를 확인하세요.');ptDiagnosticsRender();return;}
+    if(uni.length>500&&['kospi','kosdaq','stocks','all'].includes(scope)&&!confirm(`${uni.length.toLocaleString()}개 종목의 일봉을 차례로 조회합니다. 요청량이 많아 검색 시간이 길어질 수 있습니다. 계속할까요?`)){ptProgressUpdate('사용자가 전체 종목 스캔을 취소했습니다.');return;}
+    const selectedSet=new Set(selected);let cursor=0,lastUi=0;
+    const worker=async()=>{
+      while(id===ptRunId&&cursor<uni.length){const i=cursor++,item=uni[i];let result;
+        try{result=await ptFetchDaily(item.c,id);}catch(e){result={bars:[],error:String(e&&e.message||e)};}
+        if(id!==ptRunId)return;
+        if(result.error){ptStats.errors++;ptDiagAdd({code:item.c,name:item.n,reason:result.error});}
+        else if(!Array.isArray(result.bars)||!result.bars.length){ptStats.noData++;ptDiagAdd({code:item.c,name:item.n,reason:'일봉 데이터 없음 또는 빈 캔들 응답'});}
+        else{
+          const analysed=ptPatternHits(result.bars);
+          if(analysed.missing){ptStats.shortData++;ptDiagAdd({code:item.c,name:item.n,reason:analysed.why});}
+          else{
+            const pats=analysed.hits.filter(p=>selectedSet.has(p.id));
+            if(pats.length){const last=analysed.bars[analysed.bars.length-1];const s=byCode[item.c]||{};
+              ptRows.push({code:item.c,name:item.n||s.name||acDispName(item.c),market:item.mk||s.market||'',date:analysed.date||'최근 일봉',close:last.c,patterns:pats.sort((a,b)=>b.score-a.score),score:Math.max(...pats.map(p=>p.score))});
+            }else ptStats.noMatch++;
+          }
+        }
+        ptStats.checked++;
+        if(ptStats.checked-lastUi>=4||ptStats.checked===ptStats.total){lastUi=ptStats.checked;ptRows.sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name,'ko'));ptProgressUpdate(`일봉 검사 중… ${ptStats.checked.toLocaleString()} / ${ptStats.total.toLocaleString()}`);}
+      }
+    };
+    await Promise.all(Array.from({length:Math.min(4,uni.length)},worker));
+    if(id!==ptRunId)return;
+    ptRows.sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name,'ko'));
+    ptProgressUpdate(`검색 완료 · ${ptStats.checked.toLocaleString()}종 검사`);ptRenderResults();ptDiagnosticsRender();
+    $('ptExport').disabled=!ptRows.length;
+  }catch(e){if(id===ptRunId){ptDiagAdd({reason:'검색 프로세스 오류: '+String(e&&e.message||e).slice(0,100)});ptProgressUpdate('검색 중 오류가 발생했습니다. 진단 내용을 확인하세요.');ptDiagnosticsRender();}}
+  finally{if(id===ptRunId){ptBusy=false;$('ptStop').disabled=true;$('ptRun').disabled=false;ptRenderResults();ptDiagnosticsRender();$('ptExport').disabled=!ptRows.length;}}
+}
+function ptStopScan(){if(!ptBusy)return;ptRunId++;ptAborters.forEach(c=>{try{c.abort();}catch(e){}});ptAborters.clear();ptBusy=false;
+  $('ptStop').disabled=true;$('ptRun').disabled=false;ptProgressUpdate(`중지됨 · ${ptStats.checked||0} / ${ptStats.total||0}종 검사`);ptRenderResults();ptDiagnosticsRender();$('ptExport').disabled=!ptRows.length;}
+function ptExportCsv(){if(!ptRows.length)return;const cell=v=>{let s=String(v==null?'':v);if(/^[=+@\-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};
+  const rows=[['종목코드','종목명','시장','기준일','최근 일봉 종가','패턴','적합도 점수','근거']];
+  ptRows.forEach(x=>x.patterns.forEach(p=>rows.push([x.code,x.name,x.market,x.date,x.close,p.name,p.score,p.detail])));
+  const blob=new Blob(['\ufeff'+rows.map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='LIVE증권_차트패턴탐색_'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 async function acFetchInvestors(code){
   try{fnBump();const r=await fetch(`/api/investors?code=${code}`,{cache:'default'});const j=await r.json();

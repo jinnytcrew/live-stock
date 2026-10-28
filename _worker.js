@@ -14772,15 +14772,12 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "4.24.0",
-  releasedAt: "2026-08-06 21:40",
+  version: "17.8.32",
+  releasedAt: "2026-10-28 21:31",
   notes: [
-    "NXT \uc2dc\uc7a5\uacbd\ubcf4 \uc624\ubc84\ub808\uc774 \ucd94\uac00 \u2014 \ud22c\uc790\uacbd\uace0\u00b7\uc704\ud5d8\u00b7\uac70\ub798\uc815\uc9c0\u00b7\uad00\ub9ac\uc885\ubaa9\uc740 NXT \uc8fc\ubb38\uc774 \uc989\uc2dc \uc7a0\uae30\uace0 \uc0ac\uc720\uac00 \ud45c\uc2dc\ub429\ub2c8\ub2e4",
-    "\uc885\ubaa9 \ub85c\uace0 \uc5c6\uc74c 0\uac74 \ub2ec\uc131 \u2014 HS\ud6a8\uc131 \uacc4\uc5f4 \ub9e4\ud551\uc744 \ucd94\uac00\ud588\uc2b5\ub2c8\ub2e4",
-    "\uacf5\ubaa8\uc8fc \uc77c\uc815 \uc218\uc9d1 \ubcf5\uad6c \u2014 https \uc804\ud658\u00b7\ub2e4\uc911 \uc8fc\uc18c\u00b7\ub9c8\uc9c0\ub9c9 \uc131\uacf5\ubcf8 \ubcf4\uad00\uc73c\ub85c \uc608\uc2dc \uc77c\uc815 \ub300\uccb4\ub97c \uc5c6\uc574\uc2b5\ub2c8\ub2e4",
-    "\ucf54\uc2a4\ud53c200 \uc57c\uac04\uc120\ubb3c \uce74\ub4dc \uc815\uc0c1\ud654 \u2014 \uc57c\uac04 \uc2dc\uc138\uac00 \uc5c6\uc73c\uba74 \uc8fc\uac04 \ub9c8\uac10 \uae30\uc900\uc73c\ub85c \uc815\uc9c1\ud558\uac8c \ud45c\uc2dc\ud569\ub2c8\ub2e4",
-    "\ud1a0\uc2a4\ud2b8\uac00 \uc8fc\ubb38\ucc3d \uc704\ub85c \u2014 \uac70\ub798\uc720\ud615 \ucc3d\uc774 \uc5f4\ub824 \uc788\uc5b4\ub3c4 \uc54c\ub9bc\uc774 \uac00\ub824\uc9c0\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4",
-    "ETF\u00b7\uc885\ubaa9 \ub85c\uace0 \ud1b5\uc77c \u2014 \ubaa8\ub450 \ub465\uadfc \uc0ac\uac01\ud615\uc73c\ub85c \ubaa8\uc591\uc744 \ub9de\ucd94\uace0 \ud06c\uae30\ub97c \ud0a4\uc6cc \uae00\uc790\uac00 \uc798 \ubcf4\uc785\ub2c8\ub2e4"
+    "차트 패턴 탐색기 신설 — 컵 위드 핸들·W바닥·역헤드앤숄더 등 33개 패턴 선택 지원",
+    "관심·보유·코스피·코스닥·ETF·전체 국내 종목의 일봉 패턴 검색과 점수순 결과 제공",
+    "일봉 없음·기간 부족·API 오류 진단, 검색 중지와 결과 CSV 내보내기 추가"
   ]
 };
 
@@ -18216,7 +18213,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.31";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.32";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

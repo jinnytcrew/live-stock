@@ -46,3 +46,6 @@ pwa-install-check.mjs
 
 # ETF data regression tests — deployment QA tool, not a public asset
 etf-data-check.mjs
+
+# Technical pattern regression tests — offline QA tool, not a public asset
+chart-pattern-check.mjs

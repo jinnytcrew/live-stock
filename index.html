@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
 <link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
-<link rel="stylesheet" href="/app.css?v=675">
+<link rel="stylesheet" href="/app.css?v=676">
 </head>
 <body>
 
@@ -1160,6 +1160,7 @@ body.needs-auth #authGate{z-index:2000001}
       <button data-pt="nxthist" class="on">NXT 명단 이력</button>
       <button data-pt="surge">급등주 예측<i class="lv">LIVE</i></button>
       <button data-pt="accum">매집 포착기<i class="lv">NEW</i></button>
+      <button data-pt="patterns">차트 패턴 탐색기<i class="lv">NEW</i></button>
       <button data-pt="screener">조건 검색기<i class="lv">LIVE</i></button>
       <button data-pt="thermo">시장 온도계<i class="lv">LIVE</i></button>
       <button data-pt="port">포트폴리오 진단</button>
@@ -1168,6 +1169,97 @@ body.needs-auth #authGate{z-index:2000001}
       <button data-pt="risk">리스크 계산기</button>
     </div>
 
+
+    <div id="pro-patterns" hidden>
+      <div class="panel pro-panel pt-panel">
+        <div class="pro-head pt-head">
+          <div><b>차트 패턴 탐색기</b><span>컵 위드 핸들·W바닥·역헤드앤숄더부터 삼각형·쐐기·깃발·캔들 패턴까지, 실제 일봉 OHLCV를 분석해 해당 종목을 찾아냅니다.</span></div>
+          <div class="pt-head-mark">TECHNICAL SCANNER <i>LIVE DATA</i></div>
+        </div>
+        <div class="pt-intro">
+          <span class="pt-intro-icon">⌁</span>
+          <div><b>차트 모양을 골라 종목을 검색하세요</b><p>패턴 적합도는 가격·거래량의 형태를 규칙으로 비교한 점수이며, 성공 확률이나 수익 예측이 아닙니다. 기본 범위는 관심종목이라 전체 종목 검색보다 요청이 적습니다.</p></div>
+        </div>
+        <div class="pt-pick-top">
+          <div><b>찾을 패턴 선택</b><span id="ptSelectedCount">33개 선택</span></div>
+          <div class="pt-pick-actions"><button type="button" id="ptSelectAll">전체 선택</button><button type="button" id="ptClearAll">선택 해제</button></div>
+        </div>
+        <div class="pt-pattern-groups">
+          <section class="pt-group">
+            <div class="pt-group-head"><b>반전·바닥 패턴</b><span>주요 고점·저점 구조</span><button type="button" data-pt-group-all="reversal">그룹 선택</button></div>
+            <div class="pt-chip-grid">
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="cup" checked><span>컵 위드 핸들</span><i>CUP</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="doubleBottom" checked><span>W바닥 · 이중바닥</span><i>W</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="ihs" checked><span>역헤드앤숄더</span><i>IHS</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="rounding" checked><span>원형 바닥</span><i>U</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="doubleTop" checked><span>이중천정 · M자</span><i>M</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="hs" checked><span>헤드앤숄더</span><i>H&amp;S</i></label>
+            </div>
+          </section>
+          <section class="pt-group">
+            <div class="pt-group-head"><b>삼각형·쐐기·깃발·베이스</b><span>수렴·조정 구간</span><button type="button" data-pt-group-all="continuation">그룹 선택</button></div>
+            <div class="pt-chip-grid">
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="ascTriangle" checked><span>상승 삼각형</span><i>△</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="descTriangle" checked><span>하락 삼각형</span><i>▽</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="symTriangle" checked><span>대칭 삼각형</span><i>◇</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="fallWedge" checked><span>하락 쐐기</span><i>↘</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="riseWedge" checked><span>상승 쐐기</span><i>↗</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="bullFlag" checked><span>상승 깃발</span><i>⚑+</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="bearFlag" checked><span>하락 깃발</span><i>⚑−</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="vcp" checked><span>변동성 수축(VCP)</span><i>VCP</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="flatBase" checked><span>플랫 베이스</span><i>BASE</i></label>
+            </div>
+          </section>
+          <section class="pt-group">
+            <div class="pt-group-head"><b>돌파·추세·이동평균</b><span>추세와 가격 위치</span><button type="button" data-pt-group-all="trend">그룹 선택</button></div>
+            <div class="pt-chip-grid">
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="break20" checked><span>20일 고점 돌파</span><i>20D</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="break60" checked><span>60일 고점 돌파</span><i>60D</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="volBreak" checked><span>거래량 동반 돌파</span><i>VOL</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="goldCross" checked><span>5·20일 골든크로스</span><i>GC</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="goldCross60" checked><span>20·60일 골든크로스</span><i>GC60</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="deadCross" checked><span>5·20일 데드크로스</span><i>DC</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="maAlign" checked><span>이동평균 정배열</span><i>MA</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="maPullback" checked><span>20일선 눌림목</span><i>PB</i></label>
+            </div>
+          </section>
+          <section class="pt-group">
+            <div class="pt-group-head"><b>캔들·모멘텀 패턴</b><span>최근 봉과 RSI 참고 신호</span><button type="button" data-pt-group-all="candle">그룹 선택</button></div>
+            <div class="pt-chip-grid">
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="hammer" checked><span>망치형</span><i>HAM</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="bullEngulf" checked><span>상승 장악형</span><i>ENG+</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="bearEngulf" checked><span>하락 장악형</span><i>ENG−</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="morningStar" checked><span>샛별형</span><i>STAR+</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="shootingStar" checked><span>유성형</span><i>STAR−</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="doji" checked><span>도지형</span><i>DOJI</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="bullHarami" checked><span>상승 잉태형</span><i>HARA+</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="bearHarami" checked><span>하락 잉태형</span><i>HARA−</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="rsiBounce" checked><span>RSI 과매도 반등</span><i>RSI+</i></label>
+              <label class="pt-chip"><input class="pt-kind" type="checkbox" value="rsiHot" checked><span>RSI 과열 구간</span><i>RSI!</i></label>
+            </div>
+          </section>
+        </div>
+        <div class="pt-toolbar">
+          <label class="pt-field">검색 범위<select id="ptScope"><option value="watch">관심종목</option><option value="hold">보유종목</option><option value="kospi">코스피 전체</option><option value="kosdaq">코스닥 전체</option><option value="stocks">전체 국내 주식(KOSPI·KOSDAQ·KONEX)</option><option value="etf">국내 ETF 전체</option><option value="all">전체 국내 종목(주식+ETF)</option></select></label>
+          <label class="pt-field pt-query-field">종목명·코드로 범위 좁히기<input id="ptQuery" type="search" placeholder="예: 삼성전자 또는 005930" autocomplete="off"></label>
+          <button type="button" class="scr-run pt-run" id="ptRun">패턴 탐색 시작</button>
+          <button type="button" class="mini-btn" id="ptStop" disabled>중지</button>
+          <button type="button" class="mini-btn" id="ptExport" disabled>CSV 내보내기</button>
+        </div>
+        <div id="ptProgressPanel" class="pt-progress-panel" hidden>
+          <div class="pt-progress-top"><b id="ptStatus" aria-live="polite">검색 준비 중…</b><span id="ptProgressPct">0%</span></div>
+          <progress id="ptProgress" value="0" max="100"></progress>
+          <div id="ptProgressMeta" class="pt-progress-meta">일봉 데이터를 확인합니다.</div>
+        </div>
+        <div id="ptSummary" class="pt-summary" aria-live="polite"><div class="empty">패턴을 선택하고 <b>패턴 탐색 시작</b>을 누르세요. 관심종목·보유종목 또는 전체 시장을 대상으로 검색할 수 있습니다.</div></div>
+        <div id="ptResultBody" class="pt-results"></div>
+        <details id="ptDiagnostics" class="pt-diagnostics">
+          <summary>검색 진단 및 데이터 누락 확인</summary>
+          <div id="ptDiagnosticBody"><div class="empty sm">검색을 실행하면 일봉 없음·데이터 부족·API 오류 등의 진단이 여기에 표시됩니다.</div></div>
+        </details>
+        <div class="pro-note">패턴 판별은 최근 일봉의 OHLCV를 이용한 규칙 기반 탐색이며 일부 형태는 사람의 차트 해석과 다를 수 있습니다. 신규 상장·거래정지·공급원 제한 종목은 필요한 기간의 데이터가 부족할 수 있습니다. 일치하지 않은 종목은 추천에서 제외했다는 뜻이 아니며, 점수는 적중률·매수 신호·미래 수익을 의미하지 않습니다.</div>
+      </div>
+    </div>
 
     <div id="pro-accum" hidden>
       <div class="panel pro-panel">
@@ -1669,6 +1761,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="tier"><i>💎</i><span>멤버십</span></button>
   <button data-bv="event"><i>🎁</i><span>이벤트</span></button>
 </nav>
-<script type="module" src="/app.js?v=686"></script>
+<script type="module" src="/app.js?v=687"></script>
 </body>
 </html>
