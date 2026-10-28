@@ -5813,7 +5813,7 @@ var accounts_default = async (req2) => {
      아래 로직은 예전과 똑같이 db.users[id] 로 읽고 쓸 수 있다.
      저장만 saveUser(id) 로 바꿔 usr:<id> 하나만 건드리게 한다. */
   if (id) {
-    try { const u = await usrLoad(store, id, db); if (u != null) db.users[id] = u; } catch (e) {}
+    try { const u = await usrLoad(store, id, db, true); if (u != null) db.users[id] = u; } catch (e) {}   /* [v17.8.31] 항상 KV 의 최신을 본다 */
   }
   const saveUser = async (uid) => {
     const k2 = uid || id;
@@ -5894,10 +5894,18 @@ var accounts_default = async (req2) => {
         await setPassword(acc, pass);
       }
       clearTries(db, id); await saveAcc(id);          /* [v9.75] */
+      /* ══ [v17.8.31 · 치명] 로그인 응답에 사용자 데이터가 한 번도 실려 가지 않았다 ═══════
+         [원인] 아래 saveDb() 는 '이미 usr:<id> 로 옮겨진 사람'을 db.users 에서 지운다(v9.74).
+           그런데 응답은 saveDb() 가 끝난 뒤에 db.users[id] 를 읽어 보냈다. usrLoad 가 방금
+           _usrCache 에 채웠으므로 이 사람은 언제나 '옮겨진 사람'이라, 응답의 user 는 항상 {} 였다.
+         [결과] 새 기기·새 브라우저에서 같은 계정으로 로그인해도 서버 데이터가 화면에 오지 않았다.
+           (받아 오는 길이 로그인뿐이던 시절부터 계속 그랬다 — 증상 '로그인했는데 텅 비어 있다')
+         [고침] saveDb() 가 지우기 전에 사용자 데이터를 먼저 챙겨 둔다. */
+      const _loginUser = db.users[id] || null;
       await saveDb();
       /* [v11.0] 등급을 함께 보낸다 — 화면은 이 값만 믿는다(위조 불가) */
       return json({ ok: true, name: acc.name, email: acc.email, created: acc.created,
-        user: db.users[id] || {}, ...tierPayload(acc) });
+        user: _loginUser || {}, rv: +((_loginUser || {}).rv) || 0, ...tierPayload(acc) });
     }
     /* ══ [v17.8.25] pull — 다른 기기에서 저장한 최신 내용을 '읽기만' 한다 ══════════
        [왜 필요한가] 이 기기들은 로그인할 때와 로컬이 텅 비었을 때만 서버에서 받아 왔다.
@@ -5908,7 +5916,14 @@ var accounts_default = async (req2) => {
       if (!acc) return json({ ok: false, err: "nouser" });
       const v = await verify(acc, pass, legacy);
       if (!v.ok) return json({ ok: false, err: "invalid" });
-      return json({ ok: true, user: db.users[id] || null, ...tierPayload(acc) });
+      {
+        const cur = db.users[id] || null;
+        const curRv = +((cur || {}).rv) || 0;
+        /* [v17.8.31] 이 기기가 이미 같은 판(rv)·같은 내용(sig)을 들고 있으면 데이터를 다시 보내지 않는다 */
+        if (cur && body.rv !== undefined && body.sig !== undefined && +body.rv === curRv && String(body.sig) === usrSyncSig(cur))
+          return json({ ok: true, same: true, rv: curRv, ...tierPayload(acc) });
+        return json({ ok: true, user: cur, rv: curRv, ...tierPayload(acc) });
+      }
     }
     if (action === "sync") {
       const v = await verify(acc, pass, legacy);
@@ -5939,19 +5954,33 @@ var accounts_default = async (req2) => {
             return false;
           }catch(e){ return false; }
         };
+        const _curRv = +((_cur || {}).rv) || 0;
         if (_inc && !_has(_inc) && _has(_cur) && !body.wipe) {
-          /* 지키고, 화면에 알린다 — 화면은 이 값을 보고 서버 것을 되받을 수 있다 */
-          return json({ ok: true, stored: "kept", guarded: true, ...tierPayload(acc) });
+          /* 지키고, 화면에 알린다 — 최신 서버 사본을 함께 돌려줘 화면이 되받게 한다 */
+          return json({ ok: true, stored: "kept", guarded: true, rv: _curRv, user: _cur, ...tierPayload(acc) });
         }
-        db.users[id] = _inc || _cur || {};
+        /* ══ [v17.8.31 · 치명] 낡은 화면이 최신 서버 내용을 덮지 못하게 한다 ═══════════
+           기기는 '내가 마지막으로 맞춘 서버 개정판(baseRv)'을 함께 보낸다. 그 뒤 다른 기기가 이미
+           저장해 서버 개정판이 더 앞서 있으면 이 쓰기는 낡은 판 위에서 만든 것이다 — 쓰지 않고
+           최신 사본을 돌려준다. 기기는 base·자기 것·서버 것을 항목별로 병합해 다시 올린다.
+           (baseRv 를 안 보내는 옛 앱은 예전처럼 덮되 개정판은 올린다) */
+        const _hasBase = body.baseRv !== undefined && body.baseRv !== null;
+        const _baseRv = _hasBase ? (+body.baseRv || 0) : null;
+        if (_hasBase && _cur && _baseRv < _curRv) {
+          return json({ ok: true, stored: "stale", rv: _curRv, user: _cur, ...tierPayload(acc) });
+        }
+        /* 내용이 같으면 쓰지 않는다(KV 쓰기 절약) — 저장 시각·개정판만 다른 경우 */
+        if (_inc && _cur && usrSyncSig(_inc) === usrSyncSig(_cur)) {
+          return json({ ok: true, stored: "kept", rv: _curRv, ...tierPayload(acc) });
+        }
+        const _newRv = Math.max(_curRv, _baseRv || 0) + 1;
+        db.users[id] = Object.assign({}, _inc || _cur || {}, { rv: _newRv });
       }
       /* ══ [v9.74] 여기가 핵심이다 ═══════════════════════════════════════════
-         동기화는 앱에서 가장 자주 일어나는 쓰기다. 예전에는 이 한 줄이 전체 db 를
-         다시 썼기 때문에, 비슷한 시각에 저장한 다른 사람의 변경이 통째로 날아갔다.
-         이제 자기 키만 쓴다 — 서로 덮어쓸 수 없다. */
-      const okU = await usrSave(store, id, db.users[id]);
+         동기화는 앱에서 가장 자주 일어나는 쓰기다. 이제 자기 키만 쓴다 — 서로 덮어쓸 수 없다. */
+      const okU = await usrSave(store, id, db.users[id], false, true);
       /* [v11.0] 동기화 응답에도 등급을 실어, 만료·발급이 화면에 곧 반영되게 한다 */
-      return json({ ok: true, stored: okU ? "usr" : "fail", ...tierPayload(acc) });
+      return json({ ok: true, stored: okU ? "usr" : "fail", rv: okU ? (+(db.users[id] || {}).rv || 0) : 0, ...tierPayload(acc) });
     }
     if (action === "delete") {
       if (!acc) return json({ ok: false, err: "noacct" });
@@ -7297,10 +7326,12 @@ async function accFindByGoogle(st, gsub, email, legacyDb) {
 }
 var _usrCache = {};                       // id -> {v, at}  같은 요청 안에서 두 번 읽지 않게
 const USR_CACHE_MS = 20000;
-async function usrLoad(st, id, legacyDb) {
+async function usrLoad(st, id, legacyDb, fresh) {
   if (!id) return null;
   const c = _usrCache[id];
-  if (c && Date.now() - c.at < USR_CACHE_MS) return c.v;
+  /* [v17.8.31] 기기 간 동기화 라우트는 인스턴스 메모리 사본(20초)을 믿지 않고 항상 KV 를 본다.
+     다른 인스턴스가 방금 쓴 최신 내용을 이 인스턴스가 옛 사본으로 돌려주던 것이 '동기화 지연'의 한 원인이었다. */
+  if (!fresh && c && Date.now() - c.at < USR_CACHE_MS) return c.v;
   let v = null;
   try { v = await st.get("usr:" + id, { type: "json" }); } catch (e) { v = null; }
   if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { v = null; } }
@@ -7318,11 +7349,19 @@ var _usrSig = {};
 /* [v17.8.18] 지문에서 savedAt 을 뺀다. 화면은 동기화 때마다 savedAt:Date.now() 를 실어 보내므로
    이것을 포함하면 내용이 똑같아도 매번 '다른 값'이 되어 중복 쓰기 방어(v9.97)가 한 번도 듣지 않았다. */
 function usrSigOf(val) {
-  if (val && typeof val === "object" && !Array.isArray(val) && "savedAt" in val) {
-    const c = Object.assign({}, val); delete c.savedAt;
+  if (val && typeof val === "object" && !Array.isArray(val) && ("savedAt" in val || "rv" in val)) {
+    const c = Object.assign({}, val); delete c.savedAt; delete c.rv;
     return JSON.stringify(c);
   }
   return JSON.stringify(val);
+}
+/* [v17.8.31] 기기 간 동기화 지문 — app.js 의 sigOf 와 키 목록·순서가 같아야 한다 */
+const USR_SYNC_KEYS = ["watchlist","holdings","cash","usdCash","usdSettling","acctType","acctList","acctBooks","acctActive","sendLog","ipoPlans","tradeLog","tradeArchive","watchFolders","stockMemos","bookOrders","priceAlerts","priceTargets","watchSort","idxFilter","prefs","acctPass"];
+function usrSyncSig(d) {
+  if (!d || typeof d !== "object") return "";
+  const o = {};
+  for (const k of USR_SYNC_KEYS) if (d[k] !== undefined) o[k] = d[k];
+  try { return JSON.stringify(o); } catch (e) { return ""; }
 }
 /* ══ [v13.3] 서버 최후 방어 — 내용 있는 기록을 빈 것으로 덮지 않는다 ═══════════
    usrSave 는 여러 곳에서 불린다(sync·login·profile·ensure…). 그중 saveUser 헬퍼는
@@ -7343,7 +7382,7 @@ function _usrHas(d) {
     return false;
   } catch (e) { return false; }
 }
-async function usrSave(st, id, val, force) {
+async function usrSave(st, id, val, force, noSkip) {
   if (!id) return false;
   if (!force && !_usrHas(val)) {
     /* 새로 들어온 것이 비었다 — 지금 저장된 것에 내용이 있으면 지키다 */
@@ -7362,7 +7401,7 @@ async function usrSave(st, id, val, force) {
      막아도 실사용 인원이 몇 배로 늘어난다. 지문을 비교해 같으면 건너뛴다. */
   let sig = "";
   try { sig = usrSigOf(val); } catch (e) { sig = ""; }
-  if (sig && _usrSig[id] === sig) return true;          // 이미 같은 내용이 저장돼 있다(저장 시각 제외)
+  if (!noSkip && sig && _usrSig[id] === sig) return true;          // 이미 같은 내용이 저장돼 있다(저장 시각 제외) — [v17.8.31] 동기화 라우트는 인스턴스 지문을 믿지 않는다(noSkip)
   /* ══ [v13.6] 캐시는 저장에 성공한 뒤에 채운다 ═══════════════════════════════
      예전에는 KV 에 쓰기 '전에' 캐시를 채웠다. 그러면 쓰기가 실패해도 이후 읽기가
      캐시에서 답을 주므로 아무 문제 없어 보인다. 그런데 그 값은 어디에도 저장되지
@@ -18177,7 +18216,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.30";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.31";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -18520,7 +18559,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-26 23:05"; BUNDLED_VERSION.notes = ["사업요약 분야별 풀이 누락 보완 — 신규·비표준 업종 종목에도 공통 생성 경로 적용", "기업개요·실적·시세 뒤에 분야별 쉬운 풀이를 배치하고 문장 중복 판정 개선"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-26 23:05"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-28 12:00"; BUNDLED_VERSION.notes = ["기기 간 동기화 전면 수정 — 로그인 응답에 서버 데이터가 실리지 않던 오류 해소", "다른 기기 변경 받아 오기 복구 — 저장 직후 영구 차단되던 문제 해소", "서버 개정판 도입 — 두 기기의 변경을 덮어쓰지 않고 항목별로 병합", "예약주문·가격알림·목표가·정렬·검색기록까지 계정 동기화"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-28 12:00"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

@@ -971,7 +971,7 @@ function bindTargetInputs(root){
 
 let priceTargets={};   // 계정별 값은 reloadPerUser()에서 로드
 let notifyOk=false;
-function saveTargets(){ pset('priceTargets',priceTargets); }
+function saveTargets(){ pset('priceTargets',priceTargets); try{ if(typeof currentUser!=='undefined'&&currentUser&&typeof saveState==='function')saveState(); }catch(e){} }   /* [v17.8.31] 목표가도 계정 데이터로 동기화 */
 async function askNotify(){
   try{ if(!('Notification' in window))return false;
     if(Notification.permission==='granted'){notifyOk=true;return true;}
@@ -4035,11 +4035,166 @@ function srvWhy(l){
     default:return l.err?('서버 응답 '+l.err):'';
   }
 }
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.31 · 치명] 기기 간 동기화를 '개정판(rv) + 3자 병합' 으로 다시 세웠다
+   ──────────────────────────────────────────────────────────────────────────────
+   [증상] 같은 계정으로 로그인해도 다른 기기·브라우저에서 계좌·관심종목 등이 서로 다르다.
+   [원인 — 하나가 아니라 겹쳐 있었다]
+     ① syncT 가 영영 비지 않았다. 저장 타이머가 울린 뒤에도 syncT 는 숫자로 남아 있어,
+        liveSyncPull 첫 줄의 '올릴 변경이 남아 있다'(syncT) 검사가 늘 참이었다.
+        → 이 기기에서 한 번이라도 저장하면 다른 기기의 변경을 받아 오는 길이 통째로 막혔다.
+     ② 최신 판정이 '마지막 저장 시각(savedAt=Date.now())' 이었다. 화면을 그리다 일어나는
+        부수 저장(계좌번호 발급·폴더 이전·정렬 등)도 시각을 갱신해, 아무것도 안 바꾼
+        기기가 '더 새것'이 됐다. 기기 시계가 어긋나도 판정이 뒤집힌다.
+     ③ 서버가 들어온 것을 무조건 덮었다(마지막에 도착한 쪽이 이김). 옛 화면을 든 기기가
+        저장 한 번 하면 다른 기기의 최신 내용을 통째로 지웠다.
+     ④ 서버에서 받아 오는 조건 hasUserContent 가 돈·보유·거래·메모·계좌 2개 이상만 셌다.
+        관심종목·폴더만 있거나 빈 계좌 1개뿐이면 '내용 없음' → 세션 복원·구글 로그인·복구
+        버튼 모두 서버 것을 버렸다. 오히려 새 기기의 빈 기본값이 서버로 올라갔다.
+     ⑤ 올리는 내용에서 예약주문·가격알림·목표가·정렬·검색기록이 빠져 있었다.
+     ⑥ 서버 워커가 기기(인스턴스)마다 20초짜리 메모리 사본을 들고 있어 옛 사본을 돌려줬다.
+   [고침] 서버가 내용이 바뀔 때마다 개정판 번호(rv)를 올리고, 기기는 '내가 마지막으로 맞춘
+     서버 판'(base)을 기억한다. 올릴 때 base 가 옛것이면 서버가 거절하고 최신을 돌려주며,
+     기기는 base·내 것·서버 것을 항목별로 병합한 뒤 다시 올린다. 서로 덮어쓰지 않는다. */
+var SYNC_SIG_KEYS=['watchlist','holdings','cash','usdCash','usdSettling','acctType','acctList','acctBooks','acctActive','sendLog','ipoPlans','tradeLog','tradeArchive','watchFolders','stockMemos','bookOrders','priceAlerts','priceTargets','watchSort','idxFilter','prefs','acctPass'];
+function sigOf(d){
+  if(!d||typeof d!=='object')return '';
+  const o={}; SYNC_SIG_KEYS.forEach(k=>{ if(d[k]!==undefined)o[k]=d[k]; });
+  try{ return JSON.stringify(o); }catch(e){ return ''; }
+}
+function umetaGet(u){
+  try{ const m=JSON.parse(localStorage.getItem('usync:'+u)||'null'); return (m&&typeof m==='object')?m:{}; }catch(e){ return {}; }
+}
+function umetaSet(u,m){
+  try{ localStorage.setItem('usync:'+u,JSON.stringify(m)); }
+  catch(e){ try{ localStorage.setItem('usync:'+u,JSON.stringify({rv:m.rv,sig:m.sig})); }catch(e2){} }   /* 공간이 모자라면 base 는 포기 */
+}
+function umetaFor(u,srv,rv){
+  /* base 에는 동기화 대상 키만 담는다(검색기록 등 큰 것은 제외) */
+  const b={}; if(srv&&typeof srv==='object')SYNC_SIG_KEYS.forEach(k=>{ if(srv[k]!==undefined)b[k]=srv[k]; });
+  return {rv:(+rv||0),sig:sigOf(srv),base:b};
+}
+function userIsDirty(u){
+  const m=umetaGet(u); const loc=store.get('user:'+u);
+  if(!loc)return false;
+  if(m.sig===undefined)return true;
+  return sigOf(loc)!==m.sig;
+}
+/* ── 병합 도구 ─────────────────────────────────────────────────────────── */
+function _eq(a,b){ try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return false; } }
+function _merge3(b,l,s,pick){
+  if(_eq(l,s))return l;
+  if(_eq(l,b))return s;          /* 이 기기는 안 바꿨다 → 서버 것 */
+  if(_eq(s,b))return l;          /* 서버는 안 바뀌었다 → 이 기기 것 */
+  return pick(b,l,s);            /* 둘 다 바꿨다 */
+}
+function _mergeMap(b,l,s,pick){
+  const O=(x)=>(x&&typeof x==='object'&&!Array.isArray(x))?x:{};
+  b=O(b); l=O(l); s=O(s);
+  const out={}; const keys=Object.keys(s).concat(Object.keys(l).filter(k=>!(k in s)));
+  keys.forEach(k=>{
+    const inL=(k in l), inS=(k in s), inB=(k in b);
+    if(inL&&inS)out[k]=_merge3(b[k],l[k],s[k],pick);
+    else if(inL){ if(!inB||!_eq(l[k],b[k]))out[k]=l[k]; }      /* 서버에서 지웠어도 이 기기가 손댔으면 살린다 */
+    else{ if(!inB||!_eq(s[k],b[k]))out[k]=s[k]; }              /* 이 기기에서 지운 것은 서버가 안 건드렸을 때만 지운다 */
+  });
+  return out;
+}
+function _mergeList(b,l,s,idOf,pick){
+  const A=(x)=>Array.isArray(x)?x:[];
+  const toMap=(arr)=>{ const m=new Map(); A(arr).forEach(o=>{ const id=(o&&typeof o==='object')?idOf(o):(o!=null?o:null); if(id!=null)m.set(String(id),o); }); return m; };
+  const mb=toMap(b), ml=toMap(l), ms=toMap(s);
+  const order=Array.from(ms.keys()).concat(Array.from(ml.keys()).filter(k=>!ms.has(k)));
+  const out=[];
+  order.forEach(id=>{
+    const inL=ml.has(id), inS=ms.has(id), inB=mb.has(id); let v;
+    if(inL&&inS)v=_merge3(mb.get(id),ml.get(id),ms.get(id),pick);
+    else if(inL){ if(!inB||!_eq(ml.get(id),mb.get(id)))v=ml.get(id); }
+    else{ if(!inB||!_eq(ms.get(id),mb.get(id)))v=ms.get(id); }
+    if(v!==undefined)out.push(v);
+  });
+  return out;
+}
+function mergeUser(base,loc,srv){
+  base=(base&&typeof base==='object')?base:{};
+  loc=loc||{}; srv=srv||{};
+  const newerL=((+loc.savedAt||0)>=(+srv.savedAt||0));
+  const pick=(b,l,s)=>newerL?l:s;
+  const out=Object.assign({},srv);
+  const m3=(k)=>{ out[k]=_merge3(base[k],loc[k],srv[k],pick); };
+  ['acctType','acctActive','acctPass','watchSort','idxFilter','srchHist','viewHist'].forEach(m3);
+  /* 계좌·폴더·예약주문은 아이디별로 합친다(한쪽에서 새로 만든 것은 둘 다 남는다) */
+  out.acctList=_mergeList(base.acctList,loc.acctList,srv.acctList,o=>o.id,pick);
+  out.watchFolders=_mergeList(base.watchFolders,loc.watchFolders,srv.watchFolders,o=>o.id,(b,l,s)=>{
+    const w=newerL?l:s;
+    const codes=_mergeList(b&&b.codes,l&&l.codes,s&&s.codes,c=>c,(bb,ll)=>ll).filter(c=>c!=null);
+    return Object.assign({},w,{codes});
+  });
+  out.bookOrders=_mergeList(base.bookOrders,loc.bookOrders,srv.bookOrders,o=>o.id,pick);
+  out.sendLog=_mergeList(base.sendLog,loc.sendLog,srv.sendLog,o=>JSON.stringify(o),pick);
+  out.watchlist=_mergeList(base.watchlist,loc.watchlist,srv.watchlist,c=>c,(b,l)=>l);
+  /* 계좌 장부는 계좌 하나를 통째로 한 덩어리로 본다(현금·보유·거래가 서로 맞물려 있다) */
+  out.acctBooks=_mergeMap(base.acctBooks,loc.acctBooks,srv.acctBooks,pick);
+  ['stockMemos','priceAlerts','priceTargets','prefs'].forEach(k=>{ out[k]=_mergeMap(base[k],loc[k],srv[k],pick); });
+  /* 활성 계좌가 사라졌으면 첫 계좌로 */
+  if(Array.isArray(out.acctList)&&out.acctList.length){
+    if(!out.acctList.some(a=>a&&a.id===out.acctActive))out.acctActive=out.acctList[0].id;
+  }
+  /* 관심종목 = 폴더 합집합(앱의 규칙과 같다) */
+  if(Array.isArray(out.watchFolders)&&out.watchFolders.length){
+    const set=new Set(); out.watchFolders.forEach(f=>(f.codes||[]).forEach(c=>set.add(c)));
+    const kept=(out.watchlist||[]).filter(c=>set.has(c)); set.forEach(c=>{ if(!kept.includes(c))kept.push(c); });
+    out.watchlist=kept;
+  }
+  /* 화면 값(현금·보유·거래)은 활성 계좌 장부의 거울이다 — 병합된 장부에서 다시 만든다 */
+  if(Array.isArray(out.acctList)&&out.acctList.length&&out.acctBooks&&out.acctBooks[out.acctActive]){
+    const bk=out.acctBooks[out.acctActive];
+    out.cash=bk.cash||0; out.usdCash=bk.usdCash||0;
+    out.usdSettling=Array.isArray(bk.usdSettling)?bk.usdSettling:[];
+    out.holdings=Array.isArray(bk.holdings)?bk.holdings:[];
+    out.tradeLog=Array.isArray(bk.tradeLog)?bk.tradeLog:[];
+    out.tradeArchive=(bk.tradeArchive&&typeof bk.tradeArchive==='object')?bk.tradeArchive:{};
+    out.ipoPlans=Array.isArray(bk.ipoPlans)?bk.ipoPlans:[];
+  }
+  out.savedAt=Date.now();
+  return out;
+}
+/* 이 기기에 서버 내용을 적용한다 — 로컬 저장 → 화면 갱신. rv/base 도 함께 기록 */
+function adoptUser(uid,user,srv,rv,quiet){
+  const blob=Object.assign({},user,{rv:+rv||0});
+  store.set('user:'+uid,blob);
+  umetaSet(uid,umetaFor(uid,srv,rv));
+  try{ revSet(uid,revGet(uid)+1); }catch(e){}
+  if(currentUser===uid){
+    applyUser(uid);
+    try{ renderAll&&renderAll(); }catch(e){}
+    if(!quiet){ try{ toast('ok','다른 기기의 변경을 반영했어요',''); }catch(e){} }
+  }
+}
+/* 서버 것(srv)과 이 기기 것을 맞춘다. 돌려주는 값: 'adopted' | 'merged' | 'same' | 'kept' */
+function reconcileUser(uid,srv,rv,quiet){
+  const loc=store.get('user:'+uid)||null;
+  const meta=umetaGet(uid);
+  /* 서버가 내가 이미 본 판보다 '뒤'를 말하면 KV 전파 지연으로 옛 사본을 읽은 것이다 — 무시한다 */
+  if(meta.rv!==undefined&&(+rv||0)<(+meta.rv||0))return 'same';
+  const srvHas=!!(srv&&typeof srv==='object'&&(hasRealData(srv)||(Array.isArray(srv.watchlist)&&srv.watchlist.length)||(srv.prefs&&Object.keys(srv.prefs).length)));
+  if(!srvHas){ return 'kept'; }                                  /* 서버가 비었으면 이 기기 것을 지킨다(올리는 쪽이 채운다) */
+  if(!loc){ adoptUser(uid,srv,srv,rv,quiet); return 'adopted'; }  /* 이 기기는 처음 — 서버 것을 그대로 받는다 */
+  const dirty=(meta.sig===undefined)?true:(sigOf(loc)!==meta.sig);
+  if(!dirty){
+    if(sigOf(loc)===sigOf(srv)){ umetaSet(uid,umetaFor(uid,srv,rv)); return 'same'; }
+    adoptUser(uid,srv,srv,rv,quiet); return 'adopted';           /* 이 기기는 안 바꿨다 → 서버 것 */
+  }
+  /* 둘 다 다르다 — base 를 기준으로 항목별 병합. base 가 없으면 빈 것을 기준으로(양쪽 추가분은 모두 남는다) */
+  const merged=mergeUser(meta.base||{},loc,srv);
+  adoptUser(uid,merged,srv,rv,true);
+  /* adoptUser 가 base=서버판으로 적어 두었다. 병합본은 서버와 다르므로 곧 dirty → 올린다 */
+  if(!quiet){ try{ toast('ok','두 기기의 변경을 합쳤어요','관심종목·계좌가 모두 이어집니다'); }catch(e){} }
+  return 'merged';
+}
 function cloudSync(){
   if(!currentUser)return;const acc=accounts()[currentUser];if(!acc)return;
   /* ══ [v13.2] 빈 상태는 아예 올리지 않는다 ═══════════════════════════════════
-     서버에도 방어를 뒀지만, 애초에 보내지 않는 것이 낫다. 화면이 어떤 이유로든
-     비어 있는 순간에 동기화가 돌면 멀쩡한 서버 사본이 위험해진다.
      로컬에 내용이 있는데 지금 화면이 비었다면 그건 '아직 안 불러온 상태'다. */
   try{
     const _live={holdings,cash,usdCash,acctList,acctBooks,tradeLog,watchFolders};
@@ -4051,36 +4206,74 @@ function cloudSync(){
       }
     }
   }catch(e){}
+  /* [v17.8.31] 바뀐 것이 없으면 서버에 아무것도 보내지 않는다(KV 쓰기 절약 + 부수 저장이 '최신'을 흉내 내는 것 방지) */
+  try{ if(!userIsDirty(currentUser)&&umetaGet(currentUser).sig!==undefined)return; }catch(e){}
   clearTimeout(syncT);
-  syncT=setTimeout(()=>syncOnce(acc),_syncDelay());
+  syncT=setTimeout(()=>{ syncT=null; syncOnce(acc); },_syncDelay());   /* [v17.8.31] 울린 뒤에는 반드시 비운다 — 안 비우면 받아 오기가 영영 막힌다 */
 }
 /* ══ [v13.6] 서버 저장 실패를 알아챈다 ═══════════════════════════════════════
-   예전에는 sync 응답을 버렸다. 서버가 stored:"fail" 을 돌려줘도 화면은 아무 일
-   없다는 듯 넘어갔고, 사용자는 저장된 줄 알았다. 이 기기에는 남아 있으니 당장은
-   괜찮지만, 기기를 바꾸면 그 사이 거래가 통째로 없다.
    실패하면 몇 초 뒤 다시 시도하고, 계속 실패하면 분명히 알린다. */
-var _syncFail=0, _syncWarnAt=0;
+var _syncFail=0, _syncWarnAt=0, _syncBusy=false;
+async function syncPush(uid,acc){
+  /* 최대 4바퀴: 올림 → (낡았다고 거절) → 병합 → 다시 올림 */
+  for(let round=0;round<4;round++){
+    if(currentUser!==uid)return null;
+    const loc=store.get('user:'+uid); if(!loc)return null;
+    let meta=umetaGet(uid);
+    /* 이 기기가 새 방식으로 서버와 맞춰 본 적이 없다 — 올리기 전에 먼저 받아 맞춘다(옛 사본이 서버를 덮지 않게) */
+    if(meta.rv===undefined){
+      const pj=await cloudCall({action:'pull',id:uid,pass:acc.pass});
+      if(!pj||!pj.ok)return pj;
+      const srv=(pj.user&&typeof pj.user==='object')?pj.user:null;
+      if(srv){ try{ reconcileUser(uid,srv,pj.rv,true); }catch(e){} }
+      if(umetaGet(uid).rv===undefined)umetaSet(uid,{rv:+pj.rv||0,sig:'',base:{}});   /* 서버가 비었으면 이 기기 것이 첫 판이다 */
+      continue;
+    }
+    if(meta.sig!==undefined&&sigOf(loc)===meta.sig)return {ok:true,stored:'kept'};   /* 올릴 것이 없다 */
+    const sa=Date.now();
+    const j=await cloudCall({action:'sync',id:uid,pass:acc.pass,baseRv:meta.rv,
+      user:Object.assign({},loc,{savedAt:+loc.savedAt||sa})});
+    if(!j||!j.ok)return j;
+    if(j.stored==='usr'||j.stored==='kept'){
+      /* 서버가 받았다(또는 이미 같았다) — 지금 내 것이 서버 판이다 */
+      const cur=store.get('user:'+uid)||loc;
+      if(sigOf(cur)===sigOf(loc)){
+        umetaSet(uid,umetaFor(uid,loc,j.rv));
+        try{ if((+cur.rv||0)!==(+j.rv||0)){ const l2=store.get('user:'+uid); if(l2){ l2.rv=+j.rv||0; localStorage.setItem('user:'+uid,JSON.stringify(l2)); } } }catch(e){}
+        return j;
+      }
+      /* 올리는 사이에 또 바뀌었다 — 이 판을 base 로 두고 한 바퀴 더 */
+      umetaSet(uid,umetaFor(uid,loc,j.rv));
+      continue;
+    }
+    if(j.stored==='stale'||j.guarded){
+      const srv=(j.user&&typeof j.user==='object')?j.user:null;
+      if(!srv)return j;
+      reconcileUser(uid,srv,j.rv,false);
+      continue;
+    }
+    return j;
+  }
+  return {ok:true,stored:'kept'};
+}
 function syncOnce(acc){
   const _cur=currentUser;
-  const _sa=Date.now();
-  cloudCall({action:'sync',id:_cur,pass:acc.pass,
-    /* 폴더·종목메모·개인설정까지 자동 저장 — 기기를 바꿔 로그인해도 그대로 복원된다(수동 내보내기 불필요) */
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:_sa}})
+  if(!_cur||!acc)return;
+  if(_syncBusy){ clearTimeout(syncT); syncT=setTimeout(()=>{ syncT=null; syncOnce(acc); },1500); return; }
+  _syncBusy=true;
+  syncPush(_cur,acc)
   .then(j=>{
-    if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept')){ _syncFail=0; lsMarkPushed(_cur,_sa); return; }
-    if(j&&j.ok&&j.guarded){ _syncFail=0; return; }      // 서버가 지켜 준 경우 — 정상
+    if(j===null)return;
+    if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept')){ _syncFail=0; return; }
     /* ══ [v17.8.18] 비밀번호·잠금 오류는 다시 두드려도 낫지 않는다 ═══════════════
-       이전에는 어떤 실패든 1.5초·3초·4.5초 뒤 재시도하고 이후 1분마다 계속했다.
-       그런데 서버는 틀린 인증이 올 때마다 실패 횟수를 센다(15분에 10회면 잠금).
-       즉 '서버 저장 실패' 알림 하나가, 재시도 때문에 로그인까지 막는 연쇄로 이어질 수 있었다.
        이 경우만은 15분 쉬고, 원인을 정확히 알려 준다. */
     if(j&&(j.err==='invalid'||j.err==='toomany')){ syncPause(acc,_cur,j); return; }
     syncRetry(acc,_cur);
   })
-  .catch(()=>{ syncRetry(acc,_cur); });
+  .catch(()=>{ syncRetry(acc,_cur); })
+  .finally(()=>{ _syncBusy=false; });
 }
-/* 실패했을 때 — 짧게 세 번 다시 시도하고, 그 뒤에는 알린 다음 천천히 계속 시도한다.
-   포기하지 않는 것이 중요하다. 연결이 돌아오면 저절로 올라간다. */
+/* 실패했을 때 — 짧게 세 번 다시 시도하고, 그 뒤에는 알린 다음 천천히 계속 시도한다. */
 function syncPause(acc,uid,j){
   _syncFail=0;
   const now=Date.now();
@@ -4089,7 +4282,7 @@ function syncPause(acc,uid,j){
     try{ toast('warn','서버에 저장하지 못했어요',srvWhy({err:j&&j.err})+' · 이 기기에는 그대로 남아 있어요'); }catch(e){}
   }
   clearTimeout(syncT);
-  syncT=setTimeout(()=>{ try{ if(currentUser===uid)syncOnce(acc); }catch(e){} }, 16*60*1000);
+  syncT=setTimeout(()=>{ syncT=null; try{ if(currentUser===uid)syncOnce(acc); }catch(e){} }, 16*60*1000);
 }
 function syncRetry(acc,uid){
   _syncFail++;
@@ -4102,21 +4295,14 @@ function syncRetry(acc,uid){
         (why?why+' · ':'')+'이 기기에는 남아 있습니다. 연결이 돌아오면 자동으로 다시 저장돼요'); }catch(e){}
     }
   }
-  if(_syncFail>200)return;                              // 무한히 붙들지는 않는다
+  if(_syncFail>200)return;
   clearTimeout(syncT);
-  syncT=setTimeout(()=>{ try{ if(currentUser===uid)syncOnce(acc); }catch(e){} }, wait);
+  syncT=setTimeout(()=>{ syncT=null; try{ if(currentUser===uid)syncOnce(acc); }catch(e){} }, wait);
 }
 /* ══ [v9.73] 서버 저장 간격을 상황에 맞게 ══════════════════════════════════
-   800ms 고정이라, 주문 화면에서 값을 조금씩 만지는 동안에도 계속 저장 요청이
-   나갔다. KV 는 하루 쓰기 한도가 있으므로 조용할 때는 넉넉히 묶는다.
+   KV 는 하루 쓰기 한도가 있으므로 조용할 때는 넉넉히 묶는다.
    화면을 닫거나 탭을 벗어날 때는 아래에서 즉시 한 번 밀어 넣으므로 유실은 없다. */
 function _syncDelay(){
-  /* ══ [v9.97] KV 쓰기가 첫 병목이다 ═══════════════════════════════════════
-     Cloudflare 무료 KV 는 하루 쓰기 1,000회다. 사용자 한 명이 하루 20~60회를
-     쓰므로 25명쯤에서 요청 한도(10만)보다 먼저 막힌다. 막히면 저장이 조용히
-     실패해 '분명 샀는데 새로고침하면 없는' 증상이 된다 — 가장 나쁜 고장이다.
-     서버가 알려 준 전체 사용률이 높으면 저장 간격을 늘려 쓰기를 아낀다.
-     화면을 닫을 때는 즉시 밀어 넣으므로 데이터가 사라지지는 않는다. */
   try{
     if(document.hidden)return 300;              // 곧 사라질 수 있으니 빨리 보낸다
     const t=(typeof srvBudgetTier==='function')?srvBudgetTier():-1;
@@ -4134,47 +4320,32 @@ try{
 }catch(e){}
 function cloudSyncNow(){
   if(!currentUser)return; const acc=accounts()[currentUser]; if(!acc)return;
-  const _u=currentUser, _sa=Date.now();
-  try{ cloudCall({action:'sync',id:_u,pass:acc.pass,
-    user:{watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,prefs:userPrefs,acctPass:acctPassHash,savedAt:_sa}})
-    .then(j=>{ if(j&&j.ok&&(j.stored==='usr'||j.stored==='kept'))lsMarkPushed(_u,_sa); }).catch(()=>{}); }catch(e){}
+  try{ syncOnce(acc); }catch(e){}
 }
-/* ══ [v17.8.25] 다른 기기에서 바꾼 관심종목·거래가 이 기기에 오지 않던 문제 ═════════
-   [무엇이 문제였나] 서버로 올리는 길(sync)만 있고 받아 오는 길이 없었다. 받아 오는 때는
-     ① 로그인할 때 ② 이 기기의 데이터가 텅 비었을 때 두 가지뿐이라, 이미 로그인해 둔
-     기기는 다른 기기가 바꾼 내용을 영영 받지 못했다(같은 계정인데 관심종목이 다름).
-   [고침] 앱을 열 때·화면으로 돌아올 때·켜 두는 동안 30초마다 서버에 '읽기 전용'으로 묻는다
-     (pull — 쓰기가 없어 KV 쓰기 한도를 쓰지 않는다). 서버 것이 더 새것이고, 이 기기에
-     아직 올리지 못한 변경이 없을 때만 서버 내용으로 맞춘다. */
+/* ══ [v17.8.25 → v17.8.31] 다른 기기에서 바꾼 내용을 받아 온다 ═════════════════
+   앱을 열 때·화면으로 돌아올 때·켜 두는 동안 30초마다 서버에 '읽기 전용'으로 묻는다.
+   서버 판이 내가 아는 판과 같으면 서버는 '같다'고만 답한다(데이터를 다시 보내지 않는다).
+   다르면 reconcileUser 가 받기/병합을 정한다 — 이 기기에 올리지 못한 변경이 있어도 막지 않고 합친다. */
 var _lsBusy=false,_lsAt=0;
-function lsMarkPushed(u,sa){
-  try{
-    const l=store.get('user:'+u);
-    if(l&&typeof l==='object'&&(+l.savedAt||0)<sa){ l.savedAt=sa; localStorage.setItem('user:'+u,JSON.stringify(l)); }
-  }catch(e){}
-}
 async function liveSyncPull(reason){
   if(_lsBusy)return false;
   try{
-    if(!currentUser||syncT)return false;                 // 올릴 변경이 남아 있으면 그쪽이 먼저다
+    if(!currentUser)return false;
     const uid=currentUser, acc=accounts()[uid];
     if(!acc||!acc.pass)return false;
-    const now=Date.now(); if(now-_lsAt<3000)return false; _lsAt=now;
+    const now=Date.now(); if(now-_lsAt<3000&&reason!=='manual')return false; _lsAt=now;
     _lsBusy=true;
-    const j=await cloudCall({action:'pull',id:uid,pass:acc.pass});
-    if(!j||!j.ok||currentUser!==uid||syncT)return false;
+    const meta=umetaGet(uid);
+    const req={action:'pull',id:uid,pass:acc.pass};
+    if(meta.rv!==undefined&&meta.sig!==undefined){ req.rv=meta.rv; req.sig=meta.sig; }
+    const j=await cloudCall(req);
+    if(!j||!j.ok||currentUser!==uid)return false;
+    if(j.same)return false;
     const srv=(j.user&&typeof j.user==='object')?j.user:null;
     if(!srv)return false;
-    const sAt=+srv.savedAt||0;
-    const loc=store.get('user:'+uid)||null;
-    const lAt=loc?(+loc.savedAt||0):0;
-    if(!(sAt>lAt))return false;                          // 서버 것이 더 새것일 때만
-    if(!hasRealData(srv)&&!(Array.isArray(srv.watchlist)&&srv.watchlist.length))return false;   // 빈 것으로 덮지 않는다
-    store.set('user:'+uid,srv);
-    try{ revSet(uid,revGet(uid)+1); }catch(e){}
-    applyUser(uid);
-    try{ renderAll&&renderAll(); }catch(e){}
-    return true;
+    const r=reconcileUser(uid,srv,j.rv,false);
+    if(r==='merged'){ try{ cloudSync(); }catch(e){} }
+    return r==='adopted'||r==='merged';
   }catch(e){ return false; }
   finally{ _lsBusy=false; }
 }
@@ -4187,7 +4358,23 @@ try{
 }catch(e){}
 function saveState(){ if(!currentUser)return; try{acctSnap();}catch(e){}   // [v4.40] 활성 계좌 장부 반영
   /* [v13.9] 저장 시각을 함께 남긴다 — 로컬과 서버 중 어느 쪽이 새것인지 가리는 근거 */
-  const _next={watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()};
+  /* [v17.8.31] 예약주문·가격알림·목표가·정렬·검색기록까지 한 덩어리로 — 이전에는 이것들이 이 기기에만 남았다.
+     변수가 아직 선언 전(TDZ)일 수 있어 하나씩 안전하게 읽는다. */
+  const _g=(f,d)=>{ try{ const v=f(); return v===undefined?d:v; }catch(e){ return d; } };
+  const _next={watchlist,holdings,cash,usdCash,usdSettling,acctType,acctList,acctBooks,acctActive,sendLog,ipoPlans,tradeLog,tradeArchive,watchFolders,stockMemos,bookOrders,priceAlerts,
+    priceTargets:_g(()=>priceTargets,{}),watchSort:_g(()=>watchSortMode,'chg'),idxFilter:_g(()=>idxFilter,'전체'),
+    srchHist:_g(()=>srchHist,[]),viewHist:_g(()=>viewHist,[]),
+    prefs:userPrefs,acctPass:acctPassHash,savedAt:Date.now()};
+  /* ══ [v17.8.31] 저장 시각은 '내용이 실제로 바뀐 때'만 갱신한다 ═══════════════
+     화면을 그리다 일어나는 부수 저장(계좌번호 발급·폴더 이전 등)이 시각을 올려, 아무것도 안 바꾼
+     기기가 '더 새것'이 되던 문제를 막는다. 내용이 같으면 이전 시각·개정판을 그대로 둔다. */
+  try{
+    const _p=store.get('user:'+currentUser);
+    if(_p&&typeof _p==='object'&&sigOf(_p)===sigOf(_next)){
+      _next.savedAt=+_p.savedAt||_next.savedAt;
+      if(_p.rv!==undefined)_next.rv=_p.rv;
+    }else if(_p&&_p.rv!==undefined){ _next.rv=_p.rv; }
+  }catch(e){}
   /* ══ [v13.1] 3겹 — 갑자기 텅 비는 저장을 감지한다 ═══════════════════════════
      계좌를 전부 해지하는 것처럼 정말 비우는 경우도 있으므로 막지는 않는다.
      다만 '있던 것이 사라지는' 저장이라면 직전 상태를 스냅샷으로 반드시 남긴다.
@@ -4402,6 +4589,15 @@ function applyUser(u){
   watchTab='all';
   stockMemos=(d.stockMemos&&typeof d.stockMemos==='object')?d.stockMemos:{};
   loadPrefs(d.prefs||null);                    // 클라우드에 설정이 있으면 그걸 우선
+  /* [v17.8.31] 목표가·정렬·필터·검색기록은 계정 데이터에 실려 오므로 이 기기의 계정별 키에 먼저 풀어 둔다 */
+  try{
+    const _put=(k,v)=>{ if(v!==undefined&&v!==null)localStorage.setItem(pkey(k),JSON.stringify(v)); };
+    _put('priceTargets',(d.priceTargets&&typeof d.priceTargets==='object')?d.priceTargets:undefined);
+    _put('watchSort',typeof d.watchSort==='string'?d.watchSort:undefined);
+    _put('idxFilter',typeof d.idxFilter==='string'?d.idxFilter:undefined);
+    _put('srchHist',Array.isArray(d.srchHist)?d.srchHist:undefined);
+    _put('viewHist',Array.isArray(d.viewHist)?d.viewHist:undefined);
+  }catch(e){}
   reloadPerUser();                             // 검색기록·최근본·정렬을 이 계정 것으로
   /* [v17.2] acctPassHash 는 위쪽(계좌 복원 전)에서 이미 세웠다. 여기서 다시 쓰면
      acctLoad 가 정한 '활성 계좌 비밀번호'를 도로 덮어 버린다 — 그게 잠금의 원인이었다. */
@@ -4612,19 +4808,20 @@ async function oaConsume(){
       acctPass:(accs[j.id]&&accs[j.id].acctPass)||legacyHash('0000'),
       created:(accs[j.id]&&accs[j.id].created)||Date.now(),google:1};
     store.set('accounts',accs);
-    /* [v17.8.25] 사용자 데이터가 커서 쿠키에 못 실렸으면(userOmitted) 서버에서 직접 받아 온다.
-       쿠키가 4KB 를 넘으면 브라우저가 통째로 버려 구글 로그인이 계속 되돌아오던 문제의 짝이다. */
-    let srvUser=(j.user&&typeof j.user==='object')?j.user:null;
-    if(!srvUser){
+    /* [v17.8.31] 쿠키에 실려 온 사용자 데이터는 로그인 순간의 옛 사본일 수 있고 4KB 를 넘으면 빠진다.
+       항상 서버에서 직접 받아 개정판(rv)까지 함께 맞춘다. 쿠키 것은 서버가 응답하지 않을 때만 쓴다. */
+    let lj=null;
+    try{ lj=await cloudCall({action:'login',id:j.id,pass:j.pass}); }catch(e){}
+    let srvUser=(lj&&lj.ok&&lj.user&&typeof lj.user==='object')?lj.user:null;
+    let srvRv=(lj&&lj.ok)?lj.rv:undefined;
+    if(!srvUser&&j.user&&typeof j.user==='object'){ srvUser=j.user; srvRv=undefined; }
+    if(srvUser){
       try{
-        const lj=await cloudCall({action:'login',id:j.id,pass:j.pass});
-        if(lj&&lj.ok&&lj.user&&typeof lj.user==='object')srvUser=lj.user;
+        const _r=reconcileUser(j.id,srvUser,srvRv,true);
+        if(_r==='merged'){ try{ toast('ok','두 기기의 변경을 합쳤어요','관심종목·계좌가 모두 이어집니다'); }catch(e){} }
       }catch(e){}
     }
-    if(srvUser){
-      const locU=store.get('user:'+j.id);
-      if(!locU||(!hasUserContent(locU)&&hasUserContent(srvUser)))store.set('user:'+j.id,srvUser);
-    }
+    setTimeout(()=>{ try{ cloudSync(); }catch(e){} },1500);
     applyUser(j.id); unlockApp(); initApp();
     /* ══ [v6.9] 발급된 아이디를 반드시 보여 준다 ═══════════════════════════
        [왜] 구글이 준 이메일을 소문자로 통일해 아이디로 쓴다. 대문자로 쓰던 분은
@@ -4969,29 +5166,20 @@ async function pullFromServer(manual){
     const acc=accounts()[currentUser];
     if(!acc||!acc.pass){ if(manual)toast('warn','계정 정보를 찾지 못했어요',''); return false; }
     if(manual)toast('ok','서버에서 확인하는 중…','');
-    const j=await cloudCall({action:'login',id:currentUser,pass:acc.pass});
+    const uid=currentUser;
+    const j=await cloudCall({action:'login',id:uid,pass:acc.pass});
     if(!j||!j.ok){ if(manual)toast('warn','서버에서 확인하지 못했어요',srvWhy()||'잠시 후 다시 시도해 주세요'); return false; }
     const srv=(j.user&&typeof j.user==='object')?j.user:null;
-    /* 깨졌던 경우에는 지금 로컬(방금 만들어진 기본값)을 없는 것으로 본다 */
-    const loc=_localBroken?null:store.get('user:'+currentUser);
-    if(srv&&hasUserContent(srv)&&!hasUserContent(loc)){
-      _localBroken=false;
-      store.set('user:'+currentUser,srv);
-      toast('ok','서버에서 데이터를 되찾았어요','화면을 새로 불러옵니다');
-      setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 900);
-      return true;
+    /* [v17.8.31] 저장된 데이터가 깨졌던 경우 — 깨진 로컬은 없는 것으로 보고 서버 것을 받는다 */
+    if(_localBroken){ try{ localStorage.removeItem('user:'+uid); localStorage.removeItem('usync:'+uid); }catch(e){} _localBroken=false; }
+    if(!srv){ try{ cloudSync(); }catch(e){} if(manual)toast('warn','서버에도 저장된 기록이 없어요',''); return false; }
+    const r=reconcileUser(uid,srv,j.rv,!manual);
+    if(r==='merged'){ try{ cloudSync(); }catch(e){} }
+    if(manual){
+      if(r==='same')toast('ok','이미 최신입니다','서버와 이 기기의 내용이 같아요');
+      else if(r==='kept'){ try{ cloudSync(); }catch(e){} toast('ok','이 기기의 데이터를 서버에 올렸어요','다른 기기에서도 쓰실 수 있습니다'); }
     }
-    if(srv&&hasUserContent(srv)&&hasUserContent(loc)){
-      if(manual)toast('ok','이 기기의 데이터가 최신입니다','되찾을 필요가 없어요');
-      return false;
-    }
-    if(hasRealData(loc)){
-      try{ cloudSync(); }catch(e){}
-      if(manual)toast('ok','이 기기의 데이터를 서버에 올렸어요','다른 기기에서도 쓰실 수 있습니다');
-      return false;
-    }
-    if(manual)toast('warn','서버에도 저장된 기록이 없어요','');
-    return false;
+    return r==='adopted'||r==='merged';
   }catch(e){ if(manual)toast('warn','서버에 연결하지 못했어요',''); return false; }
 }
 /* ══ [v13.9] '사람이 실제로 만든 내용'이 있는가 ═══════════════════════════════
@@ -5061,32 +5249,21 @@ $('doLogin').onclick=async()=>{
       acctPass:(j&&j.user&&j.user.acctPass)||(local&&local.acctPass)||legacyHash('0000'),
       created:(j&&j.created)||(local&&local.created)||Date.now()};
     store.set('accounts',accs);
-    /* ══ [v13.1] 1겹 — 내용 없는 서버 응답으로는 덮어쓰지 않는다 ═══════════
-       서버가 데이터를 못 찾으면 user:{} 를 보낸다. 빈 객체도 참이므로
-       예전 조건(j&&j.user)은 이것을 통과해 로컬을 통째로 지웠다. */
+    /* ══ [v17.8.31] 로그인 때도 같은 규칙으로 맞춘다 ═════════════════════════════
+       예전에는 '저장 시각이 더 새것이냐'로 가렸다. 부수 저장이 시각을 올리고 기기 시계도 제각각이라
+       새 기기·옛 기기 어느 쪽이 이길지 알 수 없었다. 이제 서버 개정판(rv)과 이 기기가 마지막으로
+       맞춘 서버 판(base)을 기준으로 항목별로 합친다. 서버가 비었을 때만 이 기기 것을 지킨다. */
     try{
       const _srv=(j&&j.user&&typeof j.user==='object')?j.user:null;
-      const _loc=store.get('user:'+id)||null;
-      /* ══ [v13.9] 양쪽 다 내용이 있으면 '더 새것'을 지킨다 ═══════════════════════
-         [무엇이 위험했나] 서버에 내용이 있으면 무조건 로컬을 덮었다. 그런데
-         매수한 뒤 동기화(4초 지연)가 나가기 전에 로그아웃하면, 서버에는 매수 전
-         값이 남는다. 그 상태로 다시 로그인하면 서버의 옛 값이 이 기기의 새 거래를
-         덮어써 매수가 통째로 사라졌다. 실제로 재현됐다.
-         [고침] 저장 시각을 비교해 새것을 남긴다. 로컬이 새것이면 서버로 올린다. */
-      const _st=+(_srv&&_srv.savedAt)||0, _lt=+(_loc&&_loc.savedAt)||0;
-      if(_srv&&hasRealData(_srv)&&hasRealData(_loc)&&_lt>_st){
-        /* 이 기기가 더 새것 — 지키고 서버에 올린다 */
-        try{ setTimeout(()=>{ try{ cloudSyncNow&&cloudSyncNow(); }catch(e){} }, 1200); }catch(e){}
-        try{ toast('ok','이 기기의 최신 기록을 지켰어요','서버에 다시 올립니다'); }catch(e){}
-      }else if(_srv&&hasRealData(_srv)){
-        store.set('user:'+id,_srv);
-      }else if(_srv&&!hasRealData(_loc)){
-        store.set('user:'+id,_srv);              // 양쪽 다 비었으면 그냥 받는다
-      }else if(_srv&&hasRealData(_loc)){
-        /* 서버는 비었는데 로컬에는 있다 — 로컬을 지키고 서버에 다시 올린다 */
-        try{ setTimeout(()=>{ try{ cloudSync(); }catch(e){} }, 1500); }catch(e){}
-        try{ toast('warn','서버 기록을 찾지 못했어요','이 기기의 데이터를 그대로 씁니다'); }catch(e){}
+      if(_srv){
+        const _r=reconcileUser(id,_srv,j.rv,true);
+        if(_r==='kept'&&hasRealData(store.get('user:'+id))){
+          try{ toast('warn','서버 기록을 찾지 못했어요','이 기기의 데이터를 그대로 씁니다'); }catch(e){}
+        }else if(_r==='merged'){
+          try{ toast('ok','두 기기의 변경을 합쳤어요','관심종목·계좌가 모두 이어집니다'); }catch(e){}
+        }
       }
+      setTimeout(()=>{ try{ cloudSync(); }catch(e){} },1500);
     }catch(e){}
     applyUser(id);unlockApp();initApp();
   };
@@ -19356,23 +19533,17 @@ function __bootMain(){
       const _a=accounts()[sess];
       if(_a&&_a.pass){
         cloudCall({action:'login',id:sess,pass:_a.pass}).then(j=>{
-          /* ══ [v13.2] 로컬이 비었는데 서버에 있으면 되찾아 온다 ═══════════════
-             예전에는 세션으로 들어오면 서버에서 아무것도 가져오지 않았다.
-             그래서 이 기기의 데이터가 어떤 이유로든 사라지면, 서버에 멀쩡한
-             사본이 있어도 영영 빈 화면만 보게 됐다(복구 경로가 아예 없었다).
-             로컬에 내용이 없고 서버에 있을 때만 되찾는다 —
-             반대 방향(서버가 로컬을 덮는 것)은 절대 하지 않는다. */
+          /* ══ [v17.8.31] 세션으로 열 때도 서버 판과 맞춘다 ════════════════════════════
+             예전에는 '로컬이 비었고 서버에 돈·보유·거래가 있을 때'만 가져왔다. 관심종목·폴더·빈 계좌만
+             있는 계정은 영영 안 가져왔고, 반대로 이 기기의 옛 값이 서버로 올라갔다.
+             이제 서버가 더 앞서 있으면 받고, 둘 다 바뀌었으면 합친다. */
           try{
-            if(!j||!j.ok)return;
+            if(!j||!j.ok||currentUser!==sess)return;
             const _srv=(j.user&&typeof j.user==='object')?j.user:null;
-            const _loc=store.get('user:'+sess);
-            if(_srv&&hasUserContent(_srv)&&!hasUserContent(_loc)){
-              store.set('user:'+sess,_srv);
-              applyUser(sess);
-              try{ renderAll&&renderAll(); }catch(e){}
-              try{ toast('ok','계정 데이터를 되찾았어요','서버에 저장된 기록을 불러왔습니다'); }catch(e){}
-              setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 1200);
-            }
+            if(_srv){
+              const _r=reconcileUser(sess,_srv,j.rv,false);
+              if(_r==='merged'){ try{ cloudSync(); }catch(e){} }
+            }else{ try{ cloudSync(); }catch(e){} }
           }catch(e){}
         }).catch(()=>{});
       }
