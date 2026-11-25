@@ -13490,9 +13490,9 @@ function loadUsSideMinute(code) {
 function usSidePoints(code, px) {
   const arr = (usSideMin[code] && usSideMin[code].arr) || [];
   if (!arr.length) return [];
-  const day = (t) => { const d = new Date(t); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); };
-  const last = day(arr[arr.length - 1].t);
-  const pts = arr.filter(q => day(q.t) === last).map(q => ({ t: q.t, v: q.c }));
+  /* [v17.8.41] 미국 장은 한국시간 자정을 넘어간다(23:30~06:00). 날짜로 자르면
+     그래프가 0시 몇 분만 남아 거의 빈 선이 된다 → 최근 봉 240개를 그대로 쓴다. */
+  const pts = arr.slice(-240).map(q => ({ t: q.t, v: q.c }));
   if (px > 0 && pts.length && pts[pts.length - 1].v !== px) pts.push({ t: Math.max(Date.now(), pts[pts.length - 1].t + 60000), v: px });
   return pts;
 }
@@ -26731,7 +26731,7 @@ function usTradeFormHtml(q, fx, px, pay, maxQ, held, heldBox) {
               ? '미리 환전해 둔 달러로 결제합니다 — 추가 환전 비용이 없습니다'
               : '원화 예수금에서 매수환율(우대 95% · +' + usFxMargin().toFixed(1) + '원)로 자동 환전됩니다'}</div></div>`
             : `<div class="us-ord-note" style="margin-bottom:10px">매도 대금은 <b>달러 예수금</b>으로 들어오며, 즉시 재매수할 수 있습니다. 원화 환전은 <b>다음 영업일(T+1)</b>부터 가능해요.</div>`}
-          <div class="us-fld"><label><span>주문가격 (USD)</span><span class="num">현재가 $${q.price != null ? USD2(q.price) : '—'}${krwPx ? ' · ' + KRW(krwPx) + '원' : ''}</span></label>
+          <div class="us-fld"><label><span>주문가격 (USD)</span><span class="num">현재가 $${q.price != null ? USD2(q.price) : '—'}</span></label>
             <div class="us-inrow"><button id="usPxDn">−</button><input id="usPxIn" inputmode="decimal" value="${px ? px.toFixed(2) : ''}"><button id="usPxUp">＋</button></div>
             <div class="us-ord-note" style="margin-top:5px">${krwPx ? '주문가 원화 환산 <b class="num">' + KRW(krwPx) + '원</b> (환율 ' + KRW(Math.round(fx)) + '원)' : '적용 환율을 받는 중입니다'}</div></div>
           <div class="us-fld"><label><span>주문수량 <small style="font-weight:600;color:var(--sub-2)">0.01주 단위</small></span><span class="num">가능 ${fmtQty(maxQ)}주</span></label>
