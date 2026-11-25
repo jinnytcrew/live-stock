@@ -4616,7 +4616,9 @@ function applyUser(u){
 function serverFillNotice(u,d){
   if(!u||!d||typeof d!=='object')return;
   const key='srvFillSeen:'+u;
-  let seen=0; try{ seen=+(localStorage.getItem(key)||0)||0; }catch(e){ seen=0; }
+  let seen=0; try{ const raw=localStorage.getItem(key);
+    /* 이 기능이 처음 켜진 기기에서는 과거 통지를 몰아서 띄우지 않는다 — 최근 10분만 */
+    seen=raw?((+raw||0)):(Date.now()-10*60e3); }catch(e){ seen=Date.now()-10*60e3; }
   let maxAt=seen;
   const krwOf=(v)=>KRW(Math.round(+v||0))+'원';
   const list=(Array.isArray(d.srvFills)?d.srvFills:[]).concat(Array.isArray(d.srvNotes)?d.srvNotes:[]);

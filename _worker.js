@@ -19262,6 +19262,7 @@ async function afRun(nowArg) {
   var krCodes = Object.keys(krSet).filter(function (c) { return /^[0-9A-Z]{5,6}$/.test(c); }).slice(0, AF_MAX_KR);
   var usCodes = Object.keys(usSet).slice(0, AF_MAX_US);
   var fx = needFx || usCodes.length ? await afFxRate() : null;
+  out.krq = krCodes.length; out.usq = usCodes.length; out.fx = fx;
   var quotes = {};
   try {
     if (krCodes.length) {
@@ -19273,6 +19274,7 @@ async function afRun(nowArg) {
       Object.keys(qu).forEach(function (c) { quotes[c] = qu[c]; });
     }
   } catch (e) { }
+  try { out.qgot = Object.keys(quotes).length; out.qopen = Object.keys(quotes).filter(function (c) { return quotes[c] && quotes[c].open; }).length; } catch (e) { }
 
   for (var n = 0; n < users.length; n++) {
     var rec = users[n];
@@ -19314,7 +19316,9 @@ async function afScheduled(event, env, ctx) {
   try {
     setEnv(env);
     if (!KV) return;
-    var p = afRun(event && event.scheduledTime ? +event.scheduledTime : Date.now());
+    var p = afRun(event && event.scheduledTime ? +event.scheduledTime : Date.now())
+      .then(function (r) { try { if (r && (r.fills || r.notes)) console.log("[af] " + JSON.stringify(r)); } catch (e) { } })
+      .catch(function (e) { try { console.log("[af] ERR " + (e && (e.stack || e.message) || e)); } catch (e2) { } });
     if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p);
     else await p;
   } catch (e) { }
