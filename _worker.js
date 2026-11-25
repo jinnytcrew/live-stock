@@ -5903,6 +5903,7 @@ var accounts_default = async (req2) => {
          [고침] saveDb() 가 지우기 전에 사용자 데이터를 먼저 챙겨 둔다. */
       const _loginUser = db.users[id] || null;
       await saveDb();
+      try { await afIndexSync(id, _loginUser, null); } catch (e) {}   /* [v17.8.34] */
       /* [v11.0] 등급을 함께 보낸다 — 화면은 이 값만 믿는다(위조 불가) */
       return json({ ok: true, name: acc.name, email: acc.email, created: acc.created,
         user: _loginUser || {}, rv: +((_loginUser || {}).rv) || 0, ...tierPayload(acc) });
@@ -5939,6 +5940,7 @@ var accounts_default = async (req2) => {
          서버 사본까지 함께 사라져 되돌릴 길이 없어진다. 서버는 마지막 방어선이므로,
          "지금 저장된 것에는 내용이 있는데 새로 들어온 것은 비었다"면 저장하지 않는다.
          계좌를 정말 다 해지한 경우에는 화면이 wipe:1 을 함께 보내 뜻을 밝힌다. */
+      var _afPrevUser = db.users[id] || null;    /* [v17.8.34] 색인 비교용 직전 사본 */
       {
         const _inc = body.user || null;
         const _cur = db.users[id] || null;
@@ -5979,6 +5981,9 @@ var accounts_default = async (req2) => {
       /* ══ [v9.74] 여기가 핵심이다 ═══════════════════════════════════════════
          동기화는 앱에서 가장 자주 일어나는 쓰기다. 이제 자기 키만 쓴다 — 서로 덮어쓸 수 없다. */
       const okU = await usrSave(store, id, db.users[id], false, true);
+      /* [v17.8.34] 미체결 주문이 생기거나 사라졌으면 서버 색인을 고친다 —
+         크론이 '누구를 볼지' 이 한 줄로 찾는다(구성이 같으면 쓰지 않는다) */
+      try { await afIndexSync(id, db.users[id], _afPrevUser); } catch (e) {}
       /* [v11.0] 동기화 응답에도 등급을 실어, 만료·발급이 화면에 곧 반영되게 한다 */
       return json({ ok: true, stored: okU ? "usr" : "fail", rv: okU ? (+(db.users[id] || {}).rv || 0) : 0, ...tierPayload(acc) });
     }
@@ -5998,6 +6003,7 @@ var accounts_default = async (req2) => {
       delete db.accounts[id];
       delete db.users[id];
       const okUsr = await usrDelete(store, id);
+      try { await afIndexRemove(id); } catch (e) {}   /* [v17.8.34] 남은 미체결 색인 정리 */
       if (db.tries) delete db.tries[id];
       await saveDb(true);                            /* 옛 저장소에서도 반드시 지운다 */
       /* 캐시에 남아 있으면 다음 요청이 되살린다 — 확실히 비운다 */
@@ -18213,8 +18219,10 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.33";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.34";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
+  /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
+  async scheduled(event, env, ctx) { return await afScheduled(event, env, ctx); },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
@@ -18556,7 +18564,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-10-28 22:02"; BUNDLED_VERSION.notes = ["차트 패턴 탐색기 시작 오류 수정 — PT_LABELS 초기화 전 참조 제거", "패턴 선택 개수 계산의 초기화 순서 분리", "앱 스크립트·서비스 워커 캐시 갱신 및 회귀 검사 추가"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-10-28 22:02"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 20:40"; BUNDLED_VERSION.notes = ["미체결 주문 서버 자동 체결 — 앱·브라우저를 닫아도 1분마다 체결", "손절·익절·트레일링 스탑 서버 판정 추가", "해외 지정가·소수점 주문 서버 체결과 T+1 정산 반영", "미체결 색인 도입 — 미체결 0건이면 KV 쓰기 0회", "체결·취소 통지 및 앱 복귀 시 알림"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 20:40"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
@@ -18627,6 +18635,710 @@ var sidestats_v1 = async (req2) => {
 };
 ROUTES["sidestats"] = sidestats_v1;
 ROUTES["invtrend"] = invtrend_v2;
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.34] 서버 자동 체결 — 앱을 닫아도 미체결 주문이 체결된다
+   ──────────────────────────────────────────────────────────────────────────────
+   [증상] 지정가 주문을 걸어 두고 사이트·브라우저를 닫으면, 가격이 닿아도 체결되지
+     않았다. 다시 열어야만(그것도 4초 시계가 돌아야만) 체결됐다(사용자 지적).
+   [원인] 체결 판정이 전부 브라우저 안에 있었다 — autoOrderTick() 이 4초마다 시세와
+     주문가를 비교하고 executeOrderCore() 가 장부를 고쳤다. 서버에는 fetch 핸들러만
+     있고 scheduled() 가 없어서, 클라이언트가 없으면 아무도 주문을 보지 않았다.
+   [고침] 서버가 1분마다 도는 Cron Trigger 로 '같은 규칙'을 대신 판정한다.
+     · 미체결 주문이 없으면 KV 읽기 1회로 즉시 끝난다(쓰기 0회).
+     · 주문이 있는 사용자만, 필요한 종목만 시세를 한 번에 받아 비교한다.
+     · 체결된 것만 예수금·보유·체결내역에 반영하고 KV 에 한 번 쓴다.
+     · 체결·취소 사실은 usr.srvFills / usr.srvNotes 에 남겨 화면이 알린다.
+   [예산] 무료 플랜: KV 쓰기 1,000/일 · 요청당 subrequest 50 · CPU 10ms.
+     ① 색인(live-accounts:pendidx)으로 대상 사용자를 먼저 추린다
+     ② 색인은 '미체결 구성이 바뀔 때'만 다시 쓴다
+     ③ 시세는 국내 1회·해외 1회 배치로 묶는다
+     ④ 체결이 없으면 사용자 레코드를 쓰지 않는다
+   ══════════════════════════════════════════════════════════════════════════════ */
+var AF_INDEX = "live-accounts:pendidx";
+var AF_MAX_USERS = 6, AF_MAX_KR = 44, AF_MAX_US = 18;
+var AF_FEE_KR = 0.00015, AF_TAX_KR = 0.0018, AF_FEE_US = 0.0025, AF_SEC_US = 0.0000278;
+var AF_FX_SPREAD = 10;
+/* 계좌 종류별 [국내수수료 배수, 해외수수료 배수, 환전우대] — app.js ACCT_TYPES 와 같은 값 */
+var AF_ACCT = {
+  general: [1, 1, 0.95], isa: [0.8, 1, 0.95], pension: [0.7, 1, 0.95], irp: [0.7, 1, 0.95],
+  overseas: [1, 0.4, 0.98], youth: [0.5, 0.6, 0.96], isaSeomin: [0.75, 1, 0.95], isaTrust: [0.9, 1, 0.95],
+  cmaIssue: [1, 1, 0.95], cmaRp: [1, 1, 0.95], credit: [0.9, 1, 0.95], deriv: [0.6, 1, 0.95],
+  bond: [0.5, 1, 0.95], ktb: [0.4, 1, 0.95], gold: [0.6, 1, 0.95], taxfree: [0.7, 0.8, 0.96],
+  junior: [0.3, 0.5, 0.95], wrap: [1.4, 1.4, 0.95], frac: [1.1, 0.7, 0.97], dc: [0.65, 1, 0.95],
+  longfund: [0.6, 1, 0.95], night: [1.2, 0.3, 0.99], isaGrowth: [0.7, 1, 0.95],
+  cmaJonggeum: [1, 1, 0.95], cmaMmf: [1, 1, 0.95], usDeriv: [1, 0.5, 0.97],
+  cfd: [0.8, 0.8, 0.95], corp: [0.45, 0.55, 0.95]
+};
+function afAcct(type) {
+  var a = AF_ACCT[type];
+  return { feeKr: a ? a[0] : 1, feeUs: a ? a[1] : 1, fxPref: a ? a[2] : 0.95 };
+}
+function afNum(v) {
+  if (v == null) return null;
+  var n = Number(String(v).replace(/[,\s%+]/g, ""));
+  return isFinite(n) ? n : null;
+}
+function afInt(v, d) {
+  var n = Math.trunc(Number(v));
+  return Number.isFinite(n) ? n : (d || 0);
+}
+function afR2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
+function afToday(now) { return new Date((now == null ? Date.now() : now) + 9 * 3600e3).toISOString().slice(0, 10); }
+/* 국내 호가단위 — app.js tickSize() 와 같은 표 */
+function afTick(p) {
+  if (!(p > 0)) return 1;
+  if (p < 2000) return 1; if (p < 5000) return 5; if (p < 20000) return 10;
+  if (p < 50000) return 50; if (p < 200000) return 100; if (p < 500000) return 500;
+  return 1000;
+}
+/* 주문 원가 — app.js orderCost() 와 같은 식 */
+function afCost(side, price, qty, type) {
+  var a = afAcct(type);
+  var p = afInt(price), q = afInt(qty), amount = p * q;
+  var fee = Math.round(amount * AF_FEE_KR * a.feeKr);
+  var tax = side === "sell" ? Math.round(amount * AF_TAX_KR) : 0;
+  return { amount: amount, fee: fee, tax: tax,
+    cost: side === "buy" ? amount + fee : 0,
+    proceeds: side === "sell" ? amount - fee - tax : 0 };
+}
+/* 해외 주문 원가 — app.js usOrderCost() 와 같은 식 */
+function afUsCost(side, px, qty, pay, type) {
+  var a = afAcct(type);
+  var amountUsd = afR2(px * qty);
+  var feeUsd = afR2(amountUsd * AF_FEE_US * a.feeUs);
+  var secUsd = side === "sell" ? afR2(amountUsd * AF_SEC_US) : 0;
+  var netUsd = side === "buy" ? afR2(amountUsd + feeUsd) : afR2(amountUsd - feeUsd - secUsd);
+  return { amountUsd: amountUsd, feeUsd: feeUsd, secUsd: secUsd, netUsd: netUsd, pay: pay || null };
+}
+function afFxMargin(type) { return AF_FX_SPREAD * (1 - afAcct(type).fxPref); }
+/* 미국 T+1 결제일 — 주말은 건너뛴다 */
+function afUsNextBiz(day) {
+  var d = new Date(day + "T12:00:00Z");
+  do { d.setUTCDate(d.getUTCDate() + 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
+
+/* ── 미체결 색인 ─────────────────────────────────────────────────────────────
+   크론은 '누가 미체결 주문을 들고 있는지' 모른다. 매분 사용자 전체를 읽으면
+   읽기·CPU 가 사용자 수에 비례해 늘어난다. 그래서 미체결 구성이 바뀔 때만
+   작은 색인 한 줄을 다시 쓴다(체결·취소·신규 주문·손절 계획 변경이 여기에 해당). */
+function afPendSummary(user) {
+  var out = { n: 0, plans: 0, kr: [], us: [], sig: "" };
+  if (!user || typeof user !== "object") { out.sig = "0|0||"; return out; }
+  var kr = {}, us = {};
+  var orders = Array.isArray(user.bookOrders) ? user.bookOrders : [];
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (!o || !o.code) continue;
+    if (!(Number(o.qty) > 0)) continue;
+    out.n++;
+    if (o.us) us[String(o.code).toUpperCase()] = 1; else kr[String(o.code)] = 1;
+  }
+  var books = user.acctBooks || {};
+  for (var aid in books) {
+    var bk = books[aid]; if (!bk) continue;
+    var hs = Array.isArray(bk.holdings) ? bk.holdings : [];
+    for (var k = 0; k < hs.length; k++) {
+      var h = hs[k];
+      if (!h || !(Number(h.qty) > 0)) continue;
+      var p = h.plan || {};
+      var stop = (h.stopPx != null && +h.stopPx > 0) ? 1 : (p.autoStop && +p.stop > 0 ? 1 : 0);
+      var take = (h.takePx != null && +h.takePx > 0) ? 1 : (p.autoTake && +p.target > 0 ? 1 : 0);
+      var trail = +h.trailPct > 0 ? 1 : 0;
+      if (stop || take || trail) {
+        out.plans++;
+        if (h.us) us[String(h.code).toUpperCase()] = 1; else kr[String(h.code)] = 1;
+      }
+    }
+  }
+  out.kr = Object.keys(kr).sort();
+  out.us = Object.keys(us).sort();
+  out.sig = out.n + "|" + out.plans + "|" + out.kr.join(",") + "|" + out.us.join(",");
+  return out;
+}
+/* 저장 직후 호출 — 미체결 구성이 달라졌을 때만 색인을 고친다 */
+async function afIndexSync(uid, user, prevUser) {
+  try {
+    if (!KV || !uid) return;
+    var a = afPendSummary(user), b = afPendSummary(prevUser);
+    if (a.sig === b.sig) return;
+    var idx = null;
+    try { idx = await KV.get(AF_INDEX, "json"); } catch (e) { idx = null; }
+    if (!idx || typeof idx !== "object") idx = { v: 1, at: 0, u: {} };
+    if (!idx.u || typeof idx.u !== "object") idx.u = {};
+    if (a.n === 0 && a.plans === 0) {
+      if (!idx.u[uid]) return;
+      delete idx.u[uid];
+    } else {
+      idx.u[uid] = { sig: a.sig, n: a.n, plans: a.plans, at: Date.now() };
+    }
+    idx.at = Date.now();
+    await KV.put(AF_INDEX, JSON.stringify(idx));
+  } catch (e) { }
+}
+async function afIndexRemove(uid) {
+  try {
+    if (!KV || !uid) return;
+    var idx = await KV.get(AF_INDEX, "json");
+    if (!idx || !idx.u || !idx.u[uid]) return;
+    delete idx.u[uid];
+    idx.at = Date.now();
+    await KV.put(AF_INDEX, JSON.stringify(idx));
+  } catch (e) { }
+}
+
+/* ── 시세 ───────────────────────────────────────────────────────────────────
+   국내·해외 모두 네이버 실시간 배치 하나로 받는다(요청당 1회).
+   지금 체결되는 시점인지는 그 응답이 스스로 말해 준다.
+     marketStatus = OPEN            → 정규장
+     overMarketPriceInfo.overMarketStatus = OPEN → 프리/애프터(NXT·미국 프리마켓)
+   둘 다 아니면 '지금은 체결되지 않는 시간'이므로 아무것도 하지 않는다. */
+async function afGetJson(u, ms) {
+  var c = new AbortController();
+  var t = setTimeout(function () { c.abort(); }, ms || 6000);
+  try {
+    var r = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Mobile Safari/537.36",
+      "Referer": "https://m.stock.naver.com/", "Accept": "application/json" }, signal: c.signal });
+    if (!r.ok) return null;
+    var txt = await r.text();
+    if (/^\s*</.test(txt)) return null;
+    return JSON.parse(txt);
+  } catch (e) { return null; }
+  finally { clearTimeout(t); }
+}
+function afPickQuote(d) {
+  var ms = String(d.marketStatus || "").toUpperCase();
+  var over = d.overMarketPriceInfo || null;
+  var overOpen = !!(over && String(over.overMarketStatus || "").toUpperCase() === "OPEN");
+  var regular = ms === "OPEN";
+  var price = regular ? afNum(d.closePrice) : (overOpen ? afNum(over.overPrice) : null);
+  if (!(price > 0)) price = afNum(d.closePrice);
+  return { price: price, regular: regular, overOpen: overOpen, open: (regular || overOpen),
+    status: ms, name: String(d.stockName || ""), tail: String(d.localTradedAt || "") };
+}
+async function afKrQuotes(codes) {
+  var out = {};
+  if (!codes.length) return out;
+  var j = await afGetJson("https://polling.finance.naver.com/api/realtime/domestic/stock/" + codes.join(","), 6000);
+  var arr = (j && j.datas) || [];
+  for (var i = 0; i < arr.length; i++) {
+    var d = arr[i]; if (!d) continue;
+    var code = String(d.itemCode || "");
+    if (!code) continue;
+    out[code] = afPickQuote(d);
+  }
+  return out;
+}
+/* 해외는 거래소 접미사가 필요하다(나스닥 .O · 뉴욕 .N · 아멕스 .A). 종목이 어느
+   거래소인지 서버는 모르므로 세 후보를 한 번에 물어 살아 있는 것을 쓴다. */
+async function afUsQuotes(tickers) {
+  var out = {};
+  if (!tickers.length) return out;
+  var want = {}, list = [];
+  for (var i = 0; i < tickers.length; i++) {
+    var t = String(tickers[i]).toUpperCase();
+    if (!t) continue;
+    var base = t.replace(/\./g, "/");
+    ["O", "N", "A"].forEach(function (sfx) {
+      var reu = base + "." + sfx;
+      want[reu] = t;
+      list.push(reu);
+    });
+  }
+  if (!list.length) return out;
+  var j = await afGetJson("https://polling.finance.naver.com/api/realtime/worldstock/stock/" + list.map(encodeURIComponent).join(","), 6000);
+  var arr = (j && j.datas) || [];
+  for (var k = 0; k < arr.length; k++) {
+    var d = arr[k]; if (!d) continue;
+    var reu = String(d.reutersCode || "");
+    var tk = want[reu];
+    if (!tk || out[tk]) continue;
+    var q = afPickQuote(d);
+    q.reu = reu;
+    out[tk] = q;
+  }
+  return out;
+}
+
+/* ── 한 사용자 판정 ───────────────────────────────────────────────────────── */
+function afFoldLog(bk) {
+  if (!Array.isArray(bk.tradeLog) || bk.tradeLog.length <= 1000) return;
+  var drop = bk.tradeLog.splice(0, bk.tradeLog.length - 1000);
+  bk.tradeArchive = (bk.tradeArchive && typeof bk.tradeArchive === "object") ? bk.tradeArchive : {};
+  drop.forEach(function (t) {
+    var y = String(t && t.date || "").slice(0, 4) || "기타";
+    var a = bk.tradeArchive[y] = bk.tradeArchive[y] || { count: 0, buy: 0, sell: 0, pnl: 0, fee: 0, tax: 0 };
+    a.count++;
+    a[t && t.side === "sell" ? "sell" : "buy"] += (t && t.amount) || 0;
+    a.pnl += (t && t.pnl) || 0; a.fee += (t && t.fee) || 0; a.tax += (t && t.tax) || 0;
+  });
+}
+function afEvalUser(uid, usr, quotes, fx, now) {
+  var res = { uid: uid, fills: [], notes: [], changed: false };
+  var today = afToday(now);
+  var acctActive = String(usr.acctActive || "");
+  var books = (usr.acctBooks && typeof usr.acctBooks === "object") ? usr.acctBooks : (usr.acctBooks = {});
+  function typeOf(aid) {
+    var list = Array.isArray(usr.acctList) ? usr.acctList : [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (a && String(a.id) === aid) return (a.type && AF_ACCT[a.type]) ? a.type : "general";
+    }
+    return "general";
+  }
+  function bookOf(aid) {
+    if (!aid) return null;
+    var bk = books[aid];
+    if (!bk) {
+      if (aid !== acctActive) return null;
+      bk = books[aid] = {};
+      bk.cash = afInt(usr.cash, 0);
+      bk.usdCash = +(usr.usdCash || 0);
+      bk.holdings = Array.isArray(usr.holdings) ? usr.holdings.slice() : [];
+      bk.tradeLog = Array.isArray(usr.tradeLog) ? usr.tradeLog.slice() : [];
+      bk.tradeArchive = (usr.tradeArchive && typeof usr.tradeArchive === "object") ? usr.tradeArchive : {};
+    }
+    if (!Array.isArray(bk.holdings)) bk.holdings = [];
+    if (!Array.isArray(bk.tradeLog)) bk.tradeLog = [];
+    if (!Array.isArray(bk.usdSettling)) bk.usdSettling = [];
+    bk.cash = afInt(bk.cash, 0);
+    if (!isFinite(+bk.usdCash)) bk.usdCash = 0;
+    return bk;
+  }
+  var orders = Array.isArray(usr.bookOrders) ? usr.bookOrders : [];
+  function acctOf(o) { return (o && o.acct) ? String(o.acct) : acctActive; }
+  function reservedCash(aid, exceptId) {
+    var sum = 0;
+    for (var i = 0; i < orders.length; i++) {
+      var o = orders[i];
+      if (!o || o.id === exceptId || o.side !== "buy" || acctOf(o) !== aid) continue;
+      if (o.us) {
+        if (o.pay === "krw" && fx) {
+          var cu = afUsCost("buy", o.price, o.qty, "krw", typeOf(aid));
+          sum += Math.ceil(cu.netUsd * (fx + afFxMargin(typeOf(aid))));
+        }
+      } else {
+        sum += afCost("buy", o.price, o.qty, typeOf(aid)).cost;
+      }
+    }
+    return sum;
+  }
+  function reservedUsd(aid, exceptId) {
+    var sum = 0;
+    for (var i = 0; i < orders.length; i++) {
+      var o = orders[i];
+      if (!o || o.id === exceptId || o.side !== "buy" || acctOf(o) !== aid) continue;
+      if (o.us && o.pay !== "krw") sum += afUsCost("buy", o.price, o.qty, null, typeOf(aid)).netUsd;
+    }
+    return afR2(sum);
+  }
+  function reservedQty(aid, code, exceptId) {
+    var sum = 0;
+    for (var i = 0; i < orders.length; i++) {
+      var o = orders[i];
+      if (!o || o.id === exceptId || o.side !== "sell" || acctOf(o) !== aid) continue;
+      if (String(o.code) === String(code)) sum += Number(o.qty) || 0;
+    }
+    return sum;
+  }
+  function dropOrder(id) {
+    for (var i = 0; i < orders.length; i++) {
+      if (orders[i] && orders[i].id === id) { orders.splice(i, 1); return; }
+    }
+  }
+  function cancelOrder(o, why) {
+    dropOrder(o.id);
+    res.changed = true;
+    res.notes.push({ at: now, code: o.code, name: o.name || o.code, side: o.side, us: o.us ? 1 : 0,
+      qty: o.qty, price: o.price, why: why, kind: "cancel" });
+  }
+  function logRec(bk, rec) { bk.tradeLog.push(rec); afFoldLog(bk); }
+  function unlogRec(bk, rec) { bk.tradeLog.unshift(rec); afFoldLog(bk); }
+
+  /* ── ① 미체결 지정가 ─────────────────────────────────────────────── */
+  var orderSnap = orders.slice();               /* 이번 회차에 볼 주문 목록(체결되면 원본에서 빠진다) */
+  for (var oi = 0; oi < orderSnap.length; oi++) {
+    var o = orderSnap[oi];
+    if (!o || !o.id || !o.code) continue;
+    var aid = acctOf(o);
+    var bk = bookOf(aid);
+    if (!bk) continue;                          /* 장부가 없는 계좌 — 다음 회차에 다시 본다 */
+
+    if (!o.us) {
+      var q = quotes[String(o.code)];
+      if (!q || !q.open || !(q.price > 0)) continue;
+      var lim = afInt(o.price, 0), qty = afInt(o.qty, 0);
+      if (!(lim > 0) || !(qty > 0)) { cancelOrder(o, "주문 정보 오류"); continue; }
+      var side = o.side === "sell" ? "sell" : "buy";
+      var hit = side === "buy" ? (q.price <= lim) : (q.price >= lim);
+      if (!hit) continue;
+      var fill = afInt(q.price, 0);
+      if (!(fill > 0)) continue;
+      var type = typeOf(aid);
+      var c = afCost(side, fill, qty, type);
+      var nm = o.name || q.name || o.code;
+      if (side === "buy") {
+        var avail = bk.cash - reservedCash(aid, o.id);
+        if (c.cost > avail) { cancelOrder(o, "예수금 부족"); continue; }
+        bk.cash = afInt(bk.cash - c.cost, 0);
+        var h = null;
+        for (var i1 = 0; i1 < bk.holdings.length; i1++) {
+          var x1 = bk.holdings[i1];
+          if (x1 && x1.code === o.code && !x1.us) { h = x1; break; }
+        }
+        if (h) {
+          var hq = afInt(h.qty, 0);
+          h.avg = Math.round((afInt(h.avg, fill) * hq + c.amount) / (hq + qty));
+          h.qty = hq + qty;
+        } else bk.holdings.push({ code: o.code, qty: qty, avg: fill });
+        logRec(bk, { ts: now, date: today, code: o.code, name: nm, side: "buy", qty: qty, price: fill,
+          amount: c.amount, fee: c.fee, tax: 0, avg: fill, pnl: 0, roi: 0 });
+      } else {
+        var hs = null;
+        for (var i2 = 0; i2 < bk.holdings.length; i2++) {
+          var x2 = bk.holdings[i2];
+          if (x2 && x2.code === o.code && !x2.us) { hs = x2; break; }
+        }
+        if (!hs || afInt(hs.qty, 0) - reservedQty(aid, o.code, o.id) < qty) { cancelOrder(o, "보유수량 부족"); continue; }
+        /* 팔 주식이 있는지 확인한 뒤에만 장부를 고친다 */
+        var avg = afInt(hs.avg, fill);
+        var pnl = Math.round((fill - avg) * qty - c.fee - c.tax);
+        hs.qty = afInt(hs.qty, 0) - qty;
+        bk.cash = afInt(bk.cash + c.proceeds, 0);
+        var gone = false;
+        if (hs.qty <= 0) { var gi = bk.holdings.indexOf(hs); if (gi >= 0) bk.holdings.splice(gi, 1); gone = true; }
+        logRec(bk, { ts: now, date: today, code: o.code, name: nm, side: "sell", qty: qty, price: fill,
+          amount: c.amount, fee: c.fee, tax: c.tax, avg: avg, pnl: pnl, roi: avg * qty ? pnl / (avg * qty) * 100 : 0 });
+        if (gone) { /* 보유가 끝났다 — 계획도 함께 정리 */ }
+      }
+      dropOrder(o.id);
+      res.changed = true;
+      res.fills.push({ at: now, oid: o.id, code: o.code, name: nm, side: side, qty: qty, price: fill,
+        us: 0, tag: "미체결 주문 체결", acct: aid });
+      continue;
+    }
+
+    /* ── 해외 미체결 ── */
+    var uc = String(o.code).toUpperCase();
+    var uq = quotes[uc];
+    if (!uq || !uq.open || !(uq.price > 0)) continue;
+    var ulim = afR2(o.price), uqty = afR2(o.qty);
+    if (!(ulim > 0) || !(uqty >= 0.01)) { cancelOrder(o, "주문 정보 오류"); continue; }
+    var uside = o.side === "sell" ? "sell" : "buy";
+    var uhit = uside === "buy" ? (uq.price <= ulim + 1e-9) : (uq.price >= ulim - 1e-9);
+    if (!uhit) continue;
+    var ufill = afR2(uq.price);
+    var utype = typeOf(aid);
+    var pay = o.pay === "krw" ? "krw" : "usd";
+    var ucst = afUsCost(uside, ufill, uqty, pay === "krw" ? "krw" : null, utype);
+    var unm = o.name || uq.name || uc;
+    if (uside === "buy") {
+      var fxPaid = 0;
+      if (pay === "krw") {
+        if (!fx) continue;                       /* 환율을 못 받았으면 다음 분에 다시 */
+        var need = Math.ceil(ucst.netUsd * (fx + afFxMargin(utype)));
+        if (need > bk.cash - reservedCash(aid, o.id)) { cancelOrder(o, "예수금 부족"); continue; }
+        bk.cash = afInt(bk.cash - need, 0);
+        fxPaid = fx + afFxMargin(utype);
+      } else {
+        var av = Math.max(0, afR2(bk.usdCash - reservedUsd(aid, o.id)));
+        if (ucst.netUsd > av + 1e-9) { cancelOrder(o, "달러 예수금 부족"); continue; }
+        bk.usdCash = afR2(bk.usdCash - ucst.netUsd);
+        fxPaid = fx || 0;
+      }
+      var uh = null;
+      for (var j1 = 0; j1 < bk.holdings.length; j1++) {
+        var y1 = bk.holdings[j1];
+        if (y1 && y1.code === uc && y1.us) { uh = y1; break; }
+      }
+      if (uh) {
+        var uha = Number(uh.avg) || ufill, uhq = Number(uh.qty) || 0;
+        var ufa = Number(uh.fxAvg) || fxPaid || 0;
+        uh.qty = Math.round((uhq + uqty) * 1e4) / 1e4;
+        uh.avg = fxPaid ? Math.round((((uha * uhq) + ufill * uqty) / (uhq + uqty)) * 1e4) / 1e4 : ufill;
+        if (fxPaid) uh.fxAvg = afR2(((ufa * uha * uhq) + (fxPaid * ufill * uqty)) / ((uha * uhq) + (ufill * uqty)));
+      } else {
+        var nh = { code: uc, qty: uqty, avg: ufill, us: 1 };
+        if (fxPaid) nh.fxAvg = afR2(fxPaid);
+        bk.holdings.push(nh);
+      }
+      unlogRec(bk, { ts: now, date: today, code: uc, name: unm, side: "buy", qty: uqty, price: ufill,
+        amount: ucst.amountUsd, fee: Math.round(ucst.feeUsd * (fx || 0)), tax: 0, avg: ufill, pnl: 0, roi: 0,
+        us: 1, pay: pay, fxAt: Math.round(fxPaid || 0) });
+    } else {
+      var ush = null;
+      for (var j2 = 0; j2 < bk.holdings.length; j2++) {
+        var y2 = bk.holdings[j2];
+        if (y2 && y2.code === uc && y2.us) { ush = y2; break; }
+      }
+      if (!ush || (Number(ush.qty) || 0) - reservedQty(aid, uc, o.id) < uqty - 1e-9) { cancelOrder(o, "보유수량 부족"); continue; }
+      var uavg = Number(ush.avg) || ufill;
+      var ufxA = Number(ush.fxAvg) || fx || 0;
+      var upnl = Math.round((ufill - uavg) * uqty * ufxA + ufill * uqty * ((fx || 0) - ufxA) - (ucst.feeUsd + ucst.secUsd) * (fx || 0));
+      bk.usdCash = afR2(bk.usdCash + ucst.netUsd);
+      bk.usdSettling.push({ amt: ucst.netUsd, settle: afUsNextBiz(today) });
+      ush.qty = Math.round(((Number(ush.qty) || 0) - uqty) * 1e4) / 1e4;
+      if (ush.qty <= 1e-9) { var ui = bk.holdings.indexOf(ush); if (ui >= 0) bk.holdings.splice(ui, 1); }
+      unlogRec(bk, { ts: now, date: today, code: uc, name: unm, side: "sell", qty: uqty, price: ufill,
+        amount: ucst.amountUsd, fee: Math.round((ucst.feeUsd + ucst.secUsd) * (fx || 0)), tax: 0,
+        avg: uavg, pnl: upnl, roi: uavg ? ((ufill - uavg) / uavg * 100) : 0, us: 1,
+        usdIn: ucst.netUsd, secUsd: ucst.secUsd, fxAt: Math.round(fx || 0) });
+    }
+    dropOrder(o.id);
+    res.changed = true;
+    res.fills.push({ at: now, oid: o.id, code: uc, name: unm, side: uside, qty: uqty, price: ufill,
+      us: 1, tag: "미체결 주문 체결", acct: aid });
+  }
+
+  /* ── ② 손절 · 익절 · 트레일링 (국내 보유) ─────────────────────────── */
+  for (var aid2 in books) {
+    var bk2 = bookOf(aid2);
+    if (!bk2) continue;
+    var hSnap = bk2.holdings.slice();
+    for (var hi = 0; hi < hSnap.length; hi++) {
+      var h2 = hSnap[hi];
+      if (!h2 || h2.us || !(afInt(h2.qty, 0) > 0)) continue;
+      var q2 = quotes[String(h2.code)];
+      if (!q2 || !q2.open || !(q2.price > 0)) continue;
+      var plan = h2.plan || {};
+      var stop = (h2.stopPx != null && +h2.stopPx > 0) ? +h2.stopPx : ((plan.autoStop && +plan.stop > 0) ? +plan.stop : null);
+      var take = (h2.takePx != null && +h2.takePx > 0) ? +h2.takePx : ((plan.autoTake && +plan.target > 0) ? +plan.target : null);
+      if (+h2.trailPct > 0) {
+        var hiPx = Math.max(+h2.trailHi || 0, q2.price);
+        var want = Math.round(hiPx * (1 - +h2.trailPct / 100));
+        var cur = (h2.stopPx != null && +h2.stopPx > 0) ? +h2.stopPx : null;
+        if (cur == null || want > cur) {
+          var big = (cur == null) || (want - cur) >= Math.max(1, Math.round(cur * 0.003));
+          if (big && (cur == null || now - (+h2.trailAt || 0) >= 10 * 60e3)) {
+            h2.trailHi = hiPx; h2.stopPx = want; h2.trailAt = now;
+            stop = want; res.changed = true;
+          } else if (cur != null) stop = cur;
+        }
+      }
+      var hitTag = null, px = q2.price;
+      if (stop != null && q2.price <= stop) {
+        hitTag = (+h2.trailPct > 0) ? "트레일링 손절" : "손절 자동";
+        px = Math.max(1, Math.trunc(q2.price) - afTick(q2.price));
+      } else if (take != null && q2.price >= take) {
+        hitTag = "익절 자동"; px = q2.price;
+      }
+      if (!hitTag) continue;
+      var qty2 = afInt(h2.qty, 0);
+      var type2 = typeOf(aid2);
+      var c2 = afCost("sell", px, qty2, type2);
+      var avg2 = afInt(h2.avg, px);
+      var pnl2 = Math.round((px - avg2) * qty2 - c2.fee - c2.tax);
+      bk2.cash = afInt(bk2.cash + c2.proceeds, 0);
+      logRec(bk2, { ts: now, date: today, code: h2.code, name: q2.name || h2.code, side: "sell", qty: qty2,
+        price: px, amount: c2.amount, fee: c2.fee, tax: c2.tax, avg: avg2, pnl: pnl2,
+        roi: avg2 * qty2 ? pnl2 / (avg2 * qty2) * 100 : 0 });
+      var hidx = bk2.holdings.indexOf(h2);
+      if (hidx >= 0) bk2.holdings.splice(hidx, 1);
+      /* 계획을 지운다 — 같은 계획이 다음 분에 또 팔지 않게 */
+      for (var oi2 = orders.length - 1; oi2 >= 0; oi2--) {
+        var oo = orders[oi2];
+        if (oo && oo.side === "sell" && !oo.us && acctOf(oo) === String(aid2) && String(oo.code) === String(h2.code)) orders.splice(oi2, 1);
+      }
+      res.changed = true;
+      res.fills.push({ at: now, code: h2.code, name: q2.name || h2.code, side: "sell", qty: qty2,
+        price: px, us: 0, tag: hitTag, acct: String(aid2) });
+    }
+  }
+
+  /* ── ③ 화면이 읽는 최상위 값은 활성 계좌의 거울이다 ───────────────── */
+  if (acctActive && books[acctActive]) {
+    var ab = books[acctActive];
+    usr.cash = afInt(ab.cash, 0);
+    usr.usdCash = afRound2Safe(ab.usdCash);
+    usr.holdings = Array.isArray(ab.holdings) ? ab.holdings : [];
+    usr.tradeLog = Array.isArray(ab.tradeLog) ? ab.tradeLog : [];
+    usr.tradeArchive = (ab.tradeArchive && typeof ab.tradeArchive === "object") ? ab.tradeArchive : usr.tradeArchive;
+    usr.usdSettling = Array.isArray(ab.usdSettling) ? ab.usdSettling : usr.usdSettling;
+  }
+  usr.bookOrders = orders.filter(function (x) { return x && x.id; });
+  return res;
+}
+function afRound2Safe(v) { var n = Number(v); return isFinite(n) ? Math.round(n * 100) / 100 : 0; }
+
+/* ── 크론 본체 ────────────────────────────────────────────────────────────── */
+async function afSweep(idx) {
+  /* [자가 복구] 색인은 '바뀔 때만' 쓰이므로, 어떤 이유로 빠진 사용자는 영영
+     잡히지 않는다. 30분에 한 번, 사용자 키를 훑어 색인에 다시 넣는다.
+     큰 레코드를 마구 읽지 않도록 이 회차에서는 최대 4명만 확인한다. */
+  var changed = false, reads = 0, prefix = "live-accounts:usr:", scanned = 0;
+  var list = null;
+  try { list = await KV.list({ prefix: prefix, limit: 1000 }); } catch (e) { return false; }
+  var keys = (list && list.keys) || [];
+  for (var i = 0; i < keys.length && reads < 4; i++) {
+    var name = String(keys[i] && keys[i].name || "");
+    if (name.indexOf(prefix) !== 0) continue;
+    var uid = name.slice(prefix.length);
+    if (!uid || idx.u[uid]) continue;
+    scanned++;
+    if (scanned > 40) break;
+    reads++;
+    var u = null;
+    try { u = await KV.get(name, "json"); } catch (e) { u = null; }
+    if (!u || typeof u !== "object") continue;
+    var s = afPendSummary(u);
+    if (s.n || s.plans) {
+      idx.u[uid] = { sig: s.sig, n: s.n, plans: s.plans, at: Date.now() };
+      changed = true;
+    }
+  }
+  return changed;      /* 호출부가 색인을 실제로 쓸지 판단한다 */
+}
+async function afFxRate() {
+  try {
+    if (typeof fx_default !== "function") return null;
+    var r = await fx_default(new Request("https://live-stock.local/api/fx"), { env: _ENV });
+    var j = await r.json();
+    var list = (j && Array.isArray(j.fx)) ? j.fx : [];
+    for (var i = 0; i < list.length; i++) {
+      var x = list[i];
+      if (x && x.key === "USD" && +x.price > 800 && +x.price < 3000) return +x.price;
+    }
+  } catch (e) { }
+  return null;
+}
+async function afRun(nowArg) {
+  var now = nowArg || Date.now();
+  if (!KV) return { ok: false, err: "nokv" };
+  var idx = null;
+  try { idx = await KV.get(AF_INDEX, "json"); } catch (e) { idx = null; }
+  if (!idx || typeof idx !== "object") idx = { v: 1, at: 0, u: {} };
+  if (!idx.u || typeof idx.u !== "object") idx.u = {};
+  var idxDirty = false;
+  var kst = new Date(now + 9 * 3600e3);
+  var hm = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  if (hm % 30 === 0) { try { if (await afSweep(idx)) idxDirty = true; } catch (e) { } }
+
+  var uids = Object.keys(idx.u);
+  var out = { at: now, users: 0, fills: 0, notes: 0, wrote: 0 };
+  if (!uids.length) {
+    if (idxDirty) { try { await KV.put(AF_INDEX, JSON.stringify(idx)); } catch (e) { } }
+    return { ok: true, ...out, empty: true };
+  }
+
+  var users = [], drop = false;
+  for (var i = 0; i < uids.length && users.length < AF_MAX_USERS; i++) {
+    var uid = uids[i];
+    var u = null;
+    try { u = await KV.get("live-accounts:usr:" + uid, "json"); } catch (e) { u = null; }
+    if (!u || typeof u !== "object") { delete idx.u[uid]; drop = true; continue; }
+    var s = afPendSummary(u);
+    if (!s.n && !s.plans) { delete idx.u[uid]; drop = true; continue; }
+    users.push({ uid: uid, u: u, s: s });
+  }
+  if (drop) idxDirty = true;
+  if (!users.length) {
+    if (idxDirty) { try { await KV.put(AF_INDEX, JSON.stringify(idx)); } catch (e) { } }
+    return { ok: true, ...out, empty: true };
+  }
+
+  /* 필요한 시세만 한 번에 */
+  var krSet = {}, usSet = {}, needFx = false;
+  users.forEach(function (x) {
+    var list = Array.isArray(x.u.bookOrders) ? x.u.bookOrders : [];
+    list.forEach(function (o) {
+      if (!o || !o.code) return;
+      if (o.us) { usSet[String(o.code).toUpperCase()] = 1; if (o.side === "buy" && o.pay === "krw") needFx = true; }
+      else krSet[String(o.code)] = 1;
+    });
+    var bks = x.u.acctBooks || {};
+    Object.keys(bks).forEach(function (aid) {
+      var b = bks[aid]; if (!b) return;
+      (Array.isArray(b.holdings) ? b.holdings : []).forEach(function (h) {
+        if (!h || !h.code || !(Number(h.qty) > 0)) return;
+        if (h.us) return;                        /* 손절·익절 계획은 국내만 */
+        var p = h.plan || {};
+        var has = (h.stopPx != null && +h.stopPx > 0) || (h.takePx != null && +h.takePx > 0) ||
+          +h.trailPct > 0 || (p.autoStop && +p.stop > 0) || (p.autoTake && +p.target > 0);
+        if (has) krSet[String(h.code)] = 1;
+      });
+    });
+  });
+  var krCodes = Object.keys(krSet).filter(function (c) { return /^[0-9A-Z]{5,6}$/.test(c); }).slice(0, AF_MAX_KR);
+  var usCodes = Object.keys(usSet).slice(0, AF_MAX_US);
+  var fx = needFx || usCodes.length ? await afFxRate() : null;
+  var quotes = {};
+  try {
+    if (krCodes.length) {
+      var qk = await afKrQuotes(krCodes);
+      Object.keys(qk).forEach(function (c) { quotes[c] = qk[c]; });
+    }
+    if (usCodes.length) {
+      var qu = await afUsQuotes(usCodes);
+      Object.keys(qu).forEach(function (c) { quotes[c] = qu[c]; });
+    }
+  } catch (e) { }
+
+  for (var n = 0; n < users.length; n++) {
+    var rec = users[n];
+    var res = null;
+    try { res = afEvalUser(rec.uid, rec.u, quotes, fx, now); } catch (e) { continue; }
+    out.users++;
+    if (!res.changed) continue;
+    /* 체결·취소 통지 — 화면이 읽어 토스트로 띄운다 */
+    if (res.fills.length) {
+      var prevF = Array.isArray(rec.u.srvFills) ? rec.u.srvFills : [];
+      rec.u.srvFills = prevF.concat(res.fills).slice(-20);
+      out.fills += res.fills.length;
+    }
+    if (res.notes.length) {
+      var prevN = Array.isArray(rec.u.srvNotes) ? rec.u.srvNotes : [];
+      rec.u.srvNotes = prevN.concat(res.notes).slice(-20);
+      out.notes += res.notes.length;
+    }
+    rec.u.rv = (Number(rec.u.rv) || 0) + 1;
+    rec.u.savedAt = now;
+    var okW = false;
+    try { await KV.put("live-accounts:usr:" + rec.uid, JSON.stringify(rec.u)); okW = true; } catch (e) { okW = false; }
+    if (okW) {
+      out.wrote++;
+      /* 같은 인스턴스가 곧바로 옛 사본을 돌려주지 않게 */
+      try { delete _usrCache[rec.uid]; delete _usrSig[rec.uid]; } catch (e) { }
+      var sig2 = afPendSummary(rec.u);
+      if (!sig2.n && !sig2.plans) { if (idx.u[rec.uid]) { delete idx.u[rec.uid]; idxDirty = true; } }
+      else if (!idx.u[rec.uid] || idx.u[rec.uid].sig !== sig2.sig) {
+        idx.u[rec.uid] = { sig: sig2.sig, n: sig2.n, plans: sig2.plans, at: now };
+        idxDirty = true;
+      }
+    }
+  }
+  if (idxDirty) { idx.at = now; try { await KV.put(AF_INDEX, JSON.stringify(idx)); } catch (e) { } }
+  return { ok: true, ...out };
+}
+async function afScheduled(event, env, ctx) {
+  try {
+    setEnv(env);
+    if (!KV) return;
+    var p = afRun(event && event.scheduledTime ? +event.scheduledTime : Date.now());
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p);
+    else await p;
+  } catch (e) { }
+}
+
+
+/* ── 관리자용 수동 실행 창구 ─────────────────────────────────────────────────
+   크론을 기다리지 않고 한 번 돌려 보고 싶을 때:  authorization: Bearer <NXT_ADMIN_TOKEN>
+   토큰이 서버에 없으면 이 창구는 열리지 않는다(공개 경로가 아니다). */
+var autofill_default = async (req2, context) => {
+  var tok = envGet("NXT_ADMIN_TOKEN", context && context.env);
+  if (!tok) return new Response(JSON.stringify({ ok: false, err: "no-admin-token" }), { status: 501, headers: { "content-type": "application/json" } });
+  var auth = req2.headers.get("authorization") || "";
+  if (auth !== "Bearer " + tok) return new Response(JSON.stringify({ ok: false, err: "forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
+  var url = new URL(req2.url);
+  if (url.searchParams.get("dry") === "1") {
+    var idx = null;
+    try { idx = await KV.get(AF_INDEX, "json"); } catch (e) { idx = null; }
+    return new Response(JSON.stringify({ ok: true, dry: true, index: idx }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  }
+  var r = await afRun(Date.now());
+  return new Response(JSON.stringify(r), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+};
+ROUTES["autofill"] = autofill_default;
 
 export {
   worker_default as default

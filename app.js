@@ -3912,6 +3912,9 @@ function acctInfo(){return ACCT_TYPES[acctType]||ACCT_TYPES.general;}
 function acctFeeKr(){return acctInfo().feeKr!=null?acctInfo().feeKr:1;}
 function acctFeeUs(){return acctInfo().feeUs!=null?acctInfo().feeUs:1;}
 let bookOrders=[];      // [v2.5] 예약 주문 {id,code,name,side,qty,price,createdAt}
+/* [v17.8.34] 이 기기에서 직접 체결한 주문 id — 서버가 뒤늦게 같은 체결을 알려도
+   두 번 알리지 않기 위한 표시(장부는 병합에서 한 번만 남는다) */
+var _localFilled={};
 let priceAlerts={};     // [v2.5] 가격 알림 {code:{above,below,name}}
 let selected='005930',ordSide='buy',ordType='limit',userPrice=null,currentView='home',lastPx={};
 const market={indices:[],crypto:[],fx:[]};
@@ -4601,7 +4604,38 @@ function applyUser(u){
   reloadPerUser();                             // 검색기록·최근본·정렬을 이 계정 것으로
   /* [v17.2] acctPassHash 는 위쪽(계좌 복원 전)에서 이미 세웠다. 여기서 다시 쓰면
      acctLoad 가 정한 '활성 계좌 비밀번호'를 도로 덮어 버린다 — 그게 잠금의 원인이었다. */
+  /* [v17.8.34] 앱을 닫아 둔 사이 서버가 체결한 주문을 알린다 */
+  try{ serverFillNotice(u,d); }catch(e){}
   store.set('session',u);
+}
+/* ══ [v17.8.34] 서버 자동 체결 알림 ═══════════════════════════════════════════
+   [무엇이 빠져 있었나] 미체결 주문은 브라우저 안에서만 감시됐다. 그래서 앱을 닫으면
+   가격이 닿아도 체결되지 않았고, 다시 열어도 '내가 없는 동안 체결됐다'는 사실을
+   알 길이 없었다. 이제 서버(1분 크론)가 같은 규칙으로 체결하고, 그 내역을
+   usr.srvFills · usr.srvNotes 에 남긴다. 여기서는 '아직 안 본 것'만 한 번씩 띄운다. */
+function serverFillNotice(u,d){
+  if(!u||!d||typeof d!=='object')return;
+  const key='srvFillSeen:'+u;
+  let seen=0; try{ seen=+(localStorage.getItem(key)||0)||0; }catch(e){ seen=0; }
+  let maxAt=seen;
+  const krwOf=(v)=>KRW(Math.round(+v||0))+'원';
+  const list=(Array.isArray(d.srvFills)?d.srvFills:[]).concat(Array.isArray(d.srvNotes)?d.srvNotes:[]);
+  list.forEach(f=>{
+    if(!f||!f.at||f.at<=seen)return;
+    maxAt=Math.max(maxAt,f.at);
+    if(f.oid&&_localFilled[f.oid])return;      /* 이 기기에서 이미 체결한 주문 — 두 번 알리지 않는다 */
+    if(f.kind==='cancel'){
+      try{ toast('warn','미체결 주문 취소',`${f.name||f.code} ${f.why||''} · 앱을 닫아 둔 사이 서버가 취소`.replace(/\s+\./g,' ')); }catch(e){}
+      return;
+    }
+    const px=f.us?('$'+(+f.price||0).toFixed(2)):krwOf(f.price);
+    const qty=f.us?fmtQty(f.qty):KRW(Math.round(+f.qty||0));
+    try{
+      toast(f.side==='sell'?'sell':'buy', `${f.name||f.code} ${f.side==='sell'?'매도':'매수'} 체결(모의)`,
+        `${qty}주 · ${px} · ${f.tag||'미체결 주문 체결'} · 접속하지 않은 동안 서버가 체결`);
+    }catch(e){}
+  });
+  if(maxAt>seen){ try{ localStorage.setItem(key,String(maxAt)); }catch(e){} }
 }
 /* [v4.1] 게스트 모드 폐지 — 회원가입·로그인해야 이용할 수 있다.
    예전 게스트 모드는 계정 없이 임시 데이터로 앱을 쓰게 했는데, 그 상태에서 쌓은
@@ -10429,7 +10463,7 @@ function renderAutoCard(){
     rows.push(`<div class="au-r"><span class="au-k on">알림</span><b>${a.name||c}</b><span class="num">${a.above?'↑'+KRW(a.above):''} ${a.below?'↓'+KRW(a.below):''}</span><i data-al="${c}">✕</i></div>`);});
   el.hidden=!rows.length;
   if(!rows.length)return;
-  el.innerHTML=`<div class="sec-title" style="margin:14px 0 10px">미체결 · 자동 주문 · 알림 <span class="sec-sub">· 4초마다 감시 · 접속 중에만 작동</span></div>
+  el.innerHTML=`<div class="sec-title" style="margin:14px 0 10px">미체결 · 자동 주문 · 알림 <span class="sec-sub">· 4초마다 감시 · 앱을 닫아도 서버가 1분마다 체결</span></div>
     <div class="panel au-panel">${rows.join('')}</div>`;
   el.querySelectorAll('i[data-bo]').forEach(i=>i.onclick=()=>cancelPending(i.dataset.bo));
   el.querySelectorAll('i[data-sl]').forEach(i=>i.onclick=()=>{const h=holdings.find(x=>x.code===i.dataset.sl);if(h){delete h.stopPx;saveState();renderAutoCard();}});
@@ -10547,7 +10581,7 @@ function autoOrderTick(){
     const fill=q.price;
     const okd=executeOrderCore(st,{side:o.side,price:fill,qty:o.qty,bookId:o.id},
       '미체결 주문 체결'+(fill!==o.price?` · 주문가 ${KRW(o.price)}원`:''));
-    if(okd){bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;}
+    if(okd){ _localFilled[o.id]=Date.now(); bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;}
     else if(o.side==='buy'&&orderCost('buy',fill,o.qty).cost>availCash(o.id)){
       bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;
       toast('warn','미체결 주문 취소 · 예수금 부족',`${o.name} ${KRW(o.qty)}주 · ${KRW(o.price)}원 조건에 도달했지만 예수금이 모자라 체결하지 못했습니다.`);
@@ -19393,7 +19427,7 @@ function renderPendBox(){
   const el=$('pendBox'); if(!el)return;
   const list=bookActive().filter(o=>!o.us&&o.code===selected);
   if(!list.length){ if(!el.hidden){el.hidden=true;el.innerHTML='';} return; }
-  const html=`<div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결</small></div>`
+  const html=`<div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결 · 앱을 닫아도 서버가 체결</small></div>`
     +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">${KRW(o.price)}원 · ${KRW(o.qty)}주</span><button class="pb-x" data-pbc="${o.id}" aria-label="미체결 주문 취소">취소</button></div>`).join('');
   if(el.dataset.sig!==html){ el.dataset.sig=html; el.innerHTML=html;
     el.querySelectorAll('[data-pbc]').forEach(b=>b.onclick=()=>cancelPending(b.dataset.pbc)); }
@@ -25773,7 +25807,7 @@ function usBookTick(o){
   try{ usSel=o.code; usPay=o.pay||'usd'; ok=usExecuteOrder(o.side,{price:+cur.toFixed(2),qty:o.qty,bookId:o.id}); }
   finally{ usSel=keepSel; usPay=keepPay; }
   try{ if(currentView==='ustrade'&&usSel)renderUsOrder(); }catch(e){}
-  if(ok){ bookOrders=bookOrders.filter(x=>x.id!==o.id); return true; }
+  if(ok){ _localFilled[o.id]=Date.now(); bookOrders=bookOrders.filter(x=>x.id!==o.id); return true; }
   /* 잔고·수량이 모자라 못 사는 주문은 접수를 취소한다(4초마다 같은 경고가 반복되지 않게) */
   let short=false;
   if(o.side==='buy'){ const c=usOrderCost('buy',cur,o.qty,o.pay==='krw'?'krw':null);
@@ -25870,7 +25904,7 @@ function renderUsOrder(){
 function usPendHTML(){
   const list=bookActive().filter(o=>o.us&&o.code===usSel);
   if(!list.length)return '';
-  return `<div class="pend-box"><div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결</small></div>`
+  return `<div class="pend-box"><div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결 · 앱을 닫아도 서버가 체결</small></div>`
     +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">$${USD2(o.price)} · ${fmtQty(o.qty)}주</span><button class="pb-x" data-uscancel="${o.id}">취소</button></div>`).join('')+'</div>';
 }
 function updateUsSum(){
