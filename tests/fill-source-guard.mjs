@@ -53,7 +53,8 @@ const body = (src, sig) => {
 
 /* ⑤ 서버 — 창구별 시세·세션, 체결가 클램프, 원 주문가 기록 */
 {
-  ok('서버가 주문 창구별 시세를 고른다(afOrderQuote)', /function afOrderQuote\(/.test(worker) && /afOrderQuote\(quotes\[String\(o\.code\)\], o\.ex\)/.test(worker));
+  ok('서버가 주문 창구별 시세를 고른다(afOrderQuote)', /function afOrderQuote\(/.test(worker) && /afOrderQuote\(quotes\[String\(o\.code\)\], o\.ex, now\)/.test(worker));
+  ok('서버 KRX 주문은 KRX 창구 시간에만 판정', /function afKrxMinutes\(/.test(worker) && /hm >= 510 && hm < 1200/.test(worker));
   ok('서버 체결가도 주문가 범위로 확정', /Math\.min\(qpx, lim\)/.test(worker) && /Math\.max\(qpx, lim\)/.test(worker));
   ok('서버가 체결 기록에 원 주문가(orderPx)를 남긴다', /orderPx: \(fill !== lim \? lim : undefined\)/.test(worker));
   ok('서버 알림 문구에 주문가를 붙인다', /주문가 " \+ lim\.toLocaleString/.test(worker));

@@ -19502,10 +19502,23 @@ function afPickQuote(d) {
 }
 /* 주문 창구(ex)에 맞는 세션 가격을 고른다.
    ex 가 없던 예전 주문은 지금까지처럼 '열린 세션의 값'(NXT 우선)으로 본다. */
-function afOrderQuote(q0, ex) {
+/* KRX 주문 가능 시간(분) — 08:30~20:00. 주말은 제외한다(휴장일 표는 시세 응답이 알려 준다). */
+function afKrxMinutes(now) {
+  var k = new Date((now == null ? Date.now() : now) + 9 * 3600e3);
+  var wd = k.getUTCDay();
+  if (wd === 0 || wd === 6) return -1;
+  return k.getUTCHours() * 60 + k.getUTCMinutes();
+}
+function afOrderQuote(q0, ex, now) {
   if (!q0 || !q0.open) return null;
   var e = String(ex || "").toUpperCase();
-  if (e === "KRX") return (q0.regular && q0.reg > 0) ? { price: q0.reg, name: q0.name, src: "KRX" } : null;
+  if (e === "KRX") {
+    /* KRX 창구 주문 — KRX 시간(08:30~20:00)에만, KRX 가격으로만 본다.
+       장전 시간외·애프터마켓은 KRX 종가를 기준가로 쓴다(그 시간대 체결 기준가와 같다). */
+    var hm = afKrxMinutes(now);
+    if (!(hm >= 510 && hm < 1200)) return null;
+    return (q0.reg > 0) ? { price: q0.reg, name: q0.name, src: "KRX" } : null;
+  }
   if (e === "NXT") return (q0.overOpen && q0.over > 0) ? { price: q0.over, name: q0.name, src: "NXT" } : null;
   return { price: q0.price, name: q0.name, src: q0.regular ? "KRX" : "NXT" };
 }
@@ -19660,7 +19673,7 @@ function afEvalUser(uid, usr, quotes, fx, now) {
     if (!o.us) {
       /* [v17.8.44] 내가 주문한 거래소의 시간·가격으로만 판정한다.
          KRX 지정가가 NXT 프리마켓 가격으로 체결되면 화면이 보여 준 적 없는 값이 된다. */
-      var q = afOrderQuote(quotes[String(o.code)], o.ex);
+      var q = afOrderQuote(quotes[String(o.code)], o.ex, now);
       if (!q || !(q.price > 0)) continue;
       var lim = afInt(o.price, 0), qty = afInt(o.qty, 0);
       if (!(lim > 0) || !(qty > 0)) { cancelOrder(o, "주문 정보 오류"); continue; }
