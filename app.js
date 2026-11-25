@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=347';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=348';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -15630,8 +15630,8 @@ function renderAsking(el){
     return;
   }
   const px=livePx(code,null), pc=d.prevClose;
-  el.innerHTML=obBookHtml(d,px,pc);
-  bindObRows(el,d);
+  el.innerHTML=obBookHtml(d,px,pc,{hint:'호가를 누르면 그 가격으로 거래 화면이 열립니다'});
+  bindObRows(el,d,{goto:true});
 }
 /* ══ [v17.8.37] 호가 그리기 — 상세 호가 탭과 거래 화면 좌측 호가창이 함께 쓴다 ══
    같은 값을 두 곳에서 그리므로 한 곳에서만 만들어 어긋날 여지를 없앤다.
@@ -15676,11 +15676,24 @@ function obBookHtml(d,px,pc,opts){
       실제 MTS 의 10단계 중 공개되는 5단계까지만 표시합니다. 나머지는 <b>공개되지 않아 비워 둡니다</b>.
       거래소 원장과 시차가 있을 수 있습니다.</div>`;
 }
-function bindObRows(el,d){
+function bindObRows(el,d,opts){
+  opts=opts||{};
   const all=[...(d.sell||[]),...(d.buy||[])];
   el.querySelectorAll('.ob-r').forEach((r,i)=>{
     const x=all[i]; if(!x)return;
-    r.onclick=()=>applyBookPrice(x.p,x.q);
+    r.onclick=()=>{
+      /* ══ [v17.8.38] 상세 호가 탭 — 누르면 거래 화면으로 들어간다 ═══════════
+         종전에는 같은 화면의 주문가격 칸만 바꿨는데, 그 칸은 v17.8.36 에서
+         거래 화면으로 옮겨져 상세 화면에는 없다. 그래서 눌러도 아무 일도
+         일어나지 않았다(사용자 지적). 상세에서는 거래 화면을 열고 그 가격을
+         지정가로 넣는다. 매도호가를 누르면 살 때(매수), 매수호가를 누르면
+         팔 때(매도) — MTS 호가창과 같은 결이다. */
+      if(opts.goto){
+        const ask=(d.sell||[]).length;
+        try{ openOrderScreen(selected,i<ask?'buy':'sell'); }catch(e){}
+      }
+      applyBookPrice(x.p,x.q);
+    };
   });
 }
 /* 호가를 누르면 그 가격으로 주문 입력 — 상세 호가 탭과 거래 화면이 같은 길을 쓴다 */

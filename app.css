@@ -9395,3 +9395,157 @@ html[data-theme="dark"] .biz-tags span{background:rgba(139,92,246,.18);color:#dd
   .order-config-pane{order:1}
   .order-book-pane{order:2;border-right:0;border-top:1px solid var(--border-soft)}
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v17.8.38] 거래 화면 프리미엄 리파인 — 호가창 · 주문 폼 · ORDER SUMMARY
+   ───────────────────────────────────────────────────────────────────────────
+   [무엇을 바꿨나] v17.8.37 의 2단 구조는 그대로 두고, 표면·계층·여백·색을 다시
+   잡았다. ① 머리말은 딥네이비 트레이딩 터미널 카드(그리드 결 + 상단 하이라이트),
+   ② 탭은 입체 세그먼트(매수=레드 / 매도=블루 그라디언트), ③ 주문가격·수량 칸은
+   숫자가 주인공이 되도록 크게, ④ ORDER SUMMARY 는 '영수증' 카드로 분리해 총액과
+   실행 버튼이 한 눈에 보이게, ⑤ 호가창은 잔량 막대·현재가 표시·선택 줄을 정돈.
+   색은 전부 테마 변수(--up/--down/--brand)에서 오므로 라이트·다크·색약 팔레트가
+   모두 그대로 따라온다. */
+.stock-order-screen{--tr-ink:#eaf1fb;--tr-line:color-mix(in srgb,var(--text) 9%,transparent);--tr-line2:color-mix(in srgb,var(--text) 14%,transparent)}
+.stock-order-screen .order-workspace-head{position:relative;overflow:hidden;padding:18px 22px 20px;border:1px solid color-mix(in srgb,var(--brand) 62%,#22314c);border-radius:22px;
+  background:radial-gradient(130% 170% at 100% 0%,#20314e 0%,#101a2c 44%,#080e19 100%);color:var(--tr-ink);
+  box-shadow:0 22px 44px -26px rgba(6,12,24,.8),inset 0 1px 0 rgba(255,255,255,.07)}
+.stock-order-screen .order-workspace-head::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:26px 26px;-webkit-mask-image:radial-gradient(120% 110% at 82% 0%,#000 18%,transparent 76%);
+  mask-image:radial-gradient(120% 110% at 82% 0%,#000 18%,transparent 76%)}
+.stock-order-screen .order-workspace-head::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;
+  background:linear-gradient(90deg,var(--up),transparent 34%,transparent 66%,var(--down));opacity:.9}
+.stock-order-screen .order-workspace-head>*{position:relative;z-index:1}
+.stock-order-screen .order-back{color:rgba(214,227,246,.66);font-weight:800}
+.stock-order-screen .order-back span{color:#fff}
+.stock-order-screen .order-back:hover{color:#fff}
+.stock-order-screen .order-stock-summary{margin-top:12px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
+.stock-order-screen .order-stock-kicker{color:rgba(163,187,219,.62)}
+.stock-order-screen .order-stock-main>div:first-child b{color:#fff;font-size:22px;text-shadow:0 1px 20px rgba(120,170,255,.18)}
+.stock-order-screen .order-stock-main>div:first-child span{color:rgba(163,187,219,.7)}
+.stock-order-screen .order-stock-quote strong{color:#fff;font-size:30px;letter-spacing:-.05em;text-shadow:0 2px 24px rgba(110,160,255,.28)}
+.stock-order-screen #orderStockChange.up{color:#ff8190}
+.stock-order-screen #orderStockChange.down{color:#7fb0ff}
+.stock-order-screen #orderStockChange{color:rgba(200,216,238,.85)}
+
+/* 탭 — 입체 세그먼트 */
+.stock-order-screen .order-work-tabs{border-radius:16px;border-color:var(--tr-line);
+  background:color-mix(in srgb,var(--panel) 90%,transparent);box-shadow:0 10px 26px -18px rgba(10,20,38,.6),inset 0 1px 0 rgba(255,255,255,.5)}
+.stock-order-screen .order-work-tabs button{border-radius:11px;font-size:12.5px}
+.stock-order-screen .order-work-tabs button:hover{background:color-mix(in srgb,var(--text) 4%,transparent);color:var(--text)}
+.stock-order-screen .order-work-tabs button.on{color:#fff;box-shadow:0 10px 20px -12px rgba(10,20,38,.65),inset 0 1px 0 rgba(255,255,255,.28)}
+.stock-order-screen .order-work-tabs button.buy-tab.on{background:linear-gradient(180deg,#ff7a86,var(--up));box-shadow:0 12px 22px -12px color-mix(in srgb,var(--up) 72%,transparent),inset 0 1px 0 rgba(255,255,255,.32)}
+.stock-order-screen .order-work-tabs button[data-order-tab="sell"].on{background:linear-gradient(180deg,#79a8ff,var(--down));box-shadow:0 12px 22px -12px color-mix(in srgb,var(--down) 72%,transparent),inset 0 1px 0 rgba(255,255,255,.32)}
+
+/* 콘텐츠 카드 */
+.stock-order-screen .order-content-panel{border-radius:22px;border-color:var(--tr-line);box-shadow:0 20px 44px -34px rgba(10,20,38,.55),0 2px 6px rgba(10,20,38,.04)}
+.stock-order-screen .order-section-heading{padding:20px 22px 16px;background:linear-gradient(100deg,color-mix(in srgb,var(--bg) 62%,var(--panel)),var(--panel))}
+.stock-order-screen .order-section-heading h2{font-size:19px}
+.stock-order-screen .order-section-heading p{font-size:11px;color:var(--sub-2)}
+.stock-order-screen .order-mode-pill{padding:6px 11px;border-radius:999px;letter-spacing:.14em;font-size:8.5px;border:1px solid var(--tr-line)}
+.stock-order-screen .order-mode-pill.buy{border-color:color-mix(in srgb,var(--up) 30%,transparent)}
+.stock-order-screen .order-mode-pill.sell{border-color:color-mix(in srgb,var(--down) 30%,transparent)}
+
+/* ── 좌측 호가창 ───────────────────────────────────────────────────────── */
+.stock-order-screen .order-book-pane{padding:18px 16px 20px;border-right-color:var(--tr-line);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--bg) 55%,var(--panel)),color-mix(in srgb,var(--bg) 22%,var(--panel)))}
+.stock-order-screen .order-book-title h3{font-size:15px;letter-spacing:-.02em}
+.stock-order-screen .order-book-live{padding:4px 10px;border:1px solid color-mix(in srgb,var(--brand) 12%,transparent)}
+.stock-order-screen .ob-head{border-radius:14px 14px 0 0;background:color-mix(in srgb,var(--panel) 88%,transparent)}
+.stock-order-screen .ob-hh{font-size:10px;letter-spacing:.02em;color:var(--sub-2)}
+.stock-order-screen .ob-body{background:color-mix(in srgb,var(--panel) 96%,transparent)}
+.stock-order-screen .ob-r{transition:background .13s ease,box-shadow .13s ease}
+.stock-order-screen .ob-r:hover{background:color-mix(in srgb,var(--brand) 5%,transparent)}
+.stock-order-screen .ob-r:hover .ob-p{color:var(--text)}
+.stock-order-screen .ob-p{font-size:14px;letter-spacing:-.2px;background:color-mix(in srgb,var(--text) 6%,var(--panel))}
+.stock-order-screen .ob-p i{font-size:9px;opacity:.62;margin-top:0}
+.stock-order-screen .ob-q b{font-size:12.5px;color:var(--sub)}
+.stock-order-screen .ob-r:hover .ob-q b{color:var(--text)}
+.stock-order-screen .ob-q.sell .ob-bar{background:linear-gradient(90deg,color-mix(in srgb,var(--down) 26%,transparent),color-mix(in srgb,var(--down) 12%,transparent))}
+.stock-order-screen .ob-q.buy .ob-bar{background:linear-gradient(270deg,color-mix(in srgb,var(--up) 26%,transparent),color-mix(in srgb,var(--up) 12%,transparent))}
+.stock-order-screen .ob-r.now{background:color-mix(in srgb,var(--brand) 6%,transparent)}
+.stock-order-screen .ob-r.now .ob-p{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--brand) 52%,transparent);border-radius:8px;background:color-mix(in srgb,var(--brand) 8%,var(--panel))}
+.stock-order-screen .ob-r.picked{background:color-mix(in srgb,var(--brand) 10%,transparent)}
+.stock-order-screen .ob-r.picked .ob-p{box-shadow:inset 0 0 0 2px var(--brand);border-radius:8px}
+.stock-order-screen .ob-mid{background:color-mix(in srgb,var(--text) 4%,var(--panel));border-color:var(--tr-line)}
+.stock-order-screen .ob-tot{border-radius:0 0 14px 14px;background:color-mix(in srgb,var(--panel) 92%,transparent)}
+.stock-order-screen .ob-tot-bar{height:10px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
+.stock-order-screen .ob-book-hint{border:1px dashed color-mix(in srgb,var(--brand) 22%,transparent)}
+
+/* ── 우측 주문 설정 ────────────────────────────────────────────────────── */
+.stock-order-screen .order-config-pane #ordAcct{padding-top:16px}
+.stock-order-screen .order-form-main .ot-select{height:50px;border-radius:13px;background:color-mix(in srgb,var(--bg) 70%,var(--panel));
+  border-color:var(--tr-line);font-size:12.5px;letter-spacing:-.01em;box-shadow:inset 0 1px 2px rgba(16,26,45,.05)}
+.stock-order-screen .order-form-main .field{margin-bottom:16px}
+.stock-order-screen .order-form-main .lab{font-size:11.5px;font-weight:850;color:var(--sub)}
+.stock-order-screen .order-form-main .lab .num{color:var(--sub-2);font-size:10.5px}
+.stock-order-screen .order-form-main .stepper{height:60px;border-radius:15px;border-color:var(--tr-line2);background:var(--panel);
+  box-shadow:inset 0 1px 2px rgba(16,26,45,.05);transition:border-color .16s,box-shadow .16s}
+.stock-order-screen .order-form-main .stepper:focus-within{border-color:color-mix(in srgb,var(--brand) 45%,var(--border));
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--brand) 9%,transparent),inset 0 1px 2px rgba(16,26,45,.05)}
+.stock-order-screen .order-form-main .stepper input{font-size:23px;font-weight:950;letter-spacing:-.03em;padding:0 14px}
+.stock-order-screen .order-form-main .stepper input::placeholder{font-weight:800;color:var(--sub-2)}
+.stock-order-screen .order-form-main .stepper button{width:54px;background:transparent;border-radius:12px;font-size:23px;font-weight:600;color:var(--sub);
+  transition:background .13s,color .13s,transform .06s}
+.stock-order-screen .order-form-main .stepper button:hover{background:color-mix(in srgb,var(--text) 6%,transparent);color:var(--text)}
+.stock-order-screen .order-form-main .stepper button:active{transform:scale(.94)}
+.stock-order-screen .order-form-main .stepper .unit{padding-right:15px;font-size:11px;font-weight:850;color:var(--sub-2)}
+.stock-order-screen .ord-book-note{margin:-4px 0 16px;padding:9px 11px;border-radius:10px;background:color-mix(in srgb,var(--text) 3.5%,transparent);
+  color:var(--sub);font-size:10.5px;line-height:1.55}
+.stock-order-screen .ord-book-note b{color:var(--text)}
+.stock-order-screen .qty-quick{gap:6px}
+.stock-order-screen .qty-quick button{min-height:34px;padding:0 12px;border:1px solid var(--tr-line);border-radius:10px;
+  background:color-mix(in srgb,var(--bg) 45%,var(--panel));color:var(--sub);font-size:11px;font-weight:900;transition:all .13s}
+.stock-order-screen .qty-quick button:hover{border-color:color-mix(in srgb,var(--text) 24%,var(--border));color:var(--text);background:var(--panel)}
+
+/* ORDER SUMMARY — 영수증 카드 */
+.stock-order-screen .order-form-aside{position:relative;overflow:hidden;gap:11px;padding:20px 18px 18px;border-radius:18px;
+  border:1px solid #1e2c45;background:radial-gradient(120% 130% at 100% 0%,#1b2b46 0%,#0e1727 58%,#0a111d 100%);color:var(--tr-ink);
+  box-shadow:0 22px 40px -30px rgba(6,12,24,.9),inset 0 1px 0 rgba(255,255,255,.07)}
+.stock-order-screen .order-form-aside::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent)}
+.stock-order-screen .order-aside-kicker{color:rgba(160,184,216,.6);letter-spacing:.18em;margin-bottom:1px}
+.stock-order-screen .order-form-aside .order-summary-line{color:rgba(170,192,220,.74);font-size:11px;padding:2px 0}
+.stock-order-screen .order-form-aside .order-summary-line b{color:#fff;font-size:11.5px}
+.stock-order-screen .order-form-aside .ord-summary{margin-top:2px;padding:14px 0 4px;border-top:1px dashed rgba(255,255,255,.16);color:rgba(184,204,228,.8);font-size:11px}
+.stock-order-screen .order-form-aside .ord-summary .amt{display:block;margin-top:6px;color:#fff;font-size:27px;font-weight:950;letter-spacing:-.045em;
+  font-variant-numeric:tabular-nums;text-shadow:0 2px 22px rgba(110,160,255,.22)}
+.stock-order-screen .order-form-aside .submit{position:relative;min-height:56px;margin-top:2px;border-radius:14px;font-size:15.5px;font-weight:950;letter-spacing:-.01em;
+  color:#fff;transition:transform .07s,filter .15s}
+.stock-order-screen .order-form-aside .submit::after{content:"";position:absolute;top:0;left:0;right:0;height:45%;border-radius:14px 14px 22px 22px;
+  background:linear-gradient(180deg,rgba(255,255,255,.22),transparent);pointer-events:none}
+.stock-order-screen .order-form-aside .submit.buy{background:linear-gradient(180deg,#ff7582 0%,var(--up) 62%,color-mix(in srgb,var(--up) 86%,#000) 100%);
+  box-shadow:0 16px 30px -14px color-mix(in srgb,var(--up) 62%,transparent),inset 0 1px 0 rgba(255,255,255,.34)}
+.stock-order-screen .order-form-aside .submit.sell{background:linear-gradient(180deg,#7cabff 0%,var(--down) 62%,color-mix(in srgb,var(--down) 86%,#000) 100%);
+  box-shadow:0 16px 30px -14px color-mix(in srgb,var(--down) 62%,transparent),inset 0 1px 0 rgba(255,255,255,.34)}
+.stock-order-screen .order-form-aside .submit:hover{filter:brightness(1.04)}
+.stock-order-screen .order-form-aside .submit:active{transform:translateY(1px) scale(.995)}
+.stock-order-screen .order-form-aside .ord-note{color:rgba(146,170,200,.66);font-size:9.5px;line-height:1.6;text-align:left;margin-top:2px}
+
+/* 정정/취소 · 체결/미체결 · 예약내역 카드 결 */
+.stock-order-screen .order-list-summary>div,.stock-order-screen .order-history-stats>div{border-radius:13px;border-color:var(--tr-line);
+  background:linear-gradient(160deg,color-mix(in srgb,var(--bg) 55%,var(--panel)),var(--panel))}
+.stock-order-screen .order-list-summary b,.stock-order-screen .order-history-stats b{letter-spacing:-.02em}
+.stock-order-screen .order-record,.stock-order-screen .order-history-row{border-radius:14px;border-color:var(--tr-line);transition:border-color .14s,box-shadow .14s,transform .14s}
+.stock-order-screen .order-record:hover,.stock-order-screen .order-history-row:hover{border-color:color-mix(in srgb,var(--text) 18%,var(--border));box-shadow:0 12px 24px -20px rgba(10,20,38,.7)}
+.stock-order-screen .order-record-actions button{border-radius:9px}
+.stock-order-screen .order-history-filters{border-radius:11px;padding:4px}
+.stock-order-screen .order-history-filters button{border-radius:8px}
+
+@media(max-width:760px){
+  .stock-order-screen .order-workspace-head{padding:14px 15px 16px;border-radius:18px}
+  .stock-order-screen .order-stock-quote strong{font-size:26px}
+  .stock-order-screen .order-stock-main>div:first-child b{font-size:19px}
+  .stock-order-screen .order-work-tabs{border-radius:14px;box-shadow:0 8px 20px -18px rgba(10,20,38,.6)}
+  .stock-order-screen .order-work-tabs button{border-radius:9px;min-height:52px;font-size:9.5px}
+  .stock-order-screen .order-work-tabs button.on{border-radius:9px}
+  .stock-order-screen .order-content-panel{border-radius:18px}
+  .stock-order-screen .order-section-heading{padding:16px 15px 13px}
+  .stock-order-screen .order-form-main .stepper{height:56px}
+  .stock-order-screen .order-form-main .stepper input{font-size:21px}
+  .stock-order-screen .order-form-aside{padding:17px 15px 16px;border-radius:16px;gap:9px}
+  .stock-order-screen .order-form-aside .ord-summary .amt{font-size:24px}
+  .stock-order-screen .order-form-aside .submit{min-height:54px}
+  .stock-order-screen .order-book-pane{border-top-color:var(--tr-line)}
+}

@@ -9505,11 +9505,34 @@ function parseGoal(html) {
   }
   return target != null || opinion ? { target: target != null ? target : null, opinion, score: score2 } : null;
 }
-async function ovStore() {
+/* ══ [v17.8.38] 기업개요 캐시 — KV 쓰기를 쓰지 않는다 ═════════════════════════
+   [왜 바꿨나] 종전에는 KV(company-overview)에 종목마다 ov2:<코드> 를 썼다.
+   KV 무료 한도는 하루 쓰기 1,000회라, 종목 조회가 늘면 한도에 먼저 닿는다.
+   기업개요는 다시 받아도 되는 데이터이므로 Cache API + 인스턴스 메모리로 보낸다.
+   (Cache API 가 막힌 workers.dev 에서도 메모리 캐시가 한 시간 동안 재조회를 막는다) */
+var _ovMem = /* @__PURE__ */ new Map();
+async function ovCacheGet(code) {
+  const m = _ovMem.get(code);
+  if (m && m.exp > Date.now()) return m.rec;
   try {
-    return await getStoreX({ name: "company-overview" }, ENV4);
-  } catch {
-    return null;
+    const raw = await kvCacheGet("ov3:" + code);
+    if (raw) {
+      const rec = JSON.parse(raw);
+      if (rec && Array.isArray(rec.overview) && rec.overview.length) {
+        _ovMem.set(code, { rec, exp: Date.now() + 36e5 });
+        return rec;
+      }
+    }
+  } catch (e) {
+  }
+  return null;
+}
+async function ovCachePut(code, rec, ttl) {
+  const age = ttl || 7 * 86400;
+  _ovMem.set(code, { rec, exp: Date.now() + Math.min(age, 36e5) });
+  try {
+    await kvCachePut("ov3:" + code, JSON.stringify(rec), age);
+  } catch (e) {
   }
 }
 async function fetchTxt(url, ms, extra) {
@@ -9550,19 +9573,44 @@ function deepKoreanStrings(v, out, depth) {
   }
   return out;
 }
+/* ══ [v17.8.38] 기업개요 원문 — 네이버 금융 기업개요(navercomp.wisereport) ═══
+   [무엇이 문제였나] finance.naver.com/item/main.naver 의 div.summary_info 가
+   사라져 parseOverview() 가 전 종목에서 null 을 돌려줬고, FnGuide 는 799바이트
+   차단 페이지였다. 그래서 마지막 폴백조차 값이 없어 모든 종목이 "…에 상장된
+   기업입니다" 같은 기본 문구로 떨어졌다(사용자 지적).
+   [새 원천] 기업개요 페이지의 div.cmp_comment > ul.dot_cmp > li — 설립연도·상장·
+   주력 제품·확장 사업이 종목마다 3문장으로 들어 있다. 코스피·코스닥·신규상장·
+   외국기업(900xxx)까지 확인했다. 이 원문을 그대로 넘기면 앱의 사업요약 엔진이
+   종목별 서술형 요약을 만든다. */
+function parseCompanyOverview(html) {
+  if (!html) return null;
+  const s = String(html);
+  const box = s.match(/<div class="cmp_comment">([\s\S]*?)<\/div>/);
+  let lis = [...(box ? box[1] : s).matchAll(/<li[^>]*class="[^"]*dot_cmp[^"]*"[^>]*>([\s\S]*?)<\/li>/g)].map((x) => stripHtml(x[1]));
+  if (!lis.length) lis = [...s.matchAll(/<li[^>]*class="[^"]*dot_cmp[^"]*"[^>]*>([\s\S]*?)<\/li>/g)].map((x) => stripHtml(x[1]));
+  lis = lis.filter((x) => x.length >= 20 && /[가-힣]/.test(x) && !/^\s*\[/.test(x) && !/\uFFFD/.test(x));
+  return lis.length ? [...new Set(lis)].slice(0, 6) : null;
+}
+async function naverCompanyOverview(code) {
+  const r = await fetchTxt(`https://navercomp.wisereport.co.kr/v1/company/c1010001.aspx?cmp_cd=${encodeURIComponent(code)}`, 6e3, { Referer: "https://finance.naver.com/item/main.naver?code=" + encodeURIComponent(code) });
+  if (!r || !r.txt) return null;
+  return parseCompanyOverview(r.txt);
+}
 async function overviewAlt(code, diag) {
+  /* ① 네이버 금융 기업개요 — 전 상장 종목, 종목별 고유 문장 */
+  try {
+    const ps0 = await naverCompanyOverview(code);
+    diag.push("wise:" + (ps0 ? "ok" + ps0.length : "nomark"));
+    if (ps0 && ps0.length) return ps0;
+  } catch (e) {
+    diag.push("wise:err");
+  }
   const a = await fetchTxt(`https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A${code}&cID=&MenuYn=Y&ReportGB=&NewMenuID=101&stkGb=701`, 6500, { Referer: "https://comp.fnguide.com/" });
   if (a.txt) {
     const ps = paraFrom(a.txt, "bizSummary", 9e3) || paraFrom(a.txt, "\uAE30\uC5C5\uAC1C\uC694", 6e3);
     diag.push("fnguide:" + (ps ? "ok" + ps.length : "nomark"));
     if (ps) return ps;
   } else diag.push("fnguide:" + a.err);
-  const b = await fetchTxt(`https://navercomp.wisereport.co.kr/v1/company/c1010001.aspx?cmp_cd=${code}`, 6500, { Referer: "https://finance.naver.com/" });
-  if (b.txt) {
-    const ps = paraFrom(b.txt, "\uAE30\uC5C5\uAC1C\uC694", 9e3) || paraFrom(b.txt, "cmp_comment", 8e3);
-    diag.push("wise:" + (ps ? "ok" + ps.length : "nomark"));
-    if (ps) return ps;
-  } else diag.push("wise:" + b.err);
   const c = await fetchTxt(`https://m.stock.naver.com/api/stock/${code}/integration`, 5e3, { Referer: "https://m.stock.naver.com/" });
   if (c.txt) {
     try {
@@ -9580,13 +9628,9 @@ async function overviewAlt(code, diag) {
   return null;
 }
 async function getOverviewGoal(code, probe2) {
-  const store = await ovStore();
-  if (store && !probe2) {
-    try {
-      const c = await store.get("ov2:" + code, { type: "json" });
-      if (c && Date.now() - (c.at || 0) < 24 * 3600 * 1e3) return c;
-    } catch {
-    }
+  if (!probe2) {
+    const hit = await ovCacheGet(code);
+    if (hit) return hit;
   }
   const html = await naverMainHtml(code);
   let overview = parseOverview(html);
@@ -9600,11 +9644,10 @@ async function getOverviewGoal(code, probe2) {
   const rec = { overview, goal, w52, at: Date.now() };
   rec.ovDiag = ovDiag;
   if (probe2) rec._probe = { htmlLen: html ? html.length : 0, hasSummaryDiv: !!(html && /class="summary_info"/.test(html)), hasGoalWord: !!(html && /목표주가/.test(html)), overviewN: overview ? overview.length : 0, goal };
-  if (store && (overview || goal)) {
-    try {
-      await store.setJSON("ov2:" + code, { overview, goal, w52, at: rec.at });
-    } catch {
-    }
+  /* 있는 값만 오래(7일) 담고, 못 받은 것은 10분만 담아 다음 조회에서 다시 시도한다 */
+  try {
+    await ovCachePut(code, { overview, goal, w52, at: rec.at, ovDiag }, overview ? 7 * 86400 : 600);
+  } catch {
   }
   return rec;
 }
@@ -9621,6 +9664,20 @@ var fundamentals_default = async (req2) => {
   const integ = ig.v || null;
   const nc = normConsensus(integ);
   const ov = og.v || {};
+  /* ══ [v17.8.38] 52주 최고/최저 — 종전에는 finance.naver.com 메인 HTML 파싱에만
+     기대어, 그 페이지에서 그 표가 사라진 뒤로는 전 종목이 null 이었다(적정가·
+     밴드·투자지표가 함께 비었다). 통합(totalInfos)의 52주 값을 그대로 쓴다. */
+  if (!(ov.w52 && ov.w52.h52)) {
+    const st52 = normStats(integ);
+    const px52 = (k) => {
+      const s = st52.find((x) => String(x.label || "").replace(/\s/g, "").includes(k));
+      if (!s) return null;
+      const n = Number(String(s.value).replace(/[^0-9.]/g, ""));
+      return isFinite(n) && n > 0 ? n : null;
+    };
+    const h = px52("52\uC8FC\uCD5C\uACE0"), l = px52("52\uC8FC\uCD5C\uC800");
+    if (h && l && h > l) ov.w52 = { h52: h, l52: l };
+  }
   const brokerSeen = /* @__PURE__ */ new Set();
   const brokers = [...normBrokers(integ), ...rs.v && Array.isArray(rs.v) ? rs.v : []].filter((b) => {
     const k = (b.broker || "") + "|" + String(b.date || "").slice(0, 10) + "|" + (b.target || "");
@@ -14909,14 +14966,14 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.37",
-  releasedAt: "2026-11-25 22:05",
+  version: "17.8.38",
+  releasedAt: "2026-11-25 22:40",
   notes: [
-    "매수·매도 화면을 좌측 호가창 · 우측 주문 상세 설정 2단으로 재구성",
-    "호가를 누르면 주문가격에 바로 반영 — 상세 호가 탭과 같은 동작",
-    "호가·주문 화면이 같은 갱신 타이머를 공유해 요청을 늘리지 않음",
-    "호가가 없는 시간·미제공·해외 종목은 이유와 현재가만 표시",
-    "좁은 화면에서는 호가 위·주문 아래로 자연스럽게 쌓이는 배치 유지"
+    "종목 상세 호가를 누르면 그 가격으로 거래 화면이 열리도록 연결",
+    "거래 화면 디자인 전면 개편 — 터미널형 머리말·입체 탭·영수증형 주문 요약",
+    "기업개요를 네이버 금융 기업개요 원문으로 연결 — 전 종목 종목별 사업요약",
+    "기업개요·52주 최고/최저 캐시를 Cache API로 이전해 KV 쓰기 제거",
+    "코스피·코스닥·ETF·신규상장 시세·재무 값 원천 대조 점검"
   ]
 };
 
@@ -18352,7 +18409,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.37";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.38";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) { return await afScheduled(event, env, ctx); },
@@ -18697,7 +18754,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 22:05"; BUNDLED_VERSION.notes = ["매수·매도 화면을 좌측 호가창 · 우측 주문 상세 설정 2단으로 재구성", "호가를 누르면 주문가격에 바로 반영 — 상세 호가 탭과 같은 동작", "호가·주문 화면이 같은 갱신 타이머를 공유해 요청을 늘리지 않음", "호가가 없는 시간·미제공·해외 종목은 이유와 현재가만 표시", "좁은 화면에서는 호가 위·주문 아래로 자연스럽게 쌓이는 배치 유지"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 22:05"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 22:40"; BUNDLED_VERSION.notes = ["종목 상세 호가를 누르면 그 가격으로 거래 화면이 열리도록 연결", "거래 화면 디자인 전면 개편 — 터미널형 머리말·입체 탭·영수증형 주문 요약", "기업개요를 네이버 금융 기업개요 원문으로 연결 — 전 종목 종목별 사업요약", "기업개요·52주 최고/최저 캐시를 Cache API로 이전해 KV 쓰기 제거", "코스피·코스닥·ETF·신규상장 시세·재무 값 원천 대조 점검"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 22:40"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
