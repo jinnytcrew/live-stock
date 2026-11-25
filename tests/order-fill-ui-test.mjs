@@ -94,9 +94,10 @@ const main = async () => {
 
   /* ── ④ 그 미체결을 자동 감시가 돌려도 172,400 에 체결되면 안 된다 ── */
   const tick = await pg.evaluate(() => window.__diag.autoTickTest());
+  const badBuy = (tick.log || []).filter(t => t && t.side === 'buy' && t.code === '005930' && t.price > 171700);
   ok('자동 감시 1회 — 매수 171,700 은 172,400 에 체결되지 않음',
-    tick.orders && tick.orders.length === 1 && (!tick.log || !tick.log.length || tick.log[tick.log.length - 1].price <= 171700),
-    `미체결 ${tick.orders && tick.orders.length}건`);
+    !!tick.orders && tick.orders.length === 1 && badBuy.length === 0,
+    `미체결 ${tick.orders && tick.orders.length}건 · 지정가 초과 매수체결 ${badBuy.length}건`);
 
   /* ── ⑤ 매수 지정가 172,400 (현재가와 같음) → 체결가는 주문가를 넘지 않는다 ── */
   const buy2 = await pg.evaluate(() => window.__diag.orderTest({ code: '005930', side: 'buy', ex: 'NXT', price: 172400, qty: 1 }));

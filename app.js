@@ -19579,8 +19579,10 @@ function reservedQty(code,exceptId){
 function availCash(exceptId){ return Math.max(0,cash-reservedCash(exceptId)); }
 function sellAvail(code){ const h=holdings.find(x=>x.code===code&&!x.us); return Math.max(0,(h?intOf(h.qty,0):0)-reservedQty(code)); }
 /* 지금 시세로 이 지정가가 체결되는가 — 체결되면 '체결가(=현재가)', 아니면 0 */
-function limitFillNow(side,limit,code){
-  const q=dispQuote(code)||{}, st=byCode[code]||{};
+function limitFillNow(side,limit,code,ex){
+  /* [v17.8.44] 접수할 거래소의 시세로 판정한다 — 미체결 감시(orderQuote)와 같은 기준.
+     예전에는 화면 표시가(dispQuote)만 봐서, KRX 주문이 NXT 프리마켓 가격으로 바로 체결될 수 있었다. */
+  const q=(ex?orderQuote({code,ex}):null)||dispQuote(code)||{}, st=byCode[code]||{};
   const cur=(q.price!=null)?q.price:st.price;
   if(!(cur>0)||!(limit>0))return 0;
   const hit=side==='buy'?cur<=limit:cur>=limit;
@@ -20203,7 +20205,7 @@ $('submitBtn').onclick=()=>{
       return;}
   }
   /* 즉시 체결되면 체결가(현재가)로, 미체결로 접수되면 내 지정가로 예수금을 따진다 */
-  const fillNow=isMkt?price:limitFillNow(ordSide,price,s.code);
+  const fillNow=isMkt?price:limitFillNow(ordSide,price,s.code,ordExchange);
   const effPx=fillNow>0?fillNow:price;
   const _c=orderCost(ordSide,effPx,qty);
   const _avail=availCash();
@@ -20246,7 +20248,7 @@ function executeOrder(o){
   const s=byCode[selected];
   if(!o||!s||o.market)return executeOrderCore(s,o,'');      // 시장가는 호가 기준가로 바로 체결
   /* [v17.8.27] 지정가 — 비밀번호를 치는 사이 시세가 움직였을 수 있으니 '지금' 다시 판정한다 */
-  const fill=limitFillNow(o.side,o.price,s.code);
+  const fill=limitFillNow(o.side,o.price,s.code,ordExchange);
   if(fill>0){
     /* [v17.8.44] 즉시 체결도 내가 쓴 주문가를 기록에 남긴다 — 나중에 '왜 다른 가격이지?'가
        생기지 않도록. 체결가와 같으면 남기지 않는다. */
