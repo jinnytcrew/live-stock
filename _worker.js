@@ -5787,6 +5787,14 @@ var accounts_default = async (req2) => {
      바꿔 acc:<id> 하나만 건드린다. 남의 계정을 덮을 방법이 없어진다. */
   if (id) {
     try { const a0 = await accLoad(store, id, db); if (a0) db.accounts[id] = a0; } catch (e) {}
+    /* [v17.8.35] 탈퇴한 계정은 어떤 사본에서도 되살리지 않는다.
+       (탈퇴 뒤에 새로 만든 계정은 created 가 표식보다 뒤이므로 막히지 않는다) */
+    try {
+      if (db.accounts[id] && delBlocks(await delMarkAt(id), db.accounts[id])) {
+        delete db.accounts[id];
+        try { delete _accCache[String(id).trim().toLowerCase()]; } catch (e) {}
+      }
+    } catch (e) {}
   }
   const saveAcc = async (uid) => {
     const k3 = uid || id;
@@ -5995,29 +6003,38 @@ var accounts_default = async (req2) => {
         await saveAcc(id);                            /* [v9.75] */
         return json({ ok: false, err: "wrongpass" });
       }
-      /* ══ [v14.2] 정말 지워졌는지 확인하고 답한다 ═══════════════════════════════
-         예전에는 지우려는 시도만 하고 무조건 ok:true 를 돌려줬다. 실제로는 하나도
-         지워지지 않았는데 화면에는 "계정이 삭제되었어요"가 떴고, 같은 아이디로
-         다시 로그인하면 그냥 들어가졌다. 확인한 것만 성공이라고 말한다. */
-      const okAcc = await accDelete(store, id, db.accounts[id]);
+      /* ══ [v17.8.35] 계정 탈퇴 — 판정과 정리 ═══════════════════════════════════
+         [판정 기준] 'delete() 가 예외 없이 끝났는가'. KV 는 최종 일관성이라
+           지운 직후에 다시 읽어 확인하는 방법으로는 성공을 확정할 수 없다
+           (그 재확인이 delfail 을 만들었고, accLoad 로 확인해 계정을 도로
+           되살리고 있었다).
+         [지우는 것] 계정(두 자리) · 사용자 데이터(두 자리) · 구글·메일 색인 ·
+           미체결 색인 · 친구 프로필/알림 구독/클랜 명단의 내 흔적 · 탈퇴 표식. */
+      const accRec = db.accounts[id] || acc;
+      const okAcc = await accDelete(store, id, accRec);
       delete db.accounts[id];
       delete db.users[id];
       const okUsr = await usrDelete(store, id);
-      try { await afIndexRemove(id); } catch (e) {}   /* [v17.8.34] 남은 미체결 색인 정리 */
+      try { await afIndexRemove(id); } catch (e) {}                  /* [v17.8.34] 미체결 색인 */
+      try { await delRelatedOwn(id, accRec); } catch (e) {}           /* [v17.8.35] 친구·알림·클랜 */
       if (db.tries) delete db.tries[id];
-      await saveDb(true);                            /* 옛 저장소에서도 반드시 지운다 */
+      /* 탈퇴 표식 — 낡은 사본이 계정을 되살리지 못하게 한다 */
+      const okMark = await delMarkSet(id);
+      await saveDb(true);
       /* 캐시에 남아 있으면 다음 요청이 되살린다 — 확실히 비운다 */
       try { delete _accCache[String(id).trim().toLowerCase()]; } catch (e) {}
       try { delete _usrCache[id]; delete _usrSig[id]; } catch (e) {}
       try { dbCacheSet(db); } catch (e) {}
-      /* 마지막 확인 — 정말 사라졌는가 */
-      let gone = true;
-      try { gone = (await accLoad(store, id, db)) == null; } catch (e) { gone = false; }
-      if (!okAcc || !gone) {
-        console.error("[LIVE] 계정 삭제가 완료되지 않았습니다:", id, { okAcc, okUsr, gone });
+      /* 참고용 확인 — 사본을 되살리는 accLoad() 대신 키 존재만 본다.
+         전파 지연 때문에 여기 남아 보이는 값은 판정에 쓰지 않는다. */
+      let left = [];
+      try { left = await delKeysLeft(id); } catch (e) {}
+      if (!okAcc || !okUsr) {
+        console.error("[LIVE] 계정 삭제 실패:", id, { okAcc, okUsr, okMark, left });
         return json({ ok: false, err: "delfail" });
       }
-      return json({ ok: true, deleted: id });
+      if (left.length) console.warn("[LIVE] 삭제 후 남은 키(전파 지연 추정):", id, left);
+      return json({ ok: true, deleted: id, mark: okMark ? 1 : 0, left: left.length || 0 });
     }
     if (action === "profile") {
       const v = await verify(acc, pass, legacy);
@@ -7140,7 +7157,16 @@ async function accLoad(st, id, legacyDb) {
   if (v == null && KV) {
     try {
       const hit = await accRawRead(KV, key);
-      if (hit) { try { v = JSON.parse(hit.raw); } catch (e) { v = null; } }
+      if (hit) {
+        let cand = null;
+        try { cand = JSON.parse(hit.raw); } catch (e) { cand = null; }
+        /* [v17.8.35] 탈퇴한 계정의 낡은 사본은 읽지도 이관하지도 않는다 */
+        if (cand && delBlocks(await delMarkAt(key), cand)) {
+          console.warn("[LIVE] 탈퇴한 계정의 사본을 무시합니다:", key, hit.key);
+          cand = null;
+        }
+        v = cand;
+      }
     } catch (e) {}
   }
   if (v == null && legacyDb && legacyDb.accounts) {
@@ -7150,6 +7176,8 @@ async function accLoad(st, id, legacyDb) {
       const k2 = Object.keys(legacyDb.accounts).find((x) => x.trim().toLowerCase() === key);
       if (k2) hit = legacyDb.accounts[k2];
     }
+    /* [v17.8.35] 옛 공유 db 사본도 탈퇴 표식이 있으면 되살리지 않는다 */
+    if (hit && delBlocks(await delMarkAt(key), hit)) hit = null;
     if (hit) {
       v = hit;
       try { await st.setJSON(accKeyOf(key), v); } catch (e) {}   // 읽는 김에 이관
@@ -7288,16 +7316,113 @@ async function accSave(st, id, acc) {
   try { const ks = Object.keys(_accSig); if (ks.length > 200) ks.slice(0, 100).forEach((k) => delete _accSig[k]); } catch (e) {}
   return true;
 }
-/* ══ [v14.2] 삭제는 성공 여부를 반드시 확인한다 ═══════════════════════════════
-   예전에는 모든 삭제를 try/catch 로 감싸 조용히 넘겼다. 그래서 실제로 지워지지
-   않아도 "삭제 완료"가 떴다. 지웠으면 지워졌는지 확인하고, 실패하면 알린다. */
+/* ══ [v17.8.35 · 치명] 계정 탈퇴가 '실제로는 지워졌는데 실패'로 응답하던 이유 ══
+   [증상] 계정 탈퇴가 실제로 이뤄지는데도 {"ok":false,"err":"delfail"} 이 돌아왔다.
+   [원인 ①] KV 는 최종 일관성 저장소다. delete() 직후의 get() 은 최대 60초 동안
+     지우기 전 값을 그대로 돌려줄 수 있다(없는 키를 읽은 결과까지 캐시된다).
+     그런데 delKey() 가 그 get() 결과를 '삭제 실패'로 판정했다 — 확정할 수 없는
+     값을 근거로 실패를 말한 것이다.
+   [원인 ② · 더 나쁜 것] 계정은 두 자리에 저장된다(live-accounts:acc:<id> 와
+     app:acc:<id>). 삭제는 앞자리만 지웠고, 마지막 확인에 쓴 accLoad() 가 뒷자리
+     사본을 읽어 그것을 도로 앞자리에 써 넣었다(읽는 김에 이관). 즉 확인 단계가
+     계정을 되살리고 있었다.
+   [고침] ① 삭제는 'delete() 가 예외 없이 끝났는가'로 판정한다. 사후 재조회는
+     참고 로그로만 남긴다. ② 계정·사용자 데이터의 두 자리를 모두 지운다.
+     ③ 확인은 사본을 되살릴 수 있는 accLoad() 대신 키 존재 검사로 한다.
+     ④ 탈퇴 표식(live-accounts:del:<id>)을 남겨, 낡은 사본(반대 접두사·옛 공유 db)이
+        계정을 되살리지 못하게 한다. */
 async function delKey(st, key) {
   const rm = (typeof st.delete === "function") ? st.delete.bind(st)
            : (typeof st.del === "function") ? st.del.bind(st) : null;
   if (!rm) { console.error("[LIVE] 저장소에 삭제 기능이 없습니다:", key); return false; }
-  try { await rm(key); } catch (e) { console.error("[LIVE] 삭제 실패:", key, String(e).slice(0,90)); return false; }
-  /* 정말 사라졌는지 확인한다 */
-  try { const left = await st.get(key, { type: "json" }); if (left != null) return false; } catch (e) {}
+  try { await rm(key); }
+  catch (e) { console.error("[LIVE] 삭제 실패:", key, String(e).slice(0, 90)); return false; }
+  /* [v17.8.35] 여기서 get() 으로 재확인하지 않는다 — 방금 지운 키도 전파 지연 때문에
+     옛 값으로 읽힌다. 읽어 보고 값이 남아 있으면 로그만 남긴다(판정에는 쓰지 않는다). */
+  try {
+    const left = await st.get(key, { type: "json" });
+    if (left != null) console.warn("[LIVE] 삭제 후 재조회에 옛 값(전파 지연 추정):", key);
+  } catch (e) {}
+  return true;
+}
+/* 접두사가 붙지 않은 KV 키를 직접 지운다 — 같은 내용을 두 자리에 저장해 둔 사본용 */
+async function delRaw(key) {
+  try { if (!KV || !key) return true; await KV.delete(key); return true; }
+  catch (e) { console.error("[LIVE] 삭제 실패(사본):", key, String(e).slice(0, 90)); return false; }
+}
+/* ── 탈퇴 표식 ─────────────────────────────────────────────────────────────────
+   지운 계정의 낡은 사본(반대 접두사·옛 공유 db)이 남아 있으면, 전파가 끝난 뒤에도
+   그 사본을 읽어 계정이 되살아날 수 있다. 탈퇴 시각을 남겨 두고 사본을 읽는
+   자리에서 '이 계정은 그 뒤로 지워졌다'를 판정한다.
+   다시 가입한 계정은 created 가 표식보다 뒤이므로 막히지 않는다. */
+function delMarkOf(id) { return "live-accounts:del:" + String(id == null ? "" : id).trim().toLowerCase(); }
+async function delMarkSet(id) {
+  if (!KV || !id) return false;
+  try { await KV.put(delMarkOf(id), JSON.stringify({ at: Date.now() })); return true; }
+  catch (e) { return false; }
+}
+async function delMarkAt(id) {
+  if (!KV || !id) return 0;
+  try { const r = await KV.get(delMarkOf(id), "json"); return (r && +r.at) || 0; }
+  catch (e) { return 0; }
+}
+/* 사본이 '탈퇴한 그 계정'인가 — 표식보다 나중에 만들어진 계정(재가입)은 통과시킨다 */
+function delBlocks(at, acc) {
+  if (!(at > 0)) return false;
+  if (!acc || typeof acc !== "object") return true;     /* 무엇인지 알 수 없으면 되살리지 않는다 */
+  const made = +acc.created || 0;
+  return !(made && made > at);                          /* 지운 뒤에 만들어진 계정만 통과 */
+}
+/* 탈퇴 계정이 남긴 키 — 참고용 확인(전파 지연 때문에 판정에는 쓰지 않는다) */
+async function delKeysLeft(id) {
+  if (!KV || !id) return [];
+  const key = String(id).trim().toLowerCase();
+  const out = [];
+  for (const k of ["live-accounts:acc:" + key, "app:acc:" + key, "live-accounts:usr:" + key, "app:usr:" + key]) {
+    try { const v = await KV.get(k); if (v != null) out.push(k); } catch (e) {}
+  }
+  return out;
+}
+/* ══ [v17.8.35] 탈퇴 계정의 '곁다리 기록'도 함께 지운다 ═══════════════════════
+   계정(acc:·usr:)만 지우면 친구 프로필(live-social:fr:<id>), 알림 구독
+   (nxt-universe:push:·pushst:), 클랜 구성원 명단에 이름과 활동이 그대로 남는다.
+   탈퇴는 '남에게 보이는 내 흔적'까지 지우는 일이어야 한다.
+   · 클랜은 다른 사람들과 함께 쓰는 기록이라 통째로 지우지 않는다. 내 항목만
+     빼고, 내가 리더였으면 남은 사람에게 넘긴다(남는 사람이 없으면 클랜을 없앤다).
+   · 실패해도 탈퇴 자체를 막지 않는다(본체는 이미 지워졌다). */
+async function delRelatedOwn(id, acc) {
+  const key = String(id == null ? "" : id).trim().toLowerCase();
+  if (!key || !KV) return false;
+  const del = async (k) => { try { await KV.delete(k); } catch (e) {} };
+  await del("live-social:fr:" + key);
+  await del("nxt-universe:push:" + key);
+  await del("nxt-universe:pushst:" + key);
+  const cid = acc && acc.clanId;
+  if (!cid) return true;
+  let c = null;
+  try { c = await KV.get("live-clans:clan:" + cid, "json"); } catch (e) { c = null; }
+  if (!c || typeof c !== "object" || !c.members) return true;
+  const mk = Object.keys(c.members).find((x) => String(x).trim().toLowerCase() === key);
+  if (!mk) return true;
+  delete c.members[mk];
+  if (String(c.leader || "").trim().toLowerCase() === key) {
+    const sub = Object.entries(c.members).find((x) => x[1] && x[1].role === "sub");
+    const rest = sub ? sub[0] : Object.keys(c.members)[0];
+    if (rest) { c.leader = rest; if (c.members[rest]) c.members[rest].role = ""; }
+    else {
+      /* 남은 구성원이 없다 — 클랜과 초대코드, 탐색 목록에서 함께 없앤다 */
+      await del("live-clans:clan:" + cid);
+      if (c.code) await del("live-clans:code:" + c.code);
+      try {
+        const idx = await KV.get("live-clans:index", "json");
+        if (idx && typeof idx === "object" && idx[cid]) {
+          delete idx[cid]; await KV.put("live-clans:index", JSON.stringify(idx));
+        }
+      } catch (e) {}
+      return true;
+    }
+  }
+  try { await KV.put("live-clans:clan:" + cid, JSON.stringify(c)); } catch (e) {}
   return true;
 }
 async function accDelete(st, id, acc) {
@@ -7306,11 +7431,14 @@ async function accDelete(st, id, acc) {
   delete _accCache[key];
   try { delete _accSig[key]; } catch (e) {}
   let ok = await delKey(st, accKeyOf(key));
+  /* [v17.8.35] 반대 접두사 사본(app:acc:<id>)도 지운다 — 남으면 accLoad 가 그것을
+     읽어 계정을 되살린다(그것이 delfail 의 진짜 원인이었다). */
+  const okMirror = await delRaw("app:acc:" + key);
   try {
     if (acc && acc.googleSub) await delKey(st, "gsub:" + acc.googleSub);
     if (acc && acc.email) await delKey(st, "mail:" + String(acc.email).trim().toLowerCase());
   } catch (e) {}
-  return ok;
+  return ok && okMirror;
 }
 /* 구글 sub·이메일로 계정 아이디를 되찾는다. 새 키를 먼저 보고, 없으면 옛 db 를 훑는다. */
 async function accFindByGoogle(st, gsub, email, legacyDb) {
@@ -7430,9 +7558,12 @@ async function usrSave(st, id, val, force, noSkip) {
 }
 async function usrDelete(st, id) {
   if (!id) return false;
-  delete _usrCache[id];
-  try { delete _usrSig[id]; } catch (e) {}    /* [v14.2] 지문도 함께 — 안 지우면 다음 저장이 건너뛴다 */
-  return await delKey(st, "usr:" + id);
+  const key = String(id).trim().toLowerCase();
+  delete _usrCache[id]; delete _usrCache[key];
+  try { delete _usrSig[id]; delete _usrSig[key]; } catch (e) {}    /* [v14.2] 지문도 함께 — 안 지우면 다음 저장이 건너뛴다 */
+  const ok = await delKey(st, "usr:" + id);
+  await delRaw("app:usr:" + key);      /* [v17.8.35] 반대 접두사 사본도 */
+  return ok;
 }
 var _dbCache=null, _dbCacheAt=0;
 var DB_CACHE_MS=90000;
@@ -14778,12 +14909,14 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.33",
-  releasedAt: "2026-10-28 22:02",
+  version: "17.8.35",
+  releasedAt: "2026-11-25 21:20",
   notes: [
-    "차트 패턴 탐색기 시작 오류 수정 — PT_LABELS 초기화 전 참조 제거",
-    "패턴 선택 개수 계산의 초기화 순서 분리",
-    "앱 스크립트·서비스 워커 캐시 갱신 및 회귀 검사 추가"
+    "계정 탈퇴가 '삭제 실패'로 응답하던 오류 수정 — 실제 삭제 여부로 판정",
+    "탈퇴 시 반대 접두사 계정·사용자 사본까지 함께 정리",
+    "탈퇴한 계정이 옛 사본에서 되살아나던 경로 차단 — 탈퇴 표식 도입",
+    "탈퇴 시 친구 프로필·알림 구독·클랜 명단의 내 기록 정리",
+    "미체결 색인 정리 유지 — 탈퇴 계정이 자동 체결 대상에 남지 않음"
   ]
 };
 
@@ -18219,7 +18352,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.34";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.35";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) { return await afScheduled(event, env, ctx); },
@@ -18564,7 +18697,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 20:40"; BUNDLED_VERSION.notes = ["미체결 주문 서버 자동 체결 — 앱·브라우저를 닫아도 1분마다 체결", "손절·익절·트레일링 스탑 서버 판정 추가", "해외 지정가·소수점 주문 서버 체결과 T+1 정산 반영", "미체결 색인 도입 — 미체결 0건이면 KV 쓰기 0회", "체결·취소 통지 및 앱 복귀 시 알림"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 20:40"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 21:20"; BUNDLED_VERSION.notes = ["계정 탈퇴가 '삭제 실패'로 응답하던 오류 수정 — 실제 삭제 여부로 판정", "탈퇴 시 반대 접두사 계정·사용자 사본까지 함께 정리", "탈퇴한 계정이 옛 사본에서 되살아나던 경로 차단 — 탈퇴 표식 도입", "탈퇴 시 친구 프로필·알림 구독·클랜 명단의 내 기록 정리", "미체결 색인 정리 유지 — 탈퇴 계정이 자동 체결 대상에 남지 않음"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 21:20"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
