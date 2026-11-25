@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=349';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=350';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -15757,10 +15757,16 @@ function obActChoose(act){
   const p=_obActPx;
   obActClose();
   if(!(p>0)||!selected)return;
-  /* 정정/취소 — 03 정정/취소 탭으로 가고, 같은 가격의 미체결 주문이 있으면 그 줄을 강조한다 */
+  /* ══ [v17.8.40] 정정/취소 — 창만 닫고 보던 호가 코너로 돌아간다 ═══════════
+     [사용자 지적] "저기서 정정/취소 버튼은 다시 호가 코너 화면으로 돌아가는 게
+     일반적이지 않나?" — 맞다. 호가 창에서 고른 가격으로 매도·매수를 고르는
+     창에서 '정정/취소'를 누를 때는, 호가를 고르던 자리로 돌아오는 것이 자연스럽다.
+     v17.8.39 는 03 정정/취소 탭으로 화면을 넘겨 버려서, 호가를 보다 말고
+     다른 화면으로 끌려가는 느낌이 났다.
+     [고침] 창만 닫고 지금 화면(상세 호가 코너)에 그대로 머문다. 가격은 건드리지
+     않으므로 주문가 칸도, 호가 화면도 보던 그대로다. */
   if(act==='manage'){
-    obManageFocus={p,until:Date.now()+15000};
-    try{ openOrderScreen(selected,'manage'); }catch(e){}
+    obManageFocus=null;
     return;
   }
   /* 매도 = 02 매도 탭 · 매수 = 01 매수 탭, 누른 호가가 지정가로 들어간다 */
@@ -18194,10 +18200,23 @@ const isMinute=(tf)=>tf.endsWith('m');const minutesOf=(tf)=>parseInt(tf);
 let chartTf='D',curCandles=[],candleCache={},view={count:80,end:-1,follow:true};
 const MAS=[[5,'#f0a020'],[20,'#e0407e'],[60,'#22a06b'],[120,'#7b5cff']];
 const maOn={5:true,20:true,60:true,120:true};
-function buildMaSeg(){$('maSeg').innerHTML=MAS.map(([p,c])=>`<button data-ma="${p}" class="${maOn[p]?'on':''}" style="color:${maOn[p]?c:''}"><span class="sw" style="background:${c}"></span>MA${p}</button>`).join('');
-  $('maSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{const p=+b.dataset.ma;maOn[p]=!maOn[p];buildMaSeg();drawChart();});}
-function buildTfSeg(){$('tfSeg').innerHTML=TFS.map(([k,l])=>`<button data-tf="${k}" ${k===chartTf?'class="on"':''}>${l}</button>`).join('');
-  $('tfSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{chartTf=b.dataset.tf;$('tfSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));loadCandles();});}
+/* [v17.8.40] 지표 칩 — 누르면 바로 켜고 끈다(증권사 차트의 상단 지표 버튼) */
+function buildMaSeg(){const box=$('maSeg');if(!box)return;
+  box.innerHTML=MAS.map(([p,c])=>`<button type="button" data-ma="${p}" class="ct-chip ma ${maOn[p]?'on':''}" style="--mc:${c}" aria-pressed="${maOn[p]?'true':'false'}"><i class="sw"></i>MA${p}</button>`).join('');
+  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{const p=+b.dataset.ma;maOn[p]=!maOn[p];chartCfg.ma[p]=maOn[p]?1:0;try{ccSave();}catch(e){}buildMaSeg();drawChart();});}
+function buildTfSeg(){const box=$('tfSeg');if(!box)return;
+  box.innerHTML=TFS.map(([k,l])=>`<button type="button" data-tf="${k}" ${k===chartTf?'class="on"':''}>${l}</button>`).join('');
+  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{chartTf=b.dataset.tf;box.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));loadCandles();});}
+/* 오버레이·하단 지표 칩 — 설정 창(⚙)에 들어가야만 보이던 항목을 차트 위로 꺼낸다 */
+const CHART_OVS=[['bb','볼린저'],['vp','매물대'],['ich','일목'],['env','엔벨'],['psar','PSAR'],['pch','채널']];
+const CHART_LOWS=[['vol','거래량'],['volma','거래량MA'],['rsi','RSI'],['macd','MACD'],['stoch','Stoch'],['obv','OBV'],['dmi','DMI'],['atr','ATR']];
+function buildIndSeg(){const box=$('ovloSeg');if(!box)return;
+  const ov=CHART_OVS.map(([k,l])=>`<button type="button" class="ct-chip ov ${chartCfg.ov[k]?'on':''}" data-ov="${k}" aria-pressed="${chartCfg.ov[k]?'true':'false'}">${l}</button>`).join('');
+  const lo=CHART_LOWS.map(([k,l])=>`<button type="button" class="ct-chip lo ${chartCfg.lower===k?'on':''}" data-lo="${k}" aria-pressed="${chartCfg.lower===k?'true':'false'}">${l}</button>`).join('');
+  box.innerHTML=`<span class="ct-lb">오버레이</span>${ov}<i class="ct-sep" aria-hidden="true"></i><span class="ct-lb">하단</span>${lo}`;
+  box.querySelectorAll('button[data-ov]').forEach(b=>b.onclick=()=>{const k=b.dataset.ov;chartCfg.ov[k]=chartCfg.ov[k]?0:1;try{ccSave();}catch(e){}buildIndSeg();drawChart();});
+  box.querySelectorAll('button[data-lo]').forEach(b=>b.onclick=()=>{const k=b.dataset.lo;chartCfg.lower=(chartCfg.lower===k&&k!=='vol')?'vol':k;try{ccSave();}catch(e){}buildIndSeg();drawChart();});
+}
 function buildMinuteCandles(ticks,mins){
   if(!ticks||!ticks.length)return[];
   const ms=mins*60000,out=[];let cur=null;
@@ -18375,7 +18394,11 @@ function iStoch(cs,k,d1,d2){const n=cs.length,K=Array(n).fill(null);
     K[i]=hh>ll?100*(cs[i].c-ll)/(hh-ll):50;}
   const sm=(a,p)=>{const o=Array(a.length).fill(null);for(let i=0;i<a.length;i++){if(a[i]==null)continue;let s=0,c=0;for(let j=Math.max(0,i-p+1);j<=i;j++){if(a[j]!=null){s+=a[j];c++;}}if(c===p)o[i]=s/p;}return o;};
   const KS=sm(K,d1);return {k:KS,d:sm(KS,d2)};}
-function ccBind(){const g=$('ccGear');if(g&&!g._b){g._b=1;g.onclick=openChartCfg;}}
+function ccBind(){const g=$('ccGear');if(g&&!g._b){g._b=1;g.onclick=openChartCfg;}
+  /* [v17.8.40] 지표 칩은 한 번만 만든다(그리기마다 DOM 을 새로 만들지 않는다) */
+  const ind=$('ovloSeg');if(ind&&!ind._b){ind._b=1;try{buildIndSeg();}catch(e){}}
+  const ma=$('maSeg');if(ma&&!ma._b){ma._b=1;try{buildMaSeg();}catch(e){}}
+  const tf=$('tfSeg');if(tf&&!tf._b){tf._b=1;try{buildTfSeg();}catch(e){}}}
 const CC_LOWERS=[['vol','거래량 (매수·매도)'],['volma','거래량 + 이동평균 20'],['obv','OBV'],['mfi','MFI 14'],['cmf','CMF 20'],
  ['rsi','RSI 14'],['macd','MACD 12·26·9'],['stoch','Stochastic Slow 12·5·5'],['cci','CCI 20'],['dmi','DMI · ADX 14'],
  ['mom','모멘텀 10'],['willr','Williams %R 14'],['atr','ATR 14'],['psy','심리도 12'],['disp','이격도 20']];
@@ -18504,13 +18527,13 @@ function openChartCfg(){
       ${CC_LOWERS.map(([k,l])=>`<label class="cc-r"><input type="radio" name="ccL" value="${k}" ${chartCfg.lower===k?'checked':''}><i></i>${l}</label>`).join('')}
     </div></div>`;
   ov.hidden=false;
-  const rd=()=>{ccSave();safeRun('ccDraw',drawChart);};
+  const rd=()=>{ccSave();try{buildIndSeg();}catch(e){}try{buildMaSeg();}catch(e){}safeRun('ccDraw',drawChart);};
   ov.querySelectorAll('input[name=ccT]').forEach(x=>x.onchange=()=>{chartCfg.type=x.value;rd();});
   ov.querySelectorAll('input[name=ccL]').forEach(x=>x.onchange=()=>{chartCfg.lower=x.value;rd();});
   ov.querySelectorAll('input[data-ma]').forEach(x=>x.onchange=()=>{chartCfg.ma[x.dataset.ma]=x.checked?1:0;try{maOn[x.dataset.ma]=!!x.checked;}catch(e){}rd();});
   ov.querySelectorAll('input[data-ov]').forEach(x=>x.onchange=()=>{chartCfg.ov[x.dataset.ov]=x.checked?1:0;rd();});
   $('ccX').onclick=()=>{ov.hidden=true;};
-  $('ccReset').onclick=()=>{chartCfg=JSON.parse(JSON.stringify(CC_DEF));try{[5,20,60,120].forEach(p=>maOn[p]=true);}catch(e){}ccSave();openChartCfg();safeRun('ccDraw',drawChart);};
+  $('ccReset').onclick=()=>{chartCfg=JSON.parse(JSON.stringify(CC_DEF));try{[5,20,60,120].forEach(p=>maOn[p]=true);}catch(e){}ccSave();try{buildIndSeg();}catch(e){}try{buildMaSeg();}catch(e){}openChartCfg();safeRun('ccDraw',drawChart);};
 }
 
 /* ══ [v15.4.7] 오늘 진행 중인 일봉을 실시간 시세로 합성한다 ═══════════════════
@@ -18549,28 +18572,116 @@ function mergeTodayLive(bars,code){
     const out=bars.slice(0,-1); out.push(m); return out;
   }catch(e){return bars;}
 }
+/* ══ [v17.8.40] 차트 렌더러 — 증권사 트레이딩 터미널형 ══════════════════════
+   [왜 바꿨나] 사용자 지적: "차트가 되게 좀 비전문적으로 보이는데 실제 증권사들처럼
+   증권에 최적화하여 차트 디자인, 스타일, 레이아웃 대폭 UI/UX 업그레이드해줘".
+   [무엇이 아마추어처럼 보였나 — 실기 화면 대조]
+   ① 가격축이 캔버스 오른쪽 '여백에 뜬 글자'였다. 축 띠·눈금·구분선이 없어
+      캔들·매물대와 같은 판 위에 숫자가 떠 있는 것처럼 보였다.
+   ② 현재가 배지가 캔버스 가장자리에 붙어 잘린 것처럼 보였고, 전일 종가 라벨은
+      봉 위에 작은 글씨로 겹쳐 읽기 어려웠다.
+   ③ 시간축 글자가 왼쪽에서 서로 파고들었다(실기: "2/27"·"7/27" 겹침).
+      축 띠가 없어 거래량 막대가 글자에 바로 붙어 있었다.
+   ④ 십자선이 차트 안에만 있어, 가리킨 봉의 값과 날짜를 축에서 읽을 수 없었다.
+   ⑤ 색약 팔레트(html.cb-palette)가 캔버스에는 적용되지 않았다 — CSS 변수는
+      바뀌는데 캔버스는 전역 UP/DOWN 을 그대로 써서 색약 사용자에게도 빨강·파랑이
+      나왔다.
+   [어떻게 바꿨나] 키움 영웅문·토스증권·TradingView 의 공통 규격을 따른다.
+   · 오른쪽 가격축 띠 + 눈금 + 우측 정렬 숫자, 가격/거래량 판 구분선과 판 이름
+   · 현재가 점선 + 축 안 가격 태그, 화면 내 최고·최저 화살표
+   · 십자선에 가격·날짜 배지(축 위)와 봉 위 OHLCV 범례 연동
+   · 하단 시간축 띠 + 눈금, 날짜 경계 세로선, 은은한 점선 그리드
+   · 색은 전부 테마 변수(--up/--down/--panel/--border)에서 읽어 라이트·다크·
+     색약 팔레트를 캔버스까지 그대로 따른다.
+   ※ 봉 종류·보조지표·매물대·오버레이·줌/팬·툴팁 등 기존 기능은 그대로 두고
+     '보이는 방식'만 바꾼다. 해외 차트도 같은 엔진이라 함께 좋아진다. */
+const CHART_PAD={l:10,r:66,t:14,ax:22,gap:14};
+let _chPal=null,_chPalKey='';
+function chartPal(){
+  const de=document.documentElement;
+  let key='';
+  try{key=(de.getAttribute('data-theme')||'')+'|'+(de.getAttribute('data-color')||'')+'|'+(de.classList.contains('cb-palette')?1:0);}catch(e){}
+  if(_chPal&&_chPalKey===key)return _chPal;
+  let gs=null;try{gs=getComputedStyle(de);}catch(e){}
+  const g=(nm,f)=>{try{const v=gs?gs.getPropertyValue(nm):'';return (v&&v.trim())||f;}catch(e){return f;}};
+  const dark=de.getAttribute('data-theme')==='dark';
+  _chPal={
+    dark,
+    up:g('--up',dark?'#ff5a6a':'#f5384e'),
+    down:g('--down',dark?'#4f8cff':'#2f74ff'),
+    panel:g('--panel',dark?'#161b22':'#fff'),
+    border:g('--border',dark?'#2a313c':'#e6eaf0'),
+    text:g('--text',dark?'#e6edf3':'#161b24'),
+    sub:g('--sub',dark?'#9aa5b4':'#7b8798'),
+    sub2:g('--sub-2',dark?'#6e7885':'#9aa5b4'),
+    grid:dark?'rgba(148,163,184,.13)':'rgba(100,116,139,.14)',
+    gridV:dark?'rgba(148,163,184,.09)':'rgba(100,116,139,.10)',
+    cross:dark?'rgba(203,213,225,.5)':'rgba(51,65,85,.42)',
+    axisBg:dark?'rgba(122,145,180,.07)':'rgba(100,116,139,.045)',
+    axisLine:dark?'rgba(148,163,184,.26)':'rgba(100,116,139,.20)',
+    axisText:dark?'#a7b2c1':'#5a6675',
+    tagBg:dark?'#0b0f15':'#1f2937',
+    prevLine:dark?'rgba(148,163,184,.55)':'rgba(100,116,139,.5)',
+    vpBase:dark?'rgba(100,116,139,.30)':'rgba(100,116,139,.17)',
+    vpPoc:dark?'rgba(245,158,11,.55)':'rgba(245,158,11,.45)',
+    vpCur:dark?'rgba(59,130,246,.42)':'rgba(59,130,246,.32)',
+    vpPocT:dark?'#fbbf24':'#b45309',
+    vpCurT:dark?'#93c5fd':'#2563eb',
+    pcText:dark?'#9aa5b4':'#64748b'
+  };
+  /* 아래 판(보조지표)·오버레이 그리기 함수가 함께 쓰는 이름 */
+  _chPal.label=_chPal.axisText;
+  _chPal.pcLine=_chPal.prevLine;
+  _chPal.axis=_chPal.axisLine;
+  _chPalKey=key;
+  return _chPal;
+}
+/* 색 + 투명도 — 테마 변수가 #rrggbb 이든 rgb() 든 모두 받는다 */
+function chAlpha(col,a){
+  const s=String(col||'').trim();
+  let r=120,gg=120,b=120,m;
+  if((m=s.match(/^#([0-9a-f]{3})$/i))){const h=m[1];r=parseInt(h[0]+h[0],16);gg=parseInt(h[1]+h[1],16);b=parseInt(h[2]+h[2],16);}
+  else if((m=s.match(/^#([0-9a-f]{6})$/i))){const h=m[1];r=parseInt(h.slice(0,2),16);gg=parseInt(h.slice(2,4),16);b=parseInt(h.slice(4,6),16);}
+  else if((m=s.match(/^rgba?\(([^)]+)\)$/i))){const p=m[1].split(',');r=+p[0];gg=+p[1];b=+p[2];}
+  return 'rgba('+Math.round(r)+','+Math.round(gg)+','+Math.round(b)+','+a+')';
+}
+/* 거래량 표기 — 1억↑ '억', 1만↑ '만' (증권사 차트의 축약 표기) */
+function chartVolTxt(v){
+  const n=Math.abs(Number(v)||0);
+  if(n>=1e8)return ((Number(v)||0)/1e8).toFixed(2)+'억';
+  if(n>=1e4)return Math.round((Number(v)||0)/1e4).toLocaleString('ko-KR')+'만';
+  return KRW(Number(v)||0);
+}
 function drawChart(){
-  /* [v4.57] 해외 거래 화면에서도 같은 엔진으로 그린다 — 아래 usChartMount() 가
-     이 차트 카드를 해외 정보 패널로 옮겨 놓으므로, 화면 제약만 풀어 주면 된다. */
   if(currentView!=='trade'&&currentView!=='ustrade')return;
-  const _cc=$('chartCard');if(_cc&&_cc.hidden)return;
-  /* [v17.8.3] 캔버스의 실제 표시 영역만 기준으로 렌더링한다.
-     chart-box 안에는 가격·MA·매물대 라벨 밴드도 있으므로 부모 크기를 쓰면
-     내부 캔버스보다 큰 좌표계로 그려 세로 비율과 포인터 좌표가 틀어진다. */
+  const card=$('chartCard');if(card&&card.hidden)return;
+  /* [v17.8.3] 캔버스의 실제 표시 영역만 기준으로 렌더링한다. */
   const dpr=window.devicePixelRatio||1,box=canvas.getBoundingClientRect();
   if(box.width<10||box.height<80)return;
   canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  const W=box.width,H=box.height;ctx.clearRect(0,0,W,H);
+  const W=box.width,H=box.height;
+  ctx.clearRect(0,0,W,H);
   if(chartTf==='D'&&currentView==='trade')curCandles=mergeTodayLive(curCandles,selected);   /* [v15.4.7] 진행 봉 라이브 */
   const cs=curCandles;
-  if(!cs.length){$('chartLegend').textContent=chartLoading?'차트 불러오는 중…':(isMinute(chartTf)?('분봉 데이터 없음 · 장중 실시간 누적 '+(minuteDiag||'')):'데이터를 불러오지 못했어요 · ⟳ 버튼으로 다시 시도');return;}
-  const padR=58,padL=6,padT=18,plotW=W-padL-padR;   /* [v15.6] 상단 숨통 — 라벨·봉 충돌 방지 */
-  /* [v15.0.1] 거래량 영역이 전체의 22%뿐이라 실폰(높이 340px)에서는 40px 남짓 —
-     막대가 짜부라져 '이상한 그림'이 됐다(첨부 7). 가격 60% / 거래량 27%로 재배분. */
-  const priceH=(H-30)*0.64,volTop=priceH+padT+14,volH=(H-30)*0.24;
+  const LG=$('chartLegend'),MAE=$('chartMa'),VPLG=document.querySelector('.chart-vplg');
+  if(!cs.length){
+    if(LG)LG.textContent=chartLoading?'차트 불러오는 중…':(isMinute(chartTf)?('분봉 데이터 없음 · 장중 실시간 누적 '+(minuteDiag||'')):'데이터를 불러오지 못했어요 · ⟳ 버튼으로 다시 시도');
+    if(MAE)MAE.innerHTML='';
+    return;
+  }
+  const PAL=chartPal();
+  /* ── 판 좌표: 가격판 / 거래량(지표)판 / 시간축 띠 ── */
+  const padL=CHART_PAD.l,padT=CHART_PAD.t,axisH=CHART_PAD.ax,gap=CHART_PAD.gap;
+  const padR=W<430?56:CHART_PAD.r;
+  const plotW=Math.max(60,W-padL-padR);
+  const avail=H-padT-axisH-gap;
+  const priceH=Math.max(90,Math.round(avail*0.71));
+  const volTop=padT+priceH+gap;
+  const volH=Math.max(36,H-axisH-volTop);
+  const x0=padL,x1=padL+plotW;
   const n=cs.length;
-  let count=Math.max(8,Math.min(view.count,n));
+  const count=Math.max(8,Math.min(view.count,n));
   let end=view.follow?n-1:Math.min(view.end,n-1);if(end<0)end=n-1;
   let start=Math.max(0,end-count+1);
   const vis=cs.slice(start,end+1),m=vis.length;
@@ -18582,51 +18693,75 @@ function drawChart(){
       _dispC.push({o:ho,h:Math.max(c.h,ho,hc),l:Math.min(c.l,ho,hc),c:hc,v:c.v,d:c.d});po=ho;pc2=hc;});}
   // 안전장치: 잘못된 OHLC(0/누락) 보정 후 범위 계산
   vis.forEach(c=>{if(!(c.c>0))return;if(!(c.o>0))c.o=c.c;if(!(c.h>0))c.h=Math.max(c.o,c.c);if(!(c.l>0))c.l=Math.min(c.o,c.c);c.h=Math.max(c.h,c.o,c.c);c.l=Math.min(c.l,c.o,c.c);});
-  let lo=Infinity,hi=-Infinity,vmax=0;vis.forEach(c=>{if(!(c.c>0))return;lo=Math.min(lo,c.l);hi=Math.max(hi,c.h);vmax=Math.max(vmax,c.v);});
-  if(!isFinite(lo)||!isFinite(hi)||hi<=lo){$('chartLegend').textContent='차트 데이터를 준비 중…';return;}
-  const pad=(hi-lo)*0.08||hi*0.01;lo-=pad;hi+=pad;
-  const slot=plotW/m,X=i=>padL+i*slot+slot/2,bw=Math.max(1.5,slot*0.64);
-  const Yp=v=>padT+(1-(v-lo)/(hi-lo))*priceH,Yv=v=>volTop+(1-(vmax?v/vmax:0))*volH;
-  ctx.font='10px Pretendard';ctx.textBaseline='middle';ctx.textAlign='left';
-  /* [수정] 테마 판정을 맨 앞으로 — 라이트/다크 공용 팔레트로 격자·라벨·매물대 색을 한 곳에서 관리 */
-  const thmDark=document.documentElement.getAttribute('data-theme')==='dark';
-  const PAL=thmDark
-    ?{grid:'rgba(148,163,184,.14)',gridV:'rgba(148,163,184,.09)',label:'#94a3b8',
-      vpBase:'rgba(100,116,139,.26)',vpPoc:'rgba(245,158,11,.50)',vpCur:'rgba(59,130,246,.45)',
-      vpPocT:'#fbbf24',vpCurT:'#93c5fd',vpT:'#8b95a5',pcLine:'rgba(148,163,184,.55)',pcText:'#94a3b8'}
-    :{grid:'#eef1f6',gridV:'#f3f5f9',label:'#8b97a7',
-      vpBase:'rgba(100,116,139,.20)',vpPoc:'rgba(245,158,11,.45)',vpCur:'rgba(59,130,246,.40)',
-      vpPocT:'#b45309',vpCurT:'#2563eb',vpT:'#94a0af',pcLine:'rgba(100,116,139,.5)',pcText:'#64748b'};
-  /* 둥근 사각형 채우기 (구형 브라우저 폴백 포함) */
+  let lo=Infinity,hi=-Infinity,vmax=0;
+  vis.forEach(c=>{if(!(c.c>0))return;lo=Math.min(lo,c.l);hi=Math.max(hi,c.h);vmax=Math.max(vmax,+c.v||0);});
+  if(!isFinite(lo)||!isFinite(hi)||hi<=lo){
+    if(LG)LG.textContent='차트 데이터를 준비 중…';
+    if(MAE)MAE.innerHTML='';
+    return;
+  }
+  const rpad=(hi-lo)*0.08||hi*0.01;lo-=rpad;hi+=rpad;
+  const slot=plotW/m;
+  const X=i=>padL+i*slot+slot/2;
+  const bw=Math.max(1.4,Math.min(20,slot*0.66));
+  const Yp=v=>padT+(1-(v-lo)/(hi-lo))*priceH;
+  const Yv=v=>volTop+(1-(vmax?Math.max(0,v)/vmax:0))*volH;
+  /* 축·태그 숫자 — 좁은 가격대(해외 소형주 등)에서는 소수까지 보여 준다.
+     KRW() 는 원화 반올림이라 4.5달러·0.87달러 같은 값이 모두 '5'·'1'로 뭉갰다. */
+  const pdec=(Math.abs(hi-lo)<2)?2:((Math.abs(hi-lo)<20&&hi<200)?1:0);
+  const pfmt=v=>Number(v).toLocaleString('ko-KR',{minimumFractionDigits:pdec,maximumFractionDigits:pdec});
+  const dateBadge=(d)=>{const q=String(d||'').replace(/[^0-9]/g,'');
+    if(q.length>=12)return (+q.slice(4,6))+'/'+(+q.slice(6,8))+' '+q.slice(8,10)+':'+q.slice(10,12);
+    if(q.length===8)return q.slice(0,4)+'.'+q.slice(4,6)+'.'+q.slice(6,8);
+    if(q.length===6)return q.slice(0,4)+'.'+q.slice(4,6);
+    if(q.length===4)return q.slice(0,4);
+    return String(d||'');};
+  /* 둥근 사각형 (구형 브라우저 폴백 포함) */
   const rr=(x,y,w,h,r)=>{r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);
-    if(!(w>0)||!(h>0)){return;}
+    if(!(w>0)||!(h>0))return;
     if(r<=0){ctx.fillRect(x,y,w,h);return;}
     ctx.beginPath();
     if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);
     else{ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
     ctx.fill();};
-  /* [수정] 주가축 눈금 세분화 — 범위 4등분(어중간한 값) 대신 1·2·5×10ⁿ 단위로 6~8칸의
-     '깔끔한 값'(예: 150,000 / 200,000 / 250,000…)을 만든다. */
-  /* 1·2·2.5·5×10ⁿ 후보를 큰 것부터 훑어 '눈금 5~13칸'을 보장한다.
-     (범위를 6등분해 올림하던 방식은 범위에 따라 4칸까지 줄어 성겼다) */
+  /* 축 위 가격 태그 — 지금 값/십자선 값을 축 안에서 읽는다 */
+  const axisTag=(y,txt,fill,tcol,fs)=>{
+    const bh=17,ty=Math.round(clamp(y,bh/2+1,H-axisH-bh/2-1));
+    ctx.save();
+    ctx.font='bold '+(fs||10)+'px Pretendard,system-ui,sans-serif';
+    ctx.fillStyle=fill;
+    rr(x1+1,ty-bh/2,padR-4,bh,4);
+    ctx.fillStyle=tcol;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(txt,x1+1+(padR-4)/2,ty);
+    ctx.restore();};
+  ctx.textBaseline='middle';ctx.textAlign='left';
+  /* ── ① 판 배경 띠: 오른쪽 가격축 · 아래 시간축 ── */
+  ctx.fillStyle=PAL.axisBg;
+  ctx.fillRect(x1+1,padT-6,padR-1,priceH+10);
+  ctx.fillRect(x1+1,volTop-3,padR-1,volH+6);
+  ctx.fillRect(0,H-axisH,W,axisH);
+  ctx.strokeStyle=PAL.axisLine;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(Math.round(x1)+.5,padT-6);ctx.lineTo(Math.round(x1)+.5,H-axisH);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,Math.round(H-axisH)+.5);ctx.lineTo(W,Math.round(H-axisH)+.5);ctx.stroke();
+  /* ── ② 가격 눈금·그리드 — 1·2·2.5·5×10ⁿ 의 '깔끔한 값' ── */
   const yStep=(()=>{const range=hi-lo;
     for(let p=Math.pow(10,Math.ceil(Math.log10(range)));p>=0.01;p/=10){
-      for(const m of [5,2.5,2,1]){const st=m*p;const cnt=range/st;
-        if(cnt>=5&&cnt<=13)return st;}
-    }
+      for(const mul of [5,2.5,2,1]){const st=mul*p;const cnt=range/st;
+        if(cnt>=5&&cnt<=13)return st;}}
     return Math.max(1,range/8);})();
+  ctx.font='10px Pretendard,system-ui,sans-serif';ctx.textAlign='right';
   for(let v=Math.ceil(lo/yStep)*yStep; v<=hi+yStep*1e-6; v+=yStep){
-    const y=Yp(v);
-    ctx.strokeStyle=PAL.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+plotW,y);ctx.stroke();
-    ctx.fillStyle=PAL.label;ctx.fillText(KRW(v),padL+plotW+6,y);
+    const y=Math.round(Yp(v))+.5;
+    if(y<padT-1||y>padT+priceH+1)continue;
+    ctx.strokeStyle=PAL.grid;ctx.setLineDash([2,3]);
+    ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle=PAL.axisLine;
+    ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x1+4,y);ctx.stroke();
+    ctx.fillStyle=PAL.axisText;ctx.fillText(pfmt(v),W-6,y);
   }
-  /* [추가] 시간축 눈금 위치 계산 + 세로 그리드(연한 선). 라벨은 거래량 아래에 그린다. */
-  /* ══ [v4.62] 분봉 축이 뒤죽박죽으로 보이던 이유 ═══════════════════════════
-     분봉 라벨을 HH:MM 만 찍었다. 며칠치가 이어 붙으면 09:00 → 14:01 → 13:02 처럼
-     시간이 거꾸로 가는 것처럼 보인다(첨부 사진). 실제로는 날이 바뀐 것뿐이다.
-     → 날짜가 바뀌는 지점에는 'M.D 09:00' 처럼 날짜를 함께 찍어 구분해 준다. */
-  /* [v4.66] 날짜 표기를 '숫자/숫자'로 통일하고, 분봉에서 날이 바뀌면
-     날짜와 시각을 두 칸 띄워 붙인다 — 예: 8/3  11:55 */
+  ctx.textAlign='left';
+  /* ── ③ 시간축 눈금 — 글자 폭을 재어 겹치지 않게 고른다(개수 분할 금지) ── */
   const fmtAxis=(dstr,prev)=>{const d=String(dstr||'').replace(/[^0-9]/g,'');
     const md=(+d.slice(4,6))+'/'+(+d.slice(6,8));                     // M/D
     if(isMinute(chartTf)){
@@ -18642,163 +18777,166 @@ function drawChart(){
     if(chartTf==='Y')return d.slice(0,4);
     if(!prev||String(prev).replace(/[^0-9]/g,'').slice(0,4)!==d.slice(0,4))return d.slice(2,4)+"'"+md;
     return md;};
-  /* ══ [v4.65] 축 글자가 서로 겹치던 문제 ═══════════════════════════════════
-     [무엇이 잘못됐나] 눈금을 '봉 개수'로만 나눠 찍었다. 분봉에 날짜가 붙으면서
-     글자가 길어졌는데도 간격은 그대로여서 '8.3 8:4 00:00' 처럼 서로 파고들었다.
-     게다가 날 바뀌는 자리에 눈금을 하나 더 끼워 넣어, 원래 눈금 바로 옆에 붙는
-     경우가 생겼다(첨부 사진).
-     [어떻게 고쳤나] 실제 증권 앱처럼 '픽셀 폭'을 기준으로 고른다.
-       ① 날 바뀌는 자리를 우선 후보로 삼고(그 자리 라벨이 정보가 가장 많다)
-       ② 후보를 왼쪽부터 훑으며, 앞 글자와 최소 간격이 확보될 때만 채택한다
-     이러면 어떤 확대 배율에서도 글자가 겹치지 않는다. */
   const dayKey=(c)=>String((c||{}).d||'').replace(/[^0-9]/g,'').slice(0,8);
-  let dayEdges=[];
+  const dayEdges=[];
   if(isMinute(chartTf)&&m>1){
     for(let i=1;i<m;i++)if(dayKey(vis[i-1])&&dayKey(vis[i])&&dayKey(vis[i-1])!==dayKey(vis[i]))dayEdges.push(i);
   }
   const xTicks=(()=>{
-    ctx.save(); ctx.font='bold 10px Pretendard';      // 실제 축 글꼴과 동일하게 잰다
+    ctx.save();ctx.font='bold 10px Pretendard,system-ui,sans-serif';      // 실제 축 글꼴과 동일하게 잰다
     const cand=[];
     dayEdges.forEach(i=>cand.push(i));
-    const step=Math.max(1,Math.floor(m/12));
+    const step=Math.max(1,Math.ceil(m/7));
     for(let i=0;i<m;i+=step)cand.push(i);
     cand.push(m-1);
     const uniq=[...new Set(cand)].filter(i=>i>=0&&i<m).sort((a,b)=>a-b);
-    const out=[]; let lastRight=-1e9, prevLbl=null;
+    const out=[];let lastRight=-1e9,prevLbl=null;
     for(const i of uniq){
-      const txt=fmtAxis(vis[i].d,prevLbl);            // 그릴 때와 같은 prev 기준
-      const w=ctx.measureText(txt).width, x=X(i);
-      if(x-w/2 < lastRight+16)continue;              // 앞 글자와 16px 이상 벌어질 때만
-      if(x+w/2 > padL+plotW+1)continue;              // 오른쪽으로 삐져나가면 버린다
-      if(x-w/2 < padL-1)continue;                    // 왼쪽도 마찬가지
-      out.push(i); lastRight=x+w/2; prevLbl=vis[i].d;
+      const txt=fmtAxis(vis[i].d,prevLbl);          // 그릴 때와 같은 prev 기준
+      const w=ctx.measureText(txt).width,x=X(i);
+      if(x-w/2<lastRight+14)continue;               // 앞 글자와 14px 이상 벌어질 때만
+      if(x+w/2>x1-1)continue;                       // 오른쪽으로 삐져나가면 버린다
+      if(x-w/2<x0-1)continue;
+      out.push(i);lastRight=x+w/2;prevLbl=vis[i].d;
     }
     ctx.restore();
-    return out.length?out:[Math.max(0,m-1)];
+    return out.length?out:[m-1];
   })();
-  /* [v4.67] 예전에는 여기서 '오른쪽 끝 봉'을 억지로 덧붙였다. 새 눈금 고르기는
-     이미 마지막 봉을 후보에 넣고 폭까지 따져 넣으므로 이 줄은 필요 없다.
-     그런데 지우면서 이 한 줄을 남겨 xEvery(삭제된 변수)를 참조해 버렸고,
-     차트를 그릴 때마다 ReferenceError 로 화면 전체가 멈췄다. */
-  ctx.setLineDash([3,4]);
-  xTicks.forEach(i=>{const x=X(i);ctx.strokeStyle=PAL.gridV;ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
+  ctx.strokeStyle=PAL.gridV;ctx.setLineDash([2,4]);ctx.lineWidth=1;
+  xTicks.forEach(i=>{const x=Math.round(X(i))+.5;
+    ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,volTop+volH);ctx.stroke();});
   ctx.setLineDash([]);
-  {/* 날 경계선은 눈금으로 채택된 자리에만 — 선까지 겹치면 화면이 지저분해진다 */
-   const drawn=dayEdges.filter(i=>xTicks.includes(i));
-   if(drawn.length&&drawn.length<=30){
-     ctx.save();ctx.strokeStyle=(PAL&&PAL.axis)||'#94a3b8';ctx.globalAlpha=.30;ctx.lineWidth=1;
-     drawn.forEach(i=>{const x=X(i);ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();});
-     ctx.restore();
-   }}
-  /* [수정] 매물대 재설계 — ①봉과 덜 겹치도록 오른쪽(가격축 쪽) 정렬 ②차분한 슬레이트 기본색,
-       최대 매물대=앰버, 현재가 구간=파랑만 강조 ③막대 높이를 칸의 62%로 줄이고 모서리 라운드
-       ④% 라벨은 의미 있는 곳(최대·현재가·8%↑)만 — 색 설명은 캔버스 글자 대신 HTML 범례 칩으로 */
-  /* ══ [v4.27] 매물대 재설계 — 봉과 겹쳐 읽기 어렵던 문제(첨부 4번 사진) ══
-     ① 최대 폭 26% → 14%: 오른쪽 가장자리에만 얇게 깔린다
-     ② % 라벨을 막대 '바깥 왼쪽'(봉 위) → '안쪽 오른쪽'으로 옮겨 봉을 가리지 않는다
-     ③ 라벨은 최대 매물대·현재가 구간 두 곳만 ④ 설정에서 끌 수 있다 */
+  /* 날짜가 바뀌는 자리는 조금 진하게 — 분봉에서 하루 경계를 눈으로 가른다 */
+  if(dayEdges.length&&dayEdges.length<=40){
+    ctx.save();ctx.strokeStyle=PAL.axisLine;ctx.globalAlpha=.7;
+    dayEdges.forEach(i=>{const x=Math.round(X(i))+.5;
+      ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,volTop+volH);ctx.stroke();});
+    ctx.restore();
+  }
+  /* ── ④ 가격판 / 거래량판 구분선 + 판 이름 ── */
+  const divY=Math.round(volTop-gap/2)+.5;
+  ctx.strokeStyle=PAL.axisLine;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x0,divY);ctx.lineTo(x1,divY);ctx.stroke();
+  ctx.font='bold 9.5px Pretendard,system-ui,sans-serif';ctx.textBaseline='middle';ctx.textAlign='left';
+  const lowerName=CCv.lower==='vol'?'거래량':(CC_LBL[CCv.lower]||'거래량');
+  ctx.fillStyle=PAL.sub;ctx.fillText(lowerName,x0+2,divY-1);
+  {
+    const lw=ctx.measureText(lowerName).width;
+    ctx.fillStyle=PAL.text;ctx.font='10px Pretendard,system-ui,sans-serif';
+    if(CCv.lower==='vol'||CCv.lower==='volma')ctx.fillText(chartVolTxt(vis[m-1].v)+'주',x0+lw+7,divY-1);
+  }
+  /* ══ 매물대 — 봉 뒤에 깔린다. 실제 분포(고가~저가 균등 + 종가 가중) ══ */
   if(chartCfg.ov.vp!==0){
-  /* ══ [v9.71] 차트 매물대가 실제 분포와 달랐다 ═══════════════════════════
-     [무엇이 잘못됐나] 하루 거래량 전부를 '종가가 속한 한 칸'에만 넣었다.
-     하루 안에 오르내린 구간은 무시되므로, 실제로 거래가 두껍게 쌓인 가격대가
-     아니라 '종가가 자주 머문 칸'이 최대 매물대로 뽑혔다. 같은 종목인데
-     AI 탭 매물대(고가~저가 분배 방식)와 최대 매물대 위치가 서로 달랐다.
-     [고침] AI 탭과 같은 방식으로 통일한다 — 고가~저가에 70%를 고르게 펴고
-     체결이 몰리는 종가 칸에 30%를 더 준다. 칸도 10 → 24 로 촘촘하게. */
-  const bins=24,binVol=new Array(bins).fill(0);
-  const _rng=(hi-lo)||1;
-  const _bi=(v)=>clamp(Math.floor((v-lo)/_rng*bins),0,bins-1);
-  vis.forEach(c=>{
-    const v=+c.v||0; if(v<=0)return;
-    const a=_bi(Math.min(c.l,c.c)),b=_bi(Math.max(c.h,c.c)),cb=_bi(c.c);
-    const n=Math.max(1,b-a+1);
-    for(let i=a;i<=b;i++)binVol[i]+=v*0.7/n;
-    binVol[cb]+=v*0.3;
-  });
-  const _totRaw=binVol.reduce((sm,v)=>sm+v,0);
-  const totV=_totRaw||1,bmax=Math.max(...binVol,1),binH=priceH/bins;
-  if(_totRaw>0){   /* 거래량이 전혀 없는 종목(일부 해외)에는 그리지 않는다 — 빈 막대는 거짓 정보다 */
-  const maxB=binVol.indexOf(bmax);
-  let curB=Math.floor(((cs[end].c)-lo)/(hi-lo)*bins);curB=clamp(curB,0,bins-1);
-  const vpMaxW=plotW*0.20,vpR=padL+plotW;   /* [v15.6] 매물대 폭 확대(실기 MTS 수준) */
-  for(let b=0;b<bins;b++){
-    if(!binVol[b])continue;
-    const w=Math.max(2,binVol[b]/bmax*vpMaxW);
-    const bh=binH*0.74,y=padT+priceH-(b+1)*binH+(binH-bh)/2;
-    ctx.fillStyle=(b===curB)?PAL.vpCur:(b===maxB)?PAL.vpPoc:PAL.vpBase;
-    rr(vpR-w,y,w,bh,2);
-    if(b===curB||b===maxB){
-      const pct=binVol[b]/totV*100;
-      ctx.fillStyle=(b===curB)?PAL.vpCurT:PAL.vpPocT;
-      ctx.font='bold 8.5px Pretendard';ctx.textAlign='right';
-      const tw=ctx.measureText(pct.toFixed(1)+'%').width;
-      /* 막대가 라벨보다 넓으면 안쪽에, 좁으면 막대 왼쪽 바로 옆에 — 어느 쪽이든 봉 위는 피한다 */
-      ctx.fillText(pct.toFixed(1)+'%', w>tw+8 ? vpR-4 : vpR-w-3, y+bh/2);
-    }}
-  ctx.textAlign='left';
-  }
-  }
-  /* [추가] 전일 종가 기준선 — 점선 + 라벨. 봉 뒤에 깔리도록 여기서 그린다. */
+    const bins=24,binVol=new Array(bins).fill(0);
+    const _rng=(hi-lo)||1;
+    const _bi=(v)=>clamp(Math.floor((v-lo)/_rng*bins),0,bins-1);
+    vis.forEach(c=>{
+      const v=+c.v||0;if(v<=0)return;
+      const a=_bi(Math.min(c.l,c.c)),b=_bi(Math.max(c.h,c.c)),cb=_bi(c.c);
+      const nb=Math.max(1,b-a+1);
+      for(let i=a;i<=b;i++)binVol[i]+=v*0.7/nb;
+      binVol[cb]+=v*0.3;
+    });
+    const _tot=binVol.reduce((s,v)=>s+v,0),totV=_tot||1,bmax=Math.max(...binVol,1),binH=priceH/bins;
+    if(_tot>0){
+      const maxB=binVol.indexOf(bmax);
+      let curB=Math.floor(((cs[end].c)-lo)/(hi-lo)*bins);curB=clamp(curB,0,bins-1);
+      const vpW=plotW*0.18;
+      for(let b=0;b<bins;b++){
+        if(!binVol[b])continue;
+        const w=Math.max(2,binVol[b]/bmax*vpW);
+        const bh=binH*0.72,y=padT+priceH-(b+1)*binH+(binH-bh)/2;
+        ctx.fillStyle=(b===curB)?PAL.vpCur:(b===maxB)?PAL.vpPoc:PAL.vpBase;
+        rr(x1-w,y,w,bh,1.5);
+        if(b===curB||b===maxB){
+          const pct=binVol[b]/totV*100;
+          ctx.fillStyle=(b===curB)?PAL.vpCurT:PAL.vpPocT;
+          ctx.font='bold 8.5px Pretendard,system-ui,sans-serif';ctx.textAlign='right';
+          const tw=ctx.measureText(pct.toFixed(1)+'%').width;
+          ctx.fillText(pct.toFixed(1)+'%',w>tw+8?x1-4:x1-w-3,y+bh/2);
+          ctx.textAlign='left';
+        }
+      }
+    }
+    if(VPLG)VPLG.hidden=false;
+  }else if(VPLG)VPLG.hidden=true;
+  /* ══ 전일 종가 기준선 — 점선 + 왼쪽 작은 라벨 ══ */
   const _pcS=byCode[selected],pcV=_pcS&&_pcS.prevClose;
-  if(pcV&&pcV>lo&&pcV<hi){const y=Yp(pcV);
-    ctx.strokeStyle=PAL.pcLine;ctx.lineWidth=1;ctx.setLineDash([4,4]);
-    ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+plotW,y);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle=PAL.pcText;ctx.font='8.5px Pretendard';
-    ctx.fillText('전일 '+KRW(pcV),padL+3,y-6);}
-  // 캔들 + 거래량
-  /* [D4] 거래량 급증(직전 20봉 평균의 2.5배↑)을 진한 색 + 주황 ▲ 마커로 표시 — 추천주 근거를 눈으로 확인 */
+  if(pcV&&pcV>lo&&pcV<hi){
+    const y=Yp(pcV);
+    ctx.strokeStyle=PAL.prevLine;ctx.lineWidth=1;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.moveTo(x0,Math.round(y)+.5);ctx.lineTo(x1,Math.round(y)+.5);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font='9px Pretendard,system-ui,sans-serif';ctx.textAlign='left';ctx.textBaseline='middle';
+    const t='전일 '+pfmt(pcV),tw=ctx.measureText(t).width;
+    ctx.fillStyle=chAlpha(PAL.panel,.82);rr(x0+2,y-7,tw+8,14,3);
+    ctx.fillStyle=PAL.pcText;ctx.fillText(t,x0+6,y);
+  }
+  /* ══ 봉 — 꼬리 1px, 몸통은 슬롯의 66%, 도지는 1px 선 ══ */
   const volBase=(gi)=>{let sv=0,nv=0;for(let k=Math.max(0,gi-20);k<gi;k++){sv+=cs[k].v;nv++;}return nv?sv/nv:0;};
-  vis.forEach((c,i)=>{const x=X(i),up=c.c>=c.o,col=up?UP:DOWN;
-    ctx.strokeStyle=col;ctx.lineWidth=1;ctx.globalAlpha=.85;                    // 꼬리는 살짝 연하게 — 몸통이 또렷해 보인다
-    const dC=_dispC?_dispC[i]:c, dUp=dC.c>=dC.o, dcol=dUp?UP:DOWN;   // [v3.6] 차트 유형 분기
+  vis.forEach((c,i)=>{
+    const x=X(i);
+    const dC=_dispC?_dispC[i]:c,dUp=dC.c>=dC.o,dcol=dUp?PAL.up:PAL.down;
     if(CCv.type==='candle'||CCv.type==='ha'){
-      ctx.strokeStyle=dcol;
-      ctx.beginPath();ctx.moveTo(x,Yp(dC.h));ctx.lineTo(x,Yp(dC.l));ctx.stroke();
-      ctx.globalAlpha=1;ctx.fillStyle=dcol;
-      const yo=Yp(dC.o),yc=Yp(dC.c);rr(x-bw/2,Math.min(yo,yc),bw,Math.max(2,Math.abs(yc-yo)),Math.min(2,bw/3));
+      const xw=Math.round(x)+.5;
+      ctx.strokeStyle=dcol;ctx.lineWidth=1;ctx.globalAlpha=.9;
+      ctx.beginPath();ctx.moveTo(xw,Yp(dC.h));ctx.lineTo(xw,Yp(dC.l));ctx.stroke();
+      ctx.globalAlpha=1;
+      const yo=Yp(dC.o),yc=Yp(dC.c);
+      const yt=Math.min(yo,yc),bh2=Math.max(1,Math.abs(yc-yo));
+      ctx.fillStyle=dcol;
+      rr(Math.round(x-bw/2),Math.round(yt),Math.max(1,Math.round(bw)),bh2,Math.min(1.5,bw/4));
+      if(bh2<2){ctx.fillRect(Math.round(x-bw/2),Math.round(yt),Math.max(1,Math.round(bw)),1);}
     }else if(CCv.type==='bar'){
-      ctx.globalAlpha=1;ctx.strokeStyle=dcol;ctx.lineWidth=Math.max(1,bw*0.2);
-      ctx.beginPath();ctx.moveTo(x,Yp(dC.h));ctx.lineTo(x,Yp(dC.l));
-      ctx.moveTo(x-bw/2,Yp(dC.o));ctx.lineTo(x,Yp(dC.o));ctx.moveTo(x,Yp(dC.c));ctx.lineTo(x+bw/2,Yp(dC.c));
+      const xw=Math.round(x)+.5;
+      ctx.globalAlpha=1;ctx.strokeStyle=dcol;ctx.lineWidth=Math.max(1,bw*0.22);
+      ctx.beginPath();ctx.moveTo(xw,Yp(dC.h));ctx.lineTo(xw,Yp(dC.l));
+      ctx.moveTo(Math.round(x-bw/2),Math.round(Yp(dC.o))+.5);ctx.lineTo(xw,Math.round(Yp(dC.o))+.5);
+      ctx.moveTo(xw,Math.round(Yp(dC.c))+.5);ctx.lineTo(Math.round(x+bw/2),Math.round(Yp(dC.c))+.5);
       ctx.stroke();ctx.lineWidth=1;
     }
-    ctx.globalAlpha=1;ctx.fillStyle=col;
-    if(CCv.lower!=='vol'&&CCv.lower!=='volma')return;   // [v3.6] 하단 지표 선택 시 거래량 대신 그린다
-    if(CCv.lower==='volma')return;                       // volma 는 drawLowerPane 이 막대까지 그린다
-    const vb=volBase(start+i), surge=vb>0&&c.v>=vb*2.5;
-    ctx.fillStyle=surge?(up?'rgba(245,56,78,.85)':'rgba(47,116,255,.85)'):(up?'rgba(245,56,78,.5)':'rgba(47,116,255,.5)');
-    const vy=Yv(c.v),vh=Math.max(1,volTop+volH-vy);
-    rr(x-bw/2,vy,bw,vh,Math.min(2,bw/3));
-    if(vh>3)ctx.fillRect(x-bw/2,vy+vh-2,bw,2);                                  // 아래쪽 모서리는 각지게 — 기준선에 붙도록
-    if(surge){ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.moveTo(x,vy-6);ctx.lineTo(x-3,vy-1);ctx.lineTo(x+3,vy-1);ctx.closePath();ctx.fill();}});
-  /* [추가] 보이는 구간의 최고가 ▲ / 최저가 ▼ 마커 — 캔들 위에 표시 */
-  {let hiI=0,loI=0;vis.forEach((c,i)=>{if(c.h>vis[hiI].h)hiI=i;if(c.l<vis[loI].l)loI=i;});
-   ctx.font='bold 9px Pretendard';ctx.textAlign='center';
-   ctx.fillStyle=UP;ctx.fillText('▲ '+KRW(vis[hiI].h),clamp(X(hiI),padL+34,padL+plotW-34),Math.max(padT+7,Yp(vis[hiI].h)-8));
-   ctx.fillStyle=DOWN;ctx.fillText('▼ '+KRW(vis[loI].l),clamp(X(loI),padL+34,padL+plotW-34),Math.min(padT+priceH-6,Yp(vis[loI].l)+10));
-   ctx.textAlign='left';}
-  ctx.fillStyle='#9aa5b4';ctx.textAlign='left';ctx.font='10px Pretendard';
-  ctx.fillText(CCv.lower==='vol'?'거래량 (매수세=빨강 / 매도세=파랑)':(CC_LBL[CCv.lower]||''),padL,volTop-4);
+  });
+  /* ══ 거래량 — 매수세(상승봉) 빨강 / 매도세(하락봉) 파랑, 급증은 진하게 + ▲ ══ */
+  const vv=cs.map(c=>+c.v||0),vma=iSMA(vv,20);
+  let vmax2=vmax;
+  for(let i=start;i<=end;i++)if(vma[i]>vmax2)vmax2=vma[i];
+  const Yv2=v=>volTop+(1-(vmax2?Math.max(0,v)/vmax2:0))*volH;
+  if(CCv.lower==='vol'){
+    vis.forEach((c,i)=>{
+      const gi=start+i,x=X(i),up=c.c>=c.o;
+      const vb=volBase(gi),surge=vb>0&&c.v>=vb*2.5;
+      ctx.fillStyle=chAlpha(up?PAL.up:PAL.down,surge?.88:.52);
+      const vy=Yv2(c.v),vh=Math.max(1,volTop+volH-vy);
+      const bx=Math.round(x-bw/2),bwd=Math.max(1,Math.round(bw));
+      ctx.fillRect(bx,Math.round(vy),bwd,vh);
+      if(surge){ctx.fillStyle='#f59e0b';ctx.beginPath();
+        ctx.moveTo(x,vy-6);ctx.lineTo(x-3,vy-1);ctx.lineTo(x+3,vy-1);ctx.closePath();ctx.fill();}
+    });
+    /* 거래량 20이평 — 막대 위에 얇게 */
+    ctx.strokeStyle='rgba(245,158,11,.85)';ctx.lineWidth=1.2;ctx.lineJoin='round';ctx.beginPath();
+    let st2=false;
+    for(let gi=start;gi<=end;gi++){const v=vma[gi];if(v==null){st2=false;continue;}
+      const xx=X(gi-start),yy=Yv2(v);if(st2)ctx.lineTo(xx,yy);else{ctx.moveTo(xx,yy);st2=true;}}
+    ctx.stroke();
+  }else{
+    /* 거래량 이외 지표는 아래 판이 그린다 — 거래량 막대를 배경으로 옅게 남긴다 */
+    vis.forEach((c,i)=>{const x=X(i),up=c.c>=c.o;
+      ctx.fillStyle=chAlpha(up?PAL.up:PAL.down,.16);
+      const vy=Yv2(c.v),vh=Math.max(1,volTop+volH-vy);
+      ctx.fillRect(Math.round(x-bw/2),Math.round(vy),Math.max(1,Math.round(bw)),vh);});
+  }
   if(CCv.type==='line'||CCv.type==='area'){                 // [v3.6] 라인·영역형
-    ctx.save();ctx.beginPath();ctx.rect(padL,padT,plotW,priceH);ctx.clip();
-    if(CCv.type==='area'){ctx.fillStyle='rgba(59,130,246,.10)';ctx.beginPath();
+    ctx.save();ctx.beginPath();ctx.rect(x0,padT,plotW,priceH);ctx.clip();
+    if(CCv.type==='area'){const g2=ctx.createLinearGradient(0,padT,0,padT+priceH);
+      g2.addColorStop(0,chAlpha(PAL.down,.28));g2.addColorStop(1,chAlpha(PAL.down,.02));
+      ctx.fillStyle=g2;ctx.beginPath();
       vis.forEach((c,i)=>{const x=X(i),y=Yp(c.c);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
       ctx.lineTo(X(m-1),padT+priceH);ctx.lineTo(X(0),padT+priceH);ctx.closePath();ctx.fill();}
-    ctx.strokeStyle='#3b82f6';ctx.lineWidth=1.8;ctx.lineJoin='round';ctx.beginPath();
+    ctx.strokeStyle=PAL.down;ctx.lineWidth=1.8;ctx.lineJoin='round';ctx.beginPath();
     vis.forEach((c,i)=>{const x=X(i),y=Yp(c.c);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
     ctx.stroke();ctx.restore();}
-  if(CCv.lower!=='vol')safeRun('ccLower',()=>drawLowerPane(ctx,cs,start,end,X,padL,plotW,volTop,volH,PAL,UP,DOWN));
-  /* [추가] 시간축 라벨 — 분봉 HH:MM · 일/주 M.D(해 바뀌면 'YY 표기) · 월 YYYY.MM · 년 YYYY */
-  {let prevD=null;
-   /* [수정] 시간축을 또렷하게 — 라이트 테마 진한 검정, 다크 테마 밝은 회백(가독성) */
-   const axDark=thmDark;
-   ctx.fillStyle=axDark?'#e5e7eb':'#111111';ctx.font='bold 10px Pretendard';ctx.textAlign='center';ctx.textBaseline='top';
-   const axisY=volTop+volH+5;
-   xTicks.forEach(i=>{const c=vis[i];if(!c)return;const x=X(i);
-     ctx.strokeStyle=axDark?'#94a3b8':'#444444';ctx.beginPath();ctx.moveTo(x,volTop+volH);ctx.lineTo(x,volTop+volH+4);ctx.stroke();
-     ctx.fillText(fmtAxis(c.d,prevD),x,axisY);prevD=c.d;});
-   ctx.textBaseline='middle';}
-  // 이동평균선 (5/20/60/120)
+  if(CCv.lower!=='vol')safeRun('ccLower',()=>drawLowerPane(ctx,cs,start,end,X,padL,plotW,volTop,volH,PAL,PAL.up,PAL.down));
+  /* ══ 이동평균선 — 실선 1.4px, 현재값은 범례에 ══ */
   const prefix=[0];for(let i=0;i<cs.length;i++)prefix[i+1]=prefix[i]+cs[i].c;
   const maAt=(p,i)=>(i+1<p)?null:(prefix[i+1]-prefix[i+1-p])/p;
   MAS.forEach(([p,col])=>{if(!maOn[p])return;
@@ -18807,48 +18945,112 @@ function drawChart(){
       const x=X(gi-start),y=Yp(v);if(started)ctx.lineTo(x,y);else{ctx.moveTo(x,y);started=true;}}
     ctx.stroke();});
   safeRun('ccOv2',()=>drawChartOverlays(ctx,cs,start,end,X,Yp,padL,plotW,padT,priceH,PAL));   // [v3.6] 오버레이
-  // MA 현재값 범례
-  $('chartMa').innerHTML=MAS.filter(([p])=>maOn[p]).map(([p,col])=>{const v=maAt(p,end);return v==null?'':`<span style="color:${col}">MA${p} ${KRW(v)}</span>`;}).join('');
-  // 현재봉 라벨
-  const last=cs[end],col=last.c>=(cs[end-1]?cs[end-1].c:last.o)?UP:DOWN,ly=Yp(last.c);
-  ctx.strokeStyle=col;ctx.globalAlpha=.4;ctx.lineWidth=1;ctx.setLineDash([3,3]);      // [추가] 현재가 가이드 점선
-  ctx.beginPath();ctx.moveTo(padL,ly);ctx.lineTo(padL+plotW,ly);ctx.stroke();
-  ctx.setLineDash([]);ctx.globalAlpha=1;
-  ctx.fillStyle=col;rr(padL+plotW+1,ly-9,padR-3,18,5);                                // [수정] 현재가 라벨을 알약 모양으로
-  ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 10px Pretendard';ctx.fillText(KRW(last.c),padL+plotW+(padR-1)/2,ly);
-  const s=byCode[selected]||{},dc=s.price!=null?s.price-s.prevClose:0,dir=dirOf(dc);   /* [v10.6] */
-  const _lq=dispQuote(s.code),_lp=(_lq&&_lq.price!=null)?_lq.price:s.price;       // [수정] 범례도 통합가
-  $('chartLegend').innerHTML=`<b>${TFLABEL[chartTf]}봉</b> · <span class="${dir}">${KRW(_lp)}</span> · ${m}/${n}`+((isMinute(chartTf)&&n<=2&&minuteDiag)?` · <span style="color:#c9902a">${minuteDiag}</span>`:'');
-  // 크로스헤어
-  chartGeo={start,end,m,padL,plotW,padT,priceH,slot,Xoff:(i)=>padL+i*slot+slot/2,lo,hi};
-  if(hoverGX!=null){
-    const rel=hoverGX-padL, idx=clamp(Math.floor(rel/slot),0,m-1), gi=start+idx, c=cs[gi];
-    if(c){const x=padL+idx*slot+slot/2;
-      ctx.strokeStyle='rgba(120,130,145,.6)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
-      ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+priceH);ctx.stroke();
-      if(hoverGY!=null&&hoverGY<padT+priceH){ctx.beginPath();ctx.moveTo(padL,hoverGY);ctx.lineTo(padL+plotW,hoverGY);ctx.stroke();}
-      ctx.setLineDash([]);
+  /* ══ 화면 안 최고가 ▲ / 최저가 ▼ ══ */
+  {let hiI=0,loI=0;
+   vis.forEach((c,i)=>{if(c.h>vis[hiI].h)hiI=i;if(c.l<vis[loI].l)loI=i;});
+   ctx.font='bold 9.5px Pretendard,system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+   ctx.fillStyle=PAL.up;ctx.fillText('▲ '+pfmt(vis[hiI].h),clamp(X(hiI),x0+34,x1-34),Math.max(padT+8,Yp(vis[hiI].h)-9));
+   ctx.fillStyle=PAL.down;ctx.fillText('▼ '+pfmt(vis[loI].l),clamp(X(loI),x0+34,x1-34),Math.min(padT+priceH-6,Yp(vis[loI].l)+10));
+   ctx.textAlign='left';}
+  /* ══ 현재가 — 점선 + 축 안 가격 태그 ══ */
+  const last=cs[end];
+  const lastCol=last.c>=(cs[end-1]?cs[end-1].c:last.o)?PAL.up:PAL.down;
+  const ly=Yp(last.c);
+  ctx.strokeStyle=chAlpha(lastCol,.55);ctx.lineWidth=1;ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.moveTo(x0,Math.round(ly)+.5);ctx.lineTo(x1,Math.round(ly)+.5);ctx.stroke();
+  ctx.setLineDash([]);
+  axisTag(ly,pfmt(last.c),lastCol,'#fff',10);
+  /* ══ 십자선 + 축 배지 + 툴팁 + 봉 위 OHLCV 범례 ══ */
+  const hoverIdx=(hoverGX!=null)?clamp(Math.floor((hoverGX-padL)/slot),0,m-1):null;
+  const li=(hoverIdx!=null)?hoverIdx:m-1;
+  const hovBar=vis[li]||last;
+  if(hoverIdx!=null){
+    const x=X(hoverIdx);
+    /* 가리킨 봉 열을 아주 옅게 칠해 위치를 알린다 */
+    ctx.fillStyle=chAlpha(PAL.text,.04);
+    ctx.fillRect(Math.round(x-slot/2),padT,Math.max(1,Math.round(slot)),volTop+volH-padT);
+    ctx.strokeStyle=PAL.cross;ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(Math.round(x)+.5,padT);ctx.lineTo(Math.round(x)+.5,volTop+volH);ctx.stroke();
+    if(hoverGY!=null){
+      const gy=clamp(hoverGY,padT,volTop+volH);
+      ctx.beginPath();ctx.moveTo(x0,Math.round(gy)+.5);ctx.lineTo(x1,Math.round(gy)+.5);ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    if(hoverGY!=null&&hoverGY>=padT&&hoverGY<=padT+priceH){
+      const pv=lo+(1-(clamp(hoverGY,padT,padT+priceH)-padT)/priceH)*(hi-lo);
+      axisTag(hoverGY,pfmt(pv),PAL.tagBg,'#fff',9.5);
+    }
+    /* 시간축 날짜 배지 */
+    const qd=String(hovBar.d||'').replace(/[^0-9]/g,'');
+    const dtxt=dateBadge(hovBar.d);
+    ctx.font='bold 9.5px Pretendard,system-ui,sans-serif';
+    const tw=ctx.measureText(dtxt).width+16;
+    const bx=clamp(x-tw/2,2,W-tw-2);
+    ctx.fillStyle=PAL.tagBg;rr(bx,H-axisH+3,tw,axisH-6,4);
+    ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(dtxt,bx+tw/2,H-axisH+axisH/2+.5);
+    ctx.textAlign='left';
+  }
+  /* ══ 시간축 라벨 ══ */
+  {let prevD=null;
+   ctx.fillStyle=PAL.axisText;ctx.font='bold 10px Pretendard,system-ui,sans-serif';
+   ctx.textAlign='center';ctx.textBaseline='middle';
+   xTicks.forEach(i=>{const c=vis[i];if(!c)return;const x=X(i);
+     ctx.strokeStyle=PAL.axisLine;ctx.beginPath();ctx.moveTo(Math.round(x)+.5,H-axisH);ctx.lineTo(Math.round(x)+.5,H-axisH+4);ctx.stroke();
+     ctx.fillText(fmtAxis(c.d,prevD),x,H-axisH+axisH/2+1);prevD=c.d;});
+   ctx.textAlign='left';}
+  /* ══ 봉 정보 툴팁 (마우스·터치 공용) ══ */
+  if(hoverIdx!=null){
+    const c=cs[start+hoverIdx];
+    if(c){
+      const x=X(hoverIdx);
       const up=c.c>=c.o,cc=up?'up':'down',chg=c.c-c.o,cp=c.o?chg/c.o*100:0;
       const tip=$('chartTip');
-      tip.innerHTML=`<div class="d">${(()=>{const q=String(c.d||'').replace(/[^0-9]/g,'');
-        return q.length>=12?(+q.slice(4,6))+'/'+(+q.slice(6,8))+' '+q.slice(8,10)+':'+q.slice(10,12):c.d;})()}</div>
-        <div class="r"><span>시</span><span>${KRW(c.o)}</span></div>
-        <div class="r"><span>고</span><span class="up">${KRW(c.h)}</span></div>
-        <div class="r"><span>저</span><span class="down">${KRW(c.l)}</span></div>
-        <div class="r"><span>종</span><span class="${cc}">${KRW(c.c)}</span></div>
-        <div class="r"><span>대비</span><span class="${cc}">${signed(chg)} (${pctS(cp)})</span></div>
-        <div class="r"><span>거래량</span><span>${KRW(c.v)}</span></div>`;
-      tip.hidden=false;
-      /* 툴팁은 chart-box에 배치되므로 캔버스의 부모 기준 오프셋을 더한다. */
-      const hostBox=canvas.parentElement.getBoundingClientRect();
-      const ox=box.left-hostBox.left,oy=box.top-hostBox.top;
-      const tipW=tip.offsetWidth||150;
-      let tx=ox+x+12;
-      if(tx>hostBox.width-tipW-8)tx=ox+x-tipW-10;
-      tip.style.left=Math.max(6,Math.min(hostBox.width-tipW-6,tx))+'px';
-      tip.style.top=Math.max(8,oy+padT+6)+'px';
+      if(tip){
+        tip.innerHTML=`<div class="d">${dateBadge(c.d)}</div>
+          <div class="r"><span>시</span><span>${pfmt(c.o)}</span></div>
+          <div class="r"><span>고</span><span class="up">${pfmt(c.h)}</span></div>
+          <div class="r"><span>저</span><span class="down">${pfmt(c.l)}</span></div>
+          <div class="r"><span>종</span><span class="${cc}">${pfmt(c.c)}</span></div>
+          <div class="r"><span>대비</span><span class="${cc}">${(chg>0?'+':'')+pfmt(chg)} (${pctS(cp)})</span></div>
+          <div class="r"><span>거래량</span><span>${KRW(c.v)}</span></div>`;
+        tip.hidden=false;
+        const hostBox=canvas.parentElement.getBoundingClientRect();
+        const ox=box.left-hostBox.left,oy=box.top-hostBox.top;
+        const tipW=tip.offsetWidth||150;
+        let tx=ox+x+12;
+        if(tx>hostBox.width-tipW-8)tx=ox+x-tipW-10;
+        tip.style.left=Math.max(6,Math.min(hostBox.width-tipW-6,tx))+'px';
+        tip.style.top=Math.max(8,oy+padT+4)+'px';
+      }
     }
-  } else { $('chartTip').hidden=true; }
+  }else{const tip=$('chartTip');if(tip)tip.hidden=true;}
+  /* ══ 봉 위 OHLCV 범례 — 크로스헤어를 따라간다 ══ */
+  const giRef=start+(hoverIdx!=null?hoverIdx:m-1);
+  const refPrev=(giRef>0&&cs[giRef-1])?cs[giRef-1].c:hovBar.o;
+  const chgV=hovBar.c-refPrev,rateV=refPrev?(chgV/refPrev*100):0;
+  const upC=(chgV>0?'up':chgV<0?'down':'flat');
+  const ucol=(chgV>0?PAL.up:chgV<0?PAL.down:PAL.sub);
+  if(LG){
+    LG.innerHTML=
+      `<span class="cl-tf">${TFLABEL[chartTf]}봉</span>`+
+      `<span class="cl-i"><i>시</i><b class="num">${pfmt(hovBar.o)}</b></span>`+
+      `<span class="cl-i"><i>고</i><b class="num" style="color:${PAL.up}">${pfmt(hovBar.h)}</b></span>`+
+      `<span class="cl-i"><i>저</i><b class="num" style="color:${PAL.down}">${pfmt(hovBar.l)}</b></span>`+
+      `<span class="cl-i"><i>종</i><b class="num" style="color:${ucol}">${pfmt(hovBar.c)}</b></span>`+
+      `<span class="cl-i"><b class="num" style="color:${ucol}">${(chgV>0?'+':'')+pfmt(chgV)} (${pctS(rateV)})</b></span>`+
+      `<span class="cl-i"><i>거래량</i><b class="num">${chartVolTxt(hovBar.v)}</b></span>`+
+      `<span class="cl-n">${m}/${n}</span>`+
+      ((isMinute(chartTf)&&n<=2&&minuteDiag)?`<span class="cl-warn">${minuteDiag}</span>`:'');
+  }
+  if(MAE){
+    MAE.innerHTML=MAS.filter(([p])=>maOn[p]).map(([p,col])=>{
+      const v=maAt(p,giRef);
+      return v==null?'':`<span class="cl-ma" style="color:${col}"><i style="background:${col}"></i>MA${p} <b class="num">${pfmt(v)}</b></span>`;
+    }).join('');
+  }
+  /* 이전 그리기 좌표 — 포인터 처리(패닝·휠줌)가 같은 좌표계를 쓴다 */
+  chartGeo={start,end,m,padL,plotW,padR,padT,priceH,volTop,volH,axisH,slot,x0,x1,lo,hi};
 }
 /* 확대/축소·이동 */
 function effEnd(){return view.follow?curCandles.length-1:Math.min(view.end,curCandles.length-1);}
@@ -18865,7 +19067,11 @@ canvas.addEventListener('pointermove',e=>{
   if(drag.pointerType==='touch'&&!drag.moved&&Math.abs(dx)<4&&Math.abs(dy)<4)return;
   if(Math.abs(dx)>=4||Math.abs(dy)>=4)drag.moved=true;
   if(drag.pointerType==='touch'&&!drag.moved)return;
-  const box=canvas.getBoundingClientRect(),plotW=box.width-64;
+  const box=canvas.getBoundingClientRect();
+  /* [v17.8.40] 판 폭을 실행 중 좌표(chartGeo)에서 가져온다 — 오른쪽 축 폭이
+     화면 폭에 따라 달라지므로 64px 고정값으로 계산하면 봉 수가 어긋난다. */
+  const g=chartGeo||{};
+  const plotW=g.plotW||(box.width-66);
   const count=Math.max(8,Math.min(view.count,curCandles.length));
   const barW=plotW/count,dBars=Math.round(dx/barW);
   let ne=clamp(drag.end-dBars,Math.min(count-1,curCandles.length-1),curCandles.length-1);
@@ -18884,7 +19090,27 @@ canvas.addEventListener('pointerup',e=>{
   drag=null;
 });
 canvas.addEventListener('pointercancel',()=>{drag=null;});
-canvas.addEventListener('wheel',e=>{e.preventDefault();view.follow=false;view.end=effEnd();const f=e.deltaY>0?1.2:0.82;view.count=Math.round(clamp(view.count*f,8,curCandles.length||8));drawChart();},{passive:false});
+canvas.addEventListener('wheel',e=>{
+  /* [v17.8.40] 포인터 아래의 봉을 제자리에 두고 확대·축소한다.
+     종전에는 오른쪽 끝을 기준으로만 줌돼, 보려던 구간이 화면 밖으로 밀렸다. */
+  e.preventDefault();
+  const n=curCandles.length;if(!n)return;
+  const g=chartGeo||{};
+  const box=canvas.getBoundingClientRect();
+  const padL=g.padL!=null?g.padL:10,plotW=g.plotW||(box.width-66);
+  const px=clamp(e.clientX-box.left,padL,padL+plotW);
+  const frac=plotW>0?(px-padL)/plotW:1;
+  const oldN=Math.max(8,Math.min(view.count,n));
+  const endOld=effEnd(),startOld=Math.max(0,endOld-oldN+1);
+  const idxAt=startOld+Math.round(frac*(oldN-1));
+  const newN=Math.round(clamp(oldN*(e.deltaY>0?1.18:0.85),8,n));
+  let newStart=idxAt-Math.round(frac*(newN-1));
+  newStart=clamp(newStart,0,Math.max(0,n-newN));
+  view.count=newN;
+  view.end=newStart+newN-1;
+  view.follow=(view.end>=n-1);
+  drawChart();
+},{passive:false});
 const tdist=(e)=>{const a=e.touches[0],b=e.touches[1];return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);};
 canvas.addEventListener('touchstart',e=>{if(e.touches.length===2){drag=null;pinch={d:tdist(e),count:view.count};}},{passive:false});
 canvas.addEventListener('touchmove',e=>{if(pinch&&e.touches.length===2){e.preventDefault();const d=tdist(e);const ratio=pinch.d/Math.max(1,d);view.count=Math.round(clamp(pinch.count*ratio,8,curCandles.length||8));drawChart();}},{passive:false});

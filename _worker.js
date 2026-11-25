@@ -14966,14 +14966,15 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.39",
-  releasedAt: "2026-11-25 23:10",
+  version: "17.8.40",
+  releasedAt: "2026-11-25 23:40",
   notes: [
-    "종목 상세 호가를 누르면 매도·매수·정정/취소 선택 창이 열리도록 변경",
-    "거래 화면 디자인 전면 개편 — 터미널형 머리말·입체 탭·영수증형 주문 요약",
-    "기업개요를 네이버 금융 기업개요 원문으로 연결 — 전 종목 종목별 사업요약",
-    "기업개요·52주 최고/최저 캐시를 Cache API로 이전해 KV 쓰기 제거",
-    "코스피·코스닥·ETF·신규상장 시세·재무 값 원천 대조 점검"
+    "상세 호가 액션 창의 정정/취소를 누르면 보던 호가 코너로 돌아오도록 수정",
+    "차트 UI/UX 전면 개편 — 증권사 트레이딩 터미널형 두 줄 툴바·단말형 범례",
+    "차트 오른쪽 가격축 띠·눈금·현재가 태그·전일 종가 기준선 추가",
+    "차트 십자선에 가격·날짜 배지와 봉별 시·고·저·종·거래량 범례 연동",
+    "차트 지표 칩으로 볼린저·매물대·RSI·MACD 등을 바로 켜고 끄기",
+    "차트 색을 테마 변수에서 읽어 라이트·다크·색약 팔레트까지 반영"
   ]
 };
 
@@ -18409,7 +18410,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.39";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.40";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) { return await afScheduled(event, env, ctx); },
@@ -18754,7 +18755,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 23:10"; BUNDLED_VERSION.notes = ["종목 상세 호가를 누르면 매도·매수·정정/취소 선택 창이 열리도록 변경", "거래 화면 디자인 전면 개편 — 터미널형 머리말·입체 탭·영수증형 주문 요약", "기업개요를 네이버 금융 기업개요 원문으로 연결 — 전 종목 종목별 사업요약", "기업개요·52주 최고/최저 캐시를 Cache API로 이전해 KV 쓰기 제거", "코스피·코스닥·ETF·신규상장 시세·재무 값 원천 대조 점검"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 23:10"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 23:40"; BUNDLED_VERSION.notes = ["상세 호가 액션 창의 정정/취소를 누르면 보던 호가 코너로 돌아오도록 수정", "차트 UI/UX 전면 개편 — 증권사 트레이딩 터미널형 두 줄 툴바·단말형 범례", "차트 오른쪽 가격축 띠·눈금·현재가 태그·전일 종가 기준선 추가", "차트 십자선에 가격·날짜 배지와 봉별 시·고·저·종·거래량 범례 연동", "차트 지표 칩으로 볼린저·매물대·RSI·MACD 등을 바로 켜고 끄기", "차트 색을 테마 변수에서 읽어 라이트·다크·색약 팔레트까지 반영"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 23:40"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
