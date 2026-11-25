@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=346';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=347';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -15591,7 +15591,9 @@ function obLoad(code,force){
     .catch(()=>null)
     .finally(()=>{ _obBusy[code]=0; _obProm[code]=null;
       /* 호가가 도착했으니 이 값을 쓰는 코너를 함께 갱신한다 — 기다리는 화면을 남기지 않는다 */
-      try{ if(currentView==='trade'&&selected===code)safeRun('ob:glance',()=>renderGlance()); }catch(e){} });
+      try{ if(currentView==='trade'&&selected===code){ safeRun('ob:glance',()=>renderGlance());
+        /* [v17.8.37] 거래 화면 좌측 호가창도 같은 값으로 다시 그린다 */
+        if(orderBookOn())renderOrderBook(); } }catch(e){} });
   _obProm[code]=p;
   return p;
 }
@@ -15620,19 +15622,7 @@ function renderAsking(el){
        한전기술 같은 코스피200 종목까지 미제공 종목으로 보였다(실기 사진).
        [고침] 지금이 호가가 존재할 수 없는 시간이면 그렇게 정확히 말하고,
        재개 시각을 알려 준다. 진짜 미제공 종목 문구는 정규장 중 빈 응답에만. */
-    let why='잠시 후 다시 시도해 주세요.';
-    try{
-      const k=krSession();
-      const hm=nowTz('Asia/Seoul').hm;   /* [v15.4.8] tz 명시 — 인자 없이 부르면 기기 로컬로 판정되는 결함 */
-      if(!k.krx.open){
-        if(hm<8*60+30)why='아직 KRX 호가 접수 전입니다(08:30 시작). 접수가 시작되면 자동으로 표시됩니다.';
-        else if(hm>=15*60+30)why='KRX 장이 마감돼 호가가 없습니다. 다음 거래일 08:30부터 다시 표시됩니다.'
-          +(nxtCapability(code)===true?' NXT 체결가는 위 가격에 실시간 반영 중입니다.':'');
-        else why='지금은 호가가 제공되지 않는 시간입니다.';
-      } else if(d&&d.err==='empty'){
-        why='이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).';
-      }
-    }catch(e){ if(d&&d.err==='empty')why='이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).'; }
+    const why=obUnavailableWhy(d,code);
     el.innerHTML=`<div class="empty"><b>호가를 받지 못했습니다</b>
       <span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.6">
       ${why}<br>
@@ -15640,21 +15630,30 @@ function renderAsking(el){
     return;
   }
   const px=livePx(code,null), pc=d.prevClose;
-  /* 가격 색 — 전일 종가 대비 */
-  const pcls=(p)=>!pc?'':p>pc?'up':p<pc?'down':'';
-  const isNow=(p)=>px!=null&&Math.abs(p-px)<0.5;
-  const row=(x,side)=>`
-    <div class="ob-r ${side}${isNow(x.p)?' now':''}">
+  el.innerHTML=obBookHtml(d,px,pc);
+  bindObRows(el,d);
+}
+/* ══ [v17.8.37] 호가 그리기 — 상세 호가 탭과 거래 화면 좌측 호가창이 함께 쓴다 ══
+   같은 값을 두 곳에서 그리므로 한 곳에서만 만들어 어긋날 여지를 없앤다.
+   가격 색은 전일 종가 대비, '지금' 표시는 현재가와 같은 줄에 붙인다. */
+function obPcls(p,pc){ return !pc?'':p>pc?'up':p<pc?'down':''; }
+function obRowHtml(x,side,px,pc){
+  const isNow=px!=null&&Math.abs(x.p-px)<0.5;
+  return `
+    <div class="ob-r ${side}${isNow?' now':''}" data-p="${x.p}">
       <div class="ob-q sell">${side==='s'?`<i class="ob-bar" style="width:${x.r}%"></i><b>${obFmtQ(x.q)}</b>`:''}</div>
-      <div class="ob-p ${pcls(x.p)}">${KRW(x.p)}${pc?`<i>${((x.p-pc)/pc*100>=0?'+':'')+((x.p-pc)/pc*100).toFixed(2)}%</i>`:''}</div>
+      <div class="ob-p ${obPcls(x.p,pc)}">${KRW(x.p)}${pc?`<i>${((x.p-pc)/pc*100>=0?'+':'')+((x.p-pc)/pc*100).toFixed(2)}%</i>`:''}</div>
       <div class="ob-q buy">${side==='b'?`<i class="ob-bar" style="width:${x.r}%"></i><b>${obFmtQ(x.q)}</b>`:''}</div>
     </div>`;
-  const sells=(d.sell||[]).map(x=>row(x,'s')).join('');
-  const buys=(d.buy||[]).map(x=>row(x,'b')).join('');
+}
+function obBookHtml(d,px,pc,opts){
+  opts=opts||{};
+  const sells=(d.sell||[]).map(x=>obRowHtml(x,'s',px,pc)).join('');
+  const buys=(d.buy||[]).map(x=>obRowHtml(x,'b',px,pc)).join('');
   const tot=(d.totalSell||0)+(d.totalBuy||0);
   const sPct=tot?(d.totalSell/tot*100):50;
   const ago=Math.max(0,Math.round((Date.now()-(d.at||Date.now()))/1000));
-  el.innerHTML=`
+  return `
     <div class="ob-head">
       <div class="ob-hh"><span>매도잔량</span><span>호가</span><span>매수잔량</span></div>
     </div>
@@ -15672,26 +15671,108 @@ function renderAsking(el){
         ?'사겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'
         :'팔겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'}</div>
     </div>
+    ${opts.hint?'<div class="ob-book-hint">호가를 누르면 그 가격이 주문가격에 들어갑니다</div>':''}
     <div class="ob-note">네이버 공개 시세 기준 <b>${d.levels}단계</b> · ${ago<5?'방금':ago+'초 전'} 받음<br>
       실제 MTS 의 10단계 중 공개되는 5단계까지만 표시합니다. 나머지는 <b>공개되지 않아 비워 둡니다</b>.
       거래소 원장과 시차가 있을 수 있습니다.</div>`;
-  /* 호가를 누르면 그 가격으로 주문 입력 */
+}
+function bindObRows(el,d){
+  const all=[...(d.sell||[]),...(d.buy||[])];
   el.querySelectorAll('.ob-r').forEach((r,i)=>{
-    const all=[...(d.sell||[]),...(d.buy||[])];
     const x=all[i]; if(!x)return;
-    r.onclick=()=>{ try{
-      /* [v9.81b] ordType 만 바꾸면 화면의 '시장가' 표시와 어긋난다.
-         지정가로 되돌리고 applyOrderType 으로 입력칸 잠금까지 함께 푼다. */
-      userPrice=x.p;
-      if(typeof ordTypeName!=='undefined'&&isMarketType(ordTypeName)){
-        ordTypeName='보통지정가';   /* 실제 목록에 있는 이름 */
-        try{ applyOrderType(); }catch(e){ ordType='limit'; }
-      }else ordType='limit';
-      const inp=$('pxInput'); if(inp){inp.disabled=false;inp.style.opacity=1;inp.value=KRW(x.p);}
-      try{ updateOrderTotal(); }catch(e){}
-      toast('ok',KRW(x.p)+'원으로 주문가 설정',(x.q?KRW(x.q)+'주 대기':''));
-    }catch(e){} };
+    r.onclick=()=>applyBookPrice(x.p,x.q);
   });
+}
+/* 호가를 누르면 그 가격으로 주문 입력 — 상세 호가 탭과 거래 화면이 같은 길을 쓴다 */
+function applyBookPrice(p,q){
+  try{
+    /* [v9.81b] ordType 만 바꾸면 화면의 '시장가' 표시와 어긋난다.
+       지정가로 되돌리고 applyOrderType 으로 입력칸 잠금까지 함께 푼다. */
+    userPrice=p;
+    if(typeof ordTypeName!=='undefined'&&isMarketType(ordTypeName)){
+      ordTypeName='보통지정가';   /* 실제 목록에 있는 이름 */
+      try{ applyOrderType(); }catch(e){ ordType='limit'; }
+    }else ordType='limit';
+    const inp=$('pxInput'); if(inp){inp.disabled=false;inp.style.opacity=1;inp.value=KRW(p);}
+    try{ updateOrderTotal(); }catch(e){}
+    try{ if(orderScreenOpen())renderOrderHeader(); }catch(e){}
+    try{ markBookPrice(); }catch(e){}
+    toast('ok',KRW(p)+'원으로 주문가 설정',(q?KRW(q)+'주 대기':''));
+  }catch(e){}
+}
+/* 주문가격 칸과 같은 호가 줄을 표시한다 — 방금 고른 가격이 어느 줄인지 보이게 */
+function markBookPrice(){
+  const inp=$('pxInput'), el=$('orderBookBody'); if(!inp||!el)return;
+  const v=Number(String(inp.value||'').replace(/[^0-9.]/g,''));
+  el.querySelectorAll('.ob-r').forEach(r=>{ r.classList.toggle('picked',!!(v>0&&Number(r.dataset.p)===v)); });
+}
+/* 호가가 없는 이유 — 세션·종목 사정을 구분해 말한다(상세 탭과 공용) */
+function obUnavailableWhy(d,code){
+  let why='잠시 후 다시 시도해 주세요.';
+  try{
+    const k=krSession();
+    const hm=nowTz('Asia/Seoul').hm;   /* [v15.4.8] tz 명시 — 인자 없이 부르면 기기 로컬로 판정되는 결함 */
+    if(!k.krx.open){
+      if(hm<8*60+30)why='아직 KRX 호가 접수 전입니다(08:30 시작). 접수가 시작되면 자동으로 표시됩니다.';
+      else if(hm>=15*60+30)why='KRX 장이 마감돼 호가가 없습니다. 다음 거래일 08:30부터 다시 표시됩니다.'
+        +(nxtCapability(code)===true?' NXT 체결가는 위 가격에 실시간 반영 중입니다.':'');
+      else why='지금은 호가가 제공되지 않는 시간입니다.';
+    } else if(d&&d.err==='empty'){
+      why='이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).';
+    }
+  }catch(e){ if(d&&d.err==='empty')why='이 종목은 호가가 제공되지 않습니다(ETN·일부 우선주 등).'; }
+  return why;
+}
+/* ══ [v17.8.37] 거래 화면 좌측 호가창 ═════════════════════════════════════════
+   매수·매도 화면에서 호가를 보면서 주문 조건을 정한다. 값은 상세 화면의 호가
+   탭과 같은 obLoad()/_obData 를 쓰므로 요청이 늘지 않는다(3초 캐시·같은 타이머).
+   없는 값을 만들지 않는다 — 해외·미제공·장외는 이유만 말하고 주문가격은 직접
+   입력할 수 있게 둔다. */
+function orderBookOn(){
+  try{ return !!(orderScreenOpen()&&selected&&(orderWorkspaceTab==='buy'||orderWorkspaceTab==='sell')); }catch(e){ return false; }
+}
+function renderOrderBook(){
+  const el=$('orderBookBody'); if(!el)return;
+  const live=$('orderBookLive');
+  const setLive=t=>{ if(live)live.textContent=t; };
+  const code=selected;
+  if(!code){ el.innerHTML='<div class="empty">종목을 선택하면 호가가 표시됩니다.</div>'; setLive('—'); return; }
+  /* 해외 종목 — 이 화면은 국내 주문 전용이다. 호가 대신 현재가만 정확히 보여 준다 */
+  if(typeof usMeta!=='undefined'&&usMeta[code]){
+    const q=(typeof dispQuote==='function'&&dispQuote(code))||{}, st=byCode[code]||{};
+    const px=q.price!=null?q.price:st.price, pc=q.prevClose||st.prevClose;
+    const diff=(px!=null&&pc)?px-pc:0, dir=dirOf(diff);
+    el.innerHTML=`<div class="ob-fb">
+      <div class="ob-fb-k">해외 종목 · 달러</div>
+      <div class="ob-fb-px num ${dir}">${px!=null?'$'+(+px).toFixed(2):'시세 확인 중'}</div>
+      <div class="ob-fb-ch num ${dir}">${px!=null&&pc?`${diff>0?'▲':diff<0?'▼':'—'} ${Math.abs(diff).toFixed(2)} (${(diff/pc*100).toFixed(2)}%)`:'전일 대비 —'}</div>
+      <div class="ob-fb-n">해외 종목의 매수·매도 호가는 해외 전용 거래 화면에서 확인합니다. 이 화면은 국내 종목 주문용이라 호가를 대신 지어내지 않습니다.</div>
+    </div>`;
+    setLive('해외');
+    return;
+  }
+  if(!/^[0-9A-Z]{5,7}$/.test(String(code||'').toUpperCase())){
+    el.innerHTML='<div class="empty"><b>이 종목은 호가를 조회할 수 없습니다</b><span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.6">종목 코드가 6자리인 국내 상장 종목에서만 제공됩니다.</span></div>';
+    setLive('—'); return;
+  }
+  const d=_obData[code];
+  if(d===undefined){
+    el.innerHTML='<div class="empty">호가를 불러오는 중…</div>'; setLive('연결 중');
+    obLoad(code).then(()=>{ if(orderBookOn()&&selected===code)renderOrderBook(); });
+    return;
+  }
+  if(!d||!d.ok){
+    el.innerHTML=`<div class="empty"><b>호가를 받지 못했습니다</b>
+      <span style="display:block;margin-top:7px;font-size:11.5px;line-height:1.6">${obUnavailableWhy(d,code)}<br>
+      없는 값을 만들어 보여 드리지 않습니다.<br>주문가격은 직접 입력할 수 있습니다.</span></div>`;
+    setLive('대기'); return;
+  }
+  const px=livePx(code,null), pc=d.prevClose;
+  el.innerHTML=obBookHtml(d,px,pc,{hint:true});
+  bindObRows(el,d);
+  const ago=Math.max(0,Math.round((Date.now()-(d.at||Date.now()))/1000));
+  setLive(ago<5?'LIVE · 방금':`LIVE · ${ago}초 전`);
+  try{ markBookPrice(); }catch(e){}
 }
 /* 호가 탭을 보고 있는 동안만 갱신한다 — 안 보는 화면을 계속 부르지 않는다 */
 /* [v17.4] 체결 흐름 코너도 호가로 만들어진다 — 호가 탭을 보고 있지 않아도
@@ -15707,10 +15788,12 @@ function obTick(){
   try{
     const askOn=(currentView==='trade'&&infoTab==='asking');
     const glOn=obGlanceOn();
-    if(!askOn&&!glOn){ if(_obTimer){clearInterval(_obTimer);_obTimer=null;} return; }
+    const bkOn=orderBookOn();          /* [v17.8.37] 매수·매도 화면의 좌측 호가창 */
+    if(!askOn&&!glOn&&!bkOn){ if(_obTimer){clearInterval(_obTimer);_obTimer=null;} return; }
     obLoad(selected,true).then(()=>{
       if(currentView!=='trade')return;
       if(infoTab==='asking')renderAsking($('infoBody'));
+      if(orderBookOn())renderOrderBook();
       if(obGlanceOn())safeRun('obTick:glance',()=>renderGlance());
     });
   }catch(e){}
@@ -19463,6 +19546,8 @@ function openOrderScreen(code,tab='buy'){
   renderOrderHeader();
   safeRun('order:acct',renderOrdAcct);safeRun('order:gate',renderTradeGate);
   safeRun('order:exchange',configOrderExchanges);safeRun('order:price',()=>syncPriceField(true));
+  /* [v17.8.37] 좌측 호가창을 먼저 채우고, 갱신 타이머도 함께 켠다 */
+  safeRun('order:book',()=>{ renderOrderBook(); obStart(); });
   requestAnimationFrame(()=>{try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}});
 }
 function closeOrderScreen(){
@@ -19486,6 +19571,7 @@ function setOrderWorkspaceTab(tab){
     const pill=$('orderModePill');if(pill){pill.textContent=tab==='buy'?'BUY':'SELL';pill.className='order-mode-pill '+tab;}
     const side=$('orderSummarySide');if(side)side.textContent=tab==='buy'?'매수':'매도';
     safeRun('order:gate',renderTradeGate);safeRun('order:price',()=>syncPriceField(false));
+    safeRun('order:book',()=>{ renderOrderBook(); obStart(); });   /* [v17.8.37] 호가창도 주문 방향과 함께 갱신 */
     safeRun('order:qty',syncMaxQty);safeRun('order:total',updateOrderTotal);safeRun('order:header',renderOrderHeader);
   }else{
     if(tab==='manage')renderOrderManage();

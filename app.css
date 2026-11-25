@@ -9318,3 +9318,53 @@ html[data-theme="dark"] .biz-tags span{background:rgba(139,92,246,.18);color:#dd
   .order-record-actions button{flex:1;padding-inline:7px}
   .order-history-meta{margin-left:0}
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   [v17.8.37] 거래 화면 2단 — 좌측 호가창 · 우측 주문 상세 설정
+   ───────────────────────────────────────────────────────────────────────────
+   매수·매도 화면을 한 눈에 쓰는 넓은 화면에서는 호가(왼쪽)와 주문 조건(오른쪽)을
+   나란히 둔다. 실제 MTS 의 매매 화면과 같은 결이다. 좁은 화면에서는 DOM 순서
+   그대로 호가가 위·주문이 아래로 쌓여 잘리지 않는다.
+   호가 줄 자체(.ob-*)는 상세 화면 호가 탭과 같은 컴포넌트를 그대로 쓴다. */
+.stock-order-screen{max-width:1360px}
+.order-trade-layout{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);align-items:stretch;min-width:0}
+.order-book-pane{min-width:0;padding:18px 16px 20px;border-right:1px solid var(--border-soft);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--bg) 60%,var(--panel)),color-mix(in srgb,var(--bg) 35%,var(--panel)))}
+.order-book-head{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-bottom:10px}
+.order-book-title{min-width:0}
+.order-book-title h3{margin-top:3px;font-size:15px;font-weight:950;letter-spacing:-.03em}
+.order-book-live{flex:0 0 auto;padding:4px 9px;border-radius:999px;background:color-mix(in srgb,var(--brand) 11%,var(--panel));
+  color:var(--brand);font-size:9.5px;font-weight:950;letter-spacing:.02em;white-space:nowrap}
+.order-book-body{min-width:0}
+.order-config-pane{min-width:0}
+/* 좁은 칸에 맞춰 가운데 호가 칸을 줄인다 — 잔량 막대가 숨 쉴 자리를 남긴다 */
+.order-book-pane .ob-hh,.order-book-pane .ob-r{grid-template-columns:minmax(0,1fr) 104px minmax(0,1fr)}
+.order-book-pane .ob-q{padding:8px 9px;min-height:34px}
+.order-book-pane .ob-p{font-size:13px}
+.order-book-pane .ob-r:hover{background:var(--border-soft)}
+.order-book-pane .ob-r:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+/* 방금 고른 호가 — 주문가격 칸과 같은 줄을 표시한다 */
+.order-book-pane .ob-r.picked{background:color-mix(in srgb,var(--brand) 8%,transparent)}
+.order-book-pane .ob-r.picked .ob-p{box-shadow:inset 0 0 0 2px var(--brand);border-radius:7px}
+.ob-book-hint{margin-top:9px;padding:7px 9px;border-radius:9px;text-align:center;
+  background:color-mix(in srgb,var(--brand) 9%,var(--panel));color:var(--brand);font-size:10.5px;font-weight:850;line-height:1.45}
+.order-book-pane .ob-note{margin-top:9px;font-size:10px}
+.order-book-pane .ob-tot-d{font-size:10px}
+.order-book-pane .ob-mid{gap:6px;padding:7px 6px;font-size:10px}
+.order-book-pane .ob-mid b{font-size:11.5px}
+/* 해외·미제공 종목의 안전한 폴백 — 없는 호가를 만들지 않고 현재가만 정확히 */
+.ob-fb{display:flex;flex-direction:column;gap:5px;padding:16px 14px;border:1px dashed var(--border);
+  border-radius:12px;background:var(--panel);text-align:center}
+.ob-fb-k{color:var(--sub);font-size:9px;font-weight:950;letter-spacing:.12em}
+.ob-fb-px{margin-top:4px;font-size:24px;font-weight:950;letter-spacing:-.04em}
+.ob-fb-ch{font-size:11.5px;font-weight:850}
+.ob-fb-n{margin-top:7px;color:var(--sub);font-size:10.5px;line-height:1.6;text-align:left}
+.ob-fb-btn{margin-top:10px;min-height:40px;border-radius:10px;background:var(--brand);color:#fff;font-size:11.5px;font-weight:900}
+.ob-fb-btn[disabled]{opacity:.45}
+@media(max-width:960px){
+  .stock-order-screen{max-width:1120px}
+  .order-trade-layout{grid-template-columns:minmax(0,1fr)}
+  .order-book-pane{padding:15px 14px 16px;border-right:0;border-bottom:1px solid var(--border-soft)}
+  .order-book-pane .ob-hh,.order-book-pane .ob-r{grid-template-columns:minmax(0,1fr) 112px minmax(0,1fr)}
+  .order-book-pane .ob-note{display:none}
+}

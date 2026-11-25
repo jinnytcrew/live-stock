@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
 <link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
-<link rel="stylesheet" href="/app.css?v=677">
+<link rel="stylesheet" href="/app.css?v=678">
 </head>
 <body>
 
@@ -1493,6 +1493,18 @@ body.needs-auth #authGate{z-index:2000001}
 
       <div id="orderTradePanel" class="panel order-content-panel">
         <div class="order-section-heading"><div><span class="order-section-kicker">PLACE AN ORDER</span><h2 id="orderFormTitle">매수 주문</h2><p>계좌와 주문 조건을 확인한 뒤 모의 주문을 접수하세요.</p></div><span class="order-mode-pill" id="orderModePill">BUY</span></div>
+        <!-- ══ [v17.8.37] 좌측 호가창 · 우측 주문 상세 설정 ═══════════════════════
+             넓은 화면에서는 호가를 보면서 주문 조건을 정하고, 좁은 화면에서는
+             호가가 위·주문이 아래로 자연스럽게 쌓인다(같은 DOM 순서). -->
+        <div class="order-trade-layout">
+          <aside class="order-book-pane" id="orderBookPane" aria-labelledby="orderBookTitle">
+            <div class="order-book-head">
+              <div class="order-book-title"><span class="order-section-kicker">ORDER BOOK</span><h3 id="orderBookTitle">호가</h3></div>
+              <span class="order-book-live" id="orderBookLive">—</span>
+            </div>
+            <div class="order-book-body" id="orderBookBody"><div class="empty">호가를 불러오는 중…</div></div>
+          </aside>
+          <div class="order-config-pane">
         <div class="ord-acct" id="ordAcct"></div>
         <div class="ord-tabs" aria-hidden="true"><button class="buy on" data-side="buy" tabindex="-1">매수</button><button class="sell" data-side="sell" tabindex="-1">매도</button></div>
         <div class="tg-wrap" id="tradeGate"></div>
@@ -1517,6 +1529,8 @@ body.needs-auth #authGate{z-index:2000001}
             </aside>
           </div>
           <div class="pend-box" id="pendBox" hidden></div>
+        </div>
+          </div>
         </div>
       </div>
 
@@ -1805,6 +1819,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="tier"><i>💎</i><span>멤버십</span></button>
   <button data-bv="event"><i>🎁</i><span>이벤트</span></button>
 </nav>
-<script type="module" src="/app.js?v=691"></script>
+<script type="module" src="/app.js?v=692"></script>
 </body>
 </html>
