@@ -6557,6 +6557,7 @@ function renderSearchShortcuts(){
 function refreshColors(){ // 색상 변경 시 캔버스류 다시 그림(CSS는 변수로 자동 반영)
   if(currentView==='home')renderMarket();
   else if(currentView==='trade'){renderDetail();try{drawChart();}catch(e){}}
+  else if(currentView==='ustrade'){try{drawChart();}catch(e){}}   /* [v17.8.40] 해외 차트도 같은 캔버스 */
   else if(currentView==='sector')renderSector();
 }
 $('setGear').onclick=()=>{renderSettingsUI();$('setGate').hidden=false;};
@@ -6565,7 +6566,7 @@ document.querySelectorAll('#tabbar button[data-bv]').forEach(b=>b.onclick=()=>sh
 (()=>{const m=document.getElementById('mobileMenuToggle'),n=document.getElementById('mainNav'),bar=document.getElementById('tabbar');if(m&&n){m.addEventListener('click',()=>{const open=!n.classList.contains('open');n.classList.toggle('open',open);m.setAttribute('aria-expanded',String(open));});n.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{n.classList.remove('open');m.setAttribute('aria-expanded','false');}));}if(bar){const sync=()=>{const a=bar.querySelector('button.on');if(a&&matchMedia('(max-width:768px)').matches)a.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});};document.addEventListener('click',e=>{if(e.target.closest('#tabbar button[data-bv]'))requestAnimationFrame(sync);});}})();
 $('setClose').onclick=()=>{$('setGate').hidden=true;};
 $('setGate').onclick=(e)=>{if(e.target.id==='setGate')$('setGate').hidden=true;};
-$('setTheme').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;settings.theme=b.dataset.v;saveSettings();applyTheme();renderSettingsUI();};
+$('setTheme').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;settings.theme=b.dataset.v;saveSettings();applyTheme();try{refreshColors();}catch(e){}renderSettingsUI();};
 /* [v2.5] 테마 '자동' — 18:30~06:30 다크(일몰 근사), 30분마다 재판정 */
 setInterval(()=>{try{if(settings.theme==='auto')applyTheme();}catch(e){}},30*60e3);
 $('setColor').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;settings.color=b.dataset.v;saveSettings();applyColor();refreshColors();renderSettingsUI();};
@@ -18601,9 +18602,14 @@ function chartPal(){
   const de=document.documentElement;
   let key='';
   try{key=(de.getAttribute('data-theme')||'')+'|'+(de.getAttribute('data-color')||'')+'|'+(de.classList.contains('cb-palette')?1:0);}catch(e){}
-  if(_chPal&&_chPalKey===key)return _chPal;
   let gs=null;try{gs=getComputedStyle(de);}catch(e){}
   const g=(nm,f)=>{try{const v=gs?gs.getPropertyValue(nm):'';return (v&&v.trim())||f;}catch(e){return f;}};
+  /* [v17.8.40] 테마를 바꾼 직후 한 프레임 사이에 getComputedStyle 이 옛 값을 주면
+     그 색이 캐시에 남아, 밝은 테마의 흰색 패널색으로 어두운 차트 위 라벨을 그렸다
+     (실기: 다크 테마의 '전일' 라벨이 흰 알약). 패널색 한 개만 매번 대조해
+     값이 바뀌면 다시 읽는다. */
+  const panelNow=g('--panel','');
+  if(_chPal&&_chPalKey===key&&(!panelNow||panelNow===_chPal.panel))return _chPal;
   const dark=de.getAttribute('data-theme')==='dark';
   _chPal={
     dark,
@@ -18708,7 +18714,9 @@ function drawChart(){
   const Yv=v=>volTop+(1-(vmax?Math.max(0,v)/vmax:0))*volH;
   /* 축·태그 숫자 — 좁은 가격대(해외 소형주 등)에서는 소수까지 보여 준다.
      KRW() 는 원화 반올림이라 4.5달러·0.87달러 같은 값이 모두 '5'·'1'로 뭉갰다. */
-  const pdec=(Math.abs(hi-lo)<2)?2:((Math.abs(hi-lo)<20&&hi<200)?1:0);
+  const usCh=(currentView==='ustrade');                       /* [v17.8.40] 해외는 센트까지 */
+  const pdec=usCh?2:((Math.abs(hi-lo)<2)?2:((Math.abs(hi-lo)<20&&hi<200)?1:0));
+  const usym=usCh?'$':'';
   const pfmt=v=>Number(v).toLocaleString('ko-KR',{minimumFractionDigits:pdec,maximumFractionDigits:pdec});
   const dateBadge=(d)=>{const q=String(d||'').replace(/[^0-9]/g,'');
     if(q.length>=12)return (+q.slice(4,6))+'/'+(+q.slice(6,8))+' '+q.slice(8,10)+':'+q.slice(10,12);
@@ -18769,7 +18777,7 @@ function drawChart(){
         const hm=d.slice(8,10)+':'+d.slice(10,12);
         const pd=String(prev||'').replace(/[^0-9]/g,'');
         const newDay=!pd||pd.slice(0,8)!==d.slice(0,8);
-        return newDay?(md+' '+hm):hm;                                 // 날짜 + 한 칸 + 시각
+        return newDay?(md+'  '+hm):hm;                                // 날짜 + 두 칸 + 시각
       }
       return String(dstr).slice(-5);
     }
@@ -18848,9 +18856,11 @@ function drawChart(){
         const bh=binH*0.72,y=padT+priceH-(b+1)*binH+(binH-bh)/2;
         ctx.fillStyle=(b===curB)?PAL.vpCur:(b===maxB)?PAL.vpPoc:PAL.vpBase;
         rr(x1-w,y,w,bh,1.5);
-        if(b===curB||b===maxB){
+        /* [v17.8.40] % 라벨은 최대 매물대 한 곳만 — 현재가 구간 라벨까지 찍으면
+           오른쪽 가격축의 현재가 태그·최저가 표시와 겹쳐 지저분했다(실기). */
+        if(b===maxB){
           const pct=binVol[b]/totV*100;
-          ctx.fillStyle=(b===curB)?PAL.vpCurT:PAL.vpPocT;
+          ctx.fillStyle=PAL.vpPocT;
           ctx.font='bold 8.5px Pretendard,system-ui,sans-serif';ctx.textAlign='right';
           const tw=ctx.measureText(pct.toFixed(1)+'%').width;
           ctx.fillText(pct.toFixed(1)+'%',w>tw+8?x1-4:x1-w-3,y+bh/2);
@@ -18999,20 +19009,26 @@ function drawChart(){
      ctx.strokeStyle=PAL.axisLine;ctx.beginPath();ctx.moveTo(Math.round(x)+.5,H-axisH);ctx.lineTo(Math.round(x)+.5,H-axisH+4);ctx.stroke();
      ctx.fillText(fmtAxis(c.d,prevD),x,H-axisH+axisH/2+1);prevD=c.d;});
    ctx.textAlign='left';}
-  /* ══ 봉 정보 툴팁 (마우스·터치 공용) ══ */
+  /* ══ 봉 위 OHLCV 범례 — 크로스헤어를 따라간다 ══ */
+  const giRef=start+(hoverIdx!=null?hoverIdx:m-1);
+  const refPrev=(giRef>0&&cs[giRef-1])?cs[giRef-1].c:hovBar.o;
+  const chgV=hovBar.c-refPrev,rateV=refPrev?(chgV/refPrev*100):0;
+  const upC=(chgV>0?'up':chgV<0?'down':'flat');
+  const ucol=(chgV>0?PAL.up:chgV<0?PAL.down:PAL.sub);
+  /* ══ 봉 정보 툴팁 (마우스·터치 공용) — '대비'는 범례와 같은 전봉 종가 기준 ══ */
   if(hoverIdx!=null){
     const c=cs[start+hoverIdx];
     if(c){
       const x=X(hoverIdx);
-      const up=c.c>=c.o,cc=up?'up':'down',chg=c.c-c.o,cp=c.o?chg/c.o*100:0;
+      const up=c.c>=c.o,cc=up?'up':'down',chg=chgV,cp=rateV;
       const tip=$('chartTip');
       if(tip){
         tip.innerHTML=`<div class="d">${dateBadge(c.d)}</div>
-          <div class="r"><span>시</span><span>${pfmt(c.o)}</span></div>
-          <div class="r"><span>고</span><span class="up">${pfmt(c.h)}</span></div>
-          <div class="r"><span>저</span><span class="down">${pfmt(c.l)}</span></div>
-          <div class="r"><span>종</span><span class="${cc}">${pfmt(c.c)}</span></div>
-          <div class="r"><span>대비</span><span class="${cc}">${(chg>0?'+':'')+pfmt(chg)} (${pctS(cp)})</span></div>
+          <div class="r"><span>시</span><span>${usym+pfmt(c.o)}</span></div>
+          <div class="r"><span>고</span><span class="up">${usym+pfmt(c.h)}</span></div>
+          <div class="r"><span>저</span><span class="down">${usym+pfmt(c.l)}</span></div>
+          <div class="r"><span>종</span><span class="${cc}">${usym+pfmt(c.c)}</span></div>
+          <div class="r"><span>대비</span><span class="${cc}">${(chg>0?'+':chg<0?'-':'')+usym+pfmt(Math.abs(chg))} (${pctS(cp)})</span></div>
           <div class="r"><span>거래량</span><span>${KRW(c.v)}</span></div>`;
         tip.hidden=false;
         const hostBox=canvas.parentElement.getBoundingClientRect();
@@ -19025,20 +19041,14 @@ function drawChart(){
       }
     }
   }else{const tip=$('chartTip');if(tip)tip.hidden=true;}
-  /* ══ 봉 위 OHLCV 범례 — 크로스헤어를 따라간다 ══ */
-  const giRef=start+(hoverIdx!=null?hoverIdx:m-1);
-  const refPrev=(giRef>0&&cs[giRef-1])?cs[giRef-1].c:hovBar.o;
-  const chgV=hovBar.c-refPrev,rateV=refPrev?(chgV/refPrev*100):0;
-  const upC=(chgV>0?'up':chgV<0?'down':'flat');
-  const ucol=(chgV>0?PAL.up:chgV<0?PAL.down:PAL.sub);
   if(LG){
     LG.innerHTML=
       `<span class="cl-tf">${TFLABEL[chartTf]}봉</span>`+
-      `<span class="cl-i"><i>시</i><b class="num">${pfmt(hovBar.o)}</b></span>`+
-      `<span class="cl-i"><i>고</i><b class="num" style="color:${PAL.up}">${pfmt(hovBar.h)}</b></span>`+
-      `<span class="cl-i"><i>저</i><b class="num" style="color:${PAL.down}">${pfmt(hovBar.l)}</b></span>`+
-      `<span class="cl-i"><i>종</i><b class="num" style="color:${ucol}">${pfmt(hovBar.c)}</b></span>`+
-      `<span class="cl-i"><b class="num" style="color:${ucol}">${(chgV>0?'+':'')+pfmt(chgV)} (${pctS(rateV)})</b></span>`+
+      `<span class="cl-i"><i>시</i><b class="num">${usym+pfmt(hovBar.o)}</b></span>`+
+      `<span class="cl-i"><i>고</i><b class="num" style="color:${PAL.up}">${usym+pfmt(hovBar.h)}</b></span>`+
+      `<span class="cl-i"><i>저</i><b class="num" style="color:${PAL.down}">${usym+pfmt(hovBar.l)}</b></span>`+
+      `<span class="cl-i"><i>종</i><b class="num" style="color:${ucol}">${usym+pfmt(hovBar.c)}</b></span>`+
+      `<span class="cl-i"><b class="num" style="color:${ucol}">${(chgV>0?'+':chgV<0?'-':'')+usym+pfmt(Math.abs(chgV))} (${pctS(rateV)})</b></span>`+
       `<span class="cl-i"><i>거래량</i><b class="num">${chartVolTxt(hovBar.v)}</b></span>`+
       `<span class="cl-n">${m}/${n}</span>`+
       ((isMinute(chartTf)&&n<=2&&minuteDiag)?`<span class="cl-warn">${minuteDiag}</span>`:'');
@@ -19046,7 +19056,7 @@ function drawChart(){
   if(MAE){
     MAE.innerHTML=MAS.filter(([p])=>maOn[p]).map(([p,col])=>{
       const v=maAt(p,giRef);
-      return v==null?'':`<span class="cl-ma" style="color:${col}"><i style="background:${col}"></i>MA${p} <b class="num">${pfmt(v)}</b></span>`;
+      return v==null?'':`<span class="cl-ma" style="color:${col}"><i style="background:${col}"></i>MA${p} <b class="num">${usym+pfmt(v)}</b></span>`;
     }).join('');
   }
   /* 이전 그리기 좌표 — 포인터 처리(패닝·휠줌)가 같은 좌표계를 쓴다 */
