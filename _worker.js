@@ -14909,14 +14909,13 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.35",
-  releasedAt: "2026-11-25 21:20",
+  version: "17.8.36",
+  releasedAt: "2026-11-25 21:35",
   notes: [
-    "계정 탈퇴가 '삭제 실패'로 응답하던 오류 수정 — 실제 삭제 여부로 판정",
-    "탈퇴 시 반대 접두사 계정·사용자 사본까지 함께 정리",
-    "탈퇴한 계정이 옛 사본에서 되살아나던 경로 차단 — 탈퇴 표식 도입",
-    "탈퇴 시 친구 프로필·알림 구독·클랜 명단의 내 기록 정리",
-    "미체결 색인 정리 유지 — 탈퇴 계정이 자동 체결 대상에 남지 않음"
+    "종목 상세 화면과 거래·주문 화면 독립 분리",
+    "매수·매도·정정/취소·체결/미체결·예약내역 5개 거래 코너 구성",
+    "미체결 주문 가격·수량 정정 및 취소, 체결·예약 내역 통합 조회",
+    "기존 종목 정보·차트·호가·기업정보와 모의 주문 엔진 보존"
   ]
 };
 
@@ -18352,7 +18351,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.35";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.36";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) { return await afScheduled(event, env, ctx); },
@@ -18697,7 +18696,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 21:20"; BUNDLED_VERSION.notes = ["계정 탈퇴가 '삭제 실패'로 응답하던 오류 수정 — 실제 삭제 여부로 판정", "탈퇴 시 반대 접두사 계정·사용자 사본까지 함께 정리", "탈퇴한 계정이 옛 사본에서 되살아나던 경로 차단 — 탈퇴 표식 도입", "탈퇴 시 친구 프로필·알림 구독·클랜 명단의 내 기록 정리", "미체결 색인 정리 유지 — 탈퇴 계정이 자동 체결 대상에 남지 않음"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 21:20"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 21:35"; BUNDLED_VERSION.notes = ["종목 상세 화면과 거래·주문 화면 독립 분리", "매수·매도·정정/취소·체결/미체결·예약내역 5개 거래 코너 구성", "미체결 주문 가격·수량 정정 및 취소, 체결·예약 내역 통합 조회", "기존 종목 정보·차트·호가·기업정보와 모의 주문 엔진 보존"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 21:35"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
 <link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
-<link rel="stylesheet" href="/app.css?v=676">
+<link rel="stylesheet" href="/app.css?v=677">
 </head>
 <body>
 
@@ -1399,60 +1399,50 @@ body.needs-auth #authGate{z-index:2000001}
     <div class="panel table-wrap" id="watchWrap"></div>
   </section>
 
-  <!-- TRADE -->
+  <!-- TRADE / STOCK DETAIL + DEDICATED ORDER WORKSPACE -->
   <section class="view" id="view-trade" hidden>
-    <div class="page-title" id="tradePageTitle">종목 상세</div>
-    <div class="page-sub" id="tradePageSub">실시간 시세와 차트·호가·기업 정보를 확인하고 모의 주문을 실행하세요.</div>
-    <div class="trade-grid">
-      <div class="panel">
-        <div class="d-head">
-          <div class="d-top">
-            <div>
-              <div class="d-name"><span id="dName">—</span></div>
-              <div class="d-code num" id="dCode">—</div>
-              <div class="d-tags" id="dTags"></div>
-              <div class="adv-flags" id="advFlags" hidden></div>
+    <div id="stockDetailScreen" class="stock-detail-screen">
+      <div class="detail-page-heading">
+        <div><div class="page-title" id="tradePageTitle">종목 상세</div>
+          <div class="page-sub" id="tradePageSub">실시간 시세와 차트·호가·기업 정보를 한눈에 확인하세요.</div></div>
+        <span class="detail-heading-mark">STOCK INSIGHT</span>
+      </div>
+      <div class="stock-detail-layout">
+        <div class="panel stock-overview-panel">
+          <div class="d-head">
+            <div class="d-top">
+              <div class="d-identity">
+                <div class="d-name"><span id="dName">—</span></div>
+                <div class="d-code num" id="dCode">—</div>
+                <div class="d-tags" id="dTags"></div>
+                <div class="adv-flags" id="advFlags" hidden></div>
+              </div>
+              <div class="d-price-wrap"><div class="d-price-line"><span class="d-src" id="dSrc" hidden>통합</span><div class="d-price num" id="dPrice">—</div></div>
+                <div class="d-change num" id="dChange"></div><div class="d-live" id="dLive"></div></div>
             </div>
-            <div class="d-price-wrap"><div class="d-price-line"><span class="d-src" id="dSrc" hidden>통합</span><div class="d-price num" id="dPrice">—</div></div><div class="d-change num" id="dChange"></div>
-              <div class="d-live" id="dLive"></div></div>
+            <div class="d-toolbar">
+              <button class="d-tool star-tool" id="starBtn" title="관심종목에 담기">☆<span id="starLab">관심</span></button>
+              <button class="d-tool" id="alertBtn" title="목표가에 도달하면 알려 줍니다">🔔<span>가격 알림</span></button>
+              <button class="d-tool" id="cmpBtn" title="여러 종목을 표로 비교합니다">⚖<span>비교함</span></button>
+              <button class="d-tool" id="dartBtn" title="이 종목의 공시·기업 뉴스를 새 탭에서 봅니다">📄<span>공시</span></button>
+              <button class="d-tool" id="holdMgBtn" title="손절가·익절가·배당률·목표비중 설정">🎯<span>손절·익절</span></button>
+            </div>
           </div>
-          <div class="d-toolbar">
-            <!-- [v10.9] 관심 버튼을 해외와 같은 자리·같은 모양으로 옮긴다.
-                 이름 옆 작은 ☆ 는 있는 줄도 모르는 사람이 많았다. -->
-            <button class="d-tool star-tool" id="starBtn" title="관심종목에 담기">☆<span id="starLab">관심</span></button>
-            <button class="d-tool" id="alertBtn" title="목표가에 도달하면 알려 줍니다">🔔<span>가격 알림</span></button>
-            <button class="d-tool" id="cmpBtn" title="여러 종목을 표로 비교합니다">⚖<span>비교함</span></button>
-            <button class="d-tool" id="dartBtn" title="이 종목의 공시·기업 뉴스를 새 탭에서 봅니다">📄<span>공시</span></button>
-            <button class="d-tool" id="holdMgBtn" title="손절가·익절가·배당률·목표비중 설정">🎯<span>손절·익절</span></button>
+          <div class="d-stats" id="dStats"></div>
+          <div class="ex-row" id="exRow"></div>
+          <div class="detail-trade-actions">
+            <div class="detail-trade-copy"><b>이 종목 거래하기</b><span>모의 주문과 주문 진행 현황은 별도 거래 화면에서 관리합니다.</span></div>
+            <div class="detail-trade-buttons">
+              <button type="button" class="detail-order-btn buy" id="dBuyEntry">매수</button>
+              <button type="button" class="detail-order-btn sell" id="dSellEntry">매도</button>
+              <button type="button" class="detail-orders-link" id="dOrderHistoryEntry">주문 내역 <span>↗</span></button>
+            </div>
           </div>
         </div>
-        <div class="d-stats" id="dStats"></div>
-        <div class="ex-row" id="exRow"></div>
-        <div class="detail-hint">🔻 자세한 종목 정보는 아래에서 조회하실 수 있습니다. 🔻</div>
-      </div>
-      <div class="panel">
-        <!-- [v4.56] 주문 계좌 선택 — 어느 계좌로 사고파는지 주문 직전에 바꾼다 -->
-        <div class="ord-acct" id="ordAcct"></div>
-        <div class="ord-tabs"><button class="buy on" data-side="buy">매수</button><button class="sell" data-side="sell">매도</button></div>
-        <div class="tg-wrap" id="tradeGate"></div>
-        <div class="ord-body">
-          <button class="ot-select" id="otSelect"><span id="otSelText">KRX · 보통지정가</span><span class="ot-caret">▾</span></button>
-          <div class="field"><div class="lab"><span>주문가격</span><span id="priceHint" class="num"></span></div>
-            <div class="stepper"><button id="pxDown" aria-label="주문가격 낮추기">−</button><input id="pxInput" class="num" inputmode="numeric" aria-label="주문가격"><button id="pxUp" aria-label="주문가격 올리기">+</button><span class="unit">원</span></div></div>
-          <div class="ord-book-note">지정가는 <b>현재가에 닿아야 체결</b>돼요 · 닿기 전까지는 미체결로 대기합니다</div>
-          <div class="field"><div class="lab"><span>주문수량</span><span class="num" id="maxQty"></span></div>
-            <div class="stepper"><button id="qtyDown" aria-label="수량 줄이기">−</button><input id="qtyInput" class="num" value="1" inputmode="numeric" aria-label="주문수량"><button id="qtyUp" aria-label="수량 늘리기">+</button><span class="unit">주</span></div>
-            <div class="qty-quick" id="qtyQuick"><button data-q="10">10%</button><button data-q="25">25%</button><button data-q="50">50%</button><button data-q="100">최대</button></div></div>
-          <div class="ord-summary"><span>주문금액</span><span class="amt num" id="ordTotal">0원</span></div>
-          <button class="submit buy" id="submitBtn">매수 주문</button>
-          <div class="ord-note">※ 주문 시 계좌 비밀번호 필요 · 로컬 모의 체결(실제 주문 아님) · 시세는 실제입니다.</div>
-          <div class="pend-box" id="pendBox" hidden></div>
+        <div class="panel d-glance" id="dGlance" hidden>
+          <div class="dg-h">체결 흐름 <span class="dg-live">LIVE</span></div>
+          <div id="dGlanceBody"><div class="empty">체결을 모으는 중…</div></div>
         </div>
-      </div>
-    <div class="panel d-glance" id="dGlance" hidden>
-        <div class="dg-h">체결 흐름 <span class="dg-live">LIVE</span></div>
-        <div id="dGlanceBody"><div class="empty">체결을 모으는 중…</div></div>
-      </div>
       </div>
     <div class="panel info-panel">
       <div class="info-tabs">
@@ -1480,6 +1470,60 @@ body.needs-auth #authGate{z-index:2000001}
 <div class="chart-box"><div class="chart-labels"><div class="chart-legend" id="chartLegend"></div><div class="chart-ma" id="chartMa"></div><div class="chart-vplg"><b>매물대</b><span><i class="poc"></i>최대 거래</span><span><i class="cur"></i>현재가 구간</span></div></div><div class="chart-tip" id="chartTip" hidden></div><canvas id="chart"></canvas></div><div class="chart-hint2">드래그 이동 · 두 손가락/휠 확대·축소 · 차트를 탭하거나 마우스를 올려 값 확인</div>
       </div></div>
       <div class="info-body" id="infoBody"></div>
+    </div>
+    </div>
+
+    <div id="stockOrderScreen" class="stock-order-screen" hidden>
+      <div class="order-workspace-head">
+        <button type="button" class="order-back" id="orderBackToDetail"><span aria-hidden="true">‹</span> 종목 상세</button>
+        <div class="order-stock-summary">
+          <div class="order-stock-kicker">DOMESTIC EQUITY · PAPER TRADING</div>
+          <div class="order-stock-main"><div><b id="orderStockName">—</b><span id="orderStockCode">—</span></div>
+            <div class="order-stock-quote"><strong id="orderStockPrice" class="num">—</strong><span id="orderStockChange" class="num">—</span></div></div>
+        </div>
+      </div>
+
+      <div class="order-work-tabs" id="orderWorkTabs" role="tablist" aria-label="거래 화면 메뉴">
+        <button type="button" role="tab" data-order-tab="buy" class="on buy-tab" aria-selected="true"><span>01</span>매수</button>
+        <button type="button" role="tab" data-order-tab="sell" aria-selected="false"><span>02</span>매도</button>
+        <button type="button" role="tab" data-order-tab="manage" aria-selected="false"><span>03</span>정정/취소</button>
+        <button type="button" role="tab" data-order-tab="history" aria-selected="false"><span>04</span>체결/미체결</button>
+        <button type="button" role="tab" data-order-tab="reserve" aria-selected="false"><span>05</span>예약내역</button>
+      </div>
+
+      <div id="orderTradePanel" class="panel order-content-panel">
+        <div class="order-section-heading"><div><span class="order-section-kicker">PLACE AN ORDER</span><h2 id="orderFormTitle">매수 주문</h2><p>계좌와 주문 조건을 확인한 뒤 모의 주문을 접수하세요.</p></div><span class="order-mode-pill" id="orderModePill">BUY</span></div>
+        <div class="ord-acct" id="ordAcct"></div>
+        <div class="ord-tabs" aria-hidden="true"><button class="buy on" data-side="buy" tabindex="-1">매수</button><button class="sell" data-side="sell" tabindex="-1">매도</button></div>
+        <div class="tg-wrap" id="tradeGate"></div>
+        <div class="ord-body">
+          <div class="order-form-grid">
+            <div class="order-form-main">
+              <button class="ot-select" id="otSelect"><span id="otSelText">KRX · 보통지정가</span><span class="ot-caret">▾</span></button>
+              <div class="field"><div class="lab"><span>주문가격</span><span id="priceHint" class="num"></span></div>
+                <div class="stepper"><button id="pxDown" aria-label="주문가격 낮추기">−</button><input id="pxInput" class="num" inputmode="numeric" aria-label="주문가격"><button id="pxUp" aria-label="주문가격 올리기">+</button><span class="unit">원</span></div></div>
+              <div class="ord-book-note">지정가는 <b>현재가에 닿아야 체결</b>돼요 · 조건에 닿기 전에는 미체결로 대기합니다</div>
+              <div class="field"><div class="lab"><span>주문수량</span><span class="num" id="maxQty"></span></div>
+                <div class="stepper"><button id="qtyDown" aria-label="수량 줄이기">−</button><input id="qtyInput" class="num" value="1" inputmode="numeric" aria-label="주문수량"><button id="qtyUp" aria-label="수량 늘리기">+</button><span class="unit">주</span></div>
+                <div class="qty-quick" id="qtyQuick"><button data-q="10">10%</button><button data-q="25">25%</button><button data-q="50">50%</button><button data-q="100">최대</button></div></div>
+            </div>
+            <aside class="order-form-aside">
+              <div class="order-aside-kicker">ORDER SUMMARY</div>
+              <div class="order-summary-line"><span>주문 방향</span><b id="orderSummarySide">매수</b></div>
+              <div class="order-summary-line"><span>주문 가능 수량</span><b id="orderSummaryQty" class="num">—</b></div>
+              <div class="ord-summary"><span>주문금액</span><span class="amt num" id="ordTotal">0원</span></div>
+              <button class="submit buy" id="submitBtn">매수 주문</button>
+              <div class="ord-note">※ 주문 시 계좌 비밀번호 확인 · 로컬 모의 체결(실제 주문 아님)</div>
+            </aside>
+          </div>
+          <div class="pend-box" id="pendBox" hidden></div>
+        </div>
+      </div>
+
+      <div id="orderManagePanel" class="panel order-content-panel" hidden><div class="order-section-heading"><div><span class="order-section-kicker">ORDER MANAGEMENT</span><h2>정정 / 취소</h2><p>현재 종목의 대기 주문을 확인하고 가격·수량을 정정하거나 취소합니다.</p></div><span class="order-mode-pill">MANAGE</span></div><div id="orderManageBody" class="order-list-body"></div></div>
+      <div id="orderHistoryPanel" class="panel order-content-panel" hidden><div class="order-section-heading"><div><span class="order-section-kicker">EXECUTION HISTORY</span><h2>체결 / 미체결</h2><p>접수된 미체결 주문과 실제 모의 체결 기록을 구분해 확인합니다.</p></div><span class="order-mode-pill">HISTORY</span></div><div id="orderHistoryBody" class="order-list-body"></div></div>
+      <div id="orderReservePanel" class="panel order-content-panel" hidden><div class="order-section-heading"><div><span class="order-section-kicker">RESERVED ORDERS</span><h2>예약내역</h2><p>가격 조건에 도달하면 체결을 시도하도록 대기 중인 예약 주문입니다.</p></div><span class="order-mode-pill">RESERVE</span></div><div id="orderReserveBody" class="order-list-body"></div></div>
+      <div class="order-footnote"><span class="order-footnote-dot"></span> LIVE증권은 실제 주문을 전송하지 않는 모의투자 서비스입니다. 모든 주문·체결은 연습용 계좌에만 반영됩니다.</div>
     </div>
   </section>
 
@@ -1761,6 +1805,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="tier"><i>💎</i><span>멤버십</span></button>
   <button data-bv="event"><i>🎁</i><span>이벤트</span></button>
 </nav>
-<script type="module" src="/app.js?v=690"></script>
+<script type="module" src="/app.js?v=691"></script>
 </body>
 </html>
