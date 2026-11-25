@@ -9780,3 +9780,13 @@ html[data-theme="dark"] #chartCard .tf-seg button.on{box-shadow:0 1px 2px rgba(0
   .ssp-act.detail{grid-column:1/-1}
 }
 .cr-src{font-style:normal;color:var(--brand);font-weight:800}
+
+/* [v17.8.41] 해외 거래 화면 — 주문 작업대가 좁은 오른쪽 칸에 갇혀 5탭·가격대가 눌리던 문제.
+   국내 거래 작업대처럼 넓은 한 줄을 쓰도록 그리드를 한 열로 편다(정보 카드 아래). */
+#view-ustrade .us-grid{grid-template-columns:minmax(0,1fr)}
+#view-ustrade .us-right{display:block}
+#view-ustrade .us-right>.panel{margin-top:2px}
+@media(min-width:901px){
+  #view-ustrade .us-left .panel.us-info{margin-bottom:0}
+}
+.chart-src{margin:6px 2px 0;color:var(--sub-2);font-size:10.5px;line-height:1.5;font-weight:650}

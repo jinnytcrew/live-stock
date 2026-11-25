@@ -10956,7 +10956,7 @@ function renderHomeHotUs(){
     const p=(q.price!=null&&q.prev)?(q.price-q.prev)/q.prev*100:null;
     return `<button class="hh-c" data-ushot="${t}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${usTick(t,'xs')}${m.kr||t}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
   }).join('');
-  el.querySelectorAll('[data-ushot]').forEach(b=>b.onclick=()=>openUS(b.dataset.ushot));
+  el.querySelectorAll('[data-ushot]').forEach(b=>b.onclick=()=>openUsSidePanel(b.dataset.ushot));
 }
 /* [v2.5.1] 내용이 비어 있는 관심 요약 카드가 빈 흰 상자로 남던 문제 */
 function tidyMySum(){const el=$('myWatchSum');if(el&&!el.hidden&&!String(el.textContent||'').trim())el.hidden=true;}
@@ -18512,11 +18512,17 @@ async function loadCandles(retry){
       chartLoading=true;$('chartLegend').textContent='분봉 불러오는 중…';drawChart();
       await ensureIntraday(code);chartLoading=false;}
     if(selected!==code||chartTf!==tf)return;
-    curCandles=minuteSeries(code,minutesOf(tf));resetView();drawChart();return;
+    curCandles=minuteSeries(code,minutesOf(tf));resetView();drawChart();
+    /* [v17.8.41] 분봉은 어디서 온 값인지·프리마켓이 모였는지 밝힌다 — 없는 봉을 숨기지 않는다 */
+    try{const sn=$('chartSrcNote');
+      if(sn){sn.hidden=false;sn.textContent='분봉 원천 '+minuteDiag+' · 시·고·저·종·분당 거래량은 거래소 값, 프리마켓(08:00~08:50)은 수집된 시각만 표시됩니다';}
+    }catch(e){}
+    return;
   }
   const key=code+':'+tf;
   const _dGate=(tf==='D')?dailyFresh(candleCache[key],_candleMeta[key]):true;
   if(candleCache[key]&&candleCache[key].length&&_dGate){curCandles=candleCache[key];resetView();drawChart();return;}
+  try{const sn=$('chartSrcNote');if(sn)sn.hidden=true;}catch(e){}
   chartLoading=true;$('chartTip').hidden=true;$('chartLegend').textContent='차트 불러오는 중…';drawChart();
   try{const r=await fetch(`/api/chart?code=${code}&tf=${tf}`,{cache:tf==='D'?'no-store':'default'});const j=await r.json();curCandles=j.candles||[];if(curCandles.length){candleCache[key]=curCandles;_candleMeta[key]={at:Date.now()};}}catch{curCandles=[];}
   chartLoading=false;
@@ -23446,7 +23452,11 @@ function wireUsLounge(){
   }
 }
 document.addEventListener('click',(e)=>{const n=e.target.closest('[data-us]');
-  if(n&&n.dataset.us){openUS(n.dataset.us);}});
+  if(!n||!n.dataset.us)return;
+  /* [v17.8.41] 해외 목록의 종목 줄을 누르면 국내처럼 '미리보기 패널'을 먼저 연다.
+     (별·태그·지수 카드처럼 data-us 를 값으로만 쓰는 곳은 종전대로 거래 화면으로 간다) */
+  if(n.classList&&(n.classList.contains('us-row')||n.classList.contains('has-rk'))){openUsSidePanel(n.dataset.us);return;}
+  openUS(n.dataset.us);});
 
 /* ── 7. 해외 거래 화면 ── */
 var usSel=null, usSide='buy', usRange=132, usCandles=null, usOrdPx=null, usOrdQty=1;
