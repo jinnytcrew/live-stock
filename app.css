@@ -9549,3 +9549,39 @@ html[data-theme="dark"] .biz-tags span{background:rgba(139,92,246,.18);color:#dd
   .stock-order-screen .order-form-aside .submit{min-height:54px}
   .stock-order-screen .order-book-pane{border-top-color:var(--tr-line)}
 }
+
+/* ══ [v17.8.39] 상세 호가 액션 창 — [매도 | 선택한 호가·등락률 | 매수] + [정정/취소] ══
+   색은 테마 변수에서 온다. 라이트·다크·색약 팔레트가 각자의 --panel·--up·--down
+   으로 그대로 따라오므로 테마별 예외 규칙을 따로 두지 않는다. */
+body.ob-act-lock{overflow:hidden}
+.ob-act-overlay{position:fixed;inset:0;z-index:10060;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(10,16,28,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.ob-act-overlay[hidden]{display:none}
+.ob-act-wrap{display:grid;gap:9px;width:min(100%,356px);animation:obActIn .16s ease-out}
+@keyframes obActIn{from{opacity:0;transform:translateY(10px) scale(.975)}to{opacity:1;transform:none}}
+.ob-act-cap{display:flex;align-items:baseline;justify-content:center;gap:6px;color:rgba(255,255,255,.78);font-size:10.5px;font-weight:800;letter-spacing:.01em;text-shadow:0 1px 3px rgba(0,0,0,.35)}
+.ob-act-cap b{color:#fff;font-weight:900;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ob-act-cap span::before{content:'·';margin-right:6px;opacity:.6}
+.ob-act-top{display:grid;grid-template-columns:84px minmax(0,1fr) 84px;align-items:center;gap:8px;padding:12px;border:1px solid var(--border-soft);border-radius:19px;background:var(--panel);box-shadow:0 22px 60px rgba(6,12,24,.34)}
+.ob-act-side{position:relative;height:58px;border-radius:14px;color:#fff;font-size:15.5px;font-weight:950;letter-spacing:-.02em;transition:transform .06s,filter .15s;box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 6px 16px -6px rgba(10,20,40,.45)}
+.ob-act-side:active{transform:scale(.965)}
+.ob-act-side:hover{filter:brightness(1.04)}
+.ob-act-side.sell{background:linear-gradient(180deg,#7cabff 0%,var(--down) 62%,color-mix(in srgb,var(--down) 86%,#000) 100%)}
+.ob-act-side.buy{background:linear-gradient(180deg,#ff7582 0%,var(--up) 62%,color-mix(in srgb,var(--up) 86%,#000) 100%)}
+.ob-act-mid{min-width:0;text-align:center}
+.ob-act-mid b{display:block;font-size:23px;font-weight:950;letter-spacing:-.035em;line-height:1.15;color:var(--text)}
+.ob-act-rate{display:block;margin-top:3px;font-size:13px;font-weight:850;letter-spacing:-.01em}
+.ob-act-manage{min-height:54px;border:1px solid var(--border-soft);border-radius:18px;background:var(--panel);color:var(--text);font-size:15.5px;font-weight:950;letter-spacing:-.02em;box-shadow:0 18px 46px rgba(6,12,24,.26);transition:transform .06s,background .15s}
+.ob-act-manage:active{transform:scale(.985)}
+.ob-act-manage:hover{background:color-mix(in srgb,var(--text) 4%,var(--panel))}
+/* 호가 팝업에서 '정정/취소'로 들어왔을 때 — 같은 가격의 미체결 주문 표시 */
+.order-record.ob-focus{border-color:color-mix(in srgb,var(--amber) 55%,var(--border));box-shadow:0 0 0 1px color-mix(in srgb,var(--amber) 40%,transparent),0 12px 26px -18px rgba(10,20,38,.6)}
+.ob-focus-tag{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--amber) 18%,var(--panel));color:var(--amber-2);font-size:9px;font-weight:950;letter-spacing:.01em;white-space:nowrap}
+@media(max-width:760px){
+  .ob-act-overlay{padding:18px}
+  .ob-act-wrap{width:min(100%,330px)}
+  .ob-act-top{grid-template-columns:78px minmax(0,1fr) 78px;padding:11px;border-radius:17px}
+  .ob-act-side{height:54px;font-size:14.5px;border-radius:13px}
+  .ob-act-mid b{font-size:21px}
+  .ob-act-rate{font-size:12px}
+  .ob-act-manage{min-height:50px;font-size:14.5px;border-radius:16px}
+}

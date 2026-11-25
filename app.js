@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=348';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=349';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -15630,7 +15630,7 @@ function renderAsking(el){
     return;
   }
   const px=livePx(code,null), pc=d.prevClose;
-  el.innerHTML=obBookHtml(d,px,pc,{hint:'호가를 누르면 그 가격으로 거래 화면이 열립니다'});
+  el.innerHTML=obBookHtml(d,px,pc,{hint:'호가를 누르면 매도·매수·정정 창이 열립니다'});
   bindObRows(el,d,{goto:true});
 }
 /* ══ [v17.8.37] 호가 그리기 — 상세 호가 탭과 거래 화면 좌측 호가창이 함께 쓴다 ══
@@ -15671,7 +15671,7 @@ function obBookHtml(d,px,pc,opts){
         ?'사겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'
         :'팔겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'}</div>
     </div>
-    ${opts.hint?'<div class="ob-book-hint">호가를 누르면 그 가격이 주문가격에 들어갑니다</div>':''}
+    ${opts.hint?'<div class="ob-book-hint">'+htmlEsc(opts.hint)+'</div>':''}
     <div class="ob-note">네이버 공개 시세 기준 <b>${d.levels}단계</b> · ${ago<5?'방금':ago+'초 전'} 받음<br>
       실제 MTS 의 10단계 중 공개되는 5단계까지만 표시합니다. 나머지는 <b>공개되지 않아 비워 둡니다</b>.
       거래소 원장과 시차가 있을 수 있습니다.</div>`;
@@ -15682,19 +15682,90 @@ function bindObRows(el,d,opts){
   el.querySelectorAll('.ob-r').forEach((r,i)=>{
     const x=all[i]; if(!x)return;
     r.onclick=()=>{
-      /* ══ [v17.8.38] 상세 호가 탭 — 누르면 거래 화면으로 들어간다 ═══════════
-         종전에는 같은 화면의 주문가격 칸만 바꿨는데, 그 칸은 v17.8.36 에서
-         거래 화면으로 옮겨져 상세 화면에는 없다. 그래서 눌러도 아무 일도
-         일어나지 않았다(사용자 지적). 상세에서는 거래 화면을 열고 그 가격을
-         지정가로 넣는다. 매도호가를 누르면 살 때(매수), 매수호가를 누르면
-         팔 때(매도) — MTS 호가창과 같은 결이다. */
-      if(opts.goto){
-        const ask=(d.sell||[]).length;
-        try{ openOrderScreen(selected,i<ask?'buy':'sell'); }catch(e){}
-      }
+      /* ══ [v17.8.39] 상세 호가 탭 — 누르면 매도/매수/정정·취소를 고르는 창 ══
+         v17.8.38 은 호가를 누르면 호가 종류만 보고 매수·매도 화면으로 곧장
+         보냈다. 사는지 파는지가 가격만으로 정해지는 게 아니므로(사용자 지적),
+         누른 가격을 가운데 두고 매도·매수·정정/취소를 직접 고르게 한다.
+         거래 화면 좌측 호가창(opts.goto 없음)은 이미 매수/매도 탭이 열려
+         있으므로 종전처럼 그 가격이 주문가격 칸에 바로 들어간다. */
+      if(opts.goto){ obActOpen(x,d); return; }
       applyBookPrice(x.p,x.q);
     };
   });
+}
+/* ══ [v17.8.39] 상세 호가 액션 창 — 매도 · 선택한 호가 · 매수 / 정정·취소 ═════
+   사진 한 장으로 요청받은 모양 그대로: 위 상자에 [매도] 가운데 '선택한 호가와
+   등락률' [매수], 아래 상자에 [정정/취소]. 바깥(어두운 배경)을 누르면 닫힌다.
+   매도·매수 색은 앱의 기준(매수=빨강 · 매도=파랑)을 그대로 쓰고, 값은 전부
+   테마 변수(--panel·--up·--down)에서 와서 라이트·다크·색약 팔레트에 함께 따른다.
+   창을 띄워 두는 동안 아래 호가가 3초마다 갱신돼도 이 창은 그대로 남는다. */
+let _obActPx=0;
+/* 팝업에서 '정정/취소'를 눌러 들어온 가격 — 03 정정/취소 목록에서 그 가격의
+   미체결 주문을 잠깐 강조한다(15초). 없으면 강조할 것도 없다. */
+let obManageFocus=null;
+function obActEnsure(){
+  let ov=$('obActOverlay');
+  if(ov)return ov;
+  ov=document.createElement('div');
+  ov.id='obActOverlay';
+  ov.className='ob-act-overlay';
+  ov.hidden=true;
+  ov.innerHTML=`<div class="ob-act-wrap" role="dialog" aria-modal="true" aria-labelledby="obActPrice">
+      <div class="ob-act-cap"><b id="obActName"></b><span>선택한 호가</span></div>
+      <div class="ob-act-top">
+        <button type="button" class="ob-act-side sell" data-ob-act="sell">매도</button>
+        <div class="ob-act-mid"><b id="obActPrice" class="num">—</b><span id="obActRate" class="ob-act-rate num">—</span></div>
+        <button type="button" class="ob-act-side buy" data-ob-act="buy">매수</button>
+      </div>
+      <button type="button" class="ob-act-manage" data-ob-act="manage">정정/취소</button>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelectorAll('[data-ob-act]').forEach(b=>b.addEventListener('click',()=>obActChoose(b.dataset.obAct)));
+  ov.addEventListener('click',e=>{ if(e.target===ov)obActClose(); });
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape')obActClose(); });
+  return ov;
+}
+function obActOpen(x,d){
+  try{
+    const ov=obActEnsure();
+    _obActPx=(x&&+x.p)||0;
+    if(!(_obActPx>0))return;
+    const pc=(d&&+d.prevClose)||0;
+    const rate=pc?((_obActPx-pc)/pc*100):null;
+    const st=(typeof byCode!=='undefined'&&selected&&byCode[selected])||{};
+    const nm=$('obActName'),pr=$('obActPrice'),rt=$('obActRate');
+    if(nm)nm.textContent=st.name||'';
+    if(pr)pr.textContent=KRW(_obActPx);
+    if(rt){
+      rt.textContent=rate==null?'전일 종가 확인 중':(rate>0?'+':'')+rate.toFixed(2)+'%';
+      rt.className='ob-act-rate num '+(rate==null?'flat':rate>0?'up':rate<0?'down':'flat');
+    }
+    ov.hidden=false;
+    try{ document.body.classList.add('ob-act-lock'); }catch(e){}
+    const f=ov.querySelector('[data-ob-act="sell"]');
+    if(f)try{f.focus({preventScroll:true});}catch(e){}
+  }catch(e){}
+}
+function obActClose(){
+  const ov=$('obActOverlay');
+  _obActPx=0;
+  if(!ov||ov.hidden)return;
+  ov.hidden=true;
+  try{ document.body.classList.remove('ob-act-lock'); }catch(e){}
+}
+function obActChoose(act){
+  const p=_obActPx;
+  obActClose();
+  if(!(p>0)||!selected)return;
+  /* 정정/취소 — 03 정정/취소 탭으로 가고, 같은 가격의 미체결 주문이 있으면 그 줄을 강조한다 */
+  if(act==='manage'){
+    obManageFocus={p,until:Date.now()+15000};
+    try{ openOrderScreen(selected,'manage'); }catch(e){}
+    return;
+  }
+  /* 매도 = 02 매도 탭 · 매수 = 01 매수 탭, 누른 호가가 지정가로 들어간다 */
+  try{ openOrderScreen(selected,act==='sell'?'sell':'buy'); }catch(e){}
+  try{ applyBookPrice(p,0); }catch(e){}
 }
 /* 호가를 누르면 그 가격으로 주문 입력 — 상세 호가 탭과 거래 화면이 같은 길을 쓴다 */
 function applyBookPrice(p,q){
@@ -19605,6 +19676,21 @@ function renderOrderManage(){
    +`<div class="order-record-list">${list.map(o=>`<article class="order-record"><div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div><div class="order-record-values"><div><span>주문가격</span><b class="num">${KRW(o.price)}원</b></div><div><span>주문수량</span><b class="num">${KRW(o.qty)}주</b></div><div><span>상태</span><b class="wait-state">미체결 대기</b></div></div><div class="order-record-actions"><button type="button" class="order-revise-btn" data-order-revise="${htmlEsc(o.id)}">정정</button><button type="button" class="order-cancel-btn" data-order-cancel="${htmlEsc(o.id)}">주문 취소</button></div></article>`).join('')}</div>`;
   el.querySelectorAll('[data-order-revise]').forEach(b=>b.onclick=()=>openOrderModify(b.dataset.orderRevise));
   el.querySelectorAll('[data-order-cancel]').forEach(b=>b.onclick=()=>{cancelPending(b.dataset.orderCancel);renderOrderManage();});
+  /* [v17.8.39] 호가 팝업의 '정정/취소'로 들어온 경우 — 그 가격의 미체결 주문을 표시한다.
+     같은 가격의 주문이 없으면 아무것도 강조하지 않는다(없는 주문을 만들어 보이지 않는다). */
+  const focusPx=(obManageFocus&&Date.now()<obManageFocus.until)?obManageFocus.p:0;
+  if(focusPx){
+    const rows=el.querySelectorAll('.order-record');
+    list.forEach((o,i)=>{
+      if(!rows[i]||Math.abs((+o.price||0)-focusPx)>=0.5)return;
+      rows[i].classList.add('ob-focus');
+      const top=rows[i].querySelector('.order-record-top'),time=rows[i].querySelector('.order-record-time');
+      if(top&&!top.querySelector('.ob-focus-tag')){
+        const tag=document.createElement('span');tag.className='ob-focus-tag';tag.textContent='선택한 호가';
+        top.insertBefore(tag,time||null);
+      }
+    });
+  }
 }
 function renderOrderHistory(){
   const el=$('orderHistoryBody');if(!el)return;
