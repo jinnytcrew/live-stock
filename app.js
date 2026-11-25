@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=350';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=351';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -7299,6 +7299,8 @@ function applyQuote(q,isSnap){
   const prevP=st.price;
   st.price=q.price;
   st.prevClose=q.prevClose;st.open=q.open;st.high=q.high;st.low=q.low;st.volume=q.volume;st.value=q.value;
+  /* [v17.8.42] 통합 세션(정규장+NXT)의 시·고·저 — 상단 요약이 거래량과 같은 기준을 쓰게 한다 */
+  st.openU=q.openU||0;st.highU=q.highU||0;st.lowU=q.lowU||0;
   ohlSanitize(st);   /* [v15.4.8] 시세 위생 — 아래 공용 함수 참조 */
   try{swingWatch(q.code,st);}catch(e){}   // [S12] 보유종목 급변동 알림 (전 필드 갱신 후 판정)
   /* NXT 신호 두 종류를 구분해 저장한다.
@@ -13808,8 +13810,16 @@ function renderDetail(){
   const vNxt=Number(s.volNxt||0), vKrx=Number(s.volKrx||0);
   const volLab=(vNxt>0&&vKrx>0)?`거래량 <span class="st-sub">KRX+NXT</span>`:'거래량';
   const volVal=has?(KRW(s.volume)+'주'+((vNxt>0&&vKrx>0)?`<span class="st-sub">KRX ${KRW(vKrx)} · NXT ${KRW(vNxt)}</span>`:'')):'—';
+  /* ══ [v17.8.42] 시·고·저를 거래량과 같은 '통합 세션' 기준으로 ══════════════
+     [사용자 사진] 로보티즈 상단이 거래량 943,573주(KRX+NXT 통합)인데
+     시가 292,000·저가 280,500 은 KRX 정규장 값이라 한 블록에서 기준이 섞였다.
+     네이버 종목 상단은 그 순간 거래 중인 세션(정규장→애프터마켓)의 시·고·저를
+     보여 준다(실측 로보티즈 고가 299,500 · 저가 278,500, 삼성전자 시가 181,600).
+     integratedPriceInfo 의 시·고·저를 쓰고, 어느 기준인지 라벨로 밝힌다. */
+  const oU=Number(s.openU||0), hU=Number(s.highU||0), lU=Number(s.lowU||0);
+  const tagU=' <span class="st-sub">통합</span>';
   const stats=[[volLab,volVal],['거래대금',s.value!=null?KRW(s.value/1e8)+'억':'—'],
-    ['시가',KRW(s.open)],['고가',`<span class="up">${KRW(s.high)}</span>`],['저가',`<span class="down">${KRW(s.low)}</span>`],
+    [oU>0?('시가'+tagU):'시가',KRW(oU||s.open)],[hU>0?('고가'+tagU):'고가',`<span class="up">${KRW(hU||s.high)}</span>`],[lU>0?('저가'+tagU):'저가',`<span class="down">${KRW(lU||s.low)}</span>`],
     ['전일종가',KRW(s.prevClose)],
     ['상한가',s.prevClose?KRW(limitUp(s.prevClose,mktOf(selected))):'—'],
     ['하한가',s.prevClose?KRW(limitDown(s.prevClose,mktOf(selected))):'—']];
@@ -16125,6 +16135,75 @@ function obStart(){
    원천이 주지 않으므로 종가×거래량 추정치임을 밝힌다(없는 값을 지어내지 않는다).
    기간 선택(20·60·120일)과 CSV 내려받기도 넣는다. */
 var siseDays=60;
+/* ══ [v17.8.42] 일자별 시세표의 원천을 네이버 '일별시세' 표와 같은 것으로 바꾼다 ═══
+   [사용자 지적 2026-11-26] "같은 종목, 같은 날인데도 시세가 다르게 나오면 어떡하냐"
+   — 로보티즈 상단 −10,500(−3.57%) / 일자별 11/25 +1,500(+0.53%).
+   [원인] 표를 차트 일봉으로 만들면서 대비·등락률을 '앞 행 종가와의 차이'로 다시
+   계산했다. 그런데 네이버의 대비는 **전일 정규 종가**를 기준으로 준 값이다.
+   두 기준이 섞이면서 부호까지 뒤집혔다.
+   [고침] /api/pricelist(네이버 일별시세 원천)에서 받은 **원천 값을 그대로** 쓴다.
+   종가는 '정규 종가'(네이버 표와 같은 값), 보기 전환을 하면 '최종가'(애프터마켓
+   포함 마지막 체결가 = 상단 현재가와 같은 계열). 대비·등락률도 두 벌을 그대로
+   쓰므로 계산 오차가 생길 자리가 없다. 거래대금도 추정이 아니라 실제 값이다. */
+var _sumPL={}, _plBusy={}, _plTried={};
+var sisePriceMode='close';   /* 'close'=정규 종가(네이버 일별시세 표) · 'final'=최종가 */
+function ensurePriceList(code){
+  const K=String(code||'').toUpperCase();
+  if(_sumPL[K]&&_sumPL[K].length)return Promise.resolve(_sumPL[K]);
+  if(_plBusy[K])return _plBusy[K];
+  _plBusy[K]=fetch(`/api/pricelist?code=${K}&size=100`,{cache:'default'}).then(r=>r.json()).then(j=>{
+    const rows=(j&&j.rows)||[]; if(rows.length)_sumPL[K]=rows;
+    delete _plBusy[K]; _plTried[K]=1; return rows;
+  }).catch(()=>{delete _plBusy[K]; _plTried[K]=1; return _sumPL[K]||[];});
+  return _plBusy[K];
+}
+const amtFmtPL=(a)=>{if(!a)return '—';if(a>=1e12)return (a/1e12).toFixed(2)+'조';if(a>=1e8)return Math.round(a/1e8).toLocaleString('ko-KR')+'억';if(a>=1e4)return Math.round(a/1e4).toLocaleString('ko-KR')+'만';return String(a);};
+function renderSiseDatePL(el,seg,code,PL){
+  /* 원천은 최신순 → 화면은 과거순 */
+  const all=PL.slice().reverse();
+  const arr=all.slice(-siseDays);
+  const fin=sisePriceMode==='final';
+  const pxOf=(r)=>fin?(r.c||r.cc):(r.cc||r.c);
+  const chgOf=(r)=>fin?r.chg:r.chgC;
+  const rateOf=(r)=>fin?r.rate:r.rateC;
+  const first=arr[0], last=arr[arr.length-1];
+  const chgP=(first&&last&&pxOf(first))?((pxOf(last)-pxOf(first))/pxOf(first)*100):0;
+  const hi=Math.max(...arr.map(r=>r.h||pxOf(r))), lo=Math.min(...arr.map(r=>r.l||pxOf(r)));
+  const avgV=Math.round(arr.reduce((a,r)=>a+(+r.v||0),0)/arr.length);
+  const tabs=`<div class="sise-days">${[20,60,120].map(n=>
+    `<button data-sd="${n}" class="${siseDays===n?'on':''}">${n}일</button>`).join('')}
+    <span class="sise-pm">${[['close','정규 종가'],['final','최종가']].map(([k,l])=>
+      `<button data-pm="${k}" class="${sisePriceMode===k?'on':''}">${l}</button>`).join('')}</span>
+    <button id="siseCsv" class="sise-csv">CSV</button></div>`;
+  const sum=`<div class="sise-sum">
+    <div><span>${arr.length}일 등락</span><b class="num ${dirOf(chgP)}">${pctS(chgP)}</b></div>
+    <div><span>기간 최고</span><b class="num up">${KRW(hi)}</b></div>
+    <div><span>기간 최저</span><b class="num down">${KRW(lo)}</b></div>
+    <div><span>평균 거래량</span><b class="num">${KRW(avgV)}</b></div>
+  </div>`;
+  const head=`<div class="sise-head d9"><span>일자</span><span>${fin?'종가(최종)':'종가'}</span><span>대비</span><span>등락률</span>
+    <span>시가</span><span>고가</span><span>저가</span><span>거래량</span><span>거래대금</span></div>`;
+  const rows=arr.map(r=>{
+    const p=pxOf(r), df=chgOf(r), rt=rateOf(r), dir=dirOf(df||0);
+    const ds=`${r.d.slice(4,6)}/${r.d.slice(6,8)}`, yr=r.d.slice(2,4);
+    return `<div class="sise-r d9">
+      <span class="sl">${ds}<i>${yr}</i></span>
+      <span class="num sc">${KRW(p)}</span>
+      <span class="num sdiff ${dir}">${df?arrow(dir)+KRW(Math.abs(df)):'0'}</span>
+      <span class="num ${dir}">${rt==null?'—':pctS(rt)}</span>
+      <span class="num sub">${KRW(r.o||p)}</span>
+      <span class="num up">${KRW(r.h||p)}</span>
+      <span class="num down">${KRW(r.l||p)}</span>
+      <span class="num sv">${KRW(r.v)}</span>
+      <span class="num sub">${amtFmtPL(r.a)}</span>
+    </div>`;}).reverse().join('');
+  const note=`<div class="sise-note">${fin?'최종가':'정규 종가'} 기준입니다. <b>정규 종가</b>는 KRX 15:30 종가(네이버 증권 일별시세 표와 같은 값), <b>최종가</b>는 애프터마켓(NXT)까지 반영한 마지막 체결가예요. 대비·등락률은 두 보기 모두 <b>전일 정규 종가</b>를 기준으로 계산된 실제 값이라, 상단 현재가의 등락률과 같은 기준을 씁니다.</div>`;
+  el.innerHTML=seg+tabs+sum+`<div class="sise-scroll">${head}<div class="sise-rows">${rows}</div></div>`+note;
+  el.querySelectorAll('.sise-seg button').forEach(b=>b.onclick=()=>{siseMode=b.dataset.sm;renderSise(el);});
+  el.querySelectorAll('[data-sd]').forEach(b=>b.onclick=()=>{siseDays=+b.dataset.sd;renderSise(el);});
+  el.querySelectorAll('[data-pm]').forEach(b=>b.onclick=()=>{sisePriceMode=b.dataset.pm;renderSise(el);});
+  const dl=el.querySelector('#siseCsv'); if(dl)dl.onclick=()=>siseCsv(code);
+}
 function renderSise(el){
   const code=selected;
   const seg=`<div class="sise-seg"><button data-sm="time" class="${siseMode==='time'?'on':''}">시간별</button><button data-sm="date" class="${siseMode==='date'?'on':''}">일자별</button></div>`;
@@ -16134,6 +16213,16 @@ function renderSise(el){
     const dl=el.querySelector('#siseCsv'); if(dl)dl.onclick=()=>siseCsv(code);
   };
   if(siseMode==='date'){
+    /* [v17.8.42] 새 원천(네이버 일별시세)이 있으면 그 표를 그린다. 없으면 받아 오고,
+       원천이 죽었을 때만 아래 옛 차트 일봉 표로 물러선다(무한 재시도 방지 _plTried). */
+    const _plK=String(code||'').toUpperCase(), _pl=_sumPL[_plK];
+    const _domestic=/^[0-9A-Z]{6}$/.test(_plK);   /* 해외 티커(NVDA 등)는 국내 일별시세 원천이 없다 */
+    if(_domestic&&_pl&&_pl.length){ renderSiseDatePL(el,seg,code,_pl); return; }
+    if(_domestic&&!_plTried[_plK]){
+      el.innerHTML=seg+'<div class="empty">일자별 시세를 불러오는 중…</div>';bind();
+      ensurePriceList(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});
+      return;
+    }
     const d=mergeTodayLive(_sumDaily[code],code);   /* [v15.4.7] 오늘 행도 실시간 */
     if(!d){el.innerHTML=seg+'<div class="empty">시세를 불러오는 중…</div>';bind();
       ensureDailySummary(code).then(()=>{if(selected===code&&infoTab==='sise')renderSise(el);});return;}
@@ -16201,8 +16290,27 @@ function siseCsv(code){
   /* [v11.2] CSV 내려받기는 Lite 부터 */
   if(!tierAllow('csv')){ tierBlockFeat('csv','시세 CSV 내려받기','표를 파일로 저장해 엑셀에서 보실 수 있어요'); return; }
   try{
-    const d=_sumDaily[code]||[]; if(!d.length)return toast('warn','내려받을 자료가 없어요','시세를 먼저 불러온 뒤 다시 시도해 주세요');
+    /* [v17.8.42] 화면에 보이는 그 표를 그대로 내려받는다(정규 종가 / 최종가 보기 모두) */
     const nm=(byCode[code]||{}).name||code;
+    const PL=_sumPL[String(code||'').toUpperCase()];
+    if(PL&&PL.length){
+      const fin=sisePriceMode==='final';
+      const arr=PL.slice().reverse().slice(-siseDays);
+      const pxOf=(r)=>fin?(r.c||r.cc):(r.cc||r.c);
+      const chgOf=(r)=>fin?r.chg:r.chgC, rateOf=(r)=>fin?r.rate:r.rateC;
+      const head='일자,시가,고가,저가,종가,전일대비,등락률(%),거래량,거래대금\n';
+      const body=arr.map(r=>[r.d,r.o||pxOf(r),r.h||pxOf(r),r.l||pxOf(r),pxOf(r),chgOf(r)||0,
+        (rateOf(r)==null?'':rateOf(r)),r.v||0,Math.round(r.a||0)].join(',')).join('\n');
+      const blob=new Blob(['\ufeff'+head+body],{type:'text/csv;charset=utf-8'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`${nm}_일별시세_${arr.length}일_${fin?'최종가':'정규종가'}.csv`;
+      document.body.appendChild(a);a.click();
+      setTimeout(()=>{try{URL.revokeObjectURL(a.href);a.remove();}catch(e){}},1000);
+      toast('ok','CSV 를 내려받았습니다',`${nm} · ${arr.length}일치 · ${fin?'최종가':'정규 종가'} 기준`);
+      return;
+    }
+    const d=_sumDaily[code]||[]; if(!d.length)return toast('warn','내려받을 자료가 없어요','시세를 먼저 불러온 뒤 다시 시도해 주세요');
     const arr=d.slice(-siseDays);
     const head='일자,시가,고가,저가,종가,전일대비,등락률(%),거래량\n';
     const body=arr.map((c,i)=>{const p=arr[i-1];const df=p?c.c-p.c:0;

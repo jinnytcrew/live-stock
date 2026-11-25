@@ -9145,10 +9145,42 @@ var exchange_default = async (req2) => {
     let prevClose = krx ? krx.prevClose || 0 : 0;
     let nxt = x ? marketFromInfo(x.overMarketPriceInfo, prevClose, "nxt") : null;
     if (nxt && (!nxt.price || (nxt.volume === 0 || nxt.volume === null) && nxt.price === (krx && krx.price))) nxt = null;
-    let unified = x ? marketFromInfo(x.integratedPriceInfo, prevClose, "integrated") : null;
+    /* ══ [v17.8.42] '통합' 칸이 NXT 값으로 덮여 거래량이 반토막 나던 버그 ══════
+       [증상] 사용자 사진(한진칼 2026-11-25): 상단 거래량 820,531주인데 통합 칸은
+       416,103주 — 416,103 은 NXT 단독 거래량이다. 로보티즈도 943,573 vs 491,013.
+       [원인] integratedPriceInfo 에는 '가격' 항목이 없다(가격은 KRX·NXT 쪽에 있다).
+       marketFromInfo 가 가격이 없어 null 을 돌려주자, 대체 코드가 nxt 객체를
+       통째로 복사해서 가격뿐 아니라 **NXT 거래량·대금·호가까지** 통합 칸에 넣었다.
+       [고침] 가격·체결시각은 실제로 마지막 체결된 시장(KRX/NXT)에서, 거래량·대금·
+       시·고·저는 integratedPriceInfo 의 '통합 누적'에서 가져와 합친다.
+       대비·등락률은 세 칸 공통으로 '가격 − 전일 정규 종가' 하나로 계산해
+       어느 칸도 서로 다른 기준을 쓰지 않게 한다. */
+    const iInfo = x && x.integratedPriceInfo ? x.integratedPriceInfo : null;
+    const integVol = iInfo ? firstNum2(iInfo, ["accumulatedTradingVolumeRaw", "accumulatedTradingVolume", "aq"]) : 0;
+    const integVal = iInfo ? firstNum2(iInfo, ["accumulatedTradingValueRaw", "accumulatedTradingValue", "aa"]) : 0;
+    const integOHLC = iInfo ? {
+      open: firstNum2(iInfo, ["openPriceRaw", "openPrice"]),
+      high: firstNum2(iInfo, ["highPriceRaw", "highPrice"]),
+      low: firstNum2(iInfo, ["lowPriceRaw", "lowPrice"])
+    } : null;
+    let unified = x ? marketFromInfo(iInfo, prevClose, "integrated") : null;
     if (!unified) {
-      if (krx && nxt) unified = nxt._at > krx._at ? { ...nxt } : { ...krx };
-      else unified = krx ? { ...krx } : nxt ? { ...nxt } : null;
+      const later = krx && nxt ? (nxt._at > krx._at ? nxt : krx) : (krx || nxt);
+      if (later) unified = { ...later, _path: "integrated(" + (later._path || "") + ")" };
+    }
+    if (unified) {
+      if (integVol > 0) unified.volume = integVol;
+      if (integVal > 0) unified.value = integVal;
+      if (integOHLC && integOHLC.high > 0) { unified.open = integOHLC.open; unified.high = integOHLC.high; unified.low = integOHLC.low; }
+    }
+    /* 대비·등락률은 세 칸 모두 같은 공식으로 다시 맞춘다 */
+    if (prevClose > 0) {
+      for (const m of [krx, nxt, unified]) {
+        if (!m || !(m.price > 0)) continue;
+        m.change = Math.round(m.price - prevClose);
+        m.rate = Number(((m.price - prevClose) / prevClose * 100).toFixed(2));
+        m.prevClose = prevClose;
+      }
     }
     const nodes = integ ? collect2(integ) : [];
     const expNodes = nodes.filter((n) => n.expected);
@@ -14594,6 +14626,15 @@ function normalize(d) {
     /* 어느 쪽 값인지 화면에서 구분할 수 있게 함께 보낸다 */
     volKrx: num9(d.accumulatedTradingVolumeRaw ?? d.accumulatedTradingVolume ?? d.aq),
     volNxt: om?num9(om.accumulatedTradingVolumeRaw ?? om.accumulatedTradingVolume ?? om.aq):0,
+    /* ══ [v17.8.42] 상단 요약의 시·고·저를 통합 세션 기준으로 ════════════════
+       사용자 지적: 로보티즈 상단이 시가 292,000·저가 280,500(KRX 정규장)인데
+       거래량은 943,573(KRX+NXT 통합)이라 한 블록 안에서 기준이 섞였다.
+       네이버 종목 상단은 그 순간 거래되고 있는 세션(정규장→애프터마켓)의 시·고·저를
+       보여 준다(실측: 고가 299,500·저가 278,500). integratedPriceInfo 가 그 값이다.
+       ※ 거래량·거래대금은 이미 통합값을 쓰고 있으므로 이제 세 값의 기준이 맞는다. */
+    openU: ip?num9(ip.openPriceRaw ?? ip.openPrice):0,
+    highU: ip?num9(ip.highPriceRaw ?? ip.highPrice):0,
+    lowU: ip?num9(ip.lowPriceRaw ?? ip.lowPrice):0,
     marketStatus: String(ms).toUpperCase().includes("OPEN") ? "OPEN" : "CLOSE",
     time: d.localTradedAt ?? "",
     // NXT 신호: nxtMember=자격(통합시세 존재), nxtHas=활동 구조, nxtLive=실제 NXT 체결가
@@ -15326,19 +15367,14 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.41",
-  releasedAt: "2026-11-26 00:10",
+  version: "17.8.42",
+  releasedAt: "2026-11-26 01:10",
   notes: [
-    "국내 1분봉을 거래소 시·고·저·종·분당 거래량 그대로 표시",
-    "15:30~20:00 NXT·KRX 애프터마켓 1분봉 표시",
-    "08:00~08:50 NXT 프리마켓 1분봉 직접 수집·차트 결합",
-    "분봉 중복 제거·시간순 정렬·3·5·10·30·60분 묶기 정확도 보정",
-    "해외 1분봉에 프리마켓·애프터마켓 체결 포함",
-    "클랜 멤버 수익률을 서버가 계좌로 직접 평가 — 미집계 제거",
-    "해외 종목 미리보기 사이드바 추가(달러·환산가·미니차트)",
-    "해외 거래 화면을 트레이딩 터미널형 5탭 구조로 개편",
-    "해외 상세 가격 사다리·매도/매수·정정/취소 액션 창",
-    "미국 장 세션 안내를 거래 화면에 상시 표시"
+    "일자별 시세를 네이버 일별시세 원천으로 교체 — 종가·전일대비·거래대금을 원천값 그대로",
+    "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)",
+    "상단 시가·고가·저가를 거래량과 같은 통합(KRX+NXT) 세션 기준으로 통일",
+    "통합 시세 카드의 거래량·거래대금이 NXT 값으로 찍히던 버그 수정",
+    "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일"
   ]
 };
 
@@ -15396,6 +15432,76 @@ var version_default = async (req2) => {
   return json11({ ok: true, ...rec });
 };
 
+// netlify/functions/pricelist.js
+/* ══ [v17.8.42] 일별 시세 — 네이버 증권 '일별시세' 표와 같은 원천 ═════════════
+   [왜 새로 만들었나] 사용자 지적(2026-11-26): "같은 종목, 같은 날인데도 상단
+   시세와 일자별이 다르다". 원인은 일자별 표가 '차트 일봉(closePrice)'을 쓰고
+   대비·등락률을 **앞 행의 종가와 다시 계산**한 데 있었다.
+
+   네이버는 하루에 두 개의 종가를 준다.
+     · 정규장 종가(regularMarketClosingPrice) — 15:30 KRX 종가. 공식 일별시세 표의 '종가'
+     · 최종가(closingPrice) — 애프터마켓(NXT)까지 반영한 마지막 체결가
+   그리고 대비·등락률도 두 벌로 준다(regularMarketChangePrice / changePrice).
+   두 값 모두 **전일 정규장 종가(basePrice)** 를 기준으로 계산된 값이다.
+
+   [예전 코드의 오류] 11/25 행을 '오늘 최종가 − 어제 최종가'로 계산해
+   로보티즈 283,000 → +1,500 +0.53% 라고 적었다. 네이버 공식 표는
+   288,500 → −5,500 −1.87% 다. 상단에는 −11,000(−3.74%)이 떠 있으니
+   같은 화면에서 부호까지 뒤집혀 보였다.
+
+   [고침] 대비·등락률을 **계산하지 않고 원천 값을 그대로** 쓴다. 계산이 없으면
+   어긋날 일도 없다. 거래대금도 추정치(종가×거래량) 대신 실제 값(tradingValue)을 준다.
+   원천: m.stock.naver.com/front-api/stock/domestic/price/list (네이버 표와 동일) */
+var plNum = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^0-9.-]/g, "")); return isFinite(n) ? n : 0; };
+var plJson = (b) => new Response(JSON.stringify(b), { headers: cacheHdr(20, 300) });
+var pricelist_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+  /* 원천 상한은 100건이다(110건부터 빈 응답). 120일 보기는 100일까지만 나온다. */
+  const size = Math.max(5, Math.min(100, parseInt(url.searchParams.get("size") || "100", 10) || 100));
+  if (!/^[0-9A-Z]{6}$/.test(code)) return plJson({ ok: false, error: "bad code" });
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 5e3);
+    let j = null;
+    try {
+      const r = await fetch(`https://m.stock.naver.com/front-api/stock/domestic/price/list?code=${code}&size=${size}`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+          "Referer": "https://m.stock.naver.com/",
+          Accept: "application/json"
+        },
+        signal: c.signal
+      });
+      j = await r.json();
+    } finally { clearTimeout(t); }
+    const items = (((j || {}).result || {}).items) || [];
+    const rows = items.map((it) => {
+      /* [v17.8.42] 장중에는 '정규 종가'가 아직 없을 수 있다(0). 그럴 땐 최종가 값으로
+         물러서게 여기서 한 번에 맞춰 둔다 — 화면 곳곳에서 0을 걸러내지 않도록. */
+      const c = plNum(it.closingPrice), ccRaw = plNum(it.regularMarketClosingPrice);
+      return {
+        d: String(it.tradingDateKst || "").replace(/-/g, ""),
+        base: plNum(it.basePrice),
+        c,
+        cc: ccRaw || c,
+        o: plNum(it.openingPrice),
+        h: plNum(it.highPrice),
+        l: plNum(it.lowPrice),
+        v: plNum(it.tradingVolume),
+        a: plNum(it.tradingValue),
+        chg: plNum(it.changePrice),
+        rate: plNum(it.changeRate),
+        chgC: ccRaw ? plNum(it.regularMarketChangePrice) : plNum(it.changePrice),
+        rateC: ccRaw ? plNum(it.regularMarketChangeRate) : plNum(it.changeRate)
+      };
+    }).filter((x) => x.d && (x.c > 0 || x.cc > 0));
+    return plJson({ ok: rows.length > 0, code, src: "naver-pricelist", n: rows.length, rows });
+  } catch (e) {
+    return plJson({ ok: false, code, error: String(e && e.message || e).slice(0, 120) });
+  }
+};
+
 // functions/api/[[route]].js
 var ROUTES = {
   "accounts": accounts_default,
@@ -15433,6 +15539,7 @@ var ROUTES = {
   "nxtrefresh": nxtrefresh_default,
   "picks": picks_default,
   "popular": popular_default,
+  "pricelist": pricelist_default,
   "quote": quote_default,
   "search": search_default,
   "stockaudit": stockaudit_default,
@@ -18774,7 +18881,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.41";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.42";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19127,7 +19234,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 23:40"; BUNDLED_VERSION.notes = ["상세 호가 액션 창의 정정/취소를 누르면 보던 호가 코너로 돌아오도록 수정", "차트 UI/UX 전면 개편 — 증권사 트레이딩 터미널형 두 줄 툴바·단말형 범례", "차트 오른쪽 가격축 띠·눈금·현재가 태그·전일 종가 기준선 추가", "차트 십자선에 가격·날짜 배지와 봉별 시·고·저·종·거래량 범례 연동", "차트 지표 칩으로 볼린저·매물대·RSI·MACD 등을 바로 켜고 끄기", "차트 색을 테마 변수에서 읽어 라이트·다크·색약 팔레트까지 반영"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 23:40"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 01:10"; BUNDLED_VERSION.notes = ["일자별 시세를 네이버 일별시세 원천으로 교체 — 종가·전일대비·거래대금을 원천값 그대로", "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)", "상단 시가·고가·저가를 거래량과 같은 통합(KRX+NXT) 세션 기준으로 통일", "통합 시세 카드의 거래량·거래대금이 NXT 값으로 찍히던 버그 수정", "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 01:10"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

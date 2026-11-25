@@ -5547,6 +5547,11 @@ html:not([data-theme="dark"]) .hs-br{background:rgba(255,255,255,.5)}
   border:1px solid var(--border);background:var(--panel);color:var(--sub);cursor:pointer}
 .sise-days button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
 .sise-days .sise-csv{margin-left:auto;color:var(--sub-2)}
+/* ══ [v17.8.42] 일자별 표의 기준 전환 — 정규 종가(네이버 일별시세) ↔ 최종가(상단 현재가 계열) ══
+   버튼 두 개를 기간 버튼 오른쪽에 붙이고, CSV 는 그 다음에 둔다. */
+.sise-days .sise-pm{display:flex;gap:6px;margin-left:auto}
+.sise-days .sise-pm button{margin-left:0;font-weight:800}
+.sise-days .sise-pm+p.sise-csv,.sise-days .sise-pm ~ .sise-csv{margin-left:6px}
 .sise-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;
   padding:10px 11px;border-radius:12px;background:var(--border-soft)}
 @media(max-width:480px){.sise-sum{grid-template-columns:repeat(2,1fr)}}
