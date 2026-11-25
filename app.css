@@ -9710,3 +9710,73 @@ html[data-theme="dark"] #chartCard .tf-seg button.on{box-shadow:0 1px 2px rgba(0
   #chartCard .chart-legend .cl-i b{font-size:11px}
   #chartCard .chart-legend .cl-n{margin-left:0}
 }
+
+/* ══ [v17.8.41] 해외 트레이딩 터미널 — 거래 작업대 머리말·가격대·장 시간 ══════ */
+.us-term-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  margin-bottom:14px;padding:16px 18px;border:1px solid var(--border);border-radius:18px;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--brand) 8%,var(--panel)),var(--panel));box-shadow:var(--shadow)}
+.us-term-id{min-width:0}
+.us-term-name{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:3px}
+.us-term-name b{font-size:19px;font-weight:950;letter-spacing:-.02em}
+.us-term-name span{color:var(--sub);font-size:11.5px;font-weight:800}
+.us-term-session{display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--sub);font-size:11px;font-weight:750}
+.us-term-quote{display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right}
+.us-term-quote strong{font-size:26px;font-weight:950;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.us-term-quote span{font-size:12px;font-weight:850}
+.us-term-quote em{font-style:normal;color:var(--sub);font-size:11.5px;font-weight:750}
+.us-term-quote .up{color:var(--up)} .us-term-quote .down{color:var(--down)}
+.us-ses-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--sub-2);flex:none}
+.us-ses-dot.on{background:var(--up);box-shadow:0 0 0 3px color-mix(in srgb,var(--up) 18%,transparent)}
+.us-ses-dot.pre{background:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 18%,transparent)}
+.us-ses-dot.off{background:var(--sub-2);opacity:.6}
+#usOrder .order-work-tabs{position:static;margin:0 0 12px}
+#usOrder .order-trade-layout{grid-template-columns:minmax(0,290px) minmax(0,1fr);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+#usOrder .order-book-pane{background:var(--bg)}
+#usOrder .order-config-pane{padding:16px 16px 18px}
+#usOrder .order-form-grid{grid-template-columns:minmax(0,1fr) minmax(0,300px);gap:14px}
+#usOrder .order-form-aside{background:color-mix(in srgb,var(--brand) 5%,var(--bg))}
+#usOrder .us-ord-t{margin:10px 0 12px}
+.us-ladder{display:flex;flex-direction:column;gap:2px}
+.us-ladder-h{display:grid;grid-template-columns:1fr auto auto;gap:8px;padding:0 8px 6px;color:var(--sub);font-size:10px;font-weight:800;border-bottom:1px solid var(--border-soft)}
+.us-ladder-r{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;width:100%;
+  min-height:33px;padding:6px 8px;border:1px solid transparent;border-radius:8px;background:transparent;cursor:pointer;
+  font-variant-numeric:tabular-nums;text-align:left;transition:background .14s,border-color .14s}
+.us-ladder-r b{font-size:13px;font-weight:900}
+.us-ladder-r span{font-size:11px;font-weight:800}
+.us-ladder-r .sub{color:var(--sub);font-weight:700}
+.us-ladder-r:hover{background:var(--border-soft)}
+.us-ladder-r:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.us-ladder-r.now{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 10%,transparent)}
+.us-ladder-r.now b{font-size:14px}
+.us-ladder-note{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-soft);color:var(--sub);font-size:10.5px;line-height:1.6}
+.ob-act-krw{display:block;margin-top:4px;color:var(--sub);font-size:10.5px;font-weight:750}
+.us-guide{display:flex;flex-direction:column;gap:12px}
+.us-guide-now{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:13px 15px;border:1px solid var(--border);border-radius:14px;background:var(--bg);font-size:12.5px}
+.us-guide-now b{font-weight:900}
+.us-guide-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}
+.us-guide-r{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border:1px solid var(--border-soft);border-radius:12px;background:var(--panel);font-size:12px}
+.us-guide-r span{color:var(--sub);font-weight:800}
+.us-guide-r b{font-weight:900;font-variant-numeric:tabular-nums}
+.us-guide-r.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--panel))}
+.us-guide-note{color:var(--sub);font-size:11px;line-height:1.7}
+.ssp-actions{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:7px;margin:14px 0 6px}
+.ssp-act{min-height:44px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--text);font-size:12.5px;font-weight:900;cursor:pointer}
+.ssp-act.detail{background:var(--bg)}
+.ssp-act.buy{background:var(--up);border-color:var(--up);color:#fff}
+.ssp-act.sell{background:var(--down);border-color:var(--down);color:#fff}
+.ssp-act:hover{filter:brightness(1.04)}
+.ssp-badge.nxt{background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand)}
+@media(max-width:900px){
+  #usOrder .order-trade-layout{grid-template-columns:minmax(0,1fr)}
+  #usOrder .order-book-pane{border-right:0;border-bottom:1px solid var(--border-soft)}
+  #usOrder .order-form-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:560px){
+  .us-term-head{padding:13px 14px}
+  .us-term-quote strong{font-size:22px}
+  #usOrder .order-book-pane{padding:13px 12px}
+  .us-ladder-r{min-height:35px}
+  .ssp-actions{grid-template-columns:1fr 1fr;grid-auto-rows:auto}
+  .ssp-act.detail{grid-column:1/-1}
+}
+.cr-src{font-style:normal;color:var(--brand);font-weight:800}

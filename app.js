@@ -9768,7 +9768,7 @@ function paintClan(){
         <span class="cr-m">${medal}</span>
         <b class="cr-nm">${htmlEsc(m.name)} ${role}</b>
         ${m.msg?`<span class="cr-msg">“${htmlEsc(m.msg)}”</span>`:''}
-        <span class="cr-meta">${m.tr?m.tr+'건':''}${m.updatedAt?` · ${agoStr2(m.updatedAt)}`:''}</span>
+        <span class="cr-meta">${m.tr?m.tr+'건':''}${m.updatedAt?` · ${agoStr2(m.updatedAt)}`:''}${m.rateSrc==='srv'?' · <i class="cr-src" title="멤버가 접속하지 않아도 서버가 그의 계좌를 직접 평가한 값입니다">서버 평가</i>':''}</span>
         <span class="cr-r num ${m.rate==null?'':(m.rate>=0?'up':'down')}">${m.rate==null?'미집계':pctS(m.rate)}</span></div>`;}).join('')
       ||'<div class="empty">아직 멤버가 없어요<br><span style="font-size:11.5px;color:var(--sub-2)">초대 코드를 친구에게 보내면 함께할 수 있어요.</span></div>';
     rk.querySelectorAll('[data-mem]').forEach(b=>b.onclick=()=>openMemberCard(b.dataset.mem));
@@ -13355,6 +13355,8 @@ function sideChartTimes(pts){
   return `<div class="ssp-chart-times"><span>${f(pts[0].t)}</span><span>${f(pts[pts.length-1].t)}</span></div>`;
 }
 function renderStockSidePanel(code,preserveScroll=false){
+  /* [v17.8.41] 해외 종목은 달러 기준 패널로 넘긴다 */
+  if(typeof usMeta!=='undefined'&&usMeta&&usMeta[code]){ stockSideUs=true; return renderUsSidePanel(code,preserveScroll); }
   const panel=$('stockSidePanel'),body=$('stockSideBody');
   if(!panel||!body||!code||stockSideCode!==code||panel.hidden)return;
   const oldTop=preserveScroll?body.scrollTop:0;
@@ -13420,7 +13422,7 @@ function updateSideStar(){
 }
 async function sideStarClick(){
   const code=stockSideCode;if(!code)return;
-  try{ensureStock(code,(byCode[code]&&byCode[code].name)||code,'');}catch(e){}
+  if(!(usMeta&&usMeta[code])){ try{ensureStock(code,(byCode[code]&&byCode[code].name)||code,'');}catch(e){} }
   if(!watchFolders.length){
     const f=await newFolderFlow([code]);
     if(f){syncWatchUnion();feed&&feed.addCode(code);saveState();
@@ -13432,15 +13434,16 @@ async function sideStarClick(){
 }
 function closeStockSidePanel(){
   const panel=$('stockSidePanel'),veil=$('stockSideVeil');
-  if(!panel||panel.hidden){stockSideCode='';return;}
+  if(!panel||panel.hidden){stockSideCode='';stockSideUs=false;return;}
   panel.classList.remove('open');if(veil)veil.classList.remove('open');
   document.body.classList.remove('stock-side-open');
-  const closing=panel;stockSideCode='';
+  const closing=panel;stockSideCode='';stockSideUs=false;
   setTimeout(()=>{if(!stockSideCode){closing.hidden=true;if(veil)veil.hidden=true;}},250);
 }
 function openStockSidePanel(code,name='',market=''){
   if(!code)return;
-  if(usMeta&&usMeta[code]){openUS(code);return;}
+  /* [v17.8.41] 해외 종목도 국내와 같은 미리보기 패널을 연다(예전엔 곧장 거래 화면) */
+  if(usMeta&&usMeta[code]){openUsSidePanel(code);return;}
   try{if(!byCode[code])ensureStock(code,name||code,market||'');else if(name&&(!byCode[code].name||byCode[code].name===code))ensureStock(code,name,market||'');}catch(e){}
   const panel=$('stockSidePanel'),veil=$('stockSideVeil');if(!panel||!veil){openTrade(code);return;}
   stockSideCode=code;panel.hidden=false;veil.hidden=false;document.body.classList.add('stock-side-open');
@@ -13459,12 +13462,215 @@ function openStockOrderFromPanel(code){
   closeStockSidePanel();
   openOrderScreen(code,'buy');
 }
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.41] 해외 주식 — 미리보기 사이드바 · 가격 사다리 · 액션 창 · 거래 작업대
+   국내(v17.8.0 이후)에서 쓰던 패널·액션 창·5탭 거래 화면을 해외에도 그대로 잇는다.
+   값은 달러($)로 적고 바로 아래에 원화 환산을 함께 보여 준다.
+   ※ 미국 주식은 실시간 호가 잔량을 주는 무료 원천이 없다. 그래서 '호가 잔량' 대신
+     현재가 기준 '가격 사다리'를 보여 주고, 잔량은 아예 적지 않는다(지어내지 않는다).
+   ══════════════════════════════════════════════════════════════════════════════ */
+var stockSideUs = false;
+var usOrderTab = 'buy';
+const usSideMin = {};
+function usSideName(code) { return (usMeta[code] && usMeta[code].kr) || code; }
+function loadUsSideMinute(code) {
+  const c = usSideMin[code];
+  if (c && (c.loading || Date.now() - c.at < 45000)) return;
+  const m = usMeta[code]; if (!m) return;
+  usSideMin[code] = Object.assign({ arr: [] }, c || {}, { loading: true, at: Date.now() });
+  fetch('/api/uscandle?tf=MIN&m=1&code=' + encodeURIComponent(m.reu), { cache: 'no-store' })
+    .then(r => r.json()).then(j => {
+      const arr = ((j && j.ok && j.candles) || []).filter(x => x && +x.c > 0 && isFinite(x.t))
+        .map(x => ({ t: +x.t, c: +x.c, h: +x.h > 0 ? +x.h : +x.c, l: +x.l > 0 ? +x.l : +x.c }))
+        .sort((a, b) => a.t - b.t);
+      usSideMin[code] = { arr, at: Date.now(), loading: false };
+    }).catch(() => { usSideMin[code] = { arr: (c && c.arr) || [], at: Date.now(), loading: false }; })
+    .then(() => { if (stockSideCode === code && stockSideUs) renderUsSidePanel(code, true); });
+}
+function usSidePoints(code, px) {
+  const arr = (usSideMin[code] && usSideMin[code].arr) || [];
+  if (!arr.length) return [];
+  const day = (t) => { const d = new Date(t); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); };
+  const last = day(arr[arr.length - 1].t);
+  const pts = arr.filter(q => day(q.t) === last).map(q => ({ t: q.t, v: q.c }));
+  if (px > 0 && pts.length && pts[pts.length - 1].v !== px) pts.push({ t: Math.max(Date.now(), pts[pts.length - 1].t + 60000), v: px });
+  return pts;
+}
+function usSideKrw(v) { const fx = usFx() || 0; return fx && v != null ? '≈ ' + KRW(Math.round(v * fx)) + '원' : ''; }
+function renderUsSidePanel(code, preserveScroll) {
+  const panel = $('stockSidePanel'), body = $('stockSideBody');
+  if (!panel || !body || !code || stockSideCode !== code || panel.hidden) return;
+  const oldTop = preserveScroll ? body.scrollTop : 0;
+  const m = usMeta[code] || {}, q = usQ[code] || {};
+  const name = m.kr || code;
+  const hasPx = q.price != null && +q.price > 0;
+  const px = hasPx ? +q.price : 0;
+  const prev = +q.prev > 0 ? +q.prev : 0;
+  const diff = hasPx && prev ? px - prev : null;
+  const rate = diff != null ? diff / prev * 100 : null;
+  const dir = diff == null ? 'flat' : diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
+  loadUsSideMinute(code);
+  const pts = usSidePoints(code, px);
+  const stroke = diff == null || diff === 0 ? '#98a2b3' : (diff > 0 ? '#df5864' : '#3478e8');
+  let chart = sideChartSvg(pts, prev, stroke);
+  let times = chart ? sideChartTimes(pts) : '';
+  if (!chart) { const ld = usSideMin[code] && usSideMin[code].loading; chart = `<div class="ssp-chart-empty">${ld ? '분봉 불러오는 중…' : '시세를 받으면 흐름이 표시됩니다'}</div>`; }
+  const num = (v, unit) => (v != null && isFinite(+v) ? (unit === 'usd' ? '$' + USD2(+v) : KRW(Math.round(+v))) + (unit === 'usd' ? '' : '원') : '—');
+  const ses = usSession();
+  $('stockSideHeading').textContent = name + ' 미리보기';
+  body.innerHTML = `
+    <div class="ssp-identity">
+      <div class="ssp-logo">${anyLogo(code, name, 'lg')}</div>
+      <div class="ssp-name-wrap"><div class="ssp-name">${htmlEsc(name)}</div>
+        <div class="ssp-meta"><span>${htmlEsc(code)}</span><span>·</span><span>${htmlEsc(m.en || 'US')}</span><span class="ssp-badge nxt">해외</span></div>
+      </div>
+    </div>
+    <div class="ssp-price-block">
+      <div class="ssp-price num ${dir}">${hasPx ? '$' + USD2(px) : '시세 확인 중'}</div>
+      <div class="ssp-change ${dir}">${diff == null ? '전일 대비 —' : `${diff > 0 ? '▲' : diff < 0 ? '▼' : '—'} $${USD2(Math.abs(diff))} <span>${rate > 0 ? '+' : ''}${rate.toFixed(2)}%</span>`}</div>
+      <div class="ssp-live-label">${usSideKrw(hasPx ? px : null) || '환율 확인 중'} · ${ses.label} · 모의투자</div>
+      <div class="ssp-chart">${chart}</div>${times}
+    </div>
+    <div class="ssp-stats">
+      <div class="ssp-stat"><span>거래량</span><b>${q.vol != null ? KRW(q.vol) + '주' : '—'}</b></div>
+      <div class="ssp-stat"><span>시가총액</span><b>${q.cap > 0 ? '$' + USD2(q.cap / 1e9) + 'B' : '—'}</b></div>
+      <div class="ssp-stat"><span>시가</span><b>${num(q.open, 'usd')}</b></div>
+      <div class="ssp-stat"><span>고가</span><b class="up">${num(q.high, 'usd')}</b></div>
+      <div class="ssp-stat"><span>저가</span><b class="down">${num(q.low, 'usd')}</b></div>
+      <div class="ssp-stat"><span>전일 종가</span><b>${num(q.prev, 'usd')}</b></div>
+      <div class="ssp-stat"><span>52주 최고</span><b>${num(q.w52h, 'usd')}</b></div>
+      <div class="ssp-stat"><span>52주 최저</span><b>${num(q.w52l, 'usd')}</b></div>
+    </div>
+    <div class="ssp-actions">
+      <button type="button" class="ssp-act detail" data-usside-detail="${htmlEsc(code)}">상세 보기</button>
+      <button type="button" class="ssp-act sell" data-usside-order="sell">매도</button>
+      <button type="button" class="ssp-act buy" data-usside-order="buy">매수</button>
+    </div>
+    <div class="ssp-note">해외 종목은 원화 환산가를 함께 표시합니다(적용 환율 ${usFx() ? KRW(Math.round(usFx())) + '원' : '—'}). LIVE증권은 실제 주문을 전송하지 않는 모의투자입니다.</div>`;
+  if (preserveScroll) body.scrollTop = oldTop;
+  const det = body.querySelector('[data-usside-detail]');
+  if (det) det.onclick = () => { closeStockSidePanel(); openUS(code); };
+  body.querySelectorAll('[data-usside-order]').forEach(b => b.onclick = () => {
+    const side = b.dataset.ussideOrder === 'sell' ? 'sell' : 'buy';
+    closeStockSidePanel();
+    openUS(code);
+    usSide = side; usOrderTab = side; usOrdPx = Q2(code); renderUsOrder();
+  });
+  updateSideStar();
+}
+function Q2(code) { const q = usQ[code] || {}; return q.price != null ? +(+q.price).toFixed(2) : null; }
+function openUsSidePanel(t) {
+  if (!usMeta[t]) return;
+  const panel = $('stockSidePanel'), veil = $('stockSideVeil');
+  if (!panel || !veil) { openUS(t); return; }
+  if (usSel !== t) { usCandles = null; usMinRaw = null; usMinSpan = null; _usMinFor = null; }
+  stockSideCode = t; stockSideUs = true;
+  panel.hidden = false; veil.hidden = false; document.body.classList.add('stock-side-open');
+  renderUsSidePanel(t, false);
+  try { usEnsureQuotes([t], true, true).then(() => { if (stockSideCode === t) renderUsSidePanel(t, true); }).catch(() => { }); } catch (e) { }
+  requestAnimationFrame(() => { if (stockSideCode !== t) return; panel.classList.add('open'); veil.classList.add('open'); $('stockSideClose')?.focus({ preventScroll: true }); });
+}
+/* ── 해외 가격 사다리(호가 대신) ──────────────────────────────────────────── */
+function usTickOf(px) { return px >= 100 ? 0.05 : px >= 10 ? 0.02 : px >= 1 ? 0.01 : 0.001; }
+function usLadderRows(code, n) {
+  const q = usQ[code] || {}; const px = +q.price; if (!(px > 0)) return { rows: [], px: 0, prev: 0 };
+  const tick = usTickOf(px);
+  const rows = [];
+  for (let i = n; i >= 1; i--) rows.push(+(px + i * tick).toFixed(3));
+  rows.push(+px.toFixed(3));
+  for (let i = 1; i <= n; i++) rows.push(+(px - i * tick).toFixed(3));
+  return { rows, px: +px.toFixed(3), prev: +q.prev > 0 ? +q.prev : 0 };
+}
+function usLadderHtml(code, opts) {
+  opts = opts || {};
+  const L = usLadderRows(code, opts.n || 6), fx = usFx() || 0;
+  if (!L.rows.length) return `<div class="empty">시세를 받으면 가격대가 표시됩니다</div>`;
+  const rateOf = (p) => L.prev ? (p - L.prev) / L.prev * 100 : null;
+  return `<div class="us-ladder">
+    <div class="us-ladder-h"><span>가격(USD)</span><span>전일 대비</span><span>원화</span></div>
+    ${L.rows.map(p => { const r = rateOf(p), now = Math.abs(p - L.px) < 1e-9;
+      return `<button type="button" class="us-ladder-r${now ? ' now' : ''}" data-usladder="${p}" ${opts.book ? `data-usbook="${p}"` : ''}>
+        <b class="num ${p > L.px ? 'up' : p < L.px ? 'down' : ''}">$${USD2(p)}</b>
+        <span class="num ${r == null ? '' : r > 0 ? 'up' : r < 0 ? 'down' : ''}">${r == null ? '—' : (r > 0 ? '+' : '') + r.toFixed(2) + '%'}</span>
+        <span class="num sub">${fx ? '≈' + KRW(Math.round(p * fx)) : '—'}</span></button>`; }).join('')}
+    <div class="us-ladder-note">현재가 $${USD2(L.px)} 기준 주문가 선택용 가격대입니다. 미국 주식은 실시간 호가 잔량을 제공하는 무료 원천이 없어 <b>잔량은 표시하지 않습니다</b>.</div>
+  </div>`;
+}
+function bindUsLadder(root, code, useActPopup) {
+  const q = usQ[code] || {}; const prev = +q.prev > 0 ? +q.prev : 0;
+  root.querySelectorAll('[data-usladder]').forEach(b => b.onclick = () => {
+    const p = +b.dataset.usladder; if (!(p > 0)) return;
+    if (useActPopup) { usActOpen(code, p, prev); return; }
+    usOrdPx = p; try { renderUsOrder(); } catch (e) { }
+    const c = $('usOrder'); if (c) try { c.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { c.scrollIntoView(); }
+  });
+}
+/* ── 해외 호가 액션 창 — [매도 | 가격·등락률($) | 매수] + [정정/취소(닫기)] ── */
+var _usActPx = 0, _usActCode = '';
+function usActEnsure() {
+  let ov = $('usActOverlay');
+  if (ov) return ov;
+  ov = document.createElement('div');
+  ov.id = 'usActOverlay';
+  ov.className = 'ob-act-overlay';
+  ov.hidden = true;
+  ov.innerHTML = `<div class="ob-act-wrap" role="dialog" aria-modal="true" aria-labelledby="usActPrice">
+      <div class="ob-act-cap"><b id="usActName"></b><span>선택한 가격</span></div>
+      <div class="ob-act-top">
+        <button type="button" class="ob-act-side sell" data-us-act="sell">매도</button>
+        <div class="ob-act-mid"><b id="usActPrice" class="num">—</b><span id="usActRate" class="ob-act-rate num">—</span><span id="usActKrw" class="ob-act-krw num"></span></div>
+        <button type="button" class="ob-act-side buy" data-us-act="buy">매수</button>
+      </div>
+      <button type="button" class="ob-act-manage" data-us-act="manage">정정/취소(닫기)</button>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelectorAll('[data-us-act]').forEach(b => b.addEventListener('click', () => usActChoose(b.dataset.usAct)));
+  ov.addEventListener('click', e => { if (e.target === ov) usActClose(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') usActClose(); });
+  return ov;
+}
+function usActOpen(code, px, prev) {
+  try {
+    const ov = usActEnsure();
+    _usActPx = +px || 0; _usActCode = code;
+    if (!(_usActPx > 0)) return;
+    const rate = prev > 0 ? (_usActPx - prev) / prev * 100 : null;
+    const nm = $('usActName'), pr = $('usActPrice'), rt = $('usActRate'), kw = $('usActKrw');
+    if (nm) nm.textContent = usSideName(code);
+    if (pr) pr.textContent = '$' + USD2(_usActPx);
+    if (rt) {
+      rt.textContent = rate == null ? '전일 종가 확인 중' : (rate > 0 ? '+' : '') + rate.toFixed(2) + '%';
+      rt.className = 'ob-act-rate num ' + (rate == null ? 'flat' : rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat');
+    }
+    if (kw) kw.textContent = usSideKrw(_usActPx);
+    ov.hidden = false;
+    try { document.body.classList.add('ob-act-lock'); } catch (e) { }
+    const f = ov.querySelector('[data-us-act="sell"]'); if (f) try { f.focus({ preventScroll: true }); } catch (e) { }
+  } catch (e) { }
+}
+function usActClose() {
+  const ov = $('usActOverlay'); _usActPx = 0; _usActCode = '';
+  if (!ov || ov.hidden) return;
+  ov.hidden = true;
+  try { document.body.classList.remove('ob-act-lock'); } catch (e) { }
+}
+function usActChoose(act) {
+  const p = _usActPx, code = _usActCode;
+  usActClose();
+  if (!(p > 0) || !code) return;
+  if (act === 'manage') return;                 /* [v17.8.41] 창만 닫고 보던 자리로 */
+  openUS(code);
+  usSide = act === 'sell' ? 'sell' : 'buy';
+  usOrderTab = usSide; usOrdPx = p;
+  renderUsOrder();
+  try { const c = $('usOrder'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { }
+}
 function bindStockClicks(root){
   /* 목록의 당일 봉은 수신된 시세로 그린다. 탭하면 공통 미리보기 패널을 연다. */
   try{srCandlesPaint(root);}catch(e){}
   root.querySelectorAll('[data-code]').forEach(n=>n.onclick=(e)=>{
     const c=n.dataset.code;if(!c)return;
-    if(usMeta&&usMeta[c]){openUS(c);return;}
+    if(usMeta&&usMeta[c]){openUsSidePanel(c);return;}
     if(n.dataset.name)ensureStock(c,n.dataset.name,n.dataset.market);
     openStockSidePanel(c,n.dataset.name||'',n.dataset.market||'');
   });
@@ -18244,23 +18450,40 @@ async function ensureIntraday(code){
     let arr=(j.candles||[]).map(c=>{const cl=+c.c;if(!(cl>0))return null;
       let o=+c.o,h=+c.h,l=+c.l;if(!(o>0))o=cl;if(!(h>0))h=Math.max(o,cl);if(!(l>0))l=Math.min(o,cl);
       h=Math.max(h,o,cl);l=Math.min(l,o,cl);const t=dtToMs(c.d);if(isNaN(t))return null;
-      return{t,o,h,l,c:cl,v:+c.v||0};}).filter(Boolean);
+      return{t,o,h,l,c:cl,v:+c.v||0,pre:c.src==='pre'?1:0};}).filter(Boolean);
+    /* [v17.8.41] 같은 시각 봉이 두 번 오면 하나로 합친다(시간순 정렬은 아래에서) */
+    {const dm=new Map();arr.forEach(c=>{const e=dm.get(c.t);
+      if(!e){dm.set(c.t,c);return;}
+      e.h=Math.max(e.h,c.h);e.l=Math.min(e.l,c.l);e.c=c.c;e.v=Math.max(e.v||0,c.v||0);e.pre=e.pre||c.pre;});
+     arr=[...dm.values()].sort((a,b)=>a.t-b.t);}
     // 가격대(중앙값) 밖 이상치 제거 — 축이 0/음수로 튀는 것 방지
     const cl=arr.map(c=>c.c).sort((a,b)=>a-b);const md=cl.length?cl[Math.floor(cl.length/2)]:0;
     if(md>0)arr=arr.filter(c=>c.c>=md*0.5&&c.c<=md*2&&c.h<=md*2&&c.l>=md*0.5);
     intradayBase[code]=arr; _intraBkt[code]=bkt;
-    minuteDiag=(arr.length?'':'분봉 서버응답 ')+`[${j.src||'?'}]`;}
+    /* [v17.8.41] 어느 원천에서 몇 봉을 받았는지 + 프리마켓 수집분까지 화면에 밝힌다 */
+    const preN=j&&j.pre?Object.values(j.pre).reduce((a,b)=>a+(+b||0),0):0;
+    minuteDiag=(arr.length?'':'분봉 서버응답 ')+`[${j.src||'?'}]`+(preN?` · 프리마켓 ${preN}봉 수집분`:' · 프리마켓 수집분 없음');}
   catch(e){intradayBase[code]=intradayBase[code]||[];minuteDiag='분봉 로드 실패';}
 }
 // 실제 1분봉(과거) + 실시간 체결(틱)을 분 단위로 합쳐 mins봉 생성
+/* [v17.8.41] 분봉 합치기 정확도 — 서버 봉이 정답, 틱은 빈 자리와 '지금 봉'만 보탠다
+   · 같은 분에 서버 봉이 있으면 시·고·저·종·거래량은 서버 값을 그대로 쓴다
+     (예전엔 거래량을 Math.max 로 골라, 틱 누적값과 서버 분당값이 섞여 틀어졌다)
+   · 서버에 없는 분(틱이 더 최신인 마지막 구간)만 틱으로 만든 봉을 넣는다 */
 function minuteSeries(code,mins){
   const base=intradayBase[code]||[];
   const live=buildMinuteCandles(byCode[code].ticks,1); // 틱→1분봉
   const map=new Map();
-  base.forEach(c=>map.set(c.t,{t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}));
-  live.forEach(c=>{const ex=map.get(c.t);if(!ex)map.set(c.t,{t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v});
-    else{ex.h=Math.max(ex.h,c.h);ex.l=Math.min(ex.l,c.l);ex.c=c.c;ex.v=Math.max(ex.v,c.v);}});
-  const one=[...map.values()].sort((a,b)=>a.t-b.t);
+  base.forEach(c=>{ if(!(c.c>0)||!isFinite(c.t))return; map.set(c.t,{t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}); });
+  live.forEach(c=>{ if(!(c.c>0)||!isFinite(c.t))return;
+    const ex=map.get(c.t);
+    if(!ex){ map.set(c.t,{t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}); return; }
+    /* 서버 봉이 있는 분 — 고저만 넓히고 종가는 틱으로 보정(지금 봉 실시간성) */
+    ex.h=Math.max(ex.h,c.h); ex.l=Math.min(ex.l,c.l);
+    if(c.t>=Date.now()-120000) ex.c=c.c;
+    ex.v=Math.max(ex.v||0,c.v||0);
+  });
+  const one=[...map.values()].filter(c=>c.c>0).sort((a,b)=>a.t-b.t);
   /* [v4.62] 라벨을 시:분만 남기면 며칠치가 섞였을 때 축이 뒤죽박죽으로 보인다.
      날짜까지 담아 두고(YYYYMMDDHHMM), 화면에 찍을 때 날이 바뀌면 날짜를 함께 보여 준다. */
   const lbl=(t)=>{const d=new Date(t);
@@ -18272,6 +18495,9 @@ function minuteSeries(code,mins){
     if(!cur||cur.t!==bk){if(cur)out.push(cur);cur={t:bk,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v};}
     else{cur.h=Math.max(cur.h,c.h);cur.l=Math.min(cur.l,c.l);cur.c=c.c;cur.v+=c.v;}}
   if(cur)out.push(cur);
+  /* [v17.8.41] 시가가 '무리에서 떨어진' 봉은 첫 봉의 시가로 보정한다.
+     서버 값과 틱이 겹치는 자리에서 시가만 튀는 경우가 있었다. */
+  out.forEach(c=>{ if(c.o>c.h)c.h=c.o; if(c.o<c.l)c.l=c.o; });
   return out.map(c=>({d:lbl(c.t),o:c.o,h:c.h,l:c.l,c:c.c,v:c.v,t:c.t}));
 }
 function resetView(){const n=curCandles.length;view.count=Math.min(n||60,isMinute(chartTf)?140:90);view.end=n-1;view.follow=true;}
@@ -23305,14 +23531,20 @@ function usEnsureMinutes(){
   return _usMinBusy;
 }
 function usMinAgg(mins){
-  const src=usMinRaw||[]; if(!src.length)return [];
+  const src=(usMinRaw||[]).filter(c=>c&&isFinite(c.t)&&+c.c>0).slice().sort((a,b)=>a.t-b.t);
+  if(!src.length)return [];
+  /* [v17.8.41] 같은 시각 봉 중복 제거 — 원천 창이 겹칠 때 생긴다 */
+  const seen=new Set(); const uniq=[];
+  for(const c of src){ if(seen.has(c.t))continue; seen.add(c.t); uniq.push(c); }
   const ms=mins*60000, out=[]; let cur=null,k0=null;
-  for(const c of src){
+  for(const c of uniq){
     const k=Math.floor(c.t/ms);
-    if(k!==k0){ if(cur)out.push(cur); k0=k; cur={t:c.t,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v}; }
-    else { cur.h=Math.max(cur.h,c.h); cur.l=Math.min(cur.l,c.l); cur.c=c.c; cur.v+=c.v; }
+    if(k!==k0){ if(cur)out.push(cur); k0=k; cur={t:k*ms,o:+c.o||+c.c,h:+c.h||+c.c,l:+c.l||+c.c,c:+c.c,v:+c.v||0}; }
+    else { cur.h=Math.max(cur.h,+c.h||+c.c); cur.l=Math.min(cur.l,+c.l||+c.c); cur.c=+c.c; cur.v+=(+c.v||0); }
   }
   if(cur)out.push(cur);
+  /* 시·고·저 정합 — 시가가 고저 밖이면 고저를 넓힌다 */
+  out.forEach(c=>{ c.h=Math.max(c.h,c.o,c.c); c.l=Math.min(c.l,c.o,c.c); });
   /* 국내 엔진은 d(라벨)로 축을 그린다 — 분봉은 시:분으로 준다 */
   return out.map(c=>{ const d=new Date(c.t);
     const lb=''+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')
@@ -23360,6 +23592,7 @@ function usApplyCandleExtras(j){
 }
 function openUS(t){ if(!usMeta[t])return;
   usSel=t; usSide='buy'; usOrdPx=null; usOrdQty=1; usCandles=null;
+  usOrderTab='buy';                                      /* [v17.8.41] 들어오면 01 매수 탭 */
   usMinRaw=null; usMinSpan=null; _usMinFor=null;        // [v4.60] 분봉 캐시도 종목별
   /* [v4.56] 해외도 '최근 본 종목'에 국내와 같은 목록으로 남긴다 —
      예전에는 해외만 '최근 검색'으로 따로 놀아서, 방금 본 미국 종목을
@@ -23449,7 +23682,7 @@ function renderUsInfo(){
   usChartMount(false);                                     // 다른 탭으로 가면 제자리로
   const f={summary:renderUsSummary,ai:renderUsAi,sise:renderUsSiseTab,news:renderUsNews,
            company:renderUsCompany,consensus:renderUsCons,finance:renderUsFin,
-           dividend:renderUsDividend,strength:renderUsStrength}[usInfoTab];
+           dividend:renderUsDividend,strength:renderUsStrength,asking:renderUsLadderTab}[usInfoTab];
   (f||renderUsSummary)(el);
 }
 function usNoData(t,d){return `<div class="us-nodata"><b>${t}</b><span>${d}</span></div>`;}
@@ -25898,6 +26131,17 @@ function drawUsForecast(cv,a){
     x.fillText('오늘',X(cs.length-1)+4,14); }catch(e){}
 }
 /* ③ 시세 — 일별 표 */
+/* [v17.8.41] 해외 상세 '호가' 코너 — 잔량 대신 가격대(주문가 선택).
+   누르면 국내와 같은 액션 창([매도 | 가격·등락률($) | 매수] + [정정/취소(닫기)])이 뜬다. */
+function renderUsLadderTab(el){
+  const q=usQ[usSel]||{};
+  if(!(q.price>0)){ usEnsureQuotes([usSel],true); el.innerHTML=usNoData('시세를 불러오는 중입니다','현재가를 받은 뒤 가격대가 표시됩니다.'); return; }
+  el.innerHTML=`<div class="us-sec2">가격대 <small>현재가 $${USD2(q.price)} 기준 · 누르면 매도/매수 선택</small></div>
+    ${usLadderHtml(usSel,{n:8})}
+    <div class="us-ord-note" style="margin-top:10px">미국 주식의 실시간 호가 잔량은 무료 공개 원천이 없어 표시하지 않습니다.
+      대신 현재가 기준 가격대를 주문가 선택용으로 보여 줍니다 — 잔량을 지어내지 않습니다.</div>`;
+  bindUsLadder(el,usSel,true);
+}
 function renderUsSiseTab(el){
   const cs=usCandles;
   if(!cs||!cs.length){
@@ -26408,55 +26652,171 @@ function renderUsCta(){
   const on=bar.querySelector(usSide==='sell'?'.sell':'.buy'); if(on)on.classList.add('on');
 }
 function usCtaGo(side){
-  usSide=side; renderUsOrder(); renderUsCta();
+  usSide=side; usOrderTab=side; renderUsOrder(); renderUsCta();
   const card=$('usOrder');
   if(card)try{card.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){card.scrollIntoView();}
 }
-function renderUsOrder(){
-  const q=usQ[usSel]||{},fx=usFx();
-  if(usOrdPx==null&&q.price!=null)usOrdPx=+q.price.toFixed(2);
-  const px=usOrdPx!=null?usOrdPx:0;
-  const held=holdings.find(h=>h.code===usSel&&h.us);
-  const pay=usPay==='auto'?usAutoPay(px,usOrdQty||0):usPay;
-  const maxQ=usSide==='buy'?usMaxQty(px,pay):(held?held.qty:0);
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.41] 해외 거래 화면 — 국내와 같은 트레이딩 터미널형 5탭 작업대로 개편
+   사진으로 요청받은 국내 화면(좌측 가격대 + 우측 주문 설정 + ORDER SUMMARY)을
+   해외 특성에 맞춰 옮긴다.
+     · 값은 달러($) 두 자리, 바로 옆·아래에 원화 환산을 병기
+     · 미국 장 시간(프리/정규/애프터/데이마켓)을 머리말과 05 탭에 상시 표시
+     · 왼쪽은 '호가 잔량'이 아니라 '가격대(주문가 선택)' — 무료 원천에 잔량이 없다
+   ══════════════════════════════════════════════════════════════════════════════ */
+var US_ORDER_TABS = [
+  ['buy', '01', '매수'], ['sell', '02', '매도'], ['manage', '03', '정정/취소'],
+  ['history', '04', '체결/미체결'], ['guide', '05', '장 시간']
+];
+function usOrderHeadHtml() {
+  const q = usQ[usSel] || {}, m = usMeta[usSel] || {}, fx = usFx() || 0;
+  const has = q.price != null && +q.price > 0;
+  const px = has ? +q.price : 0;
+  const prev = +q.prev > 0 ? +q.prev : 0;
+  const diff = has && prev ? px - prev : null;
+  const rate = diff != null ? diff / prev * 100 : null;
+  const cls = diff == null ? '' : diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+  const ses = usSession();
+  const phaseCls = ses.phase === 'regular' ? 'on' : ses.phase === 'closed' ? 'off' : 'pre';
+  return `<div class="us-term-head">
+    <div class="us-term-id">
+      <span class="order-section-kicker">US EQUITY · PAPER TRADING</span>
+      <div class="us-term-name"><b>${htmlEsc(m.kr || usSel)}</b><span>${htmlEsc(usSel)} · ${htmlEsc(m.en || 'US')}</span></div>
+      <div class="us-term-session"><i class="us-ses-dot ${phaseCls}"></i>${ses.label}${ses.dst ? '' : ' · 표준시'} · 정규장 ${ses.dst ? '22:30~05:00' : '23:30~06:00'} KST</div>
+    </div>
+    <div class="us-term-quote">
+      <strong class="num ${cls}">${has ? '$' + USD2(px) : '—'}</strong>
+      <span class="num ${cls}">${diff == null ? '—' : (diff > 0 ? '▲' : diff < 0 ? '▼' : '—') + ' $' + USD2(Math.abs(diff)) + ' (' + (rate > 0 ? '+' : '') + rate.toFixed(2) + '%)'}</span>
+      <em class="num">${fx && has ? '≈ ' + KRW(Math.round(px * fx)) + '원' : '환율 확인 중'}</em>
+    </div>
+  </div>`;
+}
+function usOrderTabsHtml() {
+  return `<div class="order-work-tabs" id="usOrderTabs" role="tablist" aria-label="해외 거래 화면 메뉴">
+    ${US_ORDER_TABS.map(([k, n, lab]) => `<button type="button" role="tab" data-us-order-tab="${k}" class="${usOrderTab === k ? 'on' : ''}${k === 'buy' ? ' buy-tab' : k === 'sell' ? ' sell-tab' : ''}" aria-selected="${usOrderTab === k}"><span>${n}</span>${lab}</button>`).join('')}
+  </div>`;
+}
+function usTradeFormHtml(q, fx, px, pay, maxQ, held, heldBox) {
+  const krwPx = fx && px > 0 ? Math.round(px * fx) : null;
+  return `<div class="order-trade-layout">
+    <aside class="order-book-pane" aria-labelledby="usBookTitle">
+      <div class="order-book-head">
+        <div class="order-book-title"><span class="order-section-kicker">PRICE LADDER</span><h3 id="usBookTitle">가격대</h3></div>
+        <span class="order-book-live">$${q.price != null ? USD2(q.price) : '—'}</span>
+      </div>
+      <div class="order-book-body" id="usBookBody">${usLadderHtml(usSel, { n: 5, book: 1 })}</div>
+    </aside>
+    <div class="order-config-pane">
+      ${ordAcctHTML('usOrdAcctSel')}
+      <div class="us-ord-t"><button class="buy ${usSide === 'buy' ? 'on' : ''}" data-usside="buy">매수</button>
+        <button class="sell ${usSide === 'sell' ? 'on' : ''}" data-usside="sell">매도</button></div>
+      ${heldBox}
+      <div class="order-form-grid">
+        <div class="order-form-main">
+          ${usSide === 'buy' ? `<div class="us-fld"><label><span>결제수단</span></label>
+            <div class="us-chips" style="margin:0">
+              <button class="us-chip ${pay === 'usd' ? 'on' : ''}" data-uspay="usd">💵 달러 예수금 $${USD2(usdCash)}</button>
+              <button class="us-chip ${pay === 'krw' ? 'on' : ''}" data-uspay="krw">💱 원화 자동환전</button></div>
+            <div class="us-ord-note" style="margin-top:5px">${pay === 'usd'
+              ? '미리 환전해 둔 달러로 결제합니다 — 추가 환전 비용이 없습니다'
+              : '원화 예수금에서 매수환율(우대 95% · +' + usFxMargin().toFixed(1) + '원)로 자동 환전됩니다'}</div></div>`
+            : `<div class="us-ord-note" style="margin-bottom:10px">매도 대금은 <b>달러 예수금</b>으로 들어오며, 즉시 재매수할 수 있습니다. 원화 환전은 <b>다음 영업일(T+1)</b>부터 가능해요.</div>`}
+          <div class="us-fld"><label><span>주문가격 (USD)</span><span class="num">현재가 $${q.price != null ? USD2(q.price) : '—'}${krwPx ? ' · ' + KRW(krwPx) + '원' : ''}</span></label>
+            <div class="us-inrow"><button id="usPxDn">−</button><input id="usPxIn" inputmode="decimal" value="${px ? px.toFixed(2) : ''}"><button id="usPxUp">＋</button></div>
+            <div class="us-ord-note" style="margin-top:5px">${krwPx ? '주문가 원화 환산 <b class="num">' + KRW(krwPx) + '원</b> (환율 ' + KRW(Math.round(fx)) + '원)' : '적용 환율을 받는 중입니다'}</div></div>
+          <div class="us-fld"><label><span>주문수량 <small style="font-weight:600;color:var(--sub-2)">0.01주 단위</small></span><span class="num">가능 ${fmtQty(maxQ)}주</span></label>
+            <div class="us-inrow"><button id="usQtyDn">−</button><input id="usQtyIn" inputmode="decimal" value="${usOrdQty}"><button id="usQtyUp">＋</button></div></div>
+          <div class="qty-quick us-qbtns">${[10, 25, 50, 100].map(p => `<button data-uspct="${p}">${p === 100 ? '최대' : p + '%'}</button>`).join('')}</div>
+        </div>
+        <aside class="order-form-aside">
+          <div class="order-aside-kicker">ORDER SUMMARY</div>
+          <div class="order-summary-line"><span>주문 방향</span><b>${usSide === 'buy' ? '매수' : '매도'}</b></div>
+          <div class="order-summary-line"><span>주문 가능 수량</span><b class="num">${fmtQty(maxQ)}주</b></div>
+          <div id="usSum"></div>
+          <button class="submit ${usSide}" id="usSubmit">${fx ? (usSide === 'buy' ? '매수 주문' : '매도 주문') : '환율 확인 중 · 눌러서 다시 시도'}</button>
+          <div class="us-pass us-fld" id="usPassWrap" hidden><label><span>계좌 비밀번호</span></label>
+            <div class="us-inrow"><input id="usPassIn" type="password" inputmode="numeric" maxlength="4" placeholder="4자리" style="text-align:center"></div></div>
+          <div class="ord-note">※ 지정가는 <b>현재가에 닿아야 체결</b>됩니다 — 닿기 전까지는 미체결로 대기해요.<br>
+          ※ 수수료 ${(US_FEE * 100).toFixed(2)}%${usSide === 'sell' ? ' + SEC Fee ' + (US_SEC_FEE * 100).toFixed(4) + '%' : ''} · 거래세 없음 · 소수점(0.01주) 매매<br>
+          ※ 모의 체결 · 실제 주문 아님</div>
+        </aside>
+      </div>
+      ${usPendHTML()}
+    </div>
+  </div>`;
+}
+function usManageHtml() {
+  const list = bookActive().filter(o => o.us && o.code === usSel);
+  if (!list.length) return `<div class="order-empty"><span class="order-empty-icon">⌁</span><b>정정하거나 취소할 주문이 없습니다</b><p>미체결 지정가 주문이 접수되면 이곳에서 가격·수량을 바꾸거나 취소할 수 있습니다.</p></div>`;
+  return `<div class="order-list-summary">
+      <div><span>대기 주문</span><b>${list.length}건</b></div>
+      <div><span>매수 예약 금액</span><b>${'$' + USD2(list.filter(o => o.side === 'buy').reduce((n, o) => n + usOrderCost('buy', o.price, o.qty, null).netUsd, 0))}</b></div>
+      <div><span>매도 예약 수량</span><b>${fmtQty(list.filter(o => o.side === 'sell').reduce((n, o) => n + (+o.qty || 0), 0))}주</b></div>
+    </div>
+    <div class="order-record-list">${list.map(o => `<article class="order-record">
+      <div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(o.name || usSel)}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div>
+      <div class="order-record-values"><div><span>주문가격</span><b class="num">$${USD2(o.price)}</b></div><div><span>주문수량</span><b class="num">${fmtQty(o.qty)}주</b></div><div><span>상태</span><b class="wait-state">미체결 대기</b></div></div>
+      <div class="order-record-actions"><button type="button" class="order-revise-btn" data-us-revise="${htmlEsc(o.id)}">정정</button><button type="button" class="order-cancel-btn" data-us-revise-cancel="${htmlEsc(o.id)}">주문 취소</button></div></article>`).join('')}</div>`;
+}
+function usHistoryHtml() {
+  const pending = bookActive().filter(o => o.us && o.code === usSel);
+  const fills = (allTrades() || []).filter(t => t && t.us && String(t.code).toUpperCase() === String(usSel).toUpperCase()).slice(0, 60);
+  const pRows = pending.map(o => `<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(o.name || usSel)}</b><span class="wait-state">미체결</span></div><div class="order-history-meta"><span>$${USD2(o.price)} · ${fmtQty(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
+  const fRows = fills.map(t => `<article class="order-history-row"><div class="order-history-main">${orderSideTag(t.side)}<b>${htmlEsc(t.name || usSel)}</b><span class="filled-state">체결 완료</span></div><div class="order-history-meta"><span>$${USD2(t.price)} · ${fmtQty(t.qty)}주</span><span>${orderWhen(t.ts)}</span></div><div class="order-history-amount">${t.side === 'sell' && t.pnl != null ? `실현손익 <b class="num ${dirOf(t.pnl)}">${signed(t.pnl)}원</b>` : `거래금액 <b class="num">$${USD2(t.amount || ((+t.price || 0) * (+t.qty || 0)))}</b>`}</div></article>`).join('');
+  return `<div class="order-history-stats"><div><span>체결 기록</span><b>${fills.length}건</b></div><div><span>현재 미체결</span><b>${pending.length}건</b></div></div>
+    <div class="order-history-list">${(pRows ? `<div class="order-subheading">미체결 · ${pending.length}건</div>${pRows}` : '') + (fRows ? `<div class="order-subheading">체결 · ${fills.length}건</div>${fRows}` : '') || `<div class="order-empty"><span class="order-empty-icon">⌁</span><b>표시할 주문 내역이 없습니다</b><p>주문을 접수하거나 체결하면 이곳에 자동으로 기록됩니다.</p></div>`}</div>`;
+}
+function usGuideHtml() {
+  const s = usSession();
+  const row = (k, v, on) => `<div class="us-guide-r${on ? ' on' : ''}"><span>${k}</span><b>${v}</b></div>`;
+  return `<div class="us-guide">
+    <div class="us-guide-now"><i class="us-ses-dot ${s.phase === 'regular' ? 'on' : s.phase === 'closed' ? 'off' : 'pre'}"></i>
+      지금은 <b>${s.label}</b> · 다음 정규장 <b>${s.next}</b> (한국시간)</div>
+    <div class="us-guide-grid">
+      ${row('프리마켓', s.kst.pre + ' ~ ' + s.kst.open, s.phase === 'pre')}
+      ${row('정규장', s.kst.open + ' ~ ' + s.kst.close, s.phase === 'regular')}
+      ${row('애프터마켓', s.kst.close + ' ~ ' + s.kst.aft, s.phase === 'after')}
+      ${row('데이마켓', s.kst.day, false)}
+      ${row('소수점 거래', s.kst.frac, false)}
+      ${row('유럽(독일·영국)', s.kst.eu, false)}
+    </div>
+    <div class="us-guide-note">${s.dst ? '미국 서머타임 적용 중(3월 둘째 일 ~ 11월 첫 일)' : '미국 표준시 적용 중'} · ${s.dst ? '11월 둘째 일' : '3월 둘째 일'}에 1시간 바뀝니다.<br>
+      모든 시각은 한국시간(KST)이며, 프리·애프터마켓 주문은 지정가만 접수됩니다. 휴장일에는 주문이 체결되지 않습니다.<br>
+      ※ 미국 시간외 거래는 유동성이 낮아 체결가가 크게 벌어질 수 있습니다. 모의투자이므로 실제 손실은 없습니다.</div>
+  </div>`;
+}
+function setUsOrderTab(tab) {
+  if (!['buy', 'sell', 'manage', 'history', 'guide'].includes(tab)) tab = 'buy';
+  usOrderTab = tab;
+  if (tab === 'buy' || tab === 'sell') usSide = tab;
+  renderUsOrder();
+  renderUsCta();
+}
+function renderUsOrder() {
+  const q = usQ[usSel] || {}, fx = usFx();
+  if (usOrdPx == null && q.price != null) usOrdPx = +q.price.toFixed(2);
+  const px = usOrdPx != null ? usOrdPx : 0;
+  const held = holdings.find(h => h.code === usSel && h.us);
+  const pay = usPay === 'auto' ? usAutoPay(px, usOrdQty || 0) : usPay;
+  const maxQ = usSide === 'buy' ? usMaxQty(px, pay) : (held ? held.qty : 0);
   /* 보유 정보 + 손익 분해(주가/환율) — 환차손 개념을 눈으로 배운다 */
-  let heldBox='';
-  if(held&&fx){
-    const fxA=held.fxAvg||fx;
-    const cur=(q.price!=null?q.price:held.avg);
-    const pxPnl=Math.round((cur-held.avg)*held.qty*fxA);          // 주가 손익(매입환율 기준)
-    const fxPnl=Math.round(cur*held.qty*(fx-fxA));                 // 환 손익
-    const tot=pxPnl+fxPnl;
-    heldBox=`<div class="tg tg-free" style="margin-bottom:12px;flex-direction:column;align-items:stretch;gap:5px">
+  let heldBox = '';
+  if (held && fx) {
+    const fxA = held.fxAvg || fx;
+    const cur = (q.price != null ? q.price : held.avg);
+    const pxPnl = Math.round((cur - held.avg) * held.qty * fxA);          // 주가 손익(매입환율 기준)
+    const fxPnl = Math.round(cur * held.qty * (fx - fxA));                 // 환 손익
+    const tot = pxPnl + fxPnl;
+    heldBox = `<div class="tg tg-free" style="margin-bottom:12px;flex-direction:column;align-items:stretch;gap:5px">
       <span><b>보유 ${fmtQty(held.qty)}주</b> · 평단 $${USD2(held.avg)} · 매입환율 ${KRW(Math.round(fxA))}원</span>
       <span style="font-size:11.5px">주가손익 <b class="num ${dirOf(pxPnl)}">${signed(pxPnl)}</b> · 환손익 <b class="num ${dirOf(fxPnl)}">${signed(fxPnl)}</b> · 합계 <b class="num ${dirOf(tot)}">${signed(tot)}원</b></span></div>`;
   }
-  $('usOrder').innerHTML=`
-    ${ordAcctHTML('usOrdAcctSel')}
-    <div class="us-ord-t"><button class="buy ${usSide==='buy'?'on':''}" data-usside="buy">매수</button>
-      <button class="sell ${usSide==='sell'?'on':''}" data-usside="sell">매도</button></div>
-    ${heldBox}
-    ${usSide==='buy'?`<div class="us-fld"><label><span>결제수단</span></label>
-      <div class="us-chips" style="margin:0">
-        <button class="us-chip ${pay==='usd'?'on':''}" data-uspay="usd">💵 달러 예수금 $${USD2(usdCash)}</button>
-        <button class="us-chip ${pay==='krw'?'on':''}" data-uspay="krw">💱 원화 자동환전</button></div>
-      <div class="us-ord-note" style="margin-top:5px">${pay==='usd'
-        ?'미리 환전해 둔 달러로 결제합니다 — 추가 환전 비용이 없습니다'
-        :'원화 예수금에서 매수환율(우대 95% · +'+usFxMargin().toFixed(1)+'원)로 자동 환전됩니다'}</div></div>`
-    :`<div class="us-ord-note" style="margin-bottom:10px">매도 대금은 <b>달러 예수금</b>으로 들어오며, 즉시 재매수할 수 있습니다. 원화 환전은 <b>다음 영업일(T+1)</b>부터 가능해요.</div>`}
-    <div class="us-fld"><label><span>주문가격 (USD)</span><span class="num">현재가 $${USD2(q.price)}</span></label>
-      <div class="us-inrow"><button id="usPxDn">−</button><input id="usPxIn" inputmode="decimal" value="${px?px.toFixed(2):''}"><button id="usPxUp">＋</button></div></div>
-    <div class="us-fld"><label><span>주문수량 <small style="font-weight:600;color:var(--sub-2)">0.01주 단위</small></span><span class="num">가능 ${fmtQty(maxQ)}주</span></label>
-      <div class="us-inrow"><button id="usQtyDn">−</button><input id="usQtyIn" inputmode="decimal" value="${usOrdQty}"><button id="usQtyUp">＋</button></div></div>
-    <div class="us-qbtns">${[10,25,50,100].map(p=>`<button data-uspct="${p}">${p===100?'최대':p+'%'}</button>`).join('')}</div>
-    <div id="usSum"></div>
-    <div class="us-pass us-fld" id="usPassWrap" hidden><label><span>계좌 비밀번호</span></label>
-      <div class="us-inrow"><input id="usPassIn" type="password" inputmode="numeric" maxlength="4" placeholder="4자리" style="text-align:center"></div></div>
-    <button class="us-submit ${usSide}" id="usSubmit">${fx?(usSide==='buy'?'매수 주문':'매도 주문'):'환율 확인 중 · 눌러서 다시 시도'}</button>
-    ${usPendHTML()}
-    <div class="us-ord-note">※ 지정가는 <b>현재가에 닿아야 체결</b>됩니다 — 닿기 전까지는 미체결로 대기해요.<br>
-    ※ 수수료 ${(US_FEE*100).toFixed(2)}%${usSide==='sell'?' + SEC Fee '+(US_SEC_FEE*100).toFixed(4)+'%':''} · 거래세 없음 · 소수점(0.01주) 매매 지원<br>
-    ※ 모의 체결 — 실제 브로커의 원화주문은 가환율로 결제 후 익일 정산되지만, 여기서는 정식 환율을 즉시 적용합니다.</div>`;
+  const tab = usOrderTab || 'buy';
+  const body = (tab === 'manage') ? usManageHtml()
+    : (tab === 'history') ? usHistoryHtml()
+      : (tab === 'guide') ? usGuideHtml()
+        : usTradeFormHtml(q, fx, px, pay, maxQ, held, heldBox);
+  $('usOrder').innerHTML = `${usOrderHeadHtml()}${usOrderTabsHtml()}<div id="usOrderBody">${body}</div>`;
   updateUsSum(); wireUsOrder();
 }
 function usPendHTML(){
@@ -26487,18 +26847,37 @@ function updateUsSum(){
   }
 }
 function wireUsOrder(){
-  document.querySelectorAll('[data-usside]').forEach(b=>b.onclick=()=>{usSide=b.dataset.usside;renderUsOrder();renderUsCta();});
-  wireOrdAcct('usOrdAcctSel',()=>{ renderUsOrder(); try{renderUsHead();}catch(e){} });   // [v4.56]
-  document.querySelectorAll('[data-uscancel]').forEach(b=>b.onclick=()=>cancelPending(b.dataset.uscancel));
+  /* 탭 — 국내 거래 작업대와 같은 5개 메뉴 */
+  document.querySelectorAll('#usOrderTabs [data-us-order-tab]').forEach(b=>{b.onclick=()=>setUsOrderTab(b.dataset.usOrderTab);});
+  document.querySelectorAll('[data-usside]').forEach(b=>b.onclick=()=>{usSide=b.dataset.usside;usOrderTab=usSide;renderUsOrder();renderUsCta();});
+  if($('usOrdAcctSel'))wireOrdAcct('usOrdAcctSel',()=>{ renderUsOrder(); try{renderUsHead();}catch(e){} });
+  document.querySelectorAll('[data-uscancel]').forEach(b=>b.onclick=()=>{cancelPending(b.dataset.uscancel);renderUsOrder();});
   document.querySelectorAll('[data-uspay]').forEach(b=>b.onclick=()=>{usPay=b.dataset.uspay;renderUsOrder();});
+  /* 좌측 가격대 — 누르면 주문가격 칸에 들어간다(국내 호가창과 같은 길) */
+  const book=$('usBookBody'); if(book)bindUsLadder(book,usSel,false);
+  /* 03 정정/취소 */
+  document.querySelectorAll('[data-us-revise]').forEach(b=>b.onclick=async()=>{
+    const o=bookOrders.find(x=>x&&x.id===b.dataset.usRevise&&x.us);
+    if(!o){toast('warn','주문을 찾지 못했습니다','이미 체결되었거나 취소된 주문입니다');renderUsOrder();return;}
+    const v=await askText('주문 정정 — '+(o.side==='buy'?'매수':'매도'),{value:String(o.price),placeholder:'새 주문가격 (USD)',desc:'0.01달러 단위까지 입력할 수 있습니다.'});
+    if(v==null)return;
+    const px=Math.round((parseFloat(v)||0)*100)/100;
+    if(!(px>0)){toast('warn','가격을 확인하세요','0보다 큰 값을 입력해 주세요');return;}
+    o.price=px;o.updatedAt=Date.now();saveState();
+    toast('buy','주문 정정','$'+USD2(px)+'로 바꿨습니다');renderUsOrder();
+  });
+  document.querySelectorAll('[data-us-revise-cancel]').forEach(b=>b.onclick=()=>{cancelPending(b.dataset.usReviseCancel);renderUsOrder();});
   const pxIn=$('usPxIn'),qIn=$('usQtyIn');
+  if(!pxIn||!qIn)return;
   const step=(d)=>{const v=Math.max(0.01,(parseFloat(pxIn.value)||0)+d*0.01);pxIn.value=v.toFixed(2);usOrdPx=v;updateUsSum();};
-  $('usPxUp').onclick=()=>step(1); $('usPxDn').onclick=()=>step(-1);
+  if($('usPxUp'))$('usPxUp').onclick=()=>step(1);
+  if($('usPxDn'))$('usPxDn').onclick=()=>step(-1);
   pxIn.oninput=()=>{usOrdPx=parseFloat(pxIn.value)||null;updateUsSum();};
   pxIn.onblur=()=>{if(usOrdPx!=null){usOrdPx=+usOrdPx.toFixed(2);pxIn.value=usOrdPx.toFixed(2);updateUsSum();}};
   /* [v4.29] 수량 0.01주 단위 — ± 버튼은 정수 1주씩, 직접 입력으로 소수점 */
   const qstep=(d)=>{const v=Math.max(0.01,Math.round(((parseFloat(qIn.value)||0)+d)*100)/100);qIn.value=v;usOrdQty=v;updateUsSum();};
-  $('usQtyUp').onclick=()=>qstep(1); $('usQtyDn').onclick=()=>qstep(-1);
+  if($('usQtyUp'))$('usQtyUp').onclick=()=>qstep(1);
+  if($('usQtyDn'))$('usQtyDn').onclick=()=>qstep(-1);
   qIn.oninput=()=>{usOrdQty=Math.max(0,Math.round((parseFloat(qIn.value)||0)*100)/100);updateUsSum();};
   qIn.onblur=()=>{if(usOrdQty>0)qIn.value=usOrdQty;};
   document.querySelectorAll('[data-uspct]').forEach(b=>b.onclick=()=>{
@@ -26507,16 +26886,17 @@ function wireUsOrder(){
     const pay=usSide==='buy'?(usPay==='auto'?usAutoPay(px,1):usPay):'usd';
     const base=usSide==='buy'?usMaxQty(px,pay):(held?held.qty:0);
     usOrdQty=Math.max(0,Math.floor(base*p)/100); qIn.value=usOrdQty; updateUsSum();});
-  $('usSubmit').onclick=()=>{
+  const submit=$('usSubmit');
+  if(submit)submit.onclick=()=>{
     if(!usFx()){ toast('warn','환율을 받는 중입니다','잠시 후 다시 눌러 주세요');
       usEnsureQuotes([usSel],true).then(()=>renderUsOrder()); return; }
     const wrap=$('usPassWrap');
-    if(wrap.hidden){wrap.hidden=false;$('usPassIn').focus();return;}
+    if(wrap&&wrap.hidden){wrap.hidden=false;const pi=$('usPassIn');if(pi)pi.focus();return;}
     /* ══ [v17.2] 여기는 hash(=legacyHash)만 보고 있었다 ═══════════════════════
        계좌 비밀번호는 개설 때 SHA-256(pwHash)으로 저장된다. 구형 해시로만
        비교했으니 이 화면의 확인은 구조적으로 통과할 수 없었다.
        국내 주문과 같은 창구를 쓴다. */
-    const pw=$('usPassIn').value;
+    const pw=$('usPassIn')?$('usPassIn').value:'';
     acctPwVerify(pw).then(ok=>{
       if(!ok){ toast('warn','비밀번호 오류',acctPwUnset()
         ?'이 계좌에는 비밀번호가 설정돼 있지 않습니다. 내 계좌에서 먼저 정해 주세요.'

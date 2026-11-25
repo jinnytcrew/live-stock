@@ -6630,31 +6630,56 @@ async function fchartMinute(code) {
   const txt = await fetchText2(url, 6e3, { "User-Agent": UA2, "Referer": `https://finance.naver.com/item/main.naver?code=${code}` });
   return rowsToCandles(fchartRows(txt));
 }
-async function frontMinute(code) {
-  const end = /* @__PURE__ */ new Date();
-  const start = /* @__PURE__ */ new Date();
-  start.setDate(start.getDate() - 5);
-  const url = `https://m.stock.naver.com/front-api/external/chart/domestic/info?symbol=${code}&requestType=1&startTime=${ymd(start)}&endTime=${ymd(end)}&timeframe=minute`;
-  const txt = await fetchText2(url, 6e3, { "User-Agent": UA2, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" });
-  const t = String(txt || "").trim();
-  let rows = [];
-  if (t.startsWith("[")) {
+/* ══ [v17.8.41] 국내 분봉 — 거래소가 준 시·고·저·종을 그대로 쓴다 ═════════════
+   [무엇이 잘못돼 있었나] 두 가지가 겹쳐 있었다.
+     ① frontMinute 가 timeframe=minute 을 보냈는데, 이 주소는 day|week|month 만
+        받는다(2026-11 확인). 그래서 매번 실패하고 아래 fchart 로 떨어졌다.
+     ② fchart 는 종가와 거래량만 주고 시·고·저를 null 로 준다. rowsToCandles 가
+        그 빈 값을 '종가 하나'로 채워, 1분봉이 전부 시=고=저=종 인 막대가 됐다.
+        게다가 정규장(09:00~15:30)만 담고 있어 15:30 이후 애프터마켓 봉이 없었다.
+   [고침] api.stock.naver.com 의 분봉은 네 값과 '분당' 거래량을 모두 주고,
+   하루 축이 08:00~20:00 이다(정규장+NXT 애프터마켓). 이걸 1순위로 쓴다.
+   ※ 프리마켓(08:00~08:50)은 이 원천에도 없다 — 아래 nxtpm(직접 수집)이 채운다. */
+async function naverApiMinute(code, count) {
+  const n = Math.min(2000, Math.max(200, parseInt(count, 10) || 1600));
+  const urls = [
+    `https://api.stock.naver.com/chart/domestic/item/${code}/minute?period=1&count=${n}`,
+    `https://m.stock.naver.com/front-api/chart/domestic/item/${code}/minute?period=1&count=${n}`
+  ];
+  for (const url of urls) {
     try {
-      const arr = JSON.parse(t.replace(/'/g, '"').replace(/,\s*]/g, "]"));
-      if (Array.isArray(arr)) rows = arr.slice(1).filter(Array.isArray);
-    } catch {
-    }
-  } else {
-    try {
-      const j = JSON.parse(t);
-      const a = j && (j.result || j.datas || j.data || j.result && j.result.datas) || [];
-      if (Array.isArray(a)) rows = a.map((o) => Array.isArray(o) ? o : [o.localDateTime || o.localDate || o.dt || o.date || o.time, o.openPrice ?? o.open, o.highPrice ?? o.high, o.lowPrice ?? o.low, o.closePrice ?? o.close, o.accumulatedTradingVolume ?? o.volume]);
-    } catch {
-    }
+      const txt = await fetchText2(url, 6e3, { "User-Agent": UA2, "Referer": "https://m.stock.naver.com/", "Accept": "application/json" });
+      const arr = JSON.parse(String(txt || "").trim());
+      if (!Array.isArray(arr) || !arr.length) continue;
+      const out = [];
+      for (const r of arr) {
+        if (!r) continue;
+        const d = String(r.localDateTime || r.localDate || "").replace(/[^0-9]/g, "");
+        if (d.length < 12) continue;
+        const c = +r.currentPrice;
+        if (!(c > 0)) continue;
+        let o = +r.openPrice, h = +r.highPrice, l = +r.lowPrice;
+        if (!(o > 0)) o = c;
+        if (!(h > 0)) h = Math.max(o, c);
+        if (!(l > 0)) l = Math.min(o, c);
+        out.push({ d: d.slice(0, 12), o, h: Math.max(h, o, c), l: Math.min(l, o, c), c,
+          v: Math.max(0, +(r.accumulatedTradingVolume || 0)) });
+      }
+      if (out.length) return out;
+    } catch (e) { }
   }
-  return rowsToCandles(rows);
+  return [];
+}
+async function frontMinute(code) {
+  /* [v17.8.41] 옛 경로(timeframe=minute)는 서버가 거절한다 — 새 경로로 넘긴다. */
+  return await naverApiMinute(code);
 }
 async function naverMinute(code) {
+  try {
+    const c = await naverApiMinute(code);
+    if (c.length >= 1) return { candles: c, src: "naver:" + c.length };
+  } catch (e) {
+  }
   try {
     const c = await frontMinute(code);
     if (c.length >= 1) return { candles: c, src: "front:" + c.length };
@@ -6666,6 +6691,126 @@ async function naverMinute(code) {
   } catch (e) {
   }
   return { candles: [], src: "none" };
+}
+/* ══ [v17.8.41] NXT 프리마켓(08:00~08:50) 1분봉 직접 수집 ═════════════════════
+   어느 무료 시세 원천도 프리마켓 분봉을 과거로 주지 않는다(네이버 분봉 축은
+   09:00 시작, 야후는 정규장만). 그래서 '없는 것을 지어내지 않고' 직접 모은다.
+     · 1분 크론이 NXT 프리마켓 시간에 실시간 시세를 한 번씩 찍어 KV 에 남긴다
+       (앱이 꺼져 있어도 쌓인다 — v17.8.34 크론과 같은 실행기)
+     · 앱이 열려 있으면 /api/nxtquote 가 본 종목을 수집 명단에 올린다
+     · 차트는 이 기록을 '그 시각 봉이 비어 있을 때만' 채운다(실거래 봉 우선)
+   저장: nxtpm:<코드>:<YYYYMMDD> = {c:[[YYYYMMDDHHmm,o,h,l,c,누적거래량],…]} */
+const PM_DEFAULT = ["005930", "000660", "373220", "207940", "005380", "000270", "068270", "005490",
+  "035420", "035720", "006400", "051910", "105560", "055550", "086790", "138040", "028260", "034730",
+  "066570", "034020", "012450", "329180", "196170", "247540", "086520", "028300", "141080", "214150",
+  "145020", "214450", "222800", "259960", "036570", "251270", "323410", "377300", "402340", "352820",
+  "278470", "000100"];
+function pmDayOf(ms) {
+  const k = new Date(ms + 9 * 36e5);
+  return "" + k.getUTCFullYear() + pad2(k.getUTCMonth() + 1) + pad2(k.getUTCDate());
+}
+function pmKey(code, day) { return "nxtpm:" + code + ":" + day; }
+async function pmAppend(code, atMs, px, cumVol) {
+  if (!KV || !(px > 0)) return;
+  const day = pmDayOf(atMs);
+  const k = new Date(atMs + 9 * 36e5);
+  const d = day + pad2(k.getUTCHours()) + pad2(k.getUTCMinutes());
+  const key = pmKey(code, day);
+  let rec = null;
+  try { rec = await KV.get(key, "json"); } catch (e) { rec = null; }
+  if (!rec || typeof rec !== "object" || !Array.isArray(rec.c)) rec = { c: [] };
+  let bar = null;
+  for (const x of rec.c) if (x && x[0] === d) { bar = x; break; }
+  if (!bar) { bar = [d, px, px, px, px, Math.max(0, +cumVol || 0)]; rec.c.push(bar); }
+  else {
+    bar[2] = Math.max(bar[2], px); bar[3] = Math.min(bar[3], px); bar[4] = px;
+    bar[5] = Math.max(bar[5] || 0, +cumVol || 0);
+  }
+  rec.c.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  if (rec.c.length > 200) rec.c = rec.c.slice(-200);
+  rec.at = atMs;
+  try { await KV.put(key, JSON.stringify(rec), { expirationTtl: 864000 }); } catch (e) { }
+}
+async function pmCandles(code, days) {
+  if (!KV) return [];
+  const n = Math.max(1, Math.min(10, days || 6));
+  const keys = [];
+  for (let i = 0; i < n; i++) keys.push(pmKey(code, pmDayOf(Date.now() - i * 864e5)));
+  let recs = [];
+  try { recs = await Promise.all(keys.map((k) => KV.get(k, "json").catch(() => null))); } catch (e) { recs = []; }
+  const out = [];
+  for (const rec of recs) {
+    if (!rec || !Array.isArray(rec.c)) continue;
+    let prev = 0;
+    const rows = rec.c.slice().sort((a, b) => a[0] < b[0] ? -1 : 1);
+    for (const x of rows) {
+      if (!Array.isArray(x) || x.length < 5) continue;
+      const c = +x[4] || +x[1];
+      if (!(c > 0)) continue;
+      const cum = Math.max(0, +x[5] || 0);
+      const v = cum > prev ? cum - prev : 0;
+      prev = Math.max(prev, cum);
+      out.push({ d: String(x[0]), o: +x[1] || c, h: Math.max(+x[2] || c, c), l: Math.min(+x[3] || c, c), c, v });
+    }
+  }
+  return out;
+}
+/* [v17.8.41] 프리마켓 1분 수집 — 크론이 1분마다 부른다(프리마켓 시간에만 실제 동작) */
+var _pmWatch = null;
+var _pmWatchAt = 0;
+async function nxtPremarketTick(nowMs) {
+  if (!KV) return { skip: "nokv" };
+  const now = nowMs || Date.now();
+  const k = new Date(now + 9 * 36e5);
+  const wd = k.getUTCDay();
+  const hm = k.getUTCHours() * 100 + k.getUTCMinutes();
+  if (wd === 0 || wd === 6) return { skip: "weekend" };
+  if (!(hm >= 755 && hm <= 855)) return { skip: "off", hm };      /* 08:00~08:50 창(경계 여유) */
+  let codes = PM_DEFAULT.slice(0, 40);
+  try {
+    if (!_pmWatch) _pmWatch = await KV.get("nxtwatch", "json");
+    const extra = (_pmWatch && Array.isArray(_pmWatch.c)) ? _pmWatch.c : [];
+    for (const c of extra) { if (codes.length >= 46) break; if (codes.indexOf(c) < 0) codes.push(c); }
+  } catch (e) { }
+  codes = codes.filter((c) => /^[0-9A-Z]{6}$/.test(c));
+  if (!codes.length) return { skip: "nocode" };
+  let j = null;
+  try {
+    j = await afGetJson("https://polling.finance.naver.com/api/realtime/domestic/stock/" + codes.join(","), 5500);
+  } catch (e) { j = null; }
+  const arr = (j && (j.datas || (j.result && j.result.areas && j.result.areas.flatMap((a) => a.datas || [])))) || [];
+  let n = 0;
+  for (const d of (Array.isArray(arr) ? arr : [])) {
+    const code = String(d && d.itemCode || "");
+    const om = d && d.overMarketPriceInfo;
+    if (!code || !om) continue;
+    const st = String(om.overMarketStatus || "").toUpperCase();
+    if (st !== "OPEN" && st !== "CLOSE") continue;             /* 거래 없는 시간은 건너뛴다 */
+    const px = +String(om.overPrice != null ? om.overPrice : om.closePrice || "").replace(/[^0-9.]/g, "");
+    if (!(px > 0)) continue;
+    const cum = +String(om.accumulatedTradingVolumeRaw != null ? om.accumulatedTradingVolumeRaw : om.accumulatedTradingVolume || "").replace(/[^0-9]/g, "");
+    await pmAppend(code, now, px, cum);
+    n++;
+  }
+  return { ok: true, n, hm };
+}
+async function pmWatchAdd(codes) {
+  if (!KV || !Array.isArray(codes) || !codes.length) return;
+  const now = Date.now();
+  try {
+    const cur = await KV.get("nxtwatch", "json");
+    const list = (cur && Array.isArray(cur.c)) ? cur.c.slice() : [];
+    let changed = false;
+    for (const c of codes) {
+      const v = String(c || "").toUpperCase();
+      if (!/^[0-9A-Z]{6}$/.test(v) || list.indexOf(v) >= 0) continue;
+      list.push(v); changed = true;
+    }
+    if (!changed) return;
+    while (list.length > 40) list.shift();
+    _pmWatch = { c: list, at: now };
+    await KV.put("nxtwatch", JSON.stringify(_pmWatch), { expirationTtl: 864000 });
+  } catch (e) { }
 }
 /* ══ [v17.8.13] 신규 상장 종목 차트가 비던 이유 ═════════════════════════════
    일·주·월봉을 받은 뒤 'candles.length > 1' 이어야 통과시켰다. 상장 당일에는 일봉이
@@ -6828,10 +6973,88 @@ async function yahooMinute(code, mkt, want) {
   }
   return null;
 }
+/* ══ [v17.8.41] 국내 분봉 합치기 — 원천이 서로 다른 구간을 맡는다 ════════════
+   · 지난 며칠 정규장 : 야후(1분 7일 · 5분 60일 …) — 시·고·저·종·거래량 정상
+   · 오늘 전 구간     : 네이버 분봉 API(09:00~20:00, 정규장+NXT 애프터마켓)
+   · 프리마켓 08:00~08:50 : nxtpm 직접 수집
+   같은 시각이 겹치면 '그 날 실제로 그 시장을 담고 있는' 쪽이 이긴다(오늘=네이버).
+   봉 크기는 요청한 값으로 맞춘다 — 3분 이하는 1분 그대로 내려 화면이 묶는다. */
+function minuteBucket(want) { return want >= 60 ? 60 : want >= 30 ? 30 : want >= 5 ? 5 : want >= 3 ? 3 : 1; }
+function minuteKeyMs(d) {
+  const s = String(d || "");
+  const y = +s.slice(0, 4), mo = +s.slice(4, 6) - 1, da = +s.slice(6, 8), h = +s.slice(8, 10) || 0, mi = +s.slice(10, 12) || 0;
+  return Date.UTC(y, mo, da, h, mi);
+}
+function aggMinuteRows(rows, mins) {
+  if (!Array.isArray(rows) || !rows.length) return [];
+  if (!(mins > 1)) return rows;
+  const ms = mins * 60000, out = [];
+  let cur = null, k0 = null;
+  for (const c of rows) {
+    const t = minuteKeyMs(c.d);
+    if (!isFinite(t)) continue;
+    const k = Math.floor(t / ms);
+    if (k !== k0) {
+      if (cur) out.push(cur);
+      k0 = k;
+      const d = new Date(k * ms);
+      cur = { d: "" + d.getUTCFullYear() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate()) + pad2(d.getUTCHours()) + pad2(d.getUTCMinutes()),
+        o: c.o, h: c.h, l: c.l, c: c.c, v: c.v || 0 };
+    } else {
+      cur.h = Math.max(cur.h, c.h); cur.l = Math.min(cur.l, c.l); cur.c = c.c; cur.v += (c.v || 0);
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 async function getMinute(code, mkt, want) {
-  const y = await yahooMinute(code, mkt, want || 1);
-  if (y) return y;
-  return await naverMinute(code);
+  const bkt = minuteBucket(want || 1);
+  /* ① 지난 며칠 — 야후(정규장) */
+  let hist = [];
+  let histSrc = "";
+  try {
+    const y = await yahooMinute(code, mkt, want || 1);
+    if (y && Array.isArray(y.candles) && y.candles.length) { hist = y.candles; histSrc = y.src || "yahoo"; }
+  } catch (e) { }
+  /* ② 오늘 — 네이버(정규장+애프터마켓, 시·고·저·종) */
+  let today = [];
+  try { today = await naverApiMinute(code, bkt <= 3 ? 1600 : 2000); } catch (e) { today = []; }
+  /* ③ 프리마켓 08:00~08:50 — 직접 수집분 */
+  let pre = [];
+  try { pre = await pmCandles(code, bkt <= 3 ? 6 : 8); } catch (e) { pre = []; }
+  const map = new Map();
+  const put = (c) => {
+    if (!c || !c.d || !(+c.c > 0)) return;
+    const t = minuteKeyMs(c.d);
+    if (!isFinite(t)) return;
+    const key = String(c.d).slice(0, 12);
+    const cur = map.get(key);
+    if (!cur) { map.set(key, { d: key, o: +c.o || +c.c, h: Math.max(+c.h || +c.c, +c.c), l: Math.min(+c.l || +c.c, +c.c), c: +c.c, v: Math.max(0, +(c.v || 0)) }); return; }
+    cur.h = Math.max(cur.h, +c.h || +c.c); cur.l = Math.min(cur.l, +c.l || +c.c);
+    cur.c = +c.c; cur.v = Math.max(cur.v, Math.max(0, +(c.v || 0)));
+  };
+  for (const c of aggMinuteRows(hist, bkt)) put(c);          /* 1) 과거 */
+  for (const c of aggMinuteRows(today, bkt)) put(c);         /* 2) 오늘(정규장 → 애프터마켓) */
+  /* 3) 프리마켓 — '비어 있는 시각'만 채운다. 실제 체결봉이 있으면 그대로 둔다
+     (수집 표본과 실거래 봉을 합치면 고저·거래량이 틀어진다). */
+  for (const c of aggMinuteRows(pre, bkt)) {
+    const key = String(c.d).slice(0, 12);
+    if (!map.has(key) && +c.c > 0) map.set(key, { d: key, o: +c.o || +c.c, h: Math.max(+c.h || +c.c, +c.c), l: Math.min(+c.l || +c.c, +c.c), c: +c.c, v: Math.max(0, +(c.v || 0)), src: "pre" });
+  }
+  const rows = [...map.values()].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+  /* 이상치(가격대 절반 밖)는 축을 망가뜨린다 — 종가 기준으로 걷어낸다 */
+  let out = rows;
+  if (rows.length > 20) {
+    const cs = rows.map((c) => c.c).sort((a, b) => a - b);
+    const md = cs[Math.floor(cs.length / 2)];
+    if (md > 0) out = rows.filter((c) => c.c >= md * 0.5 && c.c <= md * 2);
+  }
+  if (!out.length) return { candles: [], src: "none" };
+  const src = (histSrc ? histSrc : "") + (today.length ? (histSrc ? "+" : "") + "naver:" + today.length : "") + (pre.length ? "+nxtpre:" + pre.length : "");
+  /* 프리마켓 기록이 있는 날의 08:00~08:50 봉 수를 함께 알려 준다 — 화면이 근거를 밝힌다 */
+  const preDays = {};
+  pre.forEach((c) => { const d = String(c.d).slice(0, 8); if (String(c.d).slice(8, 12) < "0900") preDays[d] = (preDays[d] || 0) + 1; });
+  return { candles: out, src: src || "none", pre: preDays };
 }
 var chart_default = async (req2) => {
   const url = new URL(req2.url);
@@ -6902,12 +7125,12 @@ var chart_default = async (req2) => {
       } catch (e) {
         r = { candles: [], src: "err:" + String(e).slice(0, 40) };
       }
-      out = { src: r.src, candles: r.candles };
+      out = { src: r.src, candles: r.candles, pre: r.pre || null };
     } else if (tf === "Y") {
       const m = await tryBoth(code, "M");
       out = { src: m.src, candles: aggYear(m.candles) };
     } else out = await tryBoth(code, ["D", "W", "M"].includes(tf) ? tf : "D");
-    return new Response(JSON.stringify({ ok: out.candles.length > 0, tf, src: out.src, candles: out.candles }), { headers: cacheHdr(30, 900) });
+    return new Response(JSON.stringify({ ok: out.candles.length > 0, tf, src: out.src, candles: out.candles, pre: out.pre || void 0 }), { headers: cacheHdr(30, 900) });
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: String(e), candles: [] }), { headers: { "content-type": "application/json" } });
   }
@@ -7694,7 +7917,10 @@ var clan_default = async (req2) => {
         return json2({ ok: true, clan: null });
       }
       if (rollSeason(c, b.ym)) await saveClan(c);
-      return json2({ ok: true, clan: pub(c, uid) });
+      /* [v17.8.41] 서버가 멤버 계좌를 직접 평가해 '미집계'를 없앤다 */
+      let lv1 = null;
+      try { lv1 = await clanLiveEval(st, c, db); } catch (e) { lv1 = null; }
+      return json2({ ok: true, clan: pub(c, uid, lv1) });
     }
     if (act === "create") {
       if (myClanId) return json2({ ok: false, err: "already" });
@@ -7790,7 +8016,9 @@ var clan_default = async (req2) => {
       } else {
         c.members[uid] = m;
       }
-      return json2({ ok: true, clan: pub(c, uid) });
+      let lv2 = null;
+      try { lv2 = await clanLiveEval(st, c, db); } catch (e) { lv2 = null; }
+      return json2({ ok: true, clan: pub(c, uid, lv2) });
     }
     if (act === "chat") {
       if (!myClanId) return json2({ ok: false, err: "noclan" });
@@ -8080,24 +8308,145 @@ function missionsOf(c, ms, avg2) {
     { k: "\uD074\uB79C \uD3C9\uADE0 \uC218\uC775\uB960", cur: avg2 == null ? 0 : Math.max(0, Math.round(avg2 * 10) / 10), goal: c.goal || 5, unit: "%" }
   ].map((x) => ({ ...x, done: x.cur >= x.goal }));
 }
-function pub(c, uid) {
-  const members = Object.entries(c.members).map(([id, m]) => ({
+/* ══ [v17.8.41] 클랜 '미집계' — 서버가 멤버 계좌를 직접 평가한다 ══════════════
+   [무엇이 문제였나] 멤버의 수익률·체결건수는 그 사람이 앱을 열어 /api/clan sync 를
+   부를 때만 갱신됐다. 그래서 앱을 안 켠 멤버는 계속 null → 화면에 '미집계'.
+   명단에는 3명이 있는데 수익률 집계는 1명만 되는 상태가 여기서 생겼다.
+   [고침] 클랜을 읽을 때 서버가 각 멤버의 저장된 계좌(usr:<id>)를 직접 읽어
+     총자산 · 이번 달 수익률(prefs.monthBase 와 같은 기준) · 체결건수 · 보유 종목
+     · BEST/WORST 를 계산해 채운다. 시세는 종목을 모아 한 번에 받아 온다.
+   · 멤버가 직접 올린 값(m.rate)이 있으면 그것을 우선한다(본인 화면과 같음).
+   · 서버 계산값으로 채운 항목은 rateSrc:'srv' 로 표시한다. */
+var _clanEvalMem = {};
+function usrBooksOf(u) {
+  const out = [];
+  if (!u || typeof u !== "object") return out;
+  const list = Array.isArray(u.acctList) ? u.acctList : [];
+  const active = String(u.acctActive || "");
+  const self = { cash: +u.cash || 0, usdCash: +u.usdCash || 0,
+    holdings: Array.isArray(u.holdings) ? u.holdings : [],
+    tradeLog: Array.isArray(u.tradeLog) ? u.tradeLog : [], tradeArchive: u.tradeArchive || {} };
+  if (!list.length) { out.push(self); return out; }
+  for (const a of list) {
+    if (!a || !a.id) continue;
+    if (String(a.id) === active) { out.push(self); continue; }
+    const b = (u.acctBooks && u.acctBooks[a.id]) || {};
+    out.push({ cash: +b.cash || 0, usdCash: +b.usdCash || 0,
+      holdings: Array.isArray(b.holdings) ? b.holdings : [],
+      tradeLog: Array.isArray(b.tradeLog) ? b.tradeLog : [], tradeArchive: b.tradeArchive || {} });
+  }
+  if (!out.length) out.push(self);
+  return out;
+}
+function usrTradeCount(u) {
+  let n = 0;
+  for (const b of usrBooksOf(u)) {
+    n += (b.tradeLog || []).length;
+    try { Object.values(b.tradeArchive || {}).forEach((v) => { if (Array.isArray(v)) n += v.length; }); } catch (e) { }
+  }
+  return n;
+}
+async function clanLiveEval(st, c, db) {
+  const uids = Object.keys(c.members || {});
+  if (!uids.length) return null;
+  const mem = _clanEvalMem[c.cid];
+  if (mem && Date.now() - mem.at < 60000) return mem.m;
+  const docs = {};
+  try {
+    const store = (st && st.acc) ? st.acc : st;          /* stores() 는 {acc, clan} 를 준다 */
+    const got = await Promise.all(uids.map((id) => usrLoad(store, id, db).catch(() => null)));
+    uids.forEach((id, i) => { if (got[i]) docs[id] = got[i]; });
+  } catch (e) { }
+  const krSet = {}, usSet = {};
+  Object.values(docs).forEach((u) => {
+    usrBooksOf(u).forEach((b) => (b.holdings || []).forEach((h) => {
+      if (!h || !h.code || !(Number(h.qty) > 0)) return;
+      const code = String(h.code).toUpperCase();
+      if (h.us) usSet[code] = 1;
+      else if (/^[0-9]{6}$/.test(code)) krSet[code] = 1;
+    }));
+  });
+  const krCodes = Object.keys(krSet).slice(0, 40);
+  const usCodes = Object.keys(usSet).slice(0, 12);
+  const quotes = {};
+
+  try {
+    if (krCodes.length) { const q = await afKrQuotes(krCodes); Object.keys(q).forEach((k) => { quotes[k] = q[k]; }); }
+  } catch (e) { }
+  let fx = null;
+  if (usCodes.length) {
+    try { fx = await afFxRate(); } catch (e) { fx = null; }
+    if (fx) { try { const q = await afUsQuotes(usCodes); Object.keys(q).forEach((k) => { quotes[k] = q[k]; }); } catch (e) { } }
+  }
+  const ym = (function () { const k = new Date(Date.now() + 9 * 36e5); return k.getUTCFullYear() + "-" + pad2(k.getUTCMonth() + 1); })();
+  const out = {};
+  for (const id of uids) {
+    const u = docs[id];
+    if (!u) continue;
+    let assets = 0, holdCost = 0, holdVal = 0, holdN = 0;
+    const holds = [];
+    for (const b of usrBooksOf(u)) {
+      assets += Math.max(0, +b.cash || 0);
+      if (fx && +b.usdCash) assets += Math.max(0, +b.usdCash) * fx;
+      for (const h of (b.holdings || [])) {
+        if (!h || !h.code || !(Number(h.qty) > 0)) continue;
+        const q = quotes[String(h.code).toUpperCase()];
+        const px = (q && q.price > 0) ? q.price : 0;
+        const avg = Number(h.avg) || 0;
+        const mul = h.us ? (fx || 0) : 1;
+        if (!px || !mul) continue;
+        holdCost += avg * Number(h.qty) * mul;
+        holdVal += px * Number(h.qty) * mul;
+        holdN++;
+        const r = avg > 0 ? (px / avg - 1) * 100 : 0;
+        holds.push({ n: String(h.name || h.code).slice(0, 14), r: Math.round(r * 100) / 100, us: h.us ? 1 : 0 });
+      }
+    }
+    assets += holdVal;
+    const mb = u.prefs && u.prefs.monthBase;
+    let rate = null;
+    if (mb && String(mb.ym || "").slice(0, 7) === ym && +mb.base > 0 && assets > 0) rate = (assets - +mb.base) / +mb.base * 100;
+    else if (holdCost > 0) rate = (holdVal - holdCost) / holdCost * 100;      /* 달 기준을 모를 때: 보유 평가손익률 */
+    holds.sort((a, b) => b.r - a.r);
+    out[id] = {
+      rate: rate == null ? null : Math.max(-99, Math.min(999, Math.round(rate * 100) / 100)),
+      rateKind: (mb && String(mb.ym || "").slice(0, 7) === ym) ? "month" : "hold",
+      tr: usrTradeCount(u), hold: holdN,
+      holds: holds.slice(0, 12),
+      best: holds.length ? holds[0] : null,
+      worst: holds.length > 1 ? holds[holds.length - 1] : null,
+      assets: Math.round(assets), at: Date.now()
+    };
+  }
+  _clanEvalMem[c.cid] = { at: Date.now(), m: out };
+  try { const ks = Object.keys(_clanEvalMem); if (ks.length > 50) ks.slice(0, 30).forEach((k) => delete _clanEvalMem[k]); } catch (e) { }
+  return out;
+}
+function pub(c, uid, live) {
+  const ev = live || null;
+  const members = Object.entries(c.members).map(([id, m]) => {
+    const e = ev && ev[id];
+    const rate = (m.rate != null) ? m.rate : (e && e.rate != null ? e.rate : null);
+    return {
     id,
     name: m.name,
-    rate: m.rate,
+    rate,
+    rateSrc: (m.rate != null) ? "self" : (e && e.rate != null ? "srv" : null),
+    rateKind: (m.rate != null) ? "month" : (e ? e.rateKind : null),
     msg: m.msg || "",
     role: m.role || "",
-    tr: m.tr || 0,
-    hold: m.hold || 0,
+    tr: (m.tr || 0) || (e ? (e.tr || 0) : 0),
+    hold: (m.hold || 0) || (e ? (e.hold || 0) : 0),
     /* ══ [v5.4] 보유 종목·BEST/WORST 가 화면까지 오지 않던 이유 ═══════════════
        저장은 되고 있었는데, 이 함수가 내보낼 항목을 하나씩 골라 담으면서
        새로 넣은 세 가지를 빠뜨렸다. 그래서 화면에는 '1종목' 만 보였다. */
-    holds: Array.isArray(m.holds) ? m.holds : [],
-    best: m.best || null,
-    worst: m.worst || null,
+    holds: (Array.isArray(m.holds) && m.holds.length) ? m.holds : (e && e.holds ? e.holds : []),
+    best: m.best || (e ? e.best : null) || null,
+    worst: m.worst || (e ? e.worst : null) || null,
     joinedAt: m.joinedAt || 0,
     updatedAt: m.updatedAt
-  })).sort((a, z) => (z.rate ?? -1e9) - (a.rate ?? -1e9));
+    };
+  }).sort((a, z) => (z.rate ?? -1e9) - (a.rate ?? -1e9));
   const rated = members.filter((m) => m.rate != null);
   const avg2 = rated.length ? Math.round(rated.reduce((a, m) => a + m.rate, 0) / rated.length * 100) / 100 : null;
   const exp = expOf(c), lv = levelOf(c);
@@ -8111,6 +8460,7 @@ function pub(c, uid) {
     open: c.open !== false,
     leader: c.leader,
     me: uid,
+    live: !!ev,
     createdAt: c.createdAt,
     goal: c.goal ?? null,
     notice: c.notice || "",
@@ -13726,6 +14076,16 @@ var nxtquote_default = async (req2) => {
   if (!codes.length) {
     return new Response(JSON.stringify({ ok: false, quotes: [] }), { headers: { "content-type": "application/json" } });
   }
+  /* [v17.8.41] 화면이 보고 있는 종목을 프리마켓 수집 명단에 올린다 —
+     내 관심종목도 08:00~08:50 봉이 쌓이게 하기 위해서다(프리마켓 시간에만, 5분에 한 번). */
+  try {
+    const k9 = new Date(Date.now() + 9 * 36e5);
+    const hm9 = k9.getUTCHours() * 100 + k9.getUTCMinutes();
+    if (hm9 >= 755 && hm9 <= 860 && !(k9.getUTCDay() === 0 || k9.getUTCDay() === 6) && Date.now() - _pmWatchAt > 300000) {
+      _pmWatchAt = Date.now();
+      pmWatchAdd(codes);
+    }
+  } catch (e) { }
   try {
     const list = await resolveFast();
     const listReady = !!(list && list.ok && list.count > 0);
@@ -14966,15 +15326,19 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.40",
-  releasedAt: "2026-11-25 23:40",
+  version: "17.8.41",
+  releasedAt: "2026-11-26 00:10",
   notes: [
-    "상세 호가 액션 창의 정정/취소를 누르면 보던 호가 코너로 돌아오도록 수정",
-    "차트 UI/UX 전면 개편 — 증권사 트레이딩 터미널형 두 줄 툴바·단말형 범례",
-    "차트 오른쪽 가격축 띠·눈금·현재가 태그·전일 종가 기준선 추가",
-    "차트 십자선에 가격·날짜 배지와 봉별 시·고·저·종·거래량 범례 연동",
-    "차트 지표 칩으로 볼린저·매물대·RSI·MACD 등을 바로 켜고 끄기",
-    "차트 색을 테마 변수에서 읽어 라이트·다크·색약 팔레트까지 반영"
+    "국내 1분봉을 거래소 시·고·저·종·분당 거래량 그대로 표시",
+    "15:30~20:00 NXT·KRX 애프터마켓 1분봉 표시",
+    "08:00~08:50 NXT 프리마켓 1분봉 직접 수집·차트 결합",
+    "분봉 중복 제거·시간순 정렬·3·5·10·30·60분 묶기 정확도 보정",
+    "해외 1분봉에 프리마켓·애프터마켓 체결 포함",
+    "클랜 멤버 수익률을 서버가 계좌로 직접 평가 — 미집계 제거",
+    "해외 종목 미리보기 사이드바 추가(달러·환산가·미니차트)",
+    "해외 거래 화면을 트레이딩 터미널형 5탭 구조로 개편",
+    "해외 상세 가격 사다리·매도/매수·정정/취소 액션 창",
+    "미국 장 세션 안내를 거래 화면에 상시 표시"
   ]
 };
 
@@ -16011,7 +16375,7 @@ async function uscandle_default(req2){
     for(let i=0;i<winCount;i++){
       const p2=now-i*WIN*DAY, p1=p2-WIN*DAY;
       jobs.push(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(tk)}`
-        +`?interval=${IV}&period1=${p1}&period2=${p2}&includePrePost=false`);
+        +`?interval=${IV}&period1=${p1}&period2=${p2}&includePrePost=true`);
     }
     const pull=async(url)=>{
       try{
@@ -16049,8 +16413,8 @@ async function uscandle_default(req2){
     /* 목표만큼 받았는지 화면이 구분할 수 있게 — 1년인 척하지 않는다 */
     const span={days,from:rows[0].t,to:rows[rows.length-1].t,want:WANT_DAYS,
       full:days>=WANT_DAYS*0.85,
-      note:bkt===1?"시세 제공처가 1분 데이터를 이레까지만 제공합니다"
-        :bkt===3?"3분봉은 1분 데이터로 만들어 한 달까지 제공합니다":""};
+      note:(bkt===1?"시세 제공처가 1분 데이터를 이레까지만 제공합니다 · ":bkt===3?"3분봉은 1분 데이터로 만들어 한 달까지 제공합니다 · ":"")
+        +"프리마켓·애프터마켓 체결 포함"};
     try{ if(KV)await KV.put(MK,JSON.stringify({at:Date.now(),candles:rows,span}),{expirationTtl:600}); }catch(e){}
     return new Response(JSON.stringify({ok:true,tf:"MIN",m:bkt,candles:rows,span,diag}),
       {headers:{"content-type":"application/json","cache-control":"no-store","access-control-allow-origin":"*"}});
@@ -18410,10 +18774,18 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.40";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.41";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
-  async scheduled(event, env, ctx) { return await afScheduled(event, env, ctx); },
+  async scheduled(event, env, ctx) {
+    const job = (async () => {
+      /* [v17.8.41] 같은 크론에서 NXT 프리마켓 1분봉도 함께 모은다(08:00~08:50 에만 동작) */
+      try { setEnv(env); await nxtPremarketTick(event && event.scheduledTime ? +event.scheduledTime : Date.now()); } catch (e) { }
+      try { return await afScheduled(event, env, ctx); } catch (e) { return null; }
+    })();
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(job);
+    return await job;
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
