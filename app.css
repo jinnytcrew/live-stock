@@ -9795,3 +9795,120 @@ html[data-theme="dark"] #chartCard .tf-seg button.on{box-shadow:0 1px 2px rgba(0
   #view-ustrade .us-left .panel.us-info{margin-bottom:0}
 }
 .chart-src{margin:6px 2px 0;color:var(--sub-2);font-size:10.5px;line-height:1.5;font-weight:650}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [v17.8.43] 모바일 반응형 전면 보정 (360px~430px)
+   ──────────────────────────────────────────────────────────────────────────
+   [왜] 실기 갤럭시 캡처에서 세 가지가 드러났다.
+     ① 보유 종목 표 — 수량이 '1...' 로 잘리고 종목명 아래 KOSPI 코드가 밑에서
+        잘렸다. 원래 가로로 있던 평균단가·평가금액·비중·봉 열은 아예 숨겨져
+        '정보가 사라진' 화면이 됐다. (v17.1 이 5열로 줄이며 의도한 것이지만,
+        사용자는 "원래 더 많은 정보가 가로로 더 있었다"고 한다 — 숨기지 말고
+        가로 스크롤로 전부 닿게 해야 한다.)
+     ② 하단 탭바 — 오른쪽 끝 항목이 '투자...' 처럼 반쯤 잘려 붙어 보였다.
+        (flex:0 0 68px 고정 폭 + 가로 스크롤 → 화면 폭이 항목 폭의 배수가 아님)
+     ③ 계좌 비밀번호 시트 — 좌우에 20px 씩 여백이 남고 아래로 붕 떠 있었다.
+        (.overlay 의 padding:20px + 인라인 max-width:340px 가 바텀시트 규칙을 이김)
+   [원칙] 좁은 화면에서는 '숨기지' 않고 '닿게' 한다. 모달은 화면 폭을 꽉 채우고
+     아래 safe-area 까지 붙인다.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── ① 보유 종목 표 — 9개 열 전부, 가로 스크롤 + 첫 열 고정 ────────────── */
+.hold-scroll-tip{display:none;margin:0 2px 6px;font-size:10.5px;font-weight:800;color:var(--sub-2);
+  text-align:right;letter-spacing:-.2px}
+.hold-scroll-tip b{color:var(--brand);font-weight:900}
+@media (max-width:640px){
+  .hold-wrap{overflow-x:auto!important;overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;scrollbar-width:thin;
+    border-radius:14px}
+  .hold-wrap table{table-layout:fixed!important;width:730px!important;min-width:730px!important}
+  /* 숨겨 두었던 열을 전부 되살린다(3 평단 · 5 평가액 · 8 비중 · 9 봉) */
+  .hold-wrap th,.hold-wrap td{display:table-cell!important;overflow:visible!important;
+    text-overflow:clip!important;white-space:nowrap!important;font-size:11.5px;padding:9px 5px!important;
+    vertical-align:middle}
+  .hold-wrap th{font-size:10.5px!important;line-height:1.25;padding:8px 5px!important;
+    white-space:normal!important;word-break:keep-all}
+  .hold-wrap th:nth-child(1),.hold-wrap td:nth-child(1){width:148px!important;text-align:left;
+    position:sticky;left:0;z-index:2;background:var(--panel);
+    box-shadow:7px 0 9px -7px rgba(15,25,45,.22)}
+  .hold-wrap th:nth-child(1){z-index:3}
+  .hold-wrap th:nth-child(2),.hold-wrap td:nth-child(2){width:58px!important}
+  .hold-wrap th:nth-child(3),.hold-wrap td:nth-child(3){width:82px!important}
+  .hold-wrap th:nth-child(4),.hold-wrap td:nth-child(4){width:84px!important}
+  .hold-wrap th:nth-child(5),.hold-wrap td:nth-child(5){width:92px!important}
+  .hold-wrap th:nth-child(6),.hold-wrap td:nth-child(6){width:84px!important}
+  .hold-wrap th:nth-child(7),.hold-wrap td:nth-child(7){width:62px!important}
+  .hold-wrap th:nth-child(8),.hold-wrap td:nth-child(8){width:78px!important}
+  .hold-wrap th:nth-child(9),.hold-wrap td:nth-child(9){width:42px!important}
+  .hold-wrap .hw-cell{min-width:0!important;padding-left:0!important}
+  .hold-wrap .hw-cell span{font-size:10px}
+  .hold-wrap .cdl-td,.hold-wrap .cdl-th{width:42px!important;padding:6px 2px!important}
+  .hold-wrap tbody tr{background:var(--panel)}
+  .hold-wrap .td-l{gap:7px}
+  .hold-wrap .td-t .nm{font-size:12px;line-height:1.25;white-space:nowrap;
+    overflow:visible;text-overflow:clip;word-break:keep-all}
+  .hold-wrap .td-t .cd{font-size:9.5px;line-height:1.3;display:block;margin-top:1px}
+  .hold-wrap .mkt-tag{font-size:9px;padding:1px 5px}
+  /* 비었을 때는 스크롤·고정열 없이 한가운데 안내문만 */
+  .hold-wrap.is-empty{overflow-x:hidden!important}
+  .hold-wrap.is-empty table{width:100%!important;min-width:0!important;table-layout:auto!important}
+  .hold-wrap.is-empty th,.hold-wrap.is-empty td{position:static!important;box-shadow:none!important}
+  .hold-scroll-tip:not([hidden]){display:block}
+}
+
+/* ── ② 하단 탭바 — 항목 폭을 화면의 1/5 로 고정해 '반쯤 잘린 항목'을 없앤다 ── */
+@media (max-width:768px){
+  .tabbar{display:flex!important;flex-wrap:nowrap!important;align-items:stretch;
+    gap:0!important;overflow-x:auto!important;overflow-y:hidden!important;
+    scroll-snap-type:x mandatory!important;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+    padding:5px 0 calc(5px + env(safe-area-inset-bottom))!important}
+  .tabbar::-webkit-scrollbar{display:none}
+  .tabbar button,.tabbar .tabbar-menu{flex:0 0 20%!important;min-width:20%!important;max-width:20%!important;
+    scroll-snap-align:start;padding:6px 1px 5px!important;gap:2px!important;border-radius:12px}
+  .tabbar button i,.tabbar .tabbar-menu i{font-size:21px!important;line-height:1.05}
+  .tabbar button span,.tabbar .tabbar-menu span{font-size:10px!important;line-height:1.15;
+    letter-spacing:-.35px;font-weight:750;white-space:nowrap}
+  .tabbar .tabbar-divider{display:none!important}
+  .tabbar button.on::before{top:auto!important;bottom:2px!important;width:16px;height:3px;border-radius:99px}
+}
+
+/* ── ③ 모달·바텀시트 — 화면 폭 100%, 아래 safe-area 까지 붙인다 ─────────── */
+@media (max-width:640px){
+  .overlay{padding:0!important;align-items:flex-end!important;justify-content:center!important}
+  .overlay>.modal,.overlay>.ask-modal,.overlay>.modal.set-modal,.overlay>.modal.profile-modal,
+  .overlay>.modal.ot-modal,.overlay>.modal.modal-pin{
+    width:100%!important;max-width:none!important;margin:0!important;
+    border-radius:18px 18px 0 0!important;overflow-y:auto!important;overscroll-behavior:contain;
+    max-height:min(92dvh,92vh)!important;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom))!important}
+  .overlay>.modal::before{content:'';display:block;width:44px;height:4px;border-radius:99px;
+    background:var(--border);margin:8px auto 0}
+  .modal-head{padding:14px 18px 2px!important}
+  .modal-head .t{font-size:19px}
+  .modal-body{padding:14px 18px 16px!important}
+  #setGate .modal,#setGate .modal.set-modal{max-height:min(90dvh,90vh)!important}
+  .journal-modal>.modal{width:100%!important;max-width:none!important;
+    max-height:min(92dvh,92vh)!important;margin:0!important}
+  .pw-dots{gap:9px;margin:12px 0}
+  .pw-dots span{width:13px;height:13px}
+  .keypad{gap:9px;margin-top:4px}
+  .keypad button{height:56px!important;font-size:20px!important}
+  .modal-ghost{padding:14px!important;font-size:14.5px}
+  /* 업데이트·권한 게이트도 같은 규칙(가운데 뜬 작은 상자 → 풀폭 시트) */
+  .upd-overlay{align-items:flex-end!important;justify-content:center!important;
+    padding:0!important;overflow:hidden!important}
+  .upd-box,.upd-box.gate,.upd-box.gate.perm{width:100%!important;max-width:none!important;
+    margin:0!important;border-radius:18px 18px 0 0!important;max-height:min(92dvh,92vh)!important}
+  .upd-box.gate .ug-foot,.upd-box.gate.perm .ug-foot{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+}
+
+/* [v17.8.43] 계좌 비밀번호 시트는 데스크톱에서만 좁게(340px) — 모바일은 위 ③ 규칙이 100%로 편다 */
+.modal.modal-pin{max-width:340px}
+
+/* [v17.8.43] 포트폴리오 요약 격자 — 96px 칸에 '삼성전자 -3.02%' 처럼 이름+수익률이
+   한 줄로 들어가 360px 화면에서 칸을 넘었다. 좁을 때는 줄을 바꿔 칸 안에 담는다. */
+@media (max-width:430px){
+  .fs-grid>b.num,.fs-grid>div b.num{white-space:normal!important;overflow-wrap:anywhere;word-break:break-word}
+  .search-box{min-width:0;width:100%}
+  .search-box input{min-width:0;flex:1 1 auto;width:100%}
+}

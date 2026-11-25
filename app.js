@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=351';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=352';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -3917,6 +3917,15 @@ let bookOrders=[];      // [v2.5] 예약 주문 {id,code,name,side,qty,price,cre
 var _localFilled={};
 let priceAlerts={};     // [v2.5] 가격 알림 {code:{above,below,name}}
 let selected='005930',ordSide='buy',ordType='limit',userPrice=null,currentView='home',lastPx={};
+/* ══ [v17.8.43] 사용자가 직접 정한 주문가 보호 ═════════════════════════════
+   [증상] 주문가 칸에 값을 넣어도 몇 초 뒤 현재가로 되돌아갔다(실기 영상).
+   [원인] 5초 주기 시세 폴링(scheduleExchange→loadExchange)이 끝날 때마다
+     syncPriceField(true) 를 불렀다. force=true 는 userPrice 를 null 로 지우고
+     현재가를 칸에 다시 채운다 — 사용자가 만진 값이 매 주기 사라졌다.
+   [고침] '손대지 않았을 때만' 시세로 채운다. 직접 입력·호가 클릭·+/- 로
+     가격을 정하면 userPriceTouched=true 가 되고, 종목·주문유형·화면을
+     바꾸는 순간에만 다시 false 로 돌아간다. */
+let userPriceTouched=false;
 let orderWorkspaceTab='buy',orderHistoryFilter='all';
 const market={indices:[],crypto:[],fx:[]};
 let fxData=[],fxOpen=false,fxAt=0;   // /api/fx 실시간 환율(30여 개 통화)
@@ -6811,7 +6820,7 @@ function renderAll(){
   safeRun('holdings',renderHoldings);
   safeRun('search',renderSearch);
   safeRun('detail',renderDetail);
-  safeRun('price',()=>syncPriceField(true));
+  safeRun('price',()=>syncPriceField(false));
 }
 
 /* ===== 라우팅 ===== */
@@ -7049,7 +7058,7 @@ function openTrade(code){
      비교함에 이름 대신 코드(119850)만 뜬 것도 같은 이유다 — 이름이 담긴
      항목이 아예 없었다. 열기 전에 빈 껍데기라도 만들어 둔다. */
   try{ if(!byCode[code])ensureStock(code,'',''); }catch(e){}
-  selected=code;userPrice=null;invExpanded=false;
+  selected=code;userPrice=null;userPriceTouched=false;invExpanded=false;
   const _detailScreen=$('stockDetailScreen'),_orderScreen=$('stockOrderScreen');
   if(_detailScreen)_detailScreen.hidden=false;if(_orderScreen)_orderScreen.hidden=true;
   setTradeHeading('detail');
@@ -14024,7 +14033,7 @@ async function loadExchange(code){
       st.unified=true;
       st.nxtLive=!!(j&&j.nxt&&j.nxt.price&&!krxRegularOpen());
       safeRun('exDetail',()=>{
-        if(selected===code&&currentView==='trade'){renderDetail();syncPriceField(true);}
+        if(selected===code&&currentView==='trade'){renderDetail();syncPriceField(false);}
         renderWatch(); renderPortfolioNumbers();
       });
     }
@@ -16008,6 +16017,7 @@ function applyBookPrice(p,q){
     /* [v9.81b] ordType 만 바꾸면 화면의 '시장가' 표시와 어긋난다.
        지정가로 되돌리고 applyOrderType 으로 입력칸 잠금까지 함께 푼다. */
     userPrice=p;
+    userPriceTouched=true;   /* [v17.8.43] 호가를 눌러 정한 가격도 사용자가 고른 값이다 */
     if(typeof ordTypeName!=='undefined'&&isMarketType(ordTypeName)){
       ordTypeName='보통지정가';   /* 실제 목록에 있는 이름 */
       try{ applyOrderType(); }catch(e){ ordType='limit'; }
@@ -17249,6 +17259,18 @@ function holdHeadFit(){
       if(th.textContent!==want)th.textContent=want;
     });
   }catch(e){}
+  holdTipFit();
+}
+/* ══ [v17.8.43] 보유 표가 화면보다 넓을 때만 '좌우로 밀어 보세요' 안내를 띄운다
+   — 안내가 없으면 사용자는 5열만 보이는 예전 화면과 구분하지 못한다. */
+function holdTipFit(){
+  try{
+    const tip=$('holdTip'),wrap=document.querySelector('.hold-wrap');
+    if(!tip||!wrap)return;
+    const tbl=wrap.querySelector('table');
+    const over=!!tbl&&wrap.scrollWidth>wrap.clientWidth+2;
+    tip.hidden=!over;
+  }catch(e){}
 }
 try{window.addEventListener('resize',()=>{clearTimeout(window._hhT);window._hhT=setTimeout(holdHeadFit,150);});}catch(e){}
 function renderHoldings(){
@@ -17273,6 +17295,7 @@ function renderHoldings(){
   /* [v17.1] 비었을 때는 껍데기에 표식을 남긴다 — CSS 가 머리글을 접고 최소 폭을 푼다.
      (:has() 지원에 기대지 않는다 — 구형 웹뷰에서도 똑같이 동작해야 한다) */
   try{ const _hw=$('holdBody').closest('.hold-wrap'); if(_hw)_hw.classList.toggle('is-empty',!holdings.length); }catch(e){}
+  try{ holdTipFit(); }catch(e){}
   $('holdBody').querySelectorAll('tr[data-usopen]').forEach(tr=>{tr.onclick=(e)=>{e.stopPropagation();openUS(tr.dataset.code);};});
   bindStockClicks($('holdBody'));
   if(currentView==='account')safeRun('acctx',renderAcctExtras);   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
@@ -19657,7 +19680,15 @@ function updateOrderTotal(){
   try{ if(ordType==='market'&&currentView==='trade'&&orderScreenOpen()&&(!_obAt[selected]||Date.now()-_obAt[selected]>15000))
     obLoad(selected,true).then(()=>{ try{ if(currentView==='trade')updateOrderTotal(); }catch(e){} }); }catch(e){}
   $('ordTotal').textContent=KRW(getOrderPrice()*getQty())+'원';}
-function syncPriceField(force){const inp=$('pxInput');if(force||userPrice===null){userPrice=null;inp.value=KRW(currentPrice());}
+function syncPriceField(force){
+  const inp=$('pxInput');
+  if(!inp)return;
+  /* [v17.8.43] 사용자가 정한 가격은 시세 갱신이 덮어쓰지 않는다.
+     포커스가 칸에 있는 동안에도 덮으면 타이핑 중에 값이 튄다. */
+  const editing=(document.activeElement===inp);
+  if(force&&!userPriceTouched&&!editing){userPrice=null;inp.value=KRW(currentPrice());}
+  else if(userPrice===null&&!userPriceTouched&&!editing){inp.value=KRW(currentPrice());}
+  else if(userPrice!==null&&!editing&&!String(inp.value||'').trim()){inp.value=KRW(userPrice);}
   /* [v9.90] 현재가만 보여 주면 시장가로 얼마에 살지 알 수 없다 — 최우선 호가를 함께 */
   /* obBest('buy') = 매수 시 물어 갈 매도1호가, obBest('sell') = 매도 시 팔릴 매수1호가 */
   const _ask=obBest('buy'), _bid=obBest('sell');
@@ -19947,7 +19978,10 @@ function applyOrderType(){
   const av=availableExchanges();
   $('otSelText').textContent=(av.length>1?ordExchange+' · ':'KRX · ')+ordTypeName;
   try{renderTradeGate();}catch(e){}
-  const inp=$('pxInput');inp.disabled=ordType==='market';inp.style.opacity=ordType==='market'?.55:1;syncPriceField(ordType==='market');
+  const inp=$('pxInput');inp.disabled=ordType==='market';inp.style.opacity=ordType==='market'?.55:1;
+  /* [v17.8.43] 시장가로 바꾸면 지정가 편집값은 의미가 없다 — 그때만 현재가로 되돌린다 */
+  if(ordType==='market'){userPriceTouched=false;userPrice=null;}
+  syncPriceField(ordType==='market');
 }
 function renderOtList(){
   const av=availableExchanges();if(!av.includes(otTabEx))otTabEx=av[0];
@@ -20011,9 +20045,9 @@ $('otSelect').onclick=()=>{otTabEx=ordExchange;$('otGate').hidden=false;renderOt
 $('otClose').onclick=()=>{$('otGate').hidden=true;};
 $('otGate').onclick=(e)=>{if(e.target.id==='otGate')$('otGate').hidden=true;};
 function stepPrice(d){const base=getOrderPrice(),t=tickSize(base||1,mktOf(selected));   /* [v9.71] 코스닥 호가단위 */
-  userPrice=Math.max(t,base+d*t);$('pxInput').value=KRW(userPrice);updateOrderTotal();}
+  userPrice=Math.max(t,base+d*t);userPriceTouched=true;$('pxInput').value=KRW(userPrice);updateOrderTotal();}
 $('pxUp').onclick=()=>stepPrice(1);$('pxDown').onclick=()=>stepPrice(-1);
-$('pxInput').addEventListener('input',e=>{userPrice=parseInt(e.target.value.replace(/[^0-9]/g,''))||0;updateOrderTotal();});
+$('pxInput').addEventListener('input',e=>{userPrice=parseInt(e.target.value.replace(/[^0-9]/g,''))||0;userPriceTouched=true;updateOrderTotal();});
 $('pxInput').addEventListener('blur',e=>{if(userPrice!==null){const mk=mktOf(selected);
   userPrice=Math.max(tickSize(userPrice||1,mk),roundTick(userPrice,mk));e.target.value=KRW(userPrice);updateOrderTotal();}});
 function setQty(q){$('qtyInput').value=KRW(Math.max(0,q));updateOrderTotal();}
@@ -20218,6 +20252,7 @@ function openOrderScreen(code,tab='buy'){
   orderWorkspaceTab=tab;
   setOrderWorkspaceTab(tab);
   renderOrderHeader();
+  userPriceTouched=false;   /* [v17.8.43] 주문 화면을 새로 열 때만 현재가로 시작한다 */
   safeRun('order:acct',renderOrdAcct);safeRun('order:gate',renderTradeGate);
   safeRun('order:exchange',configOrderExchanges);safeRun('order:price',()=>syncPriceField(true));
   /* [v17.8.37] 좌측 호가창을 먼저 채우고, 갱신 타이머도 함께 켠다 */

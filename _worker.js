@@ -15375,8 +15375,8 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.42",
-  releasedAt: "2026-11-26 01:10",
+  version: "17.8.43",
+  releasedAt: "2026-11-26 08:45",
   notes: [
     "일자별 시세를 네이버 일별시세 원천으로 교체 — 종가·전일대비·거래대금을 원천값 그대로",
     "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)",
@@ -18890,7 +18890,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.42";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.43";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19243,7 +19243,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 01:10"; BUNDLED_VERSION.notes = ["일자별 시세를 네이버 일별시세 원천으로 교체 — 종가·전일대비·거래대금을 원천값 그대로", "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)", "상단 시가·고가·저가를 거래량과 같은 통합(KRX+NXT) 세션 기준으로 통일", "통합 시세 카드의 거래량·거래대금이 NXT 값으로 찍히던 버그 수정", "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일", "클랜 멤버 상세의 보유 종목·BEST/WORST에 종목 코드가 뜨던 문제 수정(종목명 표시)"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 01:10"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 08:45"; BUNDLED_VERSION.notes = ["모바일 보유 종목 표 — 숨겼던 평단·평가금액·비중·봉까지 9개 열 전부(가로 스크롤·첫 열 고정)", "모바일에서 수량·코드가 '1…'처럼 잘리던 문제 수정(칸 폭·글자 크기·말줄임 제거)", "하단 탭바 — 항목 폭을 화면 1/5로 맞춰 반쯤 잘린 탭이 없도록", "모달·바텀시트 전면 정리 — 좌우 여백·하단 붕뜸 없이 폭 100%·safe-area 반영", "주문가를 직접 정하면 시세 갱신이 현재가로 덮어쓰던 문제 수정", "360px 폭 검색창·포트폴리오 요약 넘침 정리"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 08:45"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
 <link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
-<link rel="stylesheet" href="/app.css?v=687">
+<link rel="stylesheet" href="/app.css?v=688">
 </head>
 <body>
 
@@ -399,7 +399,10 @@ body.needs-auth #authGate{z-index:2000001}
 
 <!-- ORDER PASSWORD MODAL -->
 <div class="overlay" id="pwGate" hidden>
-  <div class="modal" style="max-width:340px">
+  <!-- [v17.8.43] 인라인 max-width:340px 가 모바일 바텀시트 규칙(max-width:none)을 이겨
+       화면 좌우에 어정쩡한 여백이 남고 아래로 붕 떠 보였다 — 클래스로 옮겨
+       모바일에서는 폭을 100%로 되돌린다. -->
+  <div class="modal modal-pin">
     <div class="modal-head"><div class="t" id="pwTitle">계좌 비밀번호</div><div class="s">주문 실행을 위해 4자리를 입력하세요</div></div>
     <div class="modal-body">
       <div class="pw-dots" id="pwDots"><span></span><span></span><span></span><span></span></div>
@@ -1712,6 +1715,8 @@ body.needs-auth #authGate{z-index:2000001}
     <div class="acct-grid">
       <div class="ag-left">
         <div class="sec-title">보유 종목 <span class="sec-sub" id="holdCount"></span></div>
+        <!-- [v17.8.43] 모바일에서 9개 열을 가로 스크롤로 모두 보여 준다 — 넘칠 때만 뜨는 안내 -->
+        <div class="hold-scroll-tip" id="holdTip" hidden>좌우로 밀면 <b>평단·평가금액·비중·봉</b>까지 보입니다 →</div>
         <div class="panel table-wrap hold-wrap">
           <table><thead><tr><th>종목</th><th data-s="수량">보유수량</th><th data-s="평단">평균단가</th><th>현재가</th><th data-s="평가액">평가금액</th><th data-s="손익">평가손익</th><th>수익률</th><th>비중</th><th class="cdl-th">봉</th></tr></thead>
             <tbody id="holdBody"></tbody></table>
@@ -1826,6 +1831,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="tier"><i>💎</i><span>멤버십</span></button>
   <button data-bv="event"><i>🎁</i><span>이벤트</span></button>
 </nav>
-<script type="module" src="/app.js?v=699"></script>
+<script type="module" src="/app.js?v=700"></script>
 </body>
 </html>
