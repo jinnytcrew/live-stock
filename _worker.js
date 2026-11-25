@@ -15375,15 +15375,15 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.43",
-  releasedAt: "2026-11-26 08:45",
+  version: "17.8.44",
+  releasedAt: "2026-11-26 08:55",
   notes: [
-    "일자별 시세를 네이버 일별시세 원천으로 교체 — 종가·전일대비·거래대금을 원천값 그대로",
-    "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)",
-    "상단 시가·고가·저가를 거래량과 같은 통합(KRX+NXT) 세션 기준으로 통일",
-    "통합 시세 카드의 거래량·거래대금이 NXT 값으로 찍히던 버그 수정",
-    "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일",
-    "클랜 멤버 상세의 보유 종목·BEST/WORST에 종목 코드가 뜨던 문제 수정(종목명 표시)"
+    "주문 화면 현재가를 머리말·체결 판정과 같은 통합가로 통일",
+    "미체결 체결가를 주문가 범위로 확정 — 매수는 지정가 이하, 매도는 지정가 이상",
+    "체결가가 주문가와 다를 때 원 주문가를 체결 기록에 남김",
+    "주문 접수 거래소(KRX·NXT·SOR)를 저장하고 그 시장 시간에만 체결",
+    "화면에 보이는 주문가 그대로 접수 — 입력칸 값 우선",
+    "미체결 목록에 주문 시장 표시"
   ]
 };
 
@@ -18890,7 +18890,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.43";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.44";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19243,7 +19243,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 08:45"; BUNDLED_VERSION.notes = ["모바일 보유 종목 표 — 숨겼던 평단·평가금액·비중·봉까지 9개 열 전부(가로 스크롤·첫 열 고정)", "모바일에서 수량·코드가 '1…'처럼 잘리던 문제 수정(칸 폭·글자 크기·말줄임 제거)", "하단 탭바 — 항목 폭을 화면 1/5로 맞춰 반쯤 잘린 탭이 없도록", "모달·바텀시트 전면 정리 — 좌우 여백·하단 붕뜸 없이 폭 100%·safe-area 반영", "주문가를 직접 정하면 시세 갱신이 현재가로 덮어쓰던 문제 수정", "360px 폭 검색창·포트폴리오 요약 넘침 정리"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 08:45"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 08:55"; BUNDLED_VERSION.notes = ["주문 화면 현재가를 머리말·체결 판정과 같은 통합가로 통일","미체결 체결가를 주문가 범위로 확정 — 매수는 지정가 이하, 매도는 지정가 이상","체결가가 주문가와 다를 때 원 주문가를 체결 기록에 남김","주문 접수 거래소(KRX·NXT·SOR)를 저장하고 그 시장 시간에만 체결","화면에 보이는 주문가 그대로 접수 — 입력칸 값 우선","미체결 목록에 주문 시장 표시"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 08:55"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
@@ -19491,10 +19491,23 @@ function afPickQuote(d) {
   var over = d.overMarketPriceInfo || null;
   var overOpen = !!(over && String(over.overMarketStatus || "").toUpperCase() === "OPEN");
   var regular = ms === "OPEN";
-  var price = regular ? afNum(d.closePrice) : (overOpen ? afNum(over.overPrice) : null);
-  if (!(price > 0)) price = afNum(d.closePrice);
-  return { price: price, regular: regular, overOpen: overOpen, open: (regular || overOpen),
+  /* [v17.8.44] 두 세션의 값을 각각 남긴다 — 주문을 접수한 거래소의 값으로만
+     체결해야 하기 때문이다(KRX 주문이 NXT 가격으로 체결되던 구멍). */
+  var regPx = afNum(d.closePrice);
+  var overPx = over ? afNum(over.overPrice) : null;
+  var price = regular ? regPx : (overOpen ? overPx : null);
+  if (!(price > 0)) price = regPx;
+  return { price: price, reg: regPx, over: overPx, regular: regular, overOpen: overOpen, open: (regular || overOpen),
     status: ms, name: String(d.stockName || ""), tail: String(d.localTradedAt || "") };
+}
+/* 주문 창구(ex)에 맞는 세션 가격을 고른다.
+   ex 가 없던 예전 주문은 지금까지처럼 '열린 세션의 값'(NXT 우선)으로 본다. */
+function afOrderQuote(q0, ex) {
+  if (!q0 || !q0.open) return null;
+  var e = String(ex || "").toUpperCase();
+  if (e === "KRX") return (q0.regular && q0.reg > 0) ? { price: q0.reg, name: q0.name, src: "KRX" } : null;
+  if (e === "NXT") return (q0.overOpen && q0.over > 0) ? { price: q0.over, name: q0.name, src: "NXT" } : null;
+  return { price: q0.price, name: q0.name, src: q0.regular ? "KRX" : "NXT" };
 }
 async function afKrQuotes(codes) {
   var out = {};
@@ -19645,14 +19658,18 @@ function afEvalUser(uid, usr, quotes, fx, now) {
     if (!bk) continue;                          /* 장부가 없는 계좌 — 다음 회차에 다시 본다 */
 
     if (!o.us) {
-      var q = quotes[String(o.code)];
-      if (!q || !q.open || !(q.price > 0)) continue;
+      /* [v17.8.44] 내가 주문한 거래소의 시간·가격으로만 판정한다.
+         KRX 지정가가 NXT 프리마켓 가격으로 체결되면 화면이 보여 준 적 없는 값이 된다. */
+      var q = afOrderQuote(quotes[String(o.code)], o.ex);
+      if (!q || !(q.price > 0)) continue;
       var lim = afInt(o.price, 0), qty = afInt(o.qty, 0);
       if (!(lim > 0) || !(qty > 0)) { cancelOrder(o, "주문 정보 오류"); continue; }
       var side = o.side === "sell" ? "sell" : "buy";
-      var hit = side === "buy" ? (q.price <= lim) : (q.price >= lim);
+      var qpx = afInt(q.price, 0);
+      var hit = side === "buy" ? (qpx <= lim) : (qpx >= lim);
       if (!hit) continue;
-      var fill = afInt(q.price, 0);
+      /* 체결가는 지정가를 넘어설 수 없다 — 매수는 주문가 이하, 매도는 주문가 이상 */
+      var fill = side === "buy" ? Math.min(qpx, lim) : Math.max(qpx, lim);
       if (!(fill > 0)) continue;
       var type = typeOf(aid);
       var c = afCost(side, fill, qty, type);
@@ -19672,7 +19689,8 @@ function afEvalUser(uid, usr, quotes, fx, now) {
           h.qty = hq + qty;
         } else bk.holdings.push({ code: o.code, qty: qty, avg: fill });
         logRec(bk, { ts: now, date: today, code: o.code, name: nm, side: "buy", qty: qty, price: fill,
-          amount: c.amount, fee: c.fee, tax: 0, avg: fill, pnl: 0, roi: 0 });
+          amount: c.amount, fee: c.fee, tax: 0, avg: fill, pnl: 0, roi: 0,
+          orderPx: (fill !== lim ? lim : undefined) });
       } else {
         var hs = null;
         for (var i2 = 0; i2 < bk.holdings.length; i2++) {
@@ -19688,13 +19706,15 @@ function afEvalUser(uid, usr, quotes, fx, now) {
         var gone = false;
         if (hs.qty <= 0) { var gi = bk.holdings.indexOf(hs); if (gi >= 0) bk.holdings.splice(gi, 1); gone = true; }
         logRec(bk, { ts: now, date: today, code: o.code, name: nm, side: "sell", qty: qty, price: fill,
-          amount: c.amount, fee: c.fee, tax: c.tax, avg: avg, pnl: pnl, roi: avg * qty ? pnl / (avg * qty) * 100 : 0 });
+          amount: c.amount, fee: c.fee, tax: c.tax, avg: avg, pnl: pnl, roi: avg * qty ? pnl / (avg * qty) * 100 : 0,
+          orderPx: (fill !== lim ? lim : undefined) });
         if (gone) { /* 보유가 끝났다 — 계획도 함께 정리 */ }
       }
       dropOrder(o.id);
       res.changed = true;
       res.fills.push({ at: now, oid: o.id, code: o.code, name: nm, side: side, qty: qty, price: fill,
-        us: 0, tag: "미체결 주문 체결", acct: aid });
+        orderPx: (fill !== lim ? lim : null), src: q.src,
+        tag: "미체결 주문 체결" + (fill !== lim ? " · 주문가 " + lim.toLocaleString("ko-KR") + "원" : ""), acct: aid });
       continue;
     }
 
@@ -19707,7 +19727,8 @@ function afEvalUser(uid, usr, quotes, fx, now) {
     var uside = o.side === "sell" ? "sell" : "buy";
     var uhit = uside === "buy" ? (uq.price <= ulim + 1e-9) : (uq.price >= ulim - 1e-9);
     if (!uhit) continue;
-    var ufill = afR2(uq.price);
+    /* [v17.8.44] 국내와 같은 규칙 — 지정가보다 불리한 가격으로는 체결하지 않는다 */
+    var ufill = afR2(uside === "buy" ? Math.min(uq.price, ulim) : Math.max(uq.price, ulim));
     var utype = typeOf(aid);
     var pay = o.pay === "krw" ? "krw" : "usd";
     var ucst = afUsCost(uside, ufill, uqty, pay === "krw" ? "krw" : null, utype);

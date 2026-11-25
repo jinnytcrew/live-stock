@@ -9034,6 +9034,8 @@ body.ask-open .stock-side-panel{pointer-events:none}
 .pend-box .pb-k.buy{background:var(--up,#e5484d)}
 .pend-box .pb-k.sell{background:var(--down,#3b82f6)}
 .pend-box .pb-x{border:1px solid var(--line,rgba(127,127,127,.3));background:transparent;color:var(--text);border-radius:8px;font-size:11.5px;font-weight:700;padding:4px 10px;cursor:pointer}
+/* [v17.8.44] 미체결 주문이 어느 시장(KRX·NXT·통합)에 들어간 것인지 표시 */
+.pend-box .pb-ex{flex:0 0 auto;font-size:10.5px;font-weight:800;color:var(--sub);letter-spacing:.02em}
 
 /* [v17.8.29] 사업요약 업그레이드 */
 .biz-axis{margin:2px 0 10px;font-size:12.5px;font-weight:700;color:var(--sub);line-height:1.6}
@@ -9254,6 +9256,9 @@ html[data-theme="dark"] .biz-tags span{background:rgba(139,92,246,.18);color:#dd
 .order-history-row{padding:12px 14px}
 .order-history-meta{display:flex;justify-content:space-between;gap:10px;margin:8px 0 0 48px;color:var(--sub);font-size:10.5px}
 .order-history-amount{display:flex;justify-content:flex-end;gap:7px;margin-top:7px;color:var(--sub);font-size:10px}
+/* [v17.8.44] 체결가가 주문가와 다를 때 그 까닭을 함께 적는다 */
+.order-history-note{margin:6px 0 0 48px;padding:5px 9px;border-radius:8px;background:rgba(127,127,127,.08);color:var(--sub);font-size:10.5px;font-weight:700}
+@media (max-width:760px){.order-history-note{margin-left:0}}
 .order-history-amount b{font-size:11px}
 .order-subheading{margin:15px 0 8px;font-size:11px;font-weight:950;color:var(--sub)}
 .order-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:190px;padding:25px 15px;border:1px dashed var(--border);border-radius:13px;text-align:center}

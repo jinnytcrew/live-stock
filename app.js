@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=352';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=353';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -10578,7 +10578,7 @@ function openStratStats(){
    4초 시계로 미체결 지정가·손절·익절·가격 알림을 감시한다(표시 시세와 같은 dispQuote 기준). */
 function autoWatchCodes(){
   const set=new Set();
-  bookOrders.forEach(o=>{ if(!o.us)set.add(o.code); });   /* [v17.8.27] 해외 주문의 티커로 국내 종목을 만들지 않는다 */
+  bookOrders.forEach(o=>{ if(!o.us)set.add(o.code); });   /* [v17.8.44] 창구와 무관하게 시세는 받아 둔다 */   /* [v17.8.27] 해외 주문의 티커로 국내 종목을 만들지 않는다 */
   holdings.forEach(h=>{const p=h.plan||{};
     if(h.stopPx||h.takePx||h.trailPct||p.autoStop||p.autoTake)set.add(h.code);});   /* [v9.82] */
   Object.keys(priceAlerts).forEach(c=>set.add(c));
@@ -10601,13 +10601,17 @@ function autoOrderTick(){
   for(const o of bookOrders.slice()){
     if(o.acct&&o.acct!==acctActive)continue;       // 다른 계좌의 주문은 그 계좌로 바꿨을 때 처리
     if(o.us){ if(usBookTick(o))changed=true; continue; }
-    const q=dispQuote(o.code);if(!q||q.price==null)continue;
+    const q=orderQuote(o);if(!q||q.price==null)continue;
     const hit=o.side==='buy'?q.price<=o.price:q.price>=o.price;
     if(!hit)continue;
     const st=byCode[o.code];if(!st)continue;
-    try{ if(settings.realHours&&!canTradeNow(o.code))continue; }catch(e){}
-    const fill=q.price;
-    const okd=executeOrderCore(st,{side:o.side,price:fill,qty:o.qty,bookId:o.id},
+    try{ if(settings.realHours&&!orderWindowOpen(o))continue; }catch(e){}
+    /* ══ [v17.8.44] 체결가는 지정가를 넘어설 수 없다 ═══════════════════════════
+       매수는 주문가 이하(min), 매도는 주문가 이상(max)에서만 체결된다. 조건식이
+       같은 부등호라 지금도 그렇지만, 여기서 한 번 더 못 박아 둔다 — 원천 가격이
+       어느 세션 값이든 '내가 쓴 값보다 불리하게 체결'은 만들어지지 않는다. */
+    const fill=o.side==='buy'?Math.min(q.price,o.price):Math.max(q.price,o.price);
+    const okd=executeOrderCore(st,{side:o.side,price:fill,qty:o.qty,bookId:o.id,orderPx:o.price},
       '미체결 주문 체결'+(fill!==o.price?` · 주문가 ${KRW(o.price)}원`:''));
     if(okd){ _localFilled[o.id]=Date.now(); bookOrders=bookOrders.filter(x=>x.id!==o.id);changed=true;}
     else if(o.side==='buy'&&orderCost('buy',fill,o.qty).cost>availCash(o.id)){
@@ -19643,7 +19647,19 @@ function sanitizeAccount(silent){
 }
 
 /* ===== 주문 폼 ===== */
-function currentPrice(){const s=byCode[selected];return (s&&s.price!=null)?s.price:0;}   /* [v10.6] 지수 화면 등 종목이 없을 때 방어 */
+/* ══ [v17.8.44] 주문 화면의 '현재가'는 헤더·체결 엔진과 같은 가격이어야 한다 ══
+   [무엇이 틀렸나 — 사용자 제보 2026-11-26 08:26]
+     "삼성전자 17만 1700원에 미체결 걸어놨는데 다시 들어가보니깐 17만 2400원에 체결되어 있잖아"
+     실기 영상(08:10)에는 같은 화면 안에 두 개의 현재가가 동시에 떠 있었다.
+       · 상단 머리말         172,300~172,400  (dispQuote → NXT 프리마켓 체결가)
+       · 주문가격 옆 '현재가' 170,700          (byCode[].price → KRX 전일 종가)
+     미체결 감시(autoOrderTick·서버 크론)는 dispQuote 를 보므로 172,400 에서 판정하는데,
+     사용자는 170,700 을 '지금 가격'으로 믿고 171,700 에 주문했다. 그래서 화면이
+     말한 적 없는 가격에 체결된 것처럼 보였다.
+   [고침] 주문 화면도 통합가(livePx)를 쓴다. 받은 가격이 없을 때만 KRX 값을 쓴다. */
+function currentPrice(){
+  try{ const p=livePx(selected); if(p>0)return p; }catch(e){}
+  const s=byCode[selected];return (s&&s.price!=null)?s.price:0;}   /* [v10.6] 지수 화면 등 종목이 없을 때 방어 */
 /* ══ [v9.90] 시장가는 '현재가'가 아니라 '상대 호가'에 체결된다 ═══════════════
    [무엇이 잘못돼 있었나] 시장가 주문의 체결가를 currentPrice() 즉 마지막 체결가로
    잡았다. 실제 거래소는 다르다. 시장가 매수는 매도 1호가(가장 싼 매도 주문)를
@@ -19672,7 +19688,14 @@ function marketFillPrice(side){
 }
 function getOrderPrice(){
   if(ordType==='market')return marketFillPrice(ordSide);
-  const v=userPrice!==null?userPrice:currentPrice();
+  /* ══ [v17.8.44] 화면에 보이는 값이 곧 접수되는 가격이다 ═══════════════════════
+     [무엇이 틀렸나] 예전에는 userPrice(내부 변수)만 봤다. 시세 폴링이 그 변수를
+     비워 버리면 입력칸에 172,400 이 보이든 171,700 이 남아 있든 currentPrice() 로
+     접수됐다 — 사용자가 고른 값과 실제 주문가가 조용히 어긋날 수 있었다.
+     [고침] 입력칸 → 마지막으로 만진 값 → 현재가 순으로 읽는다. 칸의 값이 우선이다. */
+  let v=0;
+  try{ const raw=String(($('pxInput')&&$('pxInput').value)||'').replace(/[^0-9]/g,''); if(raw)v=intOf(raw,0); }catch(e){}
+  if(!(v>0))v=(userPrice!==null&&userPrice>0)?userPrice:currentPrice();
   const mk=mktOf(selected);return Math.max(tickSize(v||1,mk),roundTick(v,mk));}
 function getQty(){return Math.max(0,parseInt(($('qtyInput').value||'0').replace(/,/g,''))||0);}
 function updateOrderTotal(){
@@ -20068,6 +20091,52 @@ function canTradeNow(code){                       // 실제 시장 시간 판단
   if(st&&st.nxt&&!nxtSuspendInfo(code)&&nxtActive())return true; // 그 밖 시간: NXT 종목만([v4.8] 시장경보 일시제외는 KRX 시간만 인정)
   return false;
 }
+/* ══ [v17.8.44] 주문을 접수한 거래소의 시간에만 체결한다 ═════════════════════
+   [무엇이 틀렸나] 미체결 주문에는 어느 거래소(KRX·NXT·SOR)로 넣은 주문인지가
+     아예 저장되지 않았다. 그래서 KRX 지정가 주문도 NXT 프리마켓(08:00~08:50)에
+     NXT 가격으로 체결되고, KRX 주문 가능 시간(08:30 이후)에만 팔 수 있는 종목이
+     KRX 가 열리기 전 가격으로 체결됐다. 08:26 제보의 '172,400원 체결'도 이 구멍과
+     맞물려 있었다(접수 창구와 체결 창구가 서로 다른 시장이었다).
+   [고침] 주문에 ex('KRX'·'NXT'·'SOR')를 남기고, 그 시장이 실제로 열려 있을 때만 본다.
+     ex 가 없는 예전 주문은 지금처럼 '둘 중 하나라도 열려 있으면' 체결한다. */
+function orderWindowOpen(o){
+  const code=o&&o.code;
+  if(!code)return false;
+  let ses=null;try{ ses=krSession(); }catch(e){ return true; }
+  if(!ses||!ses.day)return false;
+  const ex=String((o&&o.ex)||'').toUpperCase();
+  if(ex==='NXT'){
+    if(!(ses.nxt&&ses.nxt.tradable))return false;
+    try{ if(nxtCapability(code)===false||nxtSuspendInfo(code))return false; }catch(e){}
+    return true;
+  }
+  if(ex==='KRX')return !!(ses.krx&&ses.krx.tradable);
+  return canTradeNow(code);
+}
+/* 자동 체결 판정에 쓸 시세 — 주문 창구에 맞는 세션 값을 고른다.
+   KRX 주문은 KRX 값, NXT 주문은 NXT 값. SOR·미기록 주문은 통합가(dispQuote). */
+function orderQuote(o){
+  const code=o&&o.code;
+  if(!code)return null;
+  const ex=String((o&&o.ex)||'').toUpperCase();
+  if(ex==='KRX'||ex==='NXT'){
+    const px=sessionPx(code,ex==='NXT'?'NXT':'KRX');
+    if(px>0)return {price:px,src:ex};
+  }
+  return dispQuote(code);
+}
+/* 세션별 마지막 체결가 — NXT 는 프리·메인·애프터의 NXT 체결가, KRX 는 정규장 체결가 */
+function sessionPx(code,which){
+  const st=byCode[code]||{};
+  if(which==='NXT'){
+    const n=nxtPx[code];
+    if(n&&n.price>0)return n.price;
+    if(st.nxtPx&&st.nxtPx.price>0)return st.nxtPx.price;
+    if(st.uniPx&&st.uniPx.price>0)return st.uniPx.price;
+    return 0;
+  }
+  return (st.price!=null&&st.price>0)?st.price:0;
+}
 /* ══ [v4.5] 다음에 주문이 열리는 시각 ═══════════════════════════════════════
    '지금 안 된다'만 알려 주고 끝내면 사용자는 언제 다시 오라는 건지 알 수 없다.
    종목이 NXT 취급인지에 따라 창구가 달라지므로 창(window)을 종목별로 고른다.
@@ -20179,7 +20248,9 @@ function executeOrder(o){
   /* [v17.8.27] 지정가 — 비밀번호를 치는 사이 시세가 움직였을 수 있으니 '지금' 다시 판정한다 */
   const fill=limitFillNow(o.side,o.price,s.code);
   if(fill>0){
-    return executeOrderCore(s,{side:o.side,price:fill,qty:o.qty},
+    /* [v17.8.44] 즉시 체결도 내가 쓴 주문가를 기록에 남긴다 — 나중에 '왜 다른 가격이지?'가
+       생기지 않도록. 체결가와 같으면 남기지 않는다. */
+    return executeOrderCore(s,{side:o.side,price:fill,qty:o.qty,orderPx:o.price},
       fill!==o.price?`지정가 ${KRW(o.price)}원 · 현재가 ${KRW(fill)}원에 체결`:'');
   }
   return placePendingOrder(s,o);
@@ -20195,7 +20266,9 @@ function placePendingOrder(s,o){
     if(sellAvail(s.code)<qty){toast('warn','주문 불가 · 매도 가능 수량 부족',`매도 가능 ${KRW(sellAvail(s.code))}주 · 주문 ${KRW(qty)}주`);return false;}
   }
   if(bookOrders.length>=tierLimit('book')){ tierBlockLimit('book',bookOrders.length+1,'미체결 주문은'); return false; }
-  bookOrders.push({id:'b'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),code:s.code,name:s.name,side:o.side,qty,price,acct:acctActive,createdAt:Date.now()});
+  /* [v17.8.44] 접수 거래소(ex)·주문유형(type)을 함께 남긴다 — 체결 판정을
+     '내가 주문한 시장'의 시간과 가격으로만 하기 위해서다(위 orderWindowOpen). */
+  bookOrders.push({id:'b'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),code:s.code,name:s.name,side:o.side,qty,price,acct:acctActive,ex:(String(ordExchange||'').toUpperCase()||'SOR'),type:ordTypeName,createdAt:Date.now()});
   subscribeAutoCodes();saveState();
   const q=dispQuote(s.code)||{}, cur=(q.price!=null)?q.price:s.price;
   toast('on','미체결 주문 접수',`${s.name} ${o.side==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 · 현재가 ${KRW(cur)}원 → ${KRW(price)}원에 닿으면 체결`);
@@ -20218,8 +20291,11 @@ function renderPendBox(){
   const el=$('pendBox'); if(!el)return;
   const list=bookActive().filter(o=>!o.us&&o.code===selected);
   if(!list.length){ if(!el.hidden){el.hidden=true;el.innerHTML='';} return; }
+  /* [v17.8.44] 어느 시장에 넣은 주문인지 함께 적는다 — KRX 주문은 KRX 시간에만,
+     NXT 주문은 NXT 시간에만 체결된다. EX 가 없는 예전 주문은 통합(둘 중 열린 곳). */
+  const exLabel=(o)=>{const ex=String(o.ex||'').toUpperCase();return ex==='KRX'?'KRX':ex==='NXT'?'NXT':'통합(SOR)';};
   const html=`<div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결 · 앱을 닫아도 서버가 체결</small></div>`
-    +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">${KRW(o.price)}원 · ${KRW(o.qty)}주</span><button class="pb-x" data-pbc="${o.id}" aria-label="미체결 주문 취소">취소</button></div>`).join('');
+    +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">${KRW(o.price)}원 · ${KRW(o.qty)}주</span><span class="pb-ex">${exLabel(o)}</span><button class="pb-x" data-pbc="${o.id}" aria-label="미체결 주문 취소">취소</button></div>`).join('');
   if(el.dataset.sig!==html){ el.dataset.sig=html; el.innerHTML=html;
     el.querySelectorAll('[data-pbc]').forEach(b=>b.onclick=()=>cancelPending(b.dataset.pbc)); }
   el.hidden=false;
@@ -20321,7 +20397,9 @@ function renderOrderHistory(){
   const selectedRows=orderHistoryFilter==='filled'?fills:orderHistoryFilter==='pending'?pending:[];
   const htmlTabs=`<div class="order-history-filters"><button type="button" data-history-filter="all" class="${orderHistoryFilter==='all'?'on':''}">전체</button><button type="button" data-history-filter="filled" class="${orderHistoryFilter==='filled'?'on':''}">체결 ${fills.length}</button><button type="button" data-history-filter="pending" class="${orderHistoryFilter==='pending'?'on':''}">미체결 ${pending.length}</button></div>`;
   const pendingHtml=pending.map(o=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="wait-state">미체결</span></div><div class="order-history-meta"><span>${KRW(o.price)}원 · ${KRW(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
-  const fillsHtml=fills.slice(0,100).map(t=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(t.side)}<b>${htmlEsc(t.name||selected)}</b><span class="filled-state">체결 완료</span></div><div class="order-history-meta"><span>${KRW(t.price)}원 · ${KRW(t.qty)}주</span><span>${orderWhen(t.ts)}</span></div><div class="order-history-amount">${t.side==='sell'&&t.pnl!=null?`실현손익 <b class="num ${dirOf(t.pnl)}">${t.pnl>0?'+':''}${KRW(t.pnl)}원</b>`:`거래금액 <b class="num">${KRW(t.amount||((+t.price||0)*(+t.qty||0)))}원</b>`}</div></article>`).join('');
+  /* [v17.8.44] 체결가가 내가 쓴 주문가와 다를 때 그 사실을 같이 적는다 —
+     '내가 171,700원에 걸었는데 왜 172,400원이지?'에서 멈추지 않게. */
+  const fillsHtml=fills.slice(0,100).map(t=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(t.side)}<b>${htmlEsc(t.name||selected)}</b><span class="filled-state">체결 완료</span></div><div class="order-history-meta"><span>${KRW(t.price)}원 · ${KRW(t.qty)}주</span><span>${orderWhen(t.ts)}</span></div>${t.orderPx?`<div class="order-history-note">주문가 ${KRW(t.orderPx)}원 → 체결 ${KRW(t.price)}원 (${t.side==='buy'?'지정가 이하':'지정가 이상'} 체결)</div>`:''}<div class="order-history-amount">${t.side==='sell'&&t.pnl!=null?`실현손익 <b class="num ${dirOf(t.pnl)}">${t.pnl>0?'+':''}${KRW(t.pnl)}원</b>`:`거래금액 <b class="num">${KRW(t.amount||((+t.price||0)*(+t.qty||0)))}원</b>`}</div></article>`).join('');
   let records='';
   if(orderHistoryFilter==='all')records=(pendingHtml?`<div class="order-subheading">미체결 · ${pending.length}건</div>${pendingHtml}`:'')+(fillsHtml?`<div class="order-subheading">체결 · ${fills.length}건</div>${fillsHtml}`:'');
   else if(orderHistoryFilter==='filled')records=fillsHtml;
@@ -20409,6 +20487,9 @@ function executeOrderCore(s,o,tag){   /* o.bookId: 미체결 주문이 닿아 �
   try{
   const {amount,fee,tax}=c;
   const rec={ts:Date.now(),date:kstDay(),code:s.code,name:s.name,side:o.side,qty,price,amount,fee,tax,avg:price,pnl:0,roi:0};
+  /* [v17.8.44] 미체결이 닿아 체결된 경우 — 내가 쓴 주문가를 기록에 함께 남긴다.
+     체결가와 다를 때만 넣는다(지정가 그대로 체결된 건 굳이 두 번 적지 않는다). */
+  if(o&&o.orderPx&&+o.orderPx>0&&+o.orderPx!==price)rec.orderPx=+o.orderPx;
   if(o.side==='buy'){
     cash=intOf(cash-c.cost,0);
     const h=holdings.find(x=>x.code===s.code);
@@ -27224,6 +27305,35 @@ try{
       const before={cash,hold:holdings.length,tr:tradeLog.length};
       executeOrder();
       return {before, after:{cash,hold:holdings.length,tr:tradeLog.length}};
+    }catch(e){ return {err:String(e)}; } },
+    /* ══ [v17.8.44] 주문가·체결가 회귀 검증 통로 ═══════════════════════════
+       실기에서 "지정가와 다른 가격에 체결됐다"가 다시 나오지 않도록, 화면이 보여 주는
+       현재가·입력칸을 그대로 두고 진짜 주문 경로(executeOrder)를 태워 본다. */
+    quoteTest:(code,o)=>{ try{
+      const st=byCode[code]||{}; Object.assign(st,o||{}); byCode[String(code)]=st;
+      return {price:st.price,prevClose:st.prevClose,uniPx:st.uniPx||null,
+        disp:(dispQuote(code)||{}).price,cur:currentPrice()};
+    }catch(e){ return {err:String(e)}; } },
+    orderTest:(o)=>{ try{
+      o=o||{};
+      selected=String(o.code||selected);
+      ordSide=(o.side==='sell')?'sell':'buy';
+      if(o.ex)ordExchange=String(o.ex).toUpperCase();
+      ordType='limit';
+      const inp=$('pxInput'); if(inp)inp.value=KRW(Math.max(1,+o.price||0));
+      userPrice=+o.price||null; userPriceTouched=true;
+      const qtyInp=$('qtyInput'); if(qtyInp)qtyInp.value=String(Math.max(1,+o.qty||1));
+      const before={orders:bookOrders.length,tr:tradeLog.length,cash};
+      executeOrder({side:ordSide,price:+o.price,qty:+o.qty||1,market:false});
+      return {before, orderPrice:getOrderPrice(), cur:currentPrice(),
+        disp:(dispQuote(selected)||{}).price, hint:($('priceHint')||{}).textContent,
+        orders:bookOrders.map(x=>({...x})), log:tradeLog.slice(-2), cash,
+        holdings:holdings.map(h=>({...h}))};
+    }catch(e){ return {err:String(e)}; } },
+    autoTickTest:()=>{ try{
+      autoOrderTick();
+      return {orders:bookOrders.map(x=>({...x})), log:tradeLog.slice(-2), cash,
+        holdings:holdings.map(h=>({...h}))};
     }catch(e){ return {err:String(e)}; } },
     /* 관심종목·폴더·메모·알림·예약주문을 실제 경로로 */
     addWatch:(code)=>{ try{
