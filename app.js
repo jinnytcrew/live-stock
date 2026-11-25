@@ -13391,7 +13391,8 @@ function renderStockSidePanel(code,preserveScroll=false){
   let chart=sideChartSvg(cpts,hasPrev?prev:0,stroke);
   let chartTimes=chart?sideChartTimes(cpts):'';
   if(!chart){const ld=sideIntra[code]&&sideIntra[code].loading;chart=`<div class="ssp-chart-empty">${ld?'분봉 불러오는 중…':'실시간 시세를 받으면 흐름이 표시됩니다'}</div>`;}
-  const low=Number(s.low||0),high=Number(s.high||0);
+  /* [v17.8.42] 저·고 범위도 통합 세션 기준 — 옆 통계 칸과 같은 값을 쓰게 한다 */
+  const low=Number(s.lowU)||Number(s.low||0),high=Number(s.highU)||Number(s.high||0);
   const rangeOk=hasPx&&low>0&&high>=low&&high>0;
   const rangePct=rangeOk?Math.max(0,Math.min(100,(px-low)/(high-low||1)*100)):50;
   const fmt=(v)=>Number.isFinite(Number(v))&&Number(v)>0?KRW(Number(v)):'—';
@@ -13416,9 +13417,9 @@ function renderStockSidePanel(code,preserveScroll=false){
     <div class="ssp-stats">
       <div class="ssp-stat"><span>거래량</span><b>${vol}</b></div>
       <div class="ssp-stat"><span>거래대금</span><b>${value}</b></div>
-      <div class="ssp-stat"><span>시가</span><b>${fmt(Number(s.open))}</b></div>
-      <div class="ssp-stat"><span>고가</span><b class="up">${fmt(Number(s.high))}</b></div>
-      <div class="ssp-stat"><span>저가</span><b class="down">${fmt(Number(s.low))}</b></div>
+      <div class="ssp-stat"><span>시가</span><b>${fmt(Number(s.openU)||Number(s.open))}</b></div>
+      <div class="ssp-stat"><span>고가</span><b class="up">${fmt(Number(s.highU)||Number(s.high))}</b></div>
+      <div class="ssp-stat"><span>저가</span><b class="down">${fmt(Number(s.lowU)||Number(s.low))}</b></div>
       <div class="ssp-stat"><span>전일 종가</span><b>${fmt(Number(s.prevClose||q.prevClose))}</b></div>
     </div>
     ${sideExtraHtml(code)}
