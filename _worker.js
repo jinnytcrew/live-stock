@@ -18697,7 +18697,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 21:35"; BUNDLED_VERSION.notes = ["종목 상세 화면과 거래·주문 화면 독립 분리", "매수·매도·정정/취소·체결/미체결·예약내역 5개 거래 코너 구성", "미체결 주문 가격·수량 정정 및 취소, 체결·예약 내역 통합 조회", "기존 종목 정보·차트·호가·기업정보와 모의 주문 엔진 보존"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 21:35"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-25 22:05"; BUNDLED_VERSION.notes = ["매수·매도 화면을 좌측 호가창 · 우측 주문 상세 설정 2단으로 재구성", "호가를 누르면 주문가격에 바로 반영 — 상세 호가 탭과 같은 동작", "호가·주문 화면이 같은 갱신 타이머를 공유해 요청을 늘리지 않음", "호가가 없는 시간·미제공·해외 종목은 이유와 현재가만 표시", "좁은 화면에서는 호가 위·주문 아래로 자연스럽게 쌓이는 배치 유지"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-25 22:05"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
