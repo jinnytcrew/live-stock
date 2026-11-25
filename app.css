@@ -9368,3 +9368,22 @@ html[data-theme="dark"] .biz-tags span{background:rgba(139,92,246,.18);color:#dd
   .order-book-pane .ob-hh,.order-book-pane .ob-r{grid-template-columns:minmax(0,1fr) 112px minmax(0,1fr)}
   .order-book-pane .ob-note{display:none}
 }
+/* [v17.8.37] 좁은 화면 — 호가가 위·주문이 아래로 쌓되, 호가가 화면을 다 먹지 않게 압축한다 */
+@media(max-width:760px){
+  .order-book-pane{padding:12px 12px 13px}
+  .order-book-head{margin-bottom:7px}
+  .order-book-title h3{font-size:14px}
+  .order-book-live{font-size:9px;padding:3px 8px}
+  .order-book-pane .ob-hh{padding:6px 7px;font-size:9.5px}
+  .order-book-pane .ob-hh,.order-book-pane .ob-r{grid-template-columns:minmax(0,1fr) 96px minmax(0,1fr)}
+  .order-book-pane .ob-q{min-height:29px;padding:5px 7px}
+  .order-book-pane .ob-q b{font-size:11px}
+  .order-book-pane .ob-p{padding:4px 3px;font-size:12px}
+  .order-book-pane .ob-p i{font-size:8.5px;margin-top:0}
+  .order-book-pane .ob-mid{padding:6px 5px;gap:5px;font-size:9px}
+  .order-book-pane .ob-mid b{font-size:10.5px}
+  .order-book-pane .ob-tot{padding:9px}
+  .order-book-pane .ob-tot-lg{font-size:10px;margin-top:6px}
+  .order-book-pane .ob-tot-d{display:none}
+  .ob-book-hint{margin-top:7px;padding:6px 7px;font-size:9.5px}
+}
