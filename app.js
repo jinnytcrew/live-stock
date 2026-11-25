@@ -15697,6 +15697,8 @@ function applyBookPrice(p,q){
     try{ updateOrderTotal(); }catch(e){}
     try{ if(orderScreenOpen())renderOrderHeader(); }catch(e){}
     try{ markBookPrice(); }catch(e){}
+    /* [v17.8.37] 폰에서는 호가가 주문 폼 아래에 있다 — 값을 넣었으니 그 칸으로 되돌아간다 */
+    try{ if(orderScreenOpen()&&window.innerWidth<=760){ setTimeout(()=>{ const f=$('pxInput'); if(f&&f.scrollIntoView)try{f.scrollIntoView({block:'center',behavior:'smooth'});}catch(e){f.scrollIntoView();} },80); } }catch(e){}
     toast('ok',KRW(p)+'원으로 주문가 설정',(q?KRW(q)+'주 대기':''));
   }catch(e){}
 }

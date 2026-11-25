@@ -9387,3 +9387,11 @@ html[data-theme="dark"] .biz-tags span{background:rgba(139,92,246,.18);color:#dd
   .order-book-pane .ob-tot-d{display:none}
   .ob-book-hint{margin-top:7px;padding:6px 7px;font-size:9.5px}
 }
+/* [v17.8.37] 좁은 화면 순서 — 주문 폼이 먼저, 호가가 뒤. 폰에서는 주문 입력이 할 일이고
+   호가는 참고 화면이라, 호가 10단계가 제출 버튼을 화면 밖으로 밀지 않게 한다.
+   (호가를 누르면 applyBookPrice 가 주문가격 칸으로 되돌아 스크롤한다) */
+@media(max-width:760px){
+  .order-trade-layout{display:flex;flex-direction:column}
+  .order-config-pane{order:1}
+  .order-book-pane{order:2;border-right:0;border-top:1px solid var(--border-soft)}
+}
