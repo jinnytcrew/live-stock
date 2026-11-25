@@ -9850,6 +9850,17 @@ function paintClan(){
 function openMemberCard(id){
   const c=clanCache&&clanCache.clan;if(!c)return;
   const m=c.members.find(x=>x.id===id);if(!m)return;
+  /* [v17.8.42] 보유 종목·BEST/WORST 에 종목 코드가 그대로 뜨던 문제 — 서버가 보낸 이름이
+     코드와 같거나 비어 있으면 이 기기의 종목 명부(byCode/STOCKS)에서 이름을 찾는다.
+     (사진: '005930' → '삼성전자') */
+  const holdName=(x)=>{
+    if(!x)return '';
+    const n=String(x.n||'').trim(), cd=String(x.c||'').toUpperCase();
+    if(n&&n!==cd)return n;
+    const st=byCode[cd]||byCode[x.c];
+    if(st&&st.name&&st.name!==cd)return st.name;
+    return n||cd||'—';
+  };
   const staff=c.leader===c.me||(c.members.find(x=>x.id===c.me)||{}).role==='sub';
   const isLeader=c.leader===c.me;
   openLiteGate(m.name+' 님',`
@@ -9862,12 +9873,12 @@ function openMemberCard(id){
       <div class="ps-c"><span>최근 활동</span><b>${m.updatedAt?agoStr2(m.updatedAt):'—'}</b></div>
     </div>
     ${(m.best||m.worst)?`<div class="mc-bw">
-      ${m.best?`<div class="mc-b up"><span>🥇 수익률 BEST</span><b>${htmlEsc(m.best.n)}</b><i class="num up">${m.best.r==null?'—':pctS(m.best.r)}</i></div>`:''}
-      ${m.worst?`<div class="mc-b down"><span>🥶 수익률 WORST</span><b>${htmlEsc(m.worst.n)}</b><i class="num down">${m.worst.r==null?'—':pctS(m.worst.r)}</i></div>`:''}
+      ${m.best?`<div class="mc-b up"><span>🥇 수익률 BEST</span><b>${htmlEsc(holdName(m.best))}</b><i class="num up">${m.best.r==null?'—':pctS(m.best.r)}</i></div>`:''}
+      ${m.worst?`<div class="mc-b down"><span>🥶 수익률 WORST</span><b>${htmlEsc(holdName(m.worst))}</b><i class="num down">${m.worst.r==null?'—':pctS(m.worst.r)}</i></div>`:''}
     </div>`:''}
     ${(Array.isArray(m.holds)&&m.holds.length)?`<div class="mc-hd">보유 종목 <small>${m.holds.length}종${(m.hold||0)>m.holds.length?` · 상위 ${m.holds.length}종만 표시`:''}</small></div>
       <div class="mc-holds">${m.holds.map(h=>`<span class="mc-h">
-        ${h.us?'🇺🇸':'🇰🇷'}<b>${htmlEsc(h.n)}</b>${h.r==null?'':`<i class="num ${h.r>=0?'up':'down'}">${pctS(h.r)}</i>`}</span>`).join('')}</div>`:''}
+        ${h.us?'🇺🇸':'🇰🇷'}<b>${htmlEsc(holdName(h))}</b>${h.r==null?'':`<i class="num ${h.r>=0?'up':'down'}">${pctS(h.r)}</i>`}</span>`).join('')}</div>`:''}
     ${m.msg?`<div class="pm-note">“${htmlEsc(m.msg)}”</div>`:''}
     ${(staff&&m.id!==c.me&&m.id!==c.leader)?`<div class="lg-row">
       ${isLeader?`<button class="btn-ghost" id="mcRole">${m.role==='sub'?'부리더 해제':'부리더 임명'}</button>

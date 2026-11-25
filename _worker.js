@@ -8399,7 +8399,15 @@ async function clanLiveEval(st, c, db) {
         holdVal += px * Number(h.qty) * mul;
         holdN++;
         const r = avg > 0 ? (px / avg - 1) * 100 : 0;
-        holds.push({ n: String(h.name || h.code).slice(0, 14), r: Math.round(r * 100) / 100, us: h.us ? 1 : 0 });
+        /* ══ [v17.8.42] 클랜 멤버 상세에 종목 코드가 그대로 뜨던 문제 ═══════════
+           [증상] 사용자 사진(2026-11-26): 이정현 님 상세의 '수익률 BEST'와
+           '보유 종목'에 003930 대신 '005930'이 표시됐다.
+           [원인] 보유 기록에 name 이 없으면 코드를 이름처럼 넘겼다(사진의 005930).
+           [고침] 시세 응답의 종목명(afPickQuote.name — 국내·해외 모두 있음)으로
+           채우고, 화면이 직접 이름을 찾을 수 있도록 코드(c)도 함께 보낸다. */
+        const cd = String(h.code).toUpperCase();
+        const nm = String(h.name || (q && q.name) || "").trim() || cd;
+        holds.push({ c: cd, n: nm.slice(0, 14), r: Math.round(r * 100) / 100, us: h.us ? 1 : 0 });
       }
     }
     assets += holdVal;
@@ -15374,7 +15382,8 @@ var BUNDLED_VERSION = {
     "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)",
     "상단 시가·고가·저가를 거래량과 같은 통합(KRX+NXT) 세션 기준으로 통일",
     "통합 시세 카드의 거래량·거래대금이 NXT 값으로 찍히던 버그 수정",
-    "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일"
+    "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일",
+    "클랜 멤버 상세의 보유 종목·BEST/WORST에 종목 코드가 뜨던 문제 수정(종목명 표시)"
   ]
 };
 
@@ -19234,7 +19243,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 01:10"; BUNDLED_VERSION.notes = ["일자별 시세를 네이버 일별시세 원천으로 교체 — 종가·전일대비·거래대금을 원천값 그대로", "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)", "상단 시가·고가·저가를 거래량과 같은 통합(KRX+NXT) 세션 기준으로 통일", "통합 시세 카드의 거래량·거래대금이 NXT 값으로 찍히던 버그 수정", "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 01:10"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 01:10"; BUNDLED_VERSION.notes = ["일자별 시세를 네이버 일별시세 원천으로 교체 — 종가·전일대비·거래대금을 원천값 그대로", "일자별 표에 정규 종가 ↔ 최종가 보기 전환(전일대비는 두 보기 모두 전일 정규 종가 기준)", "상단 시가·고가·저가를 거래량과 같은 통합(KRX+NXT) 세션 기준으로 통일", "통합 시세 카드의 거래량·거래대금이 NXT 값으로 찍히던 버그 수정", "상단·일자별·시간별·차트·거래창의 전일 종가 기준을 하나로 통일", "클랜 멤버 상세의 보유 종목·BEST/WORST에 종목 코드가 뜨던 문제 수정(종목명 표시)"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 01:10"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
