@@ -250,9 +250,11 @@ const run = async () => {
         const r = b.getBoundingClientRect();
         return { t: b.textContent.trim().slice(0, 6), top: Math.round(r.top), bottom: Math.round(r.bottom) };
       });
+      const tb = document.querySelector('.tabbar');
+      const tbTop = tb ? Math.round(tb.getBoundingClientRect().top) : innerHeight;
       return {
         open: nav.classList.contains('open'), top: Math.round(nr.top), bottom: Math.round(nr.bottom),
-        headerBottom: Math.round(hb), vh: innerHeight, count: btns.length,
+        headerBottom: Math.round(hb), vh: innerHeight, count: btns.length, tabbarTop: tbTop,
         first: btns[0], last: btns[btns.length - 1], scrollH: nav.scrollHeight, clientH: nav.clientHeight,
         cutTop: btns.filter(b => b.top < 0 && b.bottom > 0).map(b => b.t),
         navCutTop: nr.top < 0,
@@ -264,7 +266,18 @@ const run = async () => {
     check(menu.first && menu.first.top >= menu.top - 1, '드로어 첫 항목(홈)이 잘리지 않는다', JSON.stringify(menu.first));
     check(menu.cutTop.length === 0, '중간에 잘린 항목이 없다', JSON.stringify(menu.cutTop));
     check(menu.count >= 16, '메뉴 항목이 16개 모두 있다', String(menu.count));
-    check(menu.bottom <= menu.vh + 1, '드로어가 화면 아래로 넘치지 않는다', JSON.stringify(menu));
+    check(menu.bottom <= menu.tabbarTop + 1, '드로어가 하단 탭바 뒤로 숨지 않는다', JSON.stringify(menu));
+    /* 마지막 항목까지 스크롤로 닿을 수 있는지 — 드로어 안에서 끝까지 내려 본다 */
+    const reach = await pg.evaluate(() => {
+      const nav = document.getElementById('mainNav');
+      nav.scrollTop = nav.scrollHeight;
+      const last = [...nav.querySelectorAll('button')].pop();
+      const r = last.getBoundingClientRect();
+      const tb = document.querySelector('.tabbar');
+      const tbTop = tb ? tb.getBoundingClientRect().top : innerHeight;
+      return { text: last.textContent.trim(), bottom: Math.round(r.bottom), tabbarTop: Math.round(tbTop) };
+    });
+    check(reach.bottom <= reach.tabbarTop + 1, '마지막 항목(관리자)까지 탭바 위에서 닿는다', JSON.stringify(reach));
 
     /* 드로어에서 항목을 눌러 이동해도 스크롤이 튀지 않는지 */
     await pg.evaluate(() => { const b = document.querySelector('#mainNav [data-view="watch"]'); if (b) b.click(); });

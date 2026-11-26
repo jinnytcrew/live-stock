@@ -9979,7 +9979,8 @@ body{overflow-x:clip;overflow-y:visible}
     position:fixed;
     top:var(--header-h,60px);
     left:0;right:0;
-    max-height:calc(100dvh - var(--header-h,60px) - env(safe-area-inset-bottom,0px));
+    /* 탭바 높이까지 빼야 마지막 항목(관리자)이 탭바 뒤로 숨지 않는다 */
+    max-height:calc(100dvh - var(--header-h,60px) - var(--tabbar-h,0px) - 6px);
     padding-left:max(8px,env(safe-area-inset-left));
     padding-right:max(8px,env(safe-area-inset-right));
     overscroll-behavior:contain;
