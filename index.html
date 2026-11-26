@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
 <link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
-<link rel="stylesheet" href="/app.css?v=693">
+<link rel="stylesheet" href="/app.css?v=694">
 </head>
 <body>
 
@@ -355,6 +355,19 @@ body.needs-auth #authGate{z-index:2000001}
         <div class="fld2"><label>비밀번호</label><input id="liPw" aria-label="비밀번호" type="password" autocomplete="current-password" placeholder="비밀번호"></div>
         <div class="modal-msg" id="liMsg"></div>
         <button class="modal-btn" id="doLogin">로그인</button>
+
+        <!-- ══ [v17.8.48] 무료 체험권 코드 입장 — 코드가 있는 사람만 들어온다 ══
+             (코드 없는 일반 게스트 입장은 두지 않는다) -->
+        <div class="trial-entry" id="trialEntry">
+          <button type="button" class="trial-toggle" id="trialToggle" aria-expanded="false">🎟 무료 체험권 코드로 입장</button>
+          <div id="trialBox" hidden>
+            <div class="fld2"><label>체험권 코드</label>
+              <input id="trialCode" placeholder="TRIAL-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+            <div class="modal-msg" id="trialMsg"></div>
+            <button class="modal-btn trial-go" id="trialGo">체험 입장</button>
+            <div class="trial-note">체험 기록은 이 기기에만 저장됩니다 · 회원가입하면 그대로 가져갑니다</div>
+          </div>
+        </div>
 
         <!-- [v6.7] 구글 간편 로그인 — 공식 파랑(#4285F4) -->
         <div class="oa-or"><span>또는</span></div>
@@ -1835,6 +1848,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="tier"><i>💎</i><span>멤버십</span></button>
   <button data-bv="event"><i>🎁</i><span>이벤트</span></button>
 </nav>
-<script type="module" src="/app.js?v=706"></script>
+<script type="module" src="/app.js?v=707"></script>
 </body>
 </html>

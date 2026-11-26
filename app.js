@@ -1896,7 +1896,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=358';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=359';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -3536,7 +3536,7 @@ function renderAcctBar(){
         <button class="ab-add close" id="acctCloseBtn">계좌 해지</button>
       </div></div></div>`;
   $('acctSelect').onchange=(e)=>acctSwitch(e.target.value);
-  $('acctAddBtn').onclick=()=>openAcctOpenSheet();
+  $('acctAddBtn').onclick=()=>{ if(trialLock('다중 계좌 개설'))return; openAcctOpenSheet(); };
   {const cb=$('acctCloseBtn'); if(cb)cb.onclick=()=>openAcctClose();}
 }
 /* ══ [v9.79] 계좌 종류 고르기를 드롭다운으로 ═══════════════════════════════
@@ -4896,6 +4896,172 @@ function unlockApp(){
     }
   }catch(e){ closeGate(); }
 }
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.48] 무료 체험권 — 회원가입 없이 모의투자를 써 보는 모드
+   ─────────────────────────────────────────────────────────────────────────────
+   [왜] 로그인·회원가입 벽 때문에 앱을 써 보지도 않고 나가는 사람이 많다.
+        관리자가 발급한 체험권 코드를 가진 사람만 입장시키고, 마음에 들면 가입해
+        그때까지의 자산·보유·거래내역을 새 계정으로 넘긴다.
+   [저장] 체험 계좌는 서버에 올리지 않는다 — 계정 목록(accounts)에 넣지 않으므로
+        cloudSync/liveSyncPull 이 모두 첫 줄에서 돌아선다. 데이터는 이 브라우저의
+        localStorage('user:__trial__')에만 남고, 서버 KV 에는 코드만 있다.
+   [복원] 새로고침·재방문은 localStorage 의 세션으로 되살린다. 서버 횟수는 다시
+        차감하지 않고 /api/trial/check 로 코드가 아직 살아 있는지만 확인한다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var TRIAL_UID='__trial__', TRIAL_MK='live.trial.v1', _trialTimer=null;
+function trialMetaGet(){ try{ return JSON.parse(localStorage.getItem(TRIAL_MK)||'null'); }catch(e){ return null; } }
+function trialMetaSet(m){ try{ localStorage.setItem(TRIAL_MK,JSON.stringify(m)); }catch(e){} }
+function trialMetaClear(){ try{ localStorage.removeItem(TRIAL_MK); }catch(e){} }
+function trialIsOn(){ return currentUser===TRIAL_UID; }
+function trialRemain(){ const m=trialMetaGet(); if(!m||!m.expiresAt)return null; return Math.max(0,+m.expiresAt-Date.now()); }
+function trialExpired(){ const m=trialMetaGet(); return !!(m&&m.code&&m.expiresAt&&Date.now()>=+m.expiresAt); }
+function trialFmt(ms){
+  if(ms==null)return '무제한';
+  const h=Math.floor(ms/3600000), mi=Math.floor(ms%3600000/60000);
+  if(h>=24)return Math.floor(h/24)+'일 '+(h%24)+'시간';
+  return h>0?(h+'시간 '+mi+'분'):(mi+'분');
+}
+/* 체험 계좌 — 서버 계정과 같은 모양이어야 기존 화면·주문·체결 코드가 그대로 돈다 */
+function trialSeedUser(seed){
+  const pw=legacyHash('0000'), aid='T1';
+  const bk={cash:seed,usdCash:0,usdSettling:[],holdings:[],tradeLog:[],tradeArchive:{},ipoPlans:[]};
+  return { watchlist:['005930','000660','035420'], watchFolders:[], holdings:[], cash:seed, usdCash:0,
+    usdSettling:[], ipoPlans:[], tradeLog:[], tradeArchive:{}, bookOrders:[], priceAlerts:{}, stockMemos:{},
+    acctPass:pw, acctType:'general', acctActive:aid, sendLog:[],
+    acctList:[{id:aid,type:'general',openedAt:Date.now(),pw:pw,no:acctNewNo('general'),cashSet:1}],
+    acctBooks:{[aid]:bk} };
+}
+function trialSay(el,html,bad){ if(!el)return; el.innerHTML=html; try{ el.classList.toggle('bad',!!bad); }catch(e){} }
+async function trialRedeem(raw,msgEl,btn){
+  const code=String(raw||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(code.length<4){ trialSay(msgEl,'체험권 코드를 입력해 주세요.',1); return false; }
+  if(btn){ btn.disabled=true; btn.textContent='확인 중…'; }
+  try{
+    const r=await fetch('/api/trial/redeem',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code})});
+    const j=await r.json();
+    if(!j||!j.ok){ trialSay(msgEl,htmlEsc((j&&j.msg)||'체험권을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'),1); return false; }
+    trialMetaSet({code:j.code,pretty:j.pretty,memo:j.memo||'',startedAt:j.startedAt,expiresAt:j.expiresAt,
+      seedKrw:+j.seedKrw||0,durationHours:+j.durationHours||0,orderPassBefore:settings.orderPass});
+    store.set('user:'+TRIAL_UID,trialSeedUser(+j.seedKrw||0));
+    try{ store.set('session',null); }catch(e){}
+    settings.orderPass=false; try{saveSettings();}catch(e){}   /* 체험은 주문 비밀번호 없이 바로 */
+    const ov=document.getElementById('trialGate'); if(ov)ov.remove();
+    applyUser(TRIAL_UID); unlockApp(); initApp();
+    trialBanner(); trialWatch();
+    toast('ok','무료 체험을 시작합니다',(j.seedKrw?KRW(j.seedKrw)+'원 가상 자금 · ':'')+'남은 시간 '+trialFmt(trialRemain()));
+    return true;
+  }catch(e){
+    trialSay(msgEl,'서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',1); return false;
+  }finally{ if(btn){ btn.disabled=false; btn.textContent='체험 입장'; } }
+}
+/* 새로고침·재방문 — 로컬 세션 복원(서버 사용 횟수를 다시 차감하지 않는다) */
+function trialResume(){
+  const m=trialMetaGet(); if(!m||!m.code)return false;
+  if(!store.get('user:'+TRIAL_UID)) store.set('user:'+TRIAL_UID,trialSeedUser(+m.seedKrw||0));
+  settings.orderPass=false; try{saveSettings();}catch(e){}
+  applyUser(TRIAL_UID); unlockApp(); initApp(); trialBanner(); trialWatch();
+  try{ fetch('/api/trial/check',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:m.code,startedAt:m.startedAt})})
+    .then(r=>r.json()).then(j=>{ if(j&&!j.ok){ trialSay(null,''); trialEndOverlay(j.msg||''); } }).catch(()=>{}); }catch(e){}
+  return true;
+}
+function trialBannerText(){
+  const m=trialMetaGet(), t=document.getElementById('tbTxt'); if(!t)return;
+  const r=trialRemain();
+  t.innerHTML='<b>체험 중</b> · '+(r==null?'시간 무제한':trialFmt(r)+' 남음')+(m&&m.seedKrw?'<i>'+KRW(m.seedKrw)+' 가상 자금</i>':'');
+}
+function trialBanner(){
+  let b=document.getElementById('trialBar');
+  if(!trialIsOn()){ if(b)b.remove(); return; }
+  if(!b){
+    b=document.createElement('div'); b.id='trialBar';
+    const mn=document.querySelector('main.container');
+    (mn?mn.parentNode:document.body).insertBefore(b,mn||null);
+    b.innerHTML='<span class="tb-dot"></span><span class="tb-txt" id="tbTxt">체험 중</span><button type="button" class="tb-go" id="tbGo">회원가입하고 기록 저장</button>';
+    const g=document.getElementById('tbGo'); if(g)g.onclick=()=>trialGoSignup();
+  }
+  trialBannerText();
+}
+function trialWatch(){
+  if(_trialTimer)clearInterval(_trialTimer);
+  _trialTimer=setInterval(()=>{
+    if(!trialIsOn()){ clearInterval(_trialTimer);_trialTimer=null; const b=document.getElementById('trialBar'); if(b)b.remove(); return; }
+    if(trialExpired()){ clearInterval(_trialTimer);_trialTimer=null; trialEndOverlay(); return; }
+    trialBannerText();
+  },20000);
+}
+function trialOverlay(inner){
+  const old=document.getElementById('trialGate'); if(old)old.remove();
+  const ov=document.createElement('div'); ov.className='overlay trial-gate'; ov.id='trialGate';
+  ov.innerHTML='<div class="modal trial-modal">'+inner+'</div>';
+  document.body.appendChild(ov); return ov;
+}
+/* 회원 전용 기능 잠금 안내 — 가입하면 체험 기록을 그대로 가져간다 */
+function trialLock(feature){
+  if(!trialIsOn())return false;
+  if(document.getElementById('trialGate'))return true;
+  const ov=trialOverlay(`
+    <div class="gm-ic">🔒</div>
+    <div class="gm-t">정식 회원가입 시 이용할 수 있어요</div>
+    <div class="gm-d">${htmlEsc(feature||'이 기능')}은(는) 회원 전용입니다.<br>
+      지금 체험 계좌의 자산·보유종목·거래내역은 가입할 때 그대로 가져갈 수 있어요.</div>
+    <button type="button" class="modal-btn" id="tgSignup">회원가입하고 기록 저장</button>
+    <button type="button" class="modal-ghost" id="tgLater">계속 체험하기</button>`);
+  ov.querySelector('#tgSignup').onclick=()=>{ ov.remove(); trialGoSignup(); };
+  ov.querySelector('#tgLater').onclick=()=>ov.remove();
+  return true;
+}
+/* 체험 만료 — 가입 또는 새 코드 */
+function trialEndOverlay(why){
+  if(document.getElementById('trialGate'))return;
+  const ov=trialOverlay(`
+    <div class="gm-ic">⏰</div>
+    <div class="gm-t">체험 시간이 끝났어요</div>
+    <div class="gm-d">${why?htmlEsc(why)+'<br>':''}지금까지의 자산·보유종목·거래내역은 회원가입하면 그대로 이어집니다.<br>새 체험권 코드가 있으면 다시 체험할 수 있어요.</div>
+    <button type="button" class="modal-btn" id="teSignup">회원가입하고 기록 저장</button>
+    <div class="fld2" style="margin-top:12px"><label>새 체험권 코드</label>
+      <input id="teCode" placeholder="TRIAL-XXXX-XXXX" autocomplete="off" autocapitalize="characters"></div>
+    <div class="modal-msg" id="teMsg"></div>
+    <button type="button" class="modal-ghost" id="teGo">새 코드로 다시 체험</button>`);
+  const b=ov.querySelector('#teGo');
+  b.onclick=()=>trialRedeem(ov.querySelector('#teCode').value,ov.querySelector('#teMsg'),b);
+  ov.querySelector('#teSignup').onclick=()=>{ ov.remove(); trialGoSignup(); };
+  try{ const i=ov.querySelector('#teCode'); if(i)setTimeout(()=>i.focus(),150); }catch(e){}
+}
+/* 회원가입 화면 열기 — 체험 데이터는 가입 직후 이관 여부를 묻는다 */
+function trialGoSignup(){
+  const g=$('authGate');
+  if(!g){ toast('warn','회원가입','로그인 화면을 열지 못했습니다'); return; }
+  g.hidden=false; g.classList.add('auth-force');
+  try{ $('tabSignup').classList.add('on'); $('tabLogin').classList.remove('on');
+    $('signupForm').hidden=false; $('loginForm').hidden=true; }catch(e){}
+  try{ suInit(suMode||'normal'); renderSu(); }catch(e){}
+  try{ g.scrollIntoView({block:'center'}); }catch(e){}
+}
+/* 가입 완료 시 — 체험 기록을 새 계정으로 가져올지 묻고 옮긴다 */
+async function trialMigrateOffer(newId){
+  const m=trialMetaGet(); if(!m||!m.code)return false;
+  const src=store.get('user:'+TRIAL_UID); if(!src)return false;
+  let carry=true;
+  try{ carry=await askConfirm('체험 기록 이관','지금 체험 계좌의 자산('+KRW(+src.cash||0)+'원)과 보유종목·거래내역을 새 계정으로 가져올까요?\n가져오지 않으면 새 계좌로 시작합니다.',{okLabel:'가져오기'}); }catch(e){}
+  if(carry){
+    try{
+      const dst=store.get('user:'+newId)||{};
+      const merged=Object.assign({},dst,{
+        watchlist:(dst.watchlist&&dst.watchlist.length)?dst.watchlist:(src.watchlist||[]),
+        watchFolders:src.watchFolders||[], holdings:src.holdings||[], cash:+src.cash||0, usdCash:+src.usdCash||0,
+        usdSettling:src.usdSettling||[], acctList:src.acctList||[], acctBooks:src.acctBooks||{},
+        acctActive:src.acctActive||'', acctType:src.acctType||'general', acctPass:src.acctPass||dst.acctPass,
+        tradeLog:src.tradeLog||[], tradeArchive:src.tradeArchive||{}, ipoPlans:src.ipoPlans||[], bookOrders:src.bookOrders||[] });
+      store.set('user:'+newId,merged);
+    }catch(e){}
+  }
+  if(typeof m.orderPassBefore==='boolean'){ settings.orderPass=m.orderPassBefore; try{saveSettings();}catch(e){} }
+  trialMetaClear();
+  try{ store.del('user:'+TRIAL_UID); }catch(e){}
+  const b=document.getElementById('trialBar'); if(b)b.remove();
+  return carry;
+}
+
 /* 계정 전환 시 개인 기록을 그 계정 키에서 다시 읽는다 */
 function reloadPerUser(){
   try{srchHist=pget('srchHist',[]);}catch(e){srchHist=[];}
@@ -5273,10 +5439,12 @@ async function doGoogleSignupRun(){
       realName:suForm.realName,birth:suForm.birth,phone:suForm.phone,
       terms:{...suForm.terms,at:Date.now()}};
     store.set('accounts',accs);
+    /* [v17.8.48] 체험 중에 구글 가입을 마쳤다면 체험 기록 이관 여부를 묻는다 */
+    const _gcarried=await trialMigrateOffer(j.id);
     /* [v13.2] 로그인 경로와 같은 방어 — 빈 응답으로 기존 데이터를 덮지 않는다 */
     try{
       const _sv=j.user, _lo=store.get('user:'+j.id);
-      if(_sv&&(hasRealData(_sv)||!hasRealData(_lo))){
+      if(!_gcarried&&_sv&&(hasRealData(_sv)||!hasRealData(_lo))){
         store.set('user:'+j.id,_sv);
       }
     }catch(e){}
@@ -5307,7 +5475,9 @@ async function doSignupRun(){
       terms:{...suForm.terms,at:Date.now()}};
     store.set('accounts',accs);
     /* 계좌는 만들지 않는다 — 가입과 계좌 개설은 별개 절차다(v4.99) */
-    store.set('user:'+id,{watchlist:[],watchFolders:[],holdings:[],cash:0,usdCash:0,
+    /* [v17.8.48] 체험 중에 가입했다면 체험 계좌의 자산·보유·거래내역을 옮길지 묻는다 */
+    const _carried=await trialMigrateOffer(id);
+    if(!_carried) store.set('user:'+id,{watchlist:[],watchFolders:[],holdings:[],cash:0,usdCash:0,
       ipoPlans:[],acctPass:acctH,acctType:'general',acctActive:'',acctList:[],acctBooks:{}});
     applyUser(id); unlockApp(); initApp();
     /* [v7.5] 일반 가입도 같은 안내창을 띄운다 — 아이디를 분명히 알려 준다 */
@@ -5462,6 +5632,16 @@ function dataWeight(d){
    이 칸은 더 알찬 것이 나타날 때만 바뀐다. 무슨 일이 있어도 최선의 상태 하나는
    반드시 남는다. */
 
+
+/* [v17.8.48] 로그인 화면의 체험권 입장 UI 배선 */
+(function trialUiBind(){
+  const tg=$('trialToggle'), box=$('trialBox'), go=$('trialGo'), inp=$('trialCode');
+  if(!tg||!box||!go)return;
+  tg.onclick=()=>{ const will=box.hidden; box.hidden=!will; try{tg.setAttribute('aria-expanded',String(will));}catch(e){}
+    if(will&&inp)setTimeout(()=>{try{inp.focus();}catch(e){}},80); };
+  go.onclick=()=>trialRedeem(inp&&inp.value,$('trialMsg'),go);
+  if(inp)inp.onkeydown=(e)=>{ if(e.key==='Enter'){e.preventDefault();go.click();} };
+})();
 
 $('doLogin').onclick=async()=>{
   const raw=$('liId').value.trim();
@@ -6031,6 +6211,7 @@ function renderSettingsExtra(){
     if(!await askConfirm('거래내역 초기화','모든 매매일지 기록이 삭제됩니다. 보유종목·예수금은 유지됩니다.',{okLabel:'초기화',danger:true}))return;
     tradeLog=[];tradeArchive={};saveState();toast('warn','거래내역 초기화 완료','');};
   const cr=$('setCashReset');if(cr)cr.onclick=async()=>{
+    if(trialLock('예수금 리셋·계좌 초기화'))return;
     if(!await cashChangeAllowed())return;                       // [v16.6] 최초 1회 정책
     const v=await askText('예수금 리셋',{placeholder:'새 예수금(원) 예: 10000000',value:String(cash||0),maxLen:12});
     if(v===null)return;const nv=Math.max(0,Math.round(+String(v).replace(/[^0-9]/g,'')||0));
@@ -6064,6 +6245,7 @@ function renderSettingsExtra(){
         :'손절선 이탈·목표가 도달을 기기 알림으로 보내드립니다';
     };
     if(sw)sw.onclick=async()=>{
+      if(!sw.classList.contains('on')&&trialLock('알림 받기(앱을 닫아도 알림)'))return;
       if(sw.classList.contains('on'))await pushDisable();
       else await pushEnable();
       paint();
@@ -7153,6 +7335,8 @@ function showView(name){
   try{return _showView(name);}catch(e){console.error('[showView]',e);}
 }
 function _showView(name){
+  /* [v17.8.48] 체험 모드 — 클랜·친구(랭킹 포함)는 회원 전용 */
+  if((name==='clan'||name==='friend')&&trialLock(name==='clan'?'클랜·클랜 랭킹':'친구·수익률 랭킹'))return;
   /* [v7.0] 뒤로 가기로 돌아갈 수 있게 직전 화면을 쌓아 둔다.
      같은 화면을 다시 열거나 뒤로 가기로 온 경우에는 쌓지 않는다. */
   try{
@@ -21210,7 +21394,12 @@ function __bootMain(){
      처리에 실패했을 때만 그때 로그인 창을 연다. */
   let backFromGoogle=false;
   try{ backFromGoogle=/[?&]glogin=/.test(location.search); }catch(e){}
-  if(sess&&accounts()[sess]){
+  /* [v17.8.48] 체험 세션이 살아 있으면 회원 세션보다 먼저 되살린다.
+     (회원으로 로그인된 상태라면 그쪽이 우선 — 체험 데이터를 덮지 않는다) */
+  if(!(sess&&accounts()[sess])&&!backFromGoogle&&trialMetaGet()&&trialMetaGet().code&&!trialExpired()){
+    try{ trialResume(); }catch(e){ try{requireAuth();}catch(e2){} }
+  }
+  else if(sess&&accounts()[sess]){
     applyUser(sess);unlockApp();initApp();
     /* ══ [v12.4] 세션으로 바로 들어올 때 등급을 못 받던 문제 ═══════════════════
        로그인 화면을 거치면 login 응답에 등급이 실려 온다. 그런데 이미 로그인해
@@ -21252,7 +21441,10 @@ function __bootMain(){
       else try{window.__boot&&__boot.done();}catch(e){}
     })();
   }
-  else{requireAuth();}
+  else{requireAuth();
+    /* [v17.8.48] 체험 시간이 끝나 다시 열었을 때 — 만료 안내와 새 코드 입력을 바로 보여 준다 */
+    if(trialExpired())setTimeout(()=>{try{trialEndOverlay();}catch(e){}},1000);
+  }
   /* ══ [v8.3] 여기서 무조건 입장 화면을 걷던 것이 문제였다 ═══════════════════
      로그인이 필요한 경우 requireAuth() 가 '로그인 창을 띄운 뒤' 직접 걷는다.
      그런데 이 줄이 그와 상관없이 먼저 걷어 버려, 창이 열리기 전에 홈이 보였다.
@@ -25403,6 +25595,27 @@ function renderAdmWork(){
   </div>
 
   <div class="panel adm-sec" data-ag="tier">
+    <div class="as-h">무료 체험권 코드</div>
+    <div class="as-d">코드를 가진 사람만 <b>회원가입 없이</b> 모의투자를 써 봅니다. 체험 기록은 그 사람 기기에만 저장되고,
+      가입하면 그대로 넘어갑니다. 코드는 한 키에 모아 두어 KV 쓰기를 아낍니다.</div>
+    <div class="as-grid">
+      <label>코드(비우면 자동)<input id="trCode" placeholder="자동 생성" maxlength="20" autocomplete="off"></label>
+      <label>최대 인원(0=무제한)<input id="trMax" type="number" min="0" max="100000" value="10"></label>
+      <label>초기 자금(원)<input id="trSeed" type="number" min="0" step="1000000" value="10000000"></label>
+      <label>체험 유지 시간<select id="trHours">
+        <option value="24" selected>24시간</option><option value="72">72시간(3일)</option>
+        <option value="168">168시간(7일)</option><option value="0">무제한</option></select></label>
+      <label>코드 만료일(선택)<input id="trUntil" type="date"></label>
+      <label>메모<input id="trMemo" maxlength="60" placeholder="발급 대상·용도"></label>
+    </div>
+    <div class="as-btns">
+      <button type="button" class="mc-btn primary" id="trIssue" style="--nc:var(--brand)">발급</button>
+      <button type="button" class="mc-btn" id="trList">발급 목록</button>
+    </div>
+    <div class="as-out" id="trOut"></div>
+  </div>
+
+  <div class="panel adm-sec" data-ag="tier">
     <div class="as-h">쿠폰 회수</div>
     <div class="as-d">잘못 나간 코드를 무효로 만듭니다. 이미 등록한 사람의 등급은 유지됩니다.</div>
     <div class="as-grid2">
@@ -25732,6 +25945,68 @@ function wireAdmTools(){
     try{ udRender(await admCall({act:'udata',id})); }
     catch(e){ out('udOut','<b class="bad">서버 연결 실패</b>'); }
     finally{ busy(udGo,false,'데이터 불러오기'); }
+  };
+
+  /* ── [v17.8.48] 무료 체험권 코드 관리 배선 ─────────────────────────────────── */
+  const trialAdm=async(o)=>{ const r=await fetch('/api/trial/admin',{method:'POST',
+    headers:{'content-type':'application/json'},body:JSON.stringify({...o,token:admTokGet()})});return r.json(); };
+  const trOut=(h)=>{ out('trOut',h); };
+  const trState=(x)=>{ if(!x)return '<i class="bad">—</i>';
+    if(x.expired)return '<i class="bad">기간 지남</i>';
+    if(x.active===false)return '<i class="bad">중지</i>';
+    if(x.full)return '<i class="bad">인원 마감</i>';
+    return '<b style="color:#16a34a">사용 가능</b>'; };
+  const trTime=(h)=>h?(h%24===0?(h/24)+'일':h+'시간'):'무제한';
+  const trDraw=(j)=>{
+    if(!j||!j.ok){ trOut('<b class="bad">'+esc((j&&j.msg)||'불러오지 못했습니다')+'</b>'); return; }
+    const rows=(j.items||[]).map(x=>`<tr data-c="${esc(x.code)}">
+      <td><b class="num">${esc(x.pretty||x.code)}</b></td>
+      <td class="num">${x.usedCount||0} / ${x.maxUses?x.maxUses:'∞'}</td>
+      <td>${trState(x)}</td>
+      <td class="num">${trTime(+x.durationHours||0)} · ${KRW(+x.seedKrw||0)}원</td>
+      <td>${esc(x.memo||'')}</td>
+      <td class="tr-acts">
+        <button type="button" class="mc-btn tr-copy">복사</button>
+        <button type="button" class="mc-btn tr-tg">${x.active===false?'재개':'중지'}</button>
+        <button type="button" class="mc-btn danger tr-del">삭제</button></td></tr>`).join('');
+    trOut(rows?`<div class="tr-wrap"><table class="au-tbl tr-tbl"><tr><th>코드</th><th>사용</th><th>상태</th><th>체험</th><th>메모</th><th></th></tr>${rows}</table></div>`
+      :'<div class="as-d">발급된 체험권이 없습니다</div>');
+    document.querySelectorAll('#trOut .tr-copy').forEach(b=>{ b.onclick=async()=>{
+      const tr=b.closest('tr'), x=(j.items||[]).find(v=>v.code===tr.dataset.c);
+      try{ await navigator.clipboard.writeText(x.pretty||x.code); b.textContent='복사됨'; setTimeout(()=>{b.textContent='복사';},1200); }
+      catch(e){ toast('warn','복사하지 못했습니다','코드를 길게 눌러 직접 복사해 주세요'); } }; });
+    document.querySelectorAll('#trOut .tr-tg').forEach(b=>{ b.onclick=async()=>{
+      const tr=b.closest('tr'), x=(j.items||[]).find(v=>v.code===tr.dataset.c);
+      busy(b,true,''); let rr=null; try{ rr=await trialAdm({op:'toggle',code:x.code});
+        if(rr&&rr.ok){ toast('ok',rr.active?'다시 사용할 수 있게 했습니다':'사용을 중지했습니다',rr.pretty||x.code); trList.click(); }
+        else trOut('<b class="bad">변경하지 못했습니다</b>'); }catch(e){ trOut('<b class="bad">서버 연결 실패</b>'); }
+      finally{ busy(b,false,(rr&&rr.active===false)?'재개':'중지'); } }; });
+    document.querySelectorAll('#trOut .tr-del').forEach(b=>{ b.onclick=async()=>{
+      const tr=b.closest('tr'), x=(j.items||[]).find(v=>v.code===tr.dataset.c);
+      if(!await askConfirm('체험권 삭제',(x.pretty||x.code)+' 를 삭제하면 더 이상 입장할 수 없습니다.',{okLabel:'삭제',danger:true}))return;
+      busy(b,true,''); try{ const r=await trialAdm({op:'delete',code:x.code});
+        if(r&&r.ok){ toast('ok','삭제했습니다',x.pretty||x.code); trList.click(); }
+        else trOut('<b class="bad">삭제하지 못했습니다</b>'); }catch(e){ trOut('<b class="bad">서버 연결 실패</b>'); }
+      finally{ busy(b,false,'삭제'); } }; });
+  };
+  const trList=$('trList'); if(trList)trList.onclick=async()=>{
+    busy(trList,true,'발급 목록');
+    try{ trDraw(await trialAdm({op:'list'})); }catch(e){ trOut('<b class="bad">서버 연결 실패</b>'); }
+    finally{ busy(trList,false,'발급 목록'); }
+  };
+  const trIssue=$('trIssue'); if(trIssue)trIssue.onclick=async()=>{
+    const until=$('trUntil')&&$('trUntil').value;
+    busy(trIssue,true,'발급');
+    try{
+      const j=await trialAdm({op:'issue',code:($('trCode').value||'').trim(),
+        memo:($('trMemo').value||'').trim(),maxUses:+$('trMax').value||0,
+        seedKrw:+$('trSeed').value||10000000,durationHours:+$('trHours').value||0,
+        expiresAt:until?Date.parse(until+'T23:59:59')||null:null});
+      if(j&&j.ok){ trOut('<div class="au-card">발급했습니다 · <b class="num">'+esc(j.item.pretty||j.item.code)+'</b>'
+        +'<div class="au-sub">체험 '+trTime(+j.item.durationHours||0)+' · '+KRW(+j.item.seedKrw||0)+'원 · 최대 '+(j.item.maxUses||'무제한')+'명</div></div>'); }
+      else trOut('<b class="bad">'+esc((j&&j.msg)||'발급하지 못했습니다')+'</b>');
+    }catch(e){ trOut('<b class="bad">서버 연결 실패</b>'); }
+    finally{ busy(trIssue,false,'발급'); }
   };
 
   /* ── [v15.7] 이벤트 관리 배선 ── */

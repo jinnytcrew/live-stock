@@ -9997,3 +9997,58 @@ body{overflow-x:clip;overflow-y:visible}
   .userchip .tier-mini{margin-left:1px}
   .header-inner{gap:8px}
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.48] 무료 체험권 — 로그인 화면 입장·상단 배너·회원전용 잠금 안내
+   모바일 360~390px 에서도 한 줄에 들어가고 잘리지 않게 최소 폭을 잡는다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.trial-entry{margin-top:10px}
+.trial-toggle{width:100%;background:transparent;border:1px dashed var(--border,rgba(120,105,70,.28));
+  color:inherit;opacity:.9;border-radius:12px;padding:11px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.trial-toggle:hover{opacity:1;border-color:var(--brand,#3b82f6)}
+#trialBox{margin-top:10px;border:1px solid var(--border,rgba(120,105,70,.18));border-radius:12px;padding:12px}
+#trialBox .fld2{margin-bottom:6px}
+#trialBox input{width:100%;letter-spacing:.06em;text-transform:uppercase}
+#trialBox .modal-btn.trial-go{width:100%;margin-top:4px}
+.trial-note{margin-top:8px;font-size:11px;line-height:1.5;opacity:.62;text-align:center}
+.modal-msg.bad{color:#e5484d}
+
+/* 상단 체험 배너 — 흐름 안에 두어(sticky) 내용을 덮지 않는다 */
+#trialBar{position:sticky;top:var(--header-h,56px);z-index:60;display:flex;align-items:center;gap:8px;
+  margin:0;padding:8px 14px;font-size:12.5px;line-height:1.2;
+  background:linear-gradient(90deg,rgba(59,130,246,.14),rgba(139,92,246,.14));
+  border-bottom:1px solid var(--border-soft,rgba(120,105,70,.12));
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:inherit}
+#trialBar .tb-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;flex:none;
+  box-shadow:0 0 0 3px rgba(34,197,94,.16)}
+#trialBar .tb-txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#trialBar .tb-txt b{font-weight:700}
+#trialBar .tb-txt i{font-style:normal;opacity:.66;margin-left:6px}
+#trialBar .tb-go{flex:none;border:0;border-radius:999px;padding:6px 10px;font-size:11.5px;font-weight:700;
+  background:var(--brand,#3b82f6);color:#fff;cursor:pointer;white-space:nowrap}
+@media (max-width:400px){
+  #trialBar{padding:7px 10px;font-size:11.5px;gap:6px}
+  #trialBar .tb-go{padding:5px 8px;font-size:10.5px}
+  #trialBar .tb-txt i{display:none}
+}
+
+/* 잠금·만료 안내 창 */
+.trial-gate{z-index:2000002}
+.trial-modal{max-width:400px;width:calc(100% - 32px);padding:22px 20px 18px;text-align:center}
+.trial-modal .gm-ic{font-size:30px;line-height:1}
+.trial-modal .gm-t{font-size:16px;font-weight:800;margin-top:8px;line-height:1.35}
+.trial-modal .gm-d{font-size:12.5px;line-height:1.6;opacity:.75;margin-top:8px;margin-bottom:16px}
+.trial-modal .modal-btn{width:100%}
+.trial-modal .modal-ghost{width:100%;margin-top:8px}
+.trial-modal .fld2{text-align:left}
+@media (max-width:400px){
+  .trial-modal{padding:18px 14px 14px}
+  .trial-modal .gm-t{font-size:15px}
+}
+/* 체험권 목록 — 좁은 화면에서는 가로 스크롤(잘림 없이 전부 볼 수 있게) */
+.tr-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tr-tbl{min-width:520px}
+.tr-tbl td,.tr-tbl th{white-space:nowrap}
+.tr-acts{display:flex;gap:4px;flex-wrap:nowrap}
+.tr-acts .mc-btn{padding:5px 8px;font-size:11px}
+@media (max-width:400px){ .adm-sec .as-grid{grid-template-columns:1fr 1fr} .adm-sec .as-grid label{min-width:0} }

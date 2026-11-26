@@ -15518,8 +15518,8 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.47",
-  releasedAt: "2026-11-27 00:10",
+  version: "17.8.48",
+  releasedAt: "2026-11-27 08:40",
   notes: [
     "상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수",
     "잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙",
@@ -15656,9 +15656,147 @@ var pricelist_default = async (req2) => {
   }
 };
 
+/* ══ [v17.8.48] 무료 체험권 코드 — 회원가입 없이 써 보는 체험 ═══════════════
+   [왜] 로그인 장벽 때문에 앱을 써 보지도 않고 나가는 사람이 많다. 체험권 코드를
+   받은 사람만 회원가입 없이 모의투자를 써 보고, 마음에 들면 가입하며 기록을 넘긴다.
+   [KV 절약] 쿠폰처럼 코드마다 키를 만들지 않고 live-trials:codes 한 키에 모아 둔다.
+   발급·토글·삭제·사용 모두 쓰기 1회다(무료 하루 1,000회).
+   [저장] 체험 중 잔고·보유·주문은 서버에 저장하지 않는다(브라우저 localStorage).
+   서버에는 코드와 사용 횟수만 남는다 — 체험자 데이터가 KV 를 쓰지 않는다. */
+var TRIAL_KEY = "live-trials:codes";
+var TRIAL_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // 0,O,1,I 제외(손으로 옮겨 적는 코드)
+function trialNorm(c) { return String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+function trialPretty(raw) {
+  const c = trialNorm(raw);
+  if (c.length === 13 && c.slice(0, 5) === "TRIAL") return "TRIAL-" + c.slice(5, 9) + "-" + c.slice(9, 13);
+  if (c.length === 13 && c.slice(0, 4) === "LIVE") return "LIVE-" + c.slice(4, 7) + "-" + c.slice(7, 10) + "-" + c.slice(10, 13);
+  if (c.length > 4) return c.slice(0, 4) + "-" + c.slice(4);
+  return c;
+}
+function trialMake() {
+  const b = new Uint8Array(8);
+  crypto.getRandomValues(b);
+  let s = "TRIAL";
+  for (let i = 0; i < 8; i++) s += TRIAL_ALPHA[b[i] % TRIAL_ALPHA.length];
+  return s;
+}
+async function trialReadAll() {
+  try { const v = await KV.get(TRIAL_KEY, "json"); if (v && Array.isArray(v.items)) return v; } catch (e) {}
+  return { items: [] };
+}
+async function trialWriteAll(d) {
+  try { await KV.put(TRIAL_KEY, JSON.stringify(d)); return true; } catch (e) { return false; }
+}
+function trialBad(rec) {
+  if (!rec) return { err: "notfound", msg: "없는 체험권 코드입니다. 다시 확인해 주세요" };
+  if (rec.active === false) return { err: "paused", msg: "지금은 사용할 수 없는 체험권입니다" };
+  if (rec.expiresAt && Date.now() > +rec.expiresAt) return { err: "expired", msg: "사용 기간이 지난 체험권입니다" };
+  if (+rec.maxUses > 0 && (+rec.usedCount || 0) >= +rec.maxUses) return { err: "soldout", msg: "체험 인원이 모두 찼습니다" };
+  return null;
+}
+function trialPass(rec, now) {
+  const seed = Math.max(0, Math.min(1e9, +rec.seedKrw || 10000000));
+  const hours = Math.max(0, Math.min(8760, +rec.durationHours || 0));
+  return { ok: true, code: rec.code, pretty: trialPretty(rec.code), memo: rec.memo || "",
+    seedKrw: seed, durationHours: hours, startedAt: now || Date.now(),
+    expiresAt: hours ? (now || Date.now()) + hours * 3600e3 : null,
+    maxUses: +rec.maxUses || 0, usedCount: +rec.usedCount || 0 };
+}
+var trial_default = async (req2) => {
+  const J = (o, st) => new Response(JSON.stringify(o), { status: st || 200,
+    headers: { "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store", "access-control-allow-origin": "*" } });
+  if (!KV) return J({ ok: false, err: "nostore" });
+  let body = {};
+  try { body = await req2.json(); } catch (e) { body = {}; }
+  let act = String(body.act || "").toLowerCase();
+  if (!act) { try { act = String(new URL(req2.url).pathname || "").split("/").filter(Boolean).pop().toLowerCase(); } catch (e) {} }
+  if (act === "trial") act = "admin";
+
+  /* ── 체험 입장: 코드 한 번 사용 ───────────────────────────────────────── */
+  if (act === "redeem") {
+    const code = trialNorm(body.code);
+    if (code.length < 4) return J({ ok: false, err: "form", msg: "체험권 코드를 다시 확인해 주세요" });
+    const db = await trialReadAll();
+    const rec = (db.items || []).find((x) => trialNorm(x.code) === code);
+    const bad = trialBad(rec);
+    if (bad) return J({ ok: false, ...bad });
+    /* 자리 잡기 → 다시 읽어 확인(쿠폰과 같은 규칙). 정원을 넘었으면 되돌린다. */
+    const seat = (+rec.usedCount || 0);
+    if (+rec.maxUses > 0 && seat >= +rec.maxUses) return J({ ok: false, err: "soldout", msg: "체험 인원이 모두 찼습니다" });
+    rec.usedCount = seat + 1;
+    rec.lastUsedAt = Date.now();
+    const saved = await trialWriteAll(db);
+    if (!saved) return J({ ok: false, err: "store", msg: "잠시 뒤 다시 시도해 주세요" });
+    return J(trialPass(rec));
+  }
+
+  /* ── 새로고침·재방문: 세션이 살아 있는지만 확인(횟수 차감 없음) ──────────── */
+  if (act === "check" || act === "status") {
+    const code = trialNorm(body.code);
+    if (code.length < 4) return J({ ok: false, err: "form", msg: "체험권 코드를 다시 확인해 주세요" });
+    const db = await trialReadAll();
+    const rec = (db.items || []).find((x) => trialNorm(x.code) === code);
+    const bad = trialBad(rec);
+    if (bad) return J({ ok: false, ...bad });
+    return J({ ...trialPass(rec, +body.startedAt || Date.now()), resumed: true });
+  }
+
+  /* ── 관리자: 발급·목록·중지/재개·삭제 ───────────────────────────────────── */
+  if (act === "admin" || act === "list" || act === "issue" || act === "toggle" || act === "delete") {
+    if (!admOk(body.token)) return J({ ok: false, err: "forbidden" }, 403);
+    const op = (act === "admin" ? String(body.op || "list") : act).toLowerCase();
+    const db = await trialReadAll();
+    const items = db.items || [];
+    if (op === "list") {
+      return J({ ok: true, items: items.map((x) => ({ ...x, pretty: trialPretty(x.code),
+        expired: !!(x.expiresAt && Date.now() > +x.expiresAt),
+        full: !!(+x.maxUses > 0 && (+x.usedCount || 0) >= +x.maxUses) })) });
+    }
+    if (op === "issue") {
+      const want = trialNorm(body.code);
+      const code = want || trialMake();
+      if (code.length < 4) return J({ ok: false, err: "form", msg: "코드는 4자 이상으로 만들어 주세요" });
+      if (items.some((x) => trialNorm(x.code) === code)) return J({ ok: false, err: "exists", msg: "같은 코드가 이미 있습니다" });
+      const rec = { code,
+        memo: String(body.memo || "").slice(0, 80),
+        maxUses: Math.max(0, Math.min(100000, +body.maxUses || 0)),
+        usedCount: 0,
+        seedKrw: Math.max(0, Math.min(1e9, +body.seedKrw || 10000000)),
+        durationHours: Math.max(0, Math.min(8760, +body.durationHours || 0)),
+        expiresAt: body.expiresAt ? +body.expiresAt : null,
+        active: true, createdAt: Date.now() };
+      items.unshift(rec);
+      if (items.length > 300) items.length = 300;      /* KV 값 크기 상한 */
+      if (!await trialWriteAll({ items })) return J({ ok: false, err: "store", msg: "저장하지 못했습니다" });
+      return J({ ok: true, item: { ...rec, pretty: trialPretty(code) } });
+    }
+    const code = trialNorm(body.code);
+    const rec = items.find((x) => trialNorm(x.code) === code);
+    if (!rec) return J({ ok: false, err: "notfound", msg: "없는 체험권 코드입니다" });
+    if (op === "toggle") {
+      rec.active = rec.active === false;
+      rec.updatedAt = Date.now();
+      if (!await trialWriteAll({ items })) return J({ ok: false, err: "store" });
+      return J({ ok: true, code: rec.code, active: rec.active, pretty: trialPretty(rec.code) });
+    }
+    if (op === "delete") {
+      const kept = items.filter((x) => x !== rec);
+      if (!await trialWriteAll({ items: kept })) return J({ ok: false, err: "store" });
+      return J({ ok: true, code: rec.code, deleted: true });
+    }
+    return J({ ok: false, err: "op" });
+  }
+  return J({ ok: false, err: "act" });
+};
+
 // functions/api/[[route]].js
 var ROUTES = {
   "accounts": accounts_default,
+  "trial": trial_default,
+  "trial/redeem": trial_default,
+  "trial/check": trial_default,
+  "trial/admin": trial_default,
   "calendar": calendar_default,
   "chart": chart_default,
   "clan": clan_default,
@@ -19042,7 +19180,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.47";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.48";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19395,7 +19533,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-27 00:10"; BUNDLED_VERSION.notes = ["뉴스·해외주식·지수 등 데이터 로딩 속도 대폭 개선 — 서버 캐시(즉시 응답+뒤에서 갱신)","오늘의 장 코스피·코스닥·나스닥, 홈 실시간 뉴스, 🔥 인기 줄을 저장된 값으로 즉시 표시","해외 주식 메뉴·종목검색 해외 탭 자료를 홈이 뜬 뒤 미리 받아 진입 즉시 표시","전 종목 목록을 6쪽씩 동시에 받아 첫 로딩 대기 대폭 단축","뉴스·순위·업종 목록을 다음 접속에도 바로 쓰도록 기기에 보관"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-27 00:10"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-27 08:40"; BUNDLED_VERSION.notes = ["무료 체험권 코드 입장 — 회원가입 없이 모의투자 체험","체험 계좌는 기기에만 저장 — 잔고·보유·거래내역 서버 미저장","체험 중 상단 배너에 남은 시간 표시 · 회원가입하면 기록 이관","관리자 패널에서 체험권 코드 발급·사용 횟수·중지·삭제","체험 모드에서는 랭킹·클랜·친구·다중 계좌·서버 기능 제한"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-27 08:40"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
