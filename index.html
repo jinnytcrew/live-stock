@@ -313,10 +313,20 @@ body.needs-auth #authGate{z-index:2000001}
       }catch(e){}
     },
     release: function(){
-      /* [v15.2.2] 예전엔 여기서 close() 를 직접 불러 막대 연출을 건너뛰었다.
-         이제 done 과 같은 길로 보낸다 — tick 이 시간 램프를 다 채운 뒤 닫는다. */
+      /* ══ [v17.8.48 · 치명] 로그인·체험 입장 뒤 입장 화면이 걷히지 않던 문제 ═══
+         [무엇이 일어났나] tick 은 100%에 닿았는데 holdOpen 이 참이면 close() 를
+         부르지 않고 그 자리에서 return 했다. 그 return 이 requestAnimationFrame
+         연쇄까지 함께 끊어, 그 뒤 release() 로 holdOpen 을 풀어도 다시 도는
+         프레임이 없어 화면이 영영 덮인 채 남았다(새로고침해야 사라짐).
+         [고침] 풀 때 이미 100%면 그 자리에서 닫고, 아직이면 연출을 다시 잇는다. */
       holdOpen = false; try{ g.classList.remove('bg-auth'); }catch(e){}
       doneReq = true; stepIdx = STEPS.length-1; target = 100;
+      try{
+        if(!closed){
+          if(shown >= 99.5){ shown = 100; draw(); close(); }
+          else { try{ cancelAnimationFrame(raf); }catch(e){} raf = requestAnimationFrame(tick); }
+        }
+      }catch(e){}
     },
     replay: function(ms, cb){
       try{

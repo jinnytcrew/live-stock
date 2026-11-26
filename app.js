@@ -7086,7 +7086,8 @@ if($('backupDownload'))$('backupDownload').onclick=()=>{
 function initApp(){
   // 헤더 유저칩
   safeRun('userChip',()=>{
-    const nm=currentUser?(accounts()[currentUser]?.name||currentUser):'';
+    /* [v17.8.48] 체험 계정은 내부 아이디(__trial__) 대신 '체험 계정'으로 보여 준다 */
+    const nm=currentUser?(currentUser===TRIAL_UID?'체험 계정':(accounts()[currentUser]?.name||currentUser)):'';
     if($('uName'))$('uName').textContent=nm;
     if($('uAv'))$('uAv').textContent=avatarOf(nm);
     if($('uChev'))$('uChev').textContent=currentUser?'▾':'로그인';
@@ -10070,6 +10071,9 @@ function clanErrMsg(r){
 var _ensureAt=0, _ensureBusy=false;
 async function ensureServerAccount(){
   if(!currentUser)return false;
+  /* [v17.8.48] 체험 계정은 서버 계정이 아니다 — 되살리기를 시도하면 로그인 화면으로
+     튕기고 체험 세션까지 지워진다. 서버 기능은 체험에서 잠겨 있으므로 그냥 돌아간다. */
+  if(currentUser===TRIAL_UID)return false;
   /* [v6.0] 비밀번호가 사라진 계정은 되살릴 수 없다 — 다시 로그인해야 한다.
      (예전 판의 버그로 pass 가 지워진 계정이 있을 수 있다) */
   {const a=accounts()[currentUser];
