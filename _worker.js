@@ -76,6 +76,9 @@ function kvGovRoll() {
 function kvEssential(key) {
   const k = String(key || "");
   /* 저장소 이름으로 먼저 거른다 — 계정(live-accounts)·친구(live-social)·클랜(live-clans) */
+  /* [v17.8.48] 체험권 코드는 관리자가 발급·중지·삭제하는 사용자 데이터다 —
+     캐시로 취급되면 30분 간격·예산에 걸려 발급이 조용히 누락된다. */
+  if (/^live-trials:/.test(k)) return true;
   if (/^live-accounts:|^live-social:|^live-clans?:/.test(k)) return true;
   /* 이벤트 참여 기록·제출물·첨부는 사용자가 만든 것이다(evt:list 는 관리자가 만든 목록) */
   if (/^evt:(list|join|subs|file):?/.test(k)) return true;
