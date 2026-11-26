@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192-v17-8-1.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=17.8.1">
 <link rel="apple-touch-icon" href="/icon-192-v17-8-1.png">
-<link rel="stylesheet" href="/app.css?v=689">
+<link rel="stylesheet" href="/app.css?v=690">
 </head>
 <body>
 
@@ -1432,6 +1432,8 @@ body.needs-auth #authGate{z-index:2000001}
               <button class="d-tool" id="holdMgBtn" title="손절가·익절가·배당률·목표비중 설정">🎯<span>손절·익절</span></button>
             </div>
           </div>
+          <!-- [v17.8.45] 상·하한가 잠금 안내 — 상한가 매수대기·하한가 매도대기 -->
+          <div class="limit-lock-box" id="dLimitLock" hidden></div>
           <div class="d-stats" id="dStats"></div>
           <div class="ex-row" id="exRow"></div>
           <div class="detail-trade-actions">
@@ -1518,6 +1520,8 @@ body.needs-auth #authGate{z-index:2000001}
         <div class="ord-acct" id="ordAcct"></div>
         <div class="ord-tabs" aria-hidden="true"><button class="buy on" data-side="buy" tabindex="-1">매수</button><button class="sell" data-side="sell" tabindex="-1">매도</button></div>
         <div class="tg-wrap" id="tradeGate"></div>
+        <!-- [v17.8.45] 상·하한가 잠금 안내 — 주문 화면 -->
+        <div class="limit-lock-box" id="orderLimitLock" hidden></div>
         <div class="ord-body">
           <div class="order-form-grid">
             <div class="order-form-main">
@@ -1831,6 +1835,6 @@ body.needs-auth #authGate{z-index:2000001}
   <button data-bv="tier"><i>💎</i><span>멤버십</span></button>
   <button data-bv="event"><i>🎁</i><span>이벤트</span></button>
 </nav>
-<script type="module" src="/app.js?v=701"></script>
+<script type="module" src="/app.js?v=702"></script>
 </body>
 </html>

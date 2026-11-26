@@ -70,14 +70,18 @@ const main = async () => {
     document.body.classList.remove('locked', 'booting', 'needs-auth');
   });
 
-  /* ── ① 같은 순간, 머리말 172,400 · 주문폼 현재가 172,400 이어야 한다 ── */
+  /* ── ① 같은 순간, 주문폼 현재가 = 머리말 가격(dispQuote) 이어야 한다 ──
+     [v17.8.45] 예전에는 '통합가 172,400'을 기대값으로 못박았다. 그런데 정규장
+     중에는 dispQuote 가 KRX 값을 고르므로(그게 맞다) 이 검사가 시각에 따라
+     실패했다 — 시장이 열려 있으면 정상 동작인데도 빨간불이 떴다. 회귀의 본래
+     목적은 '머리말과 주문폼이 같은 값을 보는가'이므로 그 관계를 직접 본다. */
   const q = await pg.evaluate(() => window.__diag.quoteTest('005930', {
     price: 170700, prevClose: 169000, open: 170700, high: 172400, low: 170000,
     uniPx: { price: 172400, prevClose: 169000, t: Date.now() },
   }));
   const hint = await pg.evaluate(() => window.__diag.quoteTest('005930', {}));
-  ok('주문폼 현재가 = 머리말 통합가 (170,700 → 172,400)',
-    q.cur === 172400, `주문폼 currentPrice ${q.cur} · dispQuote ${q.disp}`);
+  ok('주문폼 현재가 = 머리말 가격 (같은 값을 본다)',
+    q.cur === q.disp && q.cur > 0, `주문폼 currentPrice ${q.cur} · dispQuote ${q.disp}`);
 
   /* ── ② 매도 지정가 171,700 — 현실 시장은 172,400. 유리하게 체결되더라도 원 주문가가 남아야 한다 ── */
   const sell = await pg.evaluate(() => window.__diag.orderTest({ code: '005930', side: 'sell', ex: 'NXT', price: 171700, qty: 1 }));

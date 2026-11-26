@@ -15375,15 +15375,17 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.44",
-  releasedAt: "2026-11-26 08:55",
+  version: "17.8.45",
+  releasedAt: "2026-11-26 10:30",
   notes: [
-    "주문 화면 현재가를 머리말·체결 판정과 같은 통합가로 통일",
-    "미체결 체결가를 주문가 범위로 확정 — 매수는 지정가 이하, 매도는 지정가 이상",
-    "체결가가 주문가와 다를 때 원 주문가를 체결 기록에 남김",
-    "주문 접수 거래소(KRX·NXT·SOR)를 저장하고 그 시장 시간에만 체결",
-    "화면에 보이는 주문가 그대로 접수 — 입력칸 값 우선",
-    "미체결 목록에 주문 시장 표시"
+    "상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수",
+    "잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙",
+    "상한가 잠금 중 매도·하한가 잠금 중 매수는 대기 물량과 즉시 체결",
+    "시장가도 잠금 앞에서는 상한가·하한가 가격으로 대기 접수",
+    "종목 상세·주문 화면·호가창·미체결 목록에 잠금 상태 표시",
+    "내 계좌 진입·보유 종목 클릭 지연 개선 — 단계별 그리기",
+    "시세 갱신마다 표를 다시 그리던 것을 한 프레임으로 합침(보유 표 400ms)",
+    "해외주식은 가격제한폭이 없어 잠금 판정에서 제외"
   ]
 };
 
@@ -18890,7 +18892,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.44";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.45";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19243,7 +19245,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 08:55"; BUNDLED_VERSION.notes = ["주문 화면 현재가를 머리말·체결 판정과 같은 통합가로 통일","미체결 체결가를 주문가 범위로 확정 — 매수는 지정가 이하, 매도는 지정가 이상","체결가가 주문가와 다를 때 원 주문가를 체결 기록에 남김","주문 접수 거래소(KRX·NXT·SOR)를 저장하고 그 시장 시간에만 체결","화면에 보이는 주문가 그대로 접수 — 입력칸 값 우선","미체결 목록에 주문 시장 표시"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 08:55"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 10:30"; BUNDLED_VERSION.notes = ["상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수","잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙","상한가 잠금 중 매도·하한가 잠금 중 매수는 대기 물량과 즉시 체결","시장가도 잠금 앞에서는 상한가·하한가 가격으로 대기 접수","종목 상세·주문 화면·호가창·미체결 목록에 잠금 상태 표시","내 계좌 진입·보유 종목 클릭 지연 개선 — 단계별 그리기","시세 갱신마다 표를 다시 그리던 것을 한 프레임으로 합침(보유 표 400ms)","해외주식은 가격제한폭이 없어 잠금 판정에서 제외"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 10:30"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
@@ -19497,8 +19499,31 @@ function afPickQuote(d) {
   var overPx = over ? afNum(over.overPrice) : null;
   var price = regular ? regPx : (overOpen ? overPx : null);
   if (!(price > 0)) price = regPx;
-  return { price: price, reg: regPx, over: overPx, regular: regular, overOpen: overOpen, open: (regular || overOpen),
+  /* ══ [v17.8.45] 전일 종가 — 상·하한가 계산의 기준가 ═══════════════════════
+     이 응답에는 '전일 대비'(compareToPreviousClosePrice)만 있다. 현재가에서
+     빼면 기준가가 나온다. 장전에는 closePrice 가 전일 종가이므로 그대로 맞는다. */
+  var chg = afNum(d.compareToPreviousClosePrice);
+  var prev = null;
+  if (regPx > 0 && chg != null) prev = regPx - chg;
+  else if (overPx > 0 && over && afNum(over.compareToPreviousClosePrice) != null) prev = overPx - afNum(over.compareToPreviousClosePrice);
+  if (prev != null && !(prev > 0)) prev = null;
+  return { price: price, reg: regPx, over: overPx, prev: prev, regular: regular, overOpen: overOpen, open: (regular || overOpen),
     status: ms, name: String(d.stockName || ""), tail: String(d.localTradedAt || "") };
+}
+/* ══ [v17.8.45] 상·하한가 띠 — 국내주식만 ════════════════════════════════════
+   상한가 = 기준가×1.3 을 호가단위로 내림, 하한가 = 기준가×0.7 을 올림.
+   여기서는 일부러 '가장 굵은' 호가단위(afTick)로 내린다 — 종목이 코스닥인지
+   서버는 모르기 때문이다. 코스닥 단위(100원)는 더 촘촘하므로, 이렇게 계산한
+   값은 실제 상한가보다 같거나 낮다. 즉 '잠금으로 보는 범위'가 실제보다 조금
+   넓을 뿐, 실제 상한가를 놓쳐 매수를 체결시키는 일은 생기지 않는다(한 틱 늦게
+   체결되는 쪽이 안전하다). */
+function afLimitBand(prev) {
+  if (!(prev > 0)) return null;
+  var up = prev * 1.3, dn = prev * 0.7;
+  var u = Math.floor(up / afTick(up)) * afTick(up);
+  var w = Math.ceil(dn / afTick(dn)) * afTick(dn);
+  if (!(u > 0) || !(w > 0) || !(w < u)) return null;
+  return { up: u, down: w };
 }
 /* 주문 창구(ex)에 맞는 세션 가격을 고른다.
    ex 가 없던 예전 주문은 지금까지처럼 '열린 세션의 값'(NXT 우선)으로 본다. */
@@ -19679,6 +19704,16 @@ function afEvalUser(uid, usr, quotes, fx, now) {
       if (!(lim > 0) || !(qty > 0)) { cancelOrder(o, "주문 정보 오류"); continue; }
       var side = o.side === "sell" ? "sell" : "buy";
       var qpx = afInt(q.price, 0);
+      /* ══ [v17.8.45] 상·하한가 잠금 — 잠긴 쪽 주문은 체결하지 않는다 ════
+         상한가에서 팔 물량이 없으면 매수는 줄을 서고, 하한가에서 살 물량이
+         없으면 매도가 줄을 선다. 화면(autoOrderTick)과 같은 규칙이다.
+         잠금이 풀리는 분(가격이 띠 안으로 돌아온 때)에 그대로 체결된다. */
+      var band = afLimitBand((quotes[String(o.code)] || {}).prev);
+      if (band && ((side === "buy" && qpx >= band.up) || (side === "sell" && qpx <= band.down))) {
+        o.lock = (side === "buy") ? "up" : "down";
+        continue;
+      }
+      if (o.lock) delete o.lock;
       var hit = side === "buy" ? (qpx <= lim) : (qpx >= lim);
       if (!hit) continue;
       /* 체결가는 지정가를 넘어설 수 없다 — 매수는 주문가 이하, 매도는 주문가 이상 */

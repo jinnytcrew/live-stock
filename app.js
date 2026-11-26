@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=353';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=354';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -6769,9 +6769,22 @@ function initApp(){
 }
 /* [수정] 렌더러 하나가 예외를 던지면 그 뒤 전부(pollIpo·showView·예수금 표시까지)가 중단돼
    화면 전체가 '—'로 남았다. 각 렌더러를 격리해 한 곳이 실패해도 나머지는 정상 동작하게 한다. */
+/* ══ [v17.8.45] 그리기 소요 시간 계측 — 진단 전용 ════════════════════════════
+   [왜 넣나] '내 계좌가 렉 걸린다'는 제보를 고치려면 어느 그리기가 시간을 먹는지
+     숫자로 알아야 한다. 화면 그리기는 전부 safeRun 을 지나가므로 여기 한 곳에서
+     잰다(window.__perfOn=true 일 때만). 꺼져 있으면 if 한 번이다. */
+function _perfNowMs(){ try{ return performance.now(); }catch(e){ return 0; } }
+function _perfPush(label,t0){
+  try{
+    const d=_perfNowMs()-t0;
+    const L=window.__perfLog||(window.__perfLog=[]);
+    if(L.length<6000)L.push({l:String(label),ms:Math.round(d*10)/10,t:Math.round(_perfNowMs())});
+  }catch(e){}
+}
 function safeRun(label,fn){
-  try{ const r=fn(); if(r&&typeof r.then==='function')r.catch(e=>reportErr(label,e)); return r; }
-  catch(e){ reportErr(label,e); }
+  const _pt=window.__perfOn?_perfNowMs():0;
+  try{ const r=fn(); if(r&&typeof r.then==='function')r.catch(e=>reportErr(label,e)); if(_pt)_perfPush(label,_pt); return r; }
+  catch(e){ reportErr(label,e); if(_pt)_perfPush(label,_pt); }
 }
 /* [추가] 오류가 조용히 삼켜져 화면만 비는 상황을 없애기 위해, 실제 오류를 화면 하단에 표시한다.
    주소 끝에 ?debug=1 을 붙이면 상세(스택)까지 보인다. */
@@ -7034,12 +7047,7 @@ function _showView(name){
     safeRun('nxtStatus',loadNxtStatus);}
   if(name==='clan'){safeRun('clan',renderClan);}
   if(name==='friend'){safeRun('friend',renderFriend);}
-  if(name==='account'){safeRun('acctbar',renderAcctBar);safeRun('acctfx',renderAcctFx);safeRun('acctsend',renderAcctSend);safeRun('holdings',renderHoldings);safeRun('journal',renderJournal);safeRun('autocard',renderAutoCard);safeRun('inscard',renderInsightCards);safeRun('acctx',renderAcctExtras);
-    safeRun('equity',()=>{seedEquityFromTrades();recordEquity();requestAnimationFrame(drawEquity);});
-    safeRun('bgList',refreshStockListSoon);
-    if(currentView==='home')safeRun('heroeq',drawHeroEq);
-    safeRun('acctFeed',syncFeedCodes);   // 보유종목 전부 실시간 구독 보장
-    safeRun('cash',()=>{if($('cashInput'))$('cashInput').value=KRW(cash);});}
+  if(name==='account')paintAccountView();       /* [v17.8.45] 보이는 것부터 그리고 나머지는 뒤 프레임·유휴 시간에 */
   if(name==='trade'){safeRun('candles',loadCandles);safeRun('fund',()=>loadFundamentals(selected));
     safeRun('chart',()=>requestAnimationFrame(drawChart));}
 }
@@ -7084,15 +7092,24 @@ function openTrade(code){
   safeRun('openTrade:detail',()=>renderDetail());
   safeRun('openTrade:exch',()=>configOrderExchanges());
   safeRun('openTrade:price',()=>syncPriceField(true));
-  safeRun('openTrade:candles',()=>loadCandles());
-  safeRun('openTrade:glance',()=>renderGlance());
-  /* [v17.4] 체결 흐름은 넓은 화면에서 항상 떠 있는 코너다 — 호가 탭을 열지
-     않아도 갱신 타이머가 돌도록 여기서 시작한다(obStart 는 중복 호출에 안전하다). */
-  safeRun('openTrade:obtimer',()=>{ if(obGlanceOn())obStart(); });
-  safeRun('openTrade:fund',()=>loadFundamentals(code));
-  safeRun('openTrade:etftab',()=>syncEtfTab(code));
-  safeRun('openTrade:gate',()=>renderTradeGate());   // [v4.5] 세션 배너
-  safeRun('openTrade:flags',()=>{renderAdvFlags();loadStockFlags(code);});   // [v4.9] 심화 정보
+  /* ══ [v17.8.45] 무거워서 '나중에' 해도 되는 것들은 다음 프레임으로 ═════════
+     [증상] 보유 종목을 누르면 화면이 늦게 넘어갔다(사용자 제보 '렉'). 종목을 열 때
+       차트 봉·체결흐름·기업정보·시장경보를 같은 틱에서 모두 시작했기 때문이다.
+     [고침] 화면 전환과 종목 상단(가격·통계)을 먼저 그리고, 나머지는 다음 프레임에
+       시작한다. 사용자는 누른 즉시 상세 화면을 본다(값은 바로 뒤에 채워진다). */
+  const later=()=>{
+    if(currentView!=='trade'||selected!==code)return;
+    safeRun('openTrade:candles',()=>loadCandles());
+    safeRun('openTrade:glance',()=>renderGlance());
+    /* [v17.4] 체결 흐름은 넓은 화면에서 항상 떠 있는 코너다 — 호가 탭을 열지
+       않아도 갱신 타이머가 돌도록 여기서 시작한다(obStart 는 중복 호출에 안전하다). */
+    safeRun('openTrade:obtimer',()=>{ if(obGlanceOn())obStart(); });
+    safeRun('openTrade:fund',()=>loadFundamentals(code));
+    safeRun('openTrade:etftab',()=>syncEtfTab(code));
+    safeRun('openTrade:gate',()=>renderTradeGate());   // [v4.5] 세션 배너
+    safeRun('openTrade:flags',()=>{renderAdvFlags();loadStockFlags(code);});   // [v4.9] 심화 정보
+  };
+  try{ requestAnimationFrame(()=>{ try{later();}catch(e){reportErr('openTrade:later',e);} }); }catch(e){ later(); }
 }
 // ETF일 때만 'ETF정보' 탭을 노출하고, ETF 상세를 미리 불러온다
 function syncEtfTab(code){
@@ -7298,6 +7315,88 @@ function ohlSanitize(st){
     st.open=o||st.open; st.high=h||st.high; st.low=l||st.low;
   }catch(e){}
 }
+/* ══ [v17.8.45] 화면 그리기를 '한 프레임에 한 번'으로 모은다 ═════════════════
+   [증상 — 사용자 제보 2026-11-26]
+     "내 계좌에서 다른 메뉴로 가거나 내 계좌에서 보유 종목을 클릭하거나 할 때
+      계속 시간 지연되고 렉 걸리는데"
+   [원인 ①] 시세 응답 한 건마다 applyQuote 가 총자산 계산과 보유 표 전채를
+     그 자리에서 다시 그렸다. 한 번에 40종목이 오면 40번, 3초마다 반복.
+   [원인 ②] 내 계좌 탭을 누른 핸들러가 자체로 11개 코너를 한 프레임에 그렸다
+     (보유 표·자산구성·목표·통계·일지…) — 그 동안 화면이 굳었다.
+   [고침] 그리기를 한 곳에 모아 프레임 단위로 합치고(scheduleQuotePaint),
+     무거운 코너는 다음 프레임·유휴 시간으로 미룬다(paintAccountView·deferIdle). */
+var _qpNum=0,_qpHold=0,_qpWatch=null,_qpRaf=0;
+var _holdPaintAt=0,_holdPaintT=0,_acctExtrasAt=0;
+function scheduleQuotePaint(view,code){
+  if(view==='watch'&&code){ (_qpWatch||(_qpWatch=new Set())).add(code); }
+  else if(view==='account')_qpHold=1;
+  _qpNum=1;
+  if(_qpRaf)return;
+  try{ _qpRaf=requestAnimationFrame(flushQuotePaint); }catch(e){ _qpRaf=0; flushQuotePaint(); }
+}
+function flushQuotePaint(){
+  _qpRaf=0;
+  const nums=_qpNum, hold=_qpHold, wr=_qpWatch;
+  _qpNum=0;_qpHold=0;_qpWatch=null;
+  if(nums)safeRun('q:nums',renderPortfolioNumbers);
+  if(wr&&currentView==='watch'){ const codes=[...wr]; safeRun('q:watch',()=>codes.forEach(c=>updateWatchRow(c))); }
+  if(hold&&currentView==='account')scheduleHoldingsPaint();
+}
+/* 보유 표는 400ms 에 한 번까지만 다시 만든다 — 그 사이 오는 시세는 다음 차례에 묶인다 */
+function scheduleHoldingsPaint(){
+  if(currentView!=='account')return;
+  const now=Date.now();
+  if(now-_holdPaintAt>=400){ _holdPaintAt=now; safeRun('q:hold',renderHoldings); return; }
+  if(_holdPaintT)return;
+  _holdPaintT=setTimeout(()=>{ _holdPaintT=0;
+    if(currentView!=='account')return;
+    _holdPaintAt=Date.now(); safeRun('q:hold.t',renderHoldings);
+  },Math.max(50,400-(now-_holdPaintAt)));
+}
+/* 자산구성·목표·거래통계는 시세와 무관하게 천천히 바뀐다 — 15초에 한 번이면 충분 */
+function scheduleAcctExtras(){
+  const now=Date.now();
+  if(now-_acctExtrasAt<15000)return;
+  _acctExtrasAt=now;
+  safeRun('acctx',renderAcctExtras);
+}
+function deferIdle(fn,ms){
+  try{ if(typeof window.requestIdleCallback==='function')
+    return window.requestIdleCallback(()=>{ try{fn();}catch(e){reportErr('idle',e);} },{timeout:ms||800}); }catch(e){}
+  return setTimeout(()=>{ try{fn();}catch(e){reportErr('idle',e);} },ms||160);
+}
+/* 내 계좌 진입 — 보이는 것부터 그리고, 무거운 코너는 뒤 프레임·유휴 시간에 */
+function paintAccountView(){
+  const vis=()=>currentView==='account';
+  /* ══ [v17.8.45] 탭을 누른 핸들러는 '비우는' 일만 한다 ═══════════════════════
+     보유 표(12종목 48ms 내외)를 클릭한 자리에서 그리면 그 시간 동안 입력이
+     멈춘다. 화면은 이미 바뀌었으므로(showView 가 hidden 만 토글) 표는 다음
+     프레임에 그린다 — 누른 즉시 반응하고, 표는 바로 뒤에 채워진다. */
+  safeRun('acctFeed',syncFeedCodes);            // 구독 목록 동기화(가벼움)
+  const first=()=>{
+    if(!vis())return;
+    safeRun('acctbar',renderAcctBar);
+    safeRun('acctfx',renderAcctFx);
+    safeRun('cash',()=>{if($('cashInput'))$('cashInput').value=KRW(cash);});
+    /* 보유 표는 그다음 프레임 — 표 한 장(12종목 50ms 안팍)이 첫 화면을 막지 않게 */
+    try{ requestAnimationFrame(()=>{ try{ if(vis())safeRun('holdings',renderHoldings); }catch(e){reportErr('acct1b',e);} }); }catch(e){ safeRun('holdings',renderHoldings); }
+    const second=()=>{
+      if(!vis())return;
+      safeRun('journal',renderJournal);
+      safeRun('acctsend',renderAcctSend);
+      safeRun('autocard',renderAutoCard);
+      safeRun('bgList',refreshStockListSoon);
+      deferIdle(()=>{
+        if(!vis())return;
+        safeRun('acctx',renderAcctExtras); _acctExtrasAt=Date.now();
+        safeRun('inscard',renderInsightCards);
+        safeRun('equity',()=>{seedEquityFromTrades();recordEquity();requestAnimationFrame(drawEquity);});
+      });
+    };
+    try{ requestAnimationFrame(()=>{ try{second();}catch(e){reportErr('acct2',e);} }); }catch(e){ second(); }
+  };
+  try{ requestAnimationFrame(()=>{ try{first();}catch(e){reportErr('acct1',e);} }); }catch(e){ first(); }
+}
 function applyQuote(q,isSnap){
   try{ if(q&&q.code&&byCode[q.code])byCode[q.code]._px_at=Date.now(); }catch(e){}   // [v3.4] 마지막 수신 시각
   try{ pxSnapPut(q); }catch(e){}                                                     // [v3.6] 마지막 시세 스냅샷
@@ -7321,10 +7420,13 @@ function applyQuote(q,isSnap){
   try{ checkTargets(q.code); }catch(e){}   // [D3] 목표가 도달 확인
   st.ticks.push({t:Date.now(),p:q.price,v:q.volume||0}); if(st.ticks.length>3000)st.ticks.shift();
   try{if(stockSideCode===q.code)renderStockSidePanel(q.code,true);}catch(e){}
-  renderPortfolioNumbers();
-  if(currentView==='watch')updateWatchRow(q.code);
-  else if(currentView==='account')renderHoldings();
-  else if(currentView==='search')schedSearchPaint();   // [v3.6] 시세 1건마다 전체 재렌더 → 0.2초 병합
+  /* ══ [v17.8.45] 시세 처리 — 화면을 그 자리에서 다시 그리지 않는다 ═══════
+     예전에는 시세 한 건마다 renderPortfolioNumbers()·renderHoldings() 를 그 자리에서
+     돌렸다. 40종목이 한 번에 오면 보유 표를 40번 다시 그렸고, 그것이 3초마다
+     반복됐다. 화면이 늘 바쁘니 탭이 늦게 먹고 스크롤이 튀었다(사용자 제보 '렉').
+     → 한 프레임에 한 번으로 모으고, 보유 표는 400ms 에 한 번까지로 제한한다. */
+  scheduleQuotePaint(currentView==='watch'?'watch':currentView==='account'?'account':'',q.code);
+  if(currentView==='search')schedSearchPaint();   // [v3.6] 시세 1건마다 전체 재렌더 → 0.2초 병합
   else if(currentView==='trade'&&q.code===selected){renderDetail();if(isMinute(chartTf)){curCandles=minuteSeries(q.code,minutesOf(chartTf));if(view.follow)view.end=curCandles.length-1;drawChart();}if(curFund&&curFund.code===q.code&&(infoTab==='consensus'||infoTab==='summary'))renderInfo();if(infoTab==='ai')renderAiStock($('infoBody'));}
   // 값이 실제로 바뀌면 현재가에 플래시 효과(실시간 체감)
   if(!isSnap&&prevP!=null&&q.price!=null&&q.price!==prevP&&currentView==='trade'&&q.code===selected){
@@ -10604,6 +10706,10 @@ function autoOrderTick(){
     const q=orderQuote(o);if(!q||q.price==null)continue;
     const hit=o.side==='buy'?q.price<=o.price:q.price>=o.price;
     if(!hit)continue;
+    /* ══ [v17.8.45] 상·하한가 잠금 — 잠긴 쪽 대기 주문은 아직 체결할 수 없다 ══
+       상한가에 매도 잔량이 없으면 매수는 설 자리가 없다. 잠금이 풀리는 순간
+       (매도 잔량 출회 또는 가격 이탈) 다음 시계에서 그대로 체결된다. */
+    if(limitLockBlocks(limitLockOf(o.code,q.price),o.side))continue;
     const st=byCode[o.code];if(!st)continue;
     try{ if(settings.realHours&&!orderWindowOpen(o))continue; }catch(e){}
     /* ══ [v17.8.44] 체결가는 지정가를 넘어설 수 없다 ═══════════════════════════
@@ -10695,7 +10801,9 @@ function autoOrderTick(){
   }
   if(changed){saveState();try{renderPendBox();syncMaxQty();if(orderScreenOpen())renderOrderWorkspace();}catch(e){}try{clanAutoSync(true);frAutoSync(true);}catch(e){}
     if(currentView==='account'){safeRun('holdings',renderHoldings);safeRun('autocard',renderAutoCard);}
-    safeRun('mysum',renderMySum);safeRun('mysumtidy',tidyMySum);}
+    safeRun('mysum',renderMySum);safeRun('mysumtidy',tidyMySum);
+    /* [v17.8.45] 잠금이 풀리거나 다시 잠길 수 있다 — 안내도 함께 갱신 */
+    safeRun('limitlock',renderLimitLockNote);safeRun('order:limitlock',renderOrderLimitLock);}
 }
 function notifyPrice(nm,code,kind,target,cur){
   toast('on',`${nm} ${kind}`,`설정 ${KRW(target)}원 · 현재 ${KRW(cur)}원`);
@@ -13849,6 +13957,7 @@ function renderDetail(){
     ['상한가',s.prevClose?KRW(limitUp(s.prevClose,mktOf(selected))):'—'],
     ['하한가',s.prevClose?KRW(limitDown(s.prevClose,mktOf(selected))):'—']];
   $('dStats').innerHTML=stats.map(([k,v])=>`<div class="st"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join('');
+  try{ renderLimitLockNote(); }catch(e){}          /* [v17.8.45] 상·하한가 잠금 안내 */
   safeRun('exRow',renderExchangeRow);
   updateStar();
   try{renderOrderHeader();}catch(e){}
@@ -15872,7 +15981,7 @@ function renderAsking(el){
     return;
   }
   const px=livePx(code,null), pc=d.prevClose;
-  el.innerHTML=obBookHtml(d,px,pc,{hint:'호가를 누르면 매도·매수·정정 창이 열립니다'});
+  el.innerHTML=obBookHtml(d,px,pc,{hint:'호가를 누르면 매도·매수·정정 창이 열립니다',code});
   bindObRows(el,d,{goto:true});
 }
 /* ══ [v17.8.37] 호가 그리기 — 상세 호가 탭과 거래 화면 좌측 호가창이 함께 쓴다 ══
@@ -15899,6 +16008,7 @@ function obBookHtml(d,px,pc,opts){
     <div class="ob-head">
       <div class="ob-hh"><span>매도잔량</span><span>호가</span><span>매수잔량</span></div>
     </div>
+    ${opts.code?limitLockBoxHtml(limitLockOf(opts.code,px),'book'):''}
     <div class="ob-body">${sells}<div class="ob-mid">
         <span>스프레드</span><b class="num">${d.spread!=null?KRW(d.spread)+'원':'—'}</b>
         <span>최우선 ${d.bestBid!=null?KRW(d.bestBid):'—'} / ${d.bestAsk!=null?KRW(d.bestAsk):'—'}</span>
@@ -16103,7 +16213,7 @@ function renderOrderBook(){
     setLive('대기'); return;
   }
   const px=livePx(code,null), pc=d.prevClose;
-  el.innerHTML=obBookHtml(d,px,pc,{hint:true});
+  el.innerHTML=obBookHtml(d,px,pc,{hint:true,code});
   bindObRows(el,d);
   const ago=Math.max(0,Math.round((Date.now()-(d.at||Date.now()))/1000));
   setLive(ago<5?'LIVE · 방금':`LIVE · ${ago}초 전`);
@@ -17278,9 +17388,11 @@ function holdTipFit(){
 }
 try{window.addEventListener('resize',()=>{clearTimeout(window._hhT);window._hhT=setTimeout(holdHeadFit,150);});}catch(e){}
 function renderHoldings(){
-  holdHeadFit();
+  const _pt0=window.__perfOn?_perfNowMs():0;
+  safeRun('h:head',holdHeadFit);
   const totEval=holdings.reduce((a,h)=>a+hEvalKRW(h),0)||1;
   const hc=$('holdCount');if(hc)hc.textContent=holdings.length?`· ${holdings.length}종목 · 평가 ${KRW(totEval)}원`:'';
+  safeRun('h:rows',()=>{
   $('holdBody').innerHTML=holdings.length? holdings.map(h=>{const s=byCode[h.code]||{name:h.code,price:null,prevClose:null,market:''},price=livePx(h.code,h.avg)??h.avg;
     /* [v4.28] 해외 보유: 단가는 $, 평가·손익은 원화 환산 */
     const evalAmt=hEvalKRW(h),cost=hCostKRW(h),pnl=evalAmt-cost,rate=cost?pnl/cost*100:0,dir=dirOf(pnl);
@@ -17296,13 +17408,18 @@ function renderHoldings(){
        걸려 있어서, 412px 화면에서 colspan 셀이 520px 기준으로 가운데 정렬됐다.
        인라인 style 대신 클래스를 주고, 비었을 때는 표 자체의 최소 폭을 푼다(CSS). */
     : '<tr class="hold-empty"><td colspan="9">보유 종목이 없습니다. 거래·주문에서 매수해 보세요.</td></tr>';
+  });
   /* [v17.1] 비었을 때는 껍데기에 표식을 남긴다 — CSS 가 머리글을 접고 최소 폭을 푼다.
      (:has() 지원에 기대지 않는다 — 구형 웹뷰에서도 똑같이 동작해야 한다) */
   try{ const _hw=$('holdBody').closest('.hold-wrap'); if(_hw)_hw.classList.toggle('is-empty',!holdings.length); }catch(e){}
-  try{ holdTipFit(); }catch(e){}
+  safeRun('h:tip',holdTipFit);
   $('holdBody').querySelectorAll('tr[data-usopen]').forEach(tr=>{tr.onclick=(e)=>{e.stopPropagation();openUS(tr.dataset.code);};});
-  bindStockClicks($('holdBody'));
-  if(currentView==='account')safeRun('acctx',renderAcctExtras);   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
+  safeRun('h:bind',()=>bindStockClicks($('holdBody')));
+  try{ scheduleAcctExtras(); }catch(e){}   // [v2.5.2] 시세 갱신에 맞춰 신규 코너도 동반 갱신
+  /* ══ [v17.8.45] 여기서 자산구성·목표·통계를 다시 그리지 않는다 ═══════════
+     예전엔 이 함수가 renderAcctExtras 를 불렀고, 호출부(paintAccountView)도
+     같은 함수를 한 번 더 불렀다 — 같은 프레임에서 두 번 돌았다(*2).
+     지금은 15초 스로틀을 거쳐 한 번만 돈다. */
   /* ══ [v9.99] 시세가 올 때마다 7개 코너를 다 다시 그리고 있었다 ═══════════════
      MY 포트폴리오는 할 일·요약·카드·위험·습관·세금·복기 일곱 덩어리다. 그런데
      시세 한 번에 전부 새로 만들었다. 세금 리포트는 거래기록 전체를 선입선출로
@@ -17320,6 +17437,7 @@ function renderHoldings(){
       }
     });
   } else safeRun('foDot',foBadge);
+  if(_pt0)_perfPush('holdings',_pt0);   /* [v17.8.45] 이 함수 전체 소요(계측 전용) */
 }
 /* ══ [v4.28] 보유 평가 헬퍼 — 국내(원·정수)와 해외(달러·소수·환율) 공용 ══ */
 function hEvalKRW(h){
@@ -19586,7 +19704,156 @@ function limitFillNow(side,limit,code,ex){
   const cur=(q.price!=null)?q.price:st.price;
   if(!(cur>0)||!(limit>0))return 0;
   const hit=side==='buy'?cur<=limit:cur>=limit;
-  return hit?cur:0;
+  if(!hit)return 0;
+  /* ══ [v17.8.45] 상·하한가 잠금이면 즉시 체결하지 않는다 ═══════════════════
+     상한가에서 팔 물량이 없는데도 매수를 그 자리에서 체결시키면, 실제 시장에
+     없는 체결을 만들어 준다. 잠긴 동안은 대기(미체결)로 접수한다. */
+  if(limitLockBlocks(limitLockOf(code,cur),side))return 0;
+  return cur;
+}
+/* ══ [v17.8.45] 상·하한가 잠금 — 실제 KRX·NXT 규칙 ═══════════════════════════
+   [무엇이 틀렸나 — 사용자 제보 2026-11-26]
+     "상/하한가 종목들은 매수/매도 대기가 있을 건데 지금은 상,하한가여도 거래가
+      바로 다 되잖아."
+   실제 시장은 그렇지 않다. 상한가에서 팔겠다는 물량(매도 잔량)이 남아 있지 않으면
+   사겠다는 주문은 그 가격에서 체결될 상대가 없으므로 '상한가 매수 대기'로 줄을 선다.
+   반대로 하한가에서 사겠다는 물량이 없으면 매도는 '하한가 매도 대기'가 된다.
+   [규칙 — 국내주식만]
+     · 상한가 잠금 (현재가 = 상한가, 그 가격에 매도 잔량 없음 또는 호가 미수신)
+         매수(지정가·시장가) → 즉시 체결 없이 상한가 매수 대기
+         매도(상한가 이하·시장가) → 대기 중인 매수 물량과 즉시 체결
+     · 하한가 잠금 (현재가 = 하한가, 그 가격에 매수 잔량 없음 또는 호가 미수신)
+         매도(지정가·시장가) → 즉시 체결 없이 하한가 매도 대기
+         매수(하한가 이상·시장가) → 대기 중인 매도 물량과 즉시 체결
+     · 잠금이 풀리면(반대쪽 잔량 출회 또는 가격 이탈) 대기 주문이 체결된다
+       — 브라우저 감시(autoOrderTick)와 서버 크론이 같은 규칙을 본다.
+   [범위] 해외주식은 가격제한폭이 없으므로 이 판정을 하지 않는다. */
+function krBandOf(code){
+  try{
+    const q=dispQuote(code)||{}, st=byCode[code]||{};
+    const base=q.prevClose||st.prevClose||0;
+    if(!(base>0))return null;
+    const mk=mktOf(code);
+    const up=limitUp(base,mk), down=limitDown(base,mk);
+    if(!(up>0)||!(down>0)||!(down<up))return null;
+    return {base,up,down};
+  }catch(e){ return null; }
+}
+/* 호가창에서 '상한가에 팔려는 잔량'·'하한가에 사려는 잔량'을 센다.
+   호가를 못 받았으면 null — 그때는 가격만으로 잠금을 판정한다(브리프 규칙). */
+function obResidueAtLimit(code,up,down){
+  try{
+    const d=_obData[code];
+    if(!d||!d.ok)return null;
+    let askUp=0,bidDown=0,asks=0,bids=0;
+    (d.sell||[]).forEach(x=>{ if(x&&x.p>0){asks+=x.q||0; if(x.p<=up)askUp+=x.q||0;} });
+    (d.buy||[]).forEach(x=>{ if(x&&x.p>0){bids+=x.q||0; if(x.p>=down)bidDown+=x.q||0;} });
+    return {askUp,bidDown,asks,bids,at:d.at||0};
+  }catch(e){ return null; }
+}
+/* 상·하한가 상태 — px 를 주면 그 세션 가격으로, 없으면 통합가로 판정한다 */
+function limitLockOf(code,px){
+  const out={code:code,band:null,up:null,down:null,px:null,at:null,locked:false,src:'',askUp:null,bidDown:null};
+  try{
+    if(!code)return out;
+    if((typeof usMeta!=='undefined'&&usMeta&&usMeta[code]))return out;      // 해외 — 제한폭 없음
+    const st=byCode[code]||{};
+    if(st.us)return out;
+    const band=krBandOf(code);
+    if(!band)return out;
+    out.band=band; out.up=band.up; out.down=band.down;
+    const cur=Number((px!=null&&px>0)?px:((dispQuote(code)||{}).price));
+    if(!(cur>0))return out;
+    out.px=cur;
+    if(cur>=band.up)out.at='up'; else if(cur<=band.down)out.at='down';
+    if(!out.at)return out;
+    const res=obResidueAtLimit(code,band.up,band.down);
+    if(res){ out.askUp=res.askUp; out.bidDown=res.bidDown; }
+    if(out.at==='up'){
+      /* 상한가에 매도 잔량이 남아 있으면 잠긴 것이 아니다 — 그 물량과 체결된다 */
+      out.locked=!(res&&res.askUp>0);
+      out.src=res?(res.askUp>0?'매도 잔량 있음':'매도 잔량 없음'):'호가 미수신 · 가격 기준';
+    }else{
+      out.locked=!(res&&res.bidDown>0);
+      out.src=res?(res.bidDown>0?'매수 잔량 있음':'매수 잔량 없음'):'호가 미수신 · 가격 기준';
+    }
+  }catch(e){}
+  return out;
+}
+function limitLockBlocks(lk,side){
+  return !!(lk&&lk.locked&&((side==='buy'&&lk.at==='up')||(side==='sell'&&lk.at==='down')));
+}
+function limitLockBadge(lk){
+  if(!lk||!lk.at)return '';
+  if(lk.at==='up')return lk.locked?'상한가 매수대기':'상한가';
+  return lk.locked?'하한가 매도대기':'하한가';
+}
+/* 주문을 대기로 접수할 때 붙일 표식 — 잠금 때문에 줄을 서는 주문인지 */
+function lockTagFor(side,price,code){
+  try{
+    const lk=limitLockOf(code,0);
+    if(!limitLockBlocks(lk,side))return '';
+    const atPx=lk.at==='up'?lk.up:lk.down, px=intOf(price,0);
+    if(lk.at==='up'?px>=atPx:px<=atPx)return lk.at;
+  }catch(e){}
+  return '';
+}
+/* ══ [v17.8.45] 상·하한가 안내 상자 ═══════════════════════════════════════════
+   화면마다 문구가 달라지지 않도록 한 곳에서 만든다.
+     where='detail' 종목 상세 — 지금 시장이 어떤 상태인지
+     where='order'  주문 화면 — 내 주문이 어떻게 되는지
+     where='book'   호가창   — 한 줄짜리 배지 */
+function limitLockBoxHtml(lk,where){
+  if(!lk||!lk.at)return '';
+  const W=n=>KRW(n)+'원';
+  const tag=limitLockBadge(lk);
+  if(where==='book'){
+    return `<div class="llk-strip ${lk.locked?'on':'off'} ${lk.at}"><b>${lk.at==='up'?'▲ 상한가':'▼ 하한가'}</b>
+      <span>${lk.locked?(lk.at==='up'?'매도 잔량 없음 · 매수 대기':'매수 잔량 없음 · 매도 대기'):'잔량 있음 · 체결 가능'}</span></div>`;
+  }
+  if(lk.at==='up'){
+    if(!lk.locked)return `<div class="llk llk-open up"><i>▲</i><div><b>상한가 ${W(lk.up)}</b>
+      <span>상한가에 매도 잔량이 남아 있어 매수 주문은 그 물량과 체결됩니다.</span><em>${lk.src}</em></div></div>`;
+    return `<div class="llk llk-lock up"><i>🔒</i><div><b>상한가 잠금 · ${W(lk.up)}</b>
+      <span>${where==='order'
+        ?`매수 주문은 <b>상한가 매수대기</b>로 접수됩니다 — 지금은 체결되지 않고, 매도 잔량이 나오면 체결됩니다. 매도는 대기 중인 매수 물량과 바로 체결됩니다.`
+        :`매도 잔량이 없어 지금은 살 수 없습니다. 매수 주문은 <b>상한가 매수대기</b>로 접수되고, 잔량이 나오거나 가격이 내려오면 체결됩니다.`}</span><em>${lk.src}</em></div></div>`;
+  }
+  if(!lk.locked)return `<div class="llk llk-open down"><i>▼</i><div><b>하한가 ${W(lk.down)}</b>
+    <span>하한가에 매수 잔량이 남아 있어 매도 주문은 그 물량과 체결됩니다.</span><em>${lk.src}</em></div></div>`;
+  return `<div class="llk llk-lock down"><i>🔒</i><div><b>하한가 잠금 · ${W(lk.down)}</b>
+    <span>${where==='order'
+      ?`매도 주문은 <b>하한가 매도대기</b>로 접수됩니다 — 지금은 체결되지 않고, 매수 잔량이 나오면 체결됩니다. 매수는 대기 중인 매도 물량과 바로 체결됩니다.`
+      :`매수 잔량이 없어 지금은 팔 수 없습니다. 매도 주문은 <b>하한가 매도대기</b>로 접수되고, 잔량이 나오거나 가격이 올라오면 체결됩니다.`}</span><em>${lk.src}</em></div></div>`;
+}
+function renderLimitLockNote(){
+  const box=$('dLimitLock'); if(!box)return;
+  const html=limitLockBoxHtml(limitLockOf(selected,0),'detail');
+  if(!html){ if(!box.hidden){box.hidden=true;box.innerHTML='';box.dataset.sig='';} return; }
+  if(box.dataset.sig!==html){ box.dataset.sig=html; box.innerHTML=html; }
+  box.hidden=false;
+}
+function renderOrderLimitLock(){
+  const box=$('orderLimitLock'); if(!box)return;
+  const html=limitLockBoxHtml(limitLockOf(selected,0),'order');
+  if(!html){ if(!box.hidden){box.hidden=true;box.innerHTML='';box.dataset.sig='';} return; }
+  if(box.dataset.sig!==html){ box.dataset.sig=html; box.innerHTML=html; }
+  box.hidden=false;
+}
+/* 미체결 목록의 잠금 배지 — 저장된 표식과 지금 상태 중 살아 있는 쪽 */
+function pendLockTag(o){
+  try{
+    if(!o||o.us)return '';
+    const live=limitLockOf(o.code,0);
+    if(limitLockBlocks(live,o.side))return live.at;
+    if(o.lock==='up'||o.lock==='down')return o.lock;   /* 잠금으로 접수된 주문 — 대기 중임을 계속 밝힌다 */
+  }catch(e){}
+  return '';
+}
+function lockBadgeHtml(o){
+  const t=pendLockTag(o);
+  if(!t)return '';
+  return `<span class="llk-badge ${t}">${t==='up'?'상한가 매수대기':'하한가 매도대기'}</span>`;
 }
 /* 가격제한폭(±30%) — 기준가는 '다음 체결의 전일 종가'. 장 시작 전·휴장에는 지금 표시 중인 종가가 기준이다. */
 function krPriceBand(code){
@@ -19957,6 +20224,7 @@ function configOrderExchanges(){
    ═════════════════════════════════════════════════════════════════════════ */
 function renderTradeGate(){
   const box=$('tradeGate'); if(!box)return;
+  try{ renderOrderLimitLock(); }catch(e){}          /* [v17.8.45] 상·하한가 잠금 안내 */
   const btn=$('submitBtn');
   const code=selected, st=byCode[code];
   if(!code||!st){box.innerHTML='';if(btn)btn.classList.remove('locked');return;}
@@ -20246,7 +20514,18 @@ $('keypad').addEventListener('click',e=>{const b=e.target.closest('button');if(!
 $('pwCancel').onclick=closePw;
 function executeOrder(o){
   const s=byCode[selected];
-  if(!o||!s||o.market)return executeOrderCore(s,o,'');      // 시장가는 호가 기준가로 바로 체결
+  if(!o||!s)return;
+  if(o.market){
+    /* ══ [v17.8.45] 시장가도 잠금 앞에서는 대기다 ═══════════════════════════
+       상한가 잠금 중 시장가 매수는 체결될 상대(매도 잔량)가 없다. 실제 거래소는
+       이 주문을 상한가 가격의 매수 대기로 접수한다. 하한가 매도도 같다. */
+    const lk=limitLockOf(s.code,0);
+    if(limitLockBlocks(lk,o.side)){
+      const px=(lk.at==='up')?lk.up:lk.down;
+      return placePendingOrder(s,{side:o.side,price:px,qty:o.qty,market:true,lock:lk.at});
+    }
+    return executeOrderCore(s,o,'');      // 시장가는 호가 기준가로 바로 체결
+  }
   /* [v17.8.27] 지정가 — 비밀번호를 치는 사이 시세가 움직였을 수 있으니 '지금' 다시 판정한다 */
   const fill=limitFillNow(o.side,o.price,s.code,ordExchange);
   if(fill>0){
@@ -20268,12 +20547,22 @@ function placePendingOrder(s,o){
     if(sellAvail(s.code)<qty){toast('warn','주문 불가 · 매도 가능 수량 부족',`매도 가능 ${KRW(sellAvail(s.code))}주 · 주문 ${KRW(qty)}주`);return false;}
   }
   if(bookOrders.length>=tierLimit('book')){ tierBlockLimit('book',bookOrders.length+1,'미체결 주문은'); return false; }
+  /* ══ [v17.8.45] 상·하한가 잠금으로 줄을 서는 주문은 그 사실을 함께 남긴다 ══
+     화면·미체결 목록이 '상한가 매수대기'·'하한가 매도대기'를 그대로 보여 줄 수 있고,
+     목록을 다시 그릴 때도 잠금 판정을 되풀이할 필요가 없다. */
+  const lockTag=(o&&o.lock)||lockTagFor(o.side,price,s.code)||null;
   /* [v17.8.44] 접수 거래소(ex)·주문유형(type)을 함께 남긴다 — 체결 판정을
      '내가 주문한 시장'의 시간과 가격으로만 하기 위해서다(위 orderWindowOpen). */
-  bookOrders.push({id:'b'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),code:s.code,name:s.name,side:o.side,qty,price,acct:acctActive,ex:(String(ordExchange||'').toUpperCase()||'SOR'),type:ordTypeName,createdAt:Date.now()});
+  bookOrders.push({id:'b'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),code:s.code,name:s.name,side:o.side,qty,price,acct:acctActive,ex:(String(ordExchange||'').toUpperCase()||'SOR'),type:ordTypeName,createdAt:Date.now(),lock:lockTag||undefined});
   subscribeAutoCodes();saveState();
   const q=dispQuote(s.code)||{}, cur=(q.price!=null)?q.price:s.price;
-  toast('on','미체결 주문 접수',`${s.name} ${o.side==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 · 현재가 ${KRW(cur)}원 → ${KRW(price)}원에 닿으면 체결`);
+  if(lockTag==='up'){
+    toast('warn','상한가 매수 대기로 접수',`${s.name} 매수 ${KRW(qty)}주 · ${KRW(price)}원 · 상한가에서 팔 물량이 없어 지금은 체결되지 않습니다 · 잠금이 풀리면 체결`);
+  }else if(lockTag==='down'){
+    toast('warn','하한가 매도 대기로 접수',`${s.name} 매도 ${KRW(qty)}주 · ${KRW(price)}원 · 하한가에서 살 물량이 없어 지금은 체결되지 않습니다 · 잠금이 풀리면 체결`);
+  }else{
+    toast('on','미체결 주문 접수',`${s.name} ${o.side==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 · 현재가 ${KRW(cur)}원 → ${KRW(price)}원에 닿으면 체결`);
+  }
   setQty(0);syncMaxQty();
   if(currentView==='account')safeRun('autocard',renderAutoCard);
   try{if(orderScreenOpen())renderOrderWorkspace();}catch(e){}
@@ -20297,7 +20586,7 @@ function renderPendBox(){
      NXT 주문은 NXT 시간에만 체결된다. EX 가 없는 예전 주문은 통합(둘 중 열린 곳). */
   const exLabel=(o)=>{const ex=String(o.ex||'').toUpperCase();return ex==='KRX'?'KRX':ex==='NXT'?'NXT':'통합(SOR)';};
   const html=`<div class="pb-t">미체결 주문 <small>${list.length}건 · 현재가가 주문가에 닿으면 체결 · 앱을 닫아도 서버가 체결</small></div>`
-    +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">${KRW(o.price)}원 · ${KRW(o.qty)}주</span><span class="pb-ex">${exLabel(o)}</span><button class="pb-x" data-pbc="${o.id}" aria-label="미체결 주문 취소">취소</button></div>`).join('');
+    +list.map(o=>`<div class="pb-r"><span class="pb-k ${o.side}">${o.side==='buy'?'매수':'매도'}</span><span class="num">${KRW(o.price)}원 · ${KRW(o.qty)}주</span>${lockBadgeHtml(o)}<span class="pb-ex">${exLabel(o)}</span><button class="pb-x" data-pbc="${o.id}" aria-label="미체결 주문 취소">취소</button></div>`).join('');
   if(el.dataset.sig!==html){ el.dataset.sig=html; el.innerHTML=html;
     el.querySelectorAll('[data-pbc]').forEach(b=>b.onclick=()=>cancelPending(b.dataset.pbc)); }
   el.hidden=false;
@@ -20374,7 +20663,7 @@ function renderOrderManage(){
   const list=orderScopedPending();
   if(!list.length){el.innerHTML=orderEmpty('정정하거나 취소할 주문이 없습니다','새 지정가 주문이 접수되면 이곳에서 가격·수량을 바꾸거나 취소할 수 있습니다.');return;}
   el.innerHTML=`<div class="order-list-summary"><div><span>대기 주문</span><b>${list.length.toLocaleString('ko-KR')}건</b></div><div><span>매수 예약 금액</span><b>${KRW(list.filter(o=>o.side==='buy').reduce((n,o)=>n+orderCost('buy',o.price,o.qty).cost,0))}원</b></div><div><span>매도 예약 수량</span><b>${KRW(list.filter(o=>o.side==='sell').reduce((n,o)=>n+(+o.qty||0),0))}주</b></div></div>`
-   +`<div class="order-record-list">${list.map(o=>`<article class="order-record"><div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div><div class="order-record-values"><div><span>주문가격</span><b class="num">${KRW(o.price)}원</b></div><div><span>주문수량</span><b class="num">${KRW(o.qty)}주</b></div><div><span>상태</span><b class="wait-state">미체결 대기</b></div></div><div class="order-record-actions"><button type="button" class="order-revise-btn" data-order-revise="${htmlEsc(o.id)}">정정</button><button type="button" class="order-cancel-btn" data-order-cancel="${htmlEsc(o.id)}">주문 취소</button></div></article>`).join('')}</div>`;
+   +`<div class="order-record-list">${list.map(o=>`<article class="order-record"><div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div><div class="order-record-values"><div><span>주문가격</span><b class="num">${KRW(o.price)}원</b></div><div><span>주문수량</span><b class="num">${KRW(o.qty)}주</b></div><div><span>상태</span><b class="wait-state">${pendLockTag(o)?(pendLockTag(o)==='up'?'상한가 매수대기':'하한가 매도대기'):'미체결 대기'}</b></div></div><div class="order-record-actions"><button type="button" class="order-revise-btn" data-order-revise="${htmlEsc(o.id)}">정정</button><button type="button" class="order-cancel-btn" data-order-cancel="${htmlEsc(o.id)}">주문 취소</button></div></article>`).join('')}</div>`;
   el.querySelectorAll('[data-order-revise]').forEach(b=>b.onclick=()=>openOrderModify(b.dataset.orderRevise));
   el.querySelectorAll('[data-order-cancel]').forEach(b=>b.onclick=()=>{cancelPending(b.dataset.orderCancel);renderOrderManage();});
   /* [v17.8.39] 호가 팝업의 '정정/취소'로 들어온 경우 — 그 가격의 미체결 주문을 표시한다.
@@ -20398,7 +20687,7 @@ function renderOrderHistory(){
   const pending=orderScopedPending(),fills=orderScopedFills();
   const selectedRows=orderHistoryFilter==='filled'?fills:orderHistoryFilter==='pending'?pending:[];
   const htmlTabs=`<div class="order-history-filters"><button type="button" data-history-filter="all" class="${orderHistoryFilter==='all'?'on':''}">전체</button><button type="button" data-history-filter="filled" class="${orderHistoryFilter==='filled'?'on':''}">체결 ${fills.length}</button><button type="button" data-history-filter="pending" class="${orderHistoryFilter==='pending'?'on':''}">미체결 ${pending.length}</button></div>`;
-  const pendingHtml=pending.map(o=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="wait-state">미체결</span></div><div class="order-history-meta"><span>${KRW(o.price)}원 · ${KRW(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
+  const pendingHtml=pending.map(o=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="wait-state">${pendLockTag(o)?(pendLockTag(o)==='up'?'상한가 매수대기':'하한가 매도대기'):'미체결'}</span></div><div class="order-history-meta"><span>${KRW(o.price)}원 · ${KRW(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
   /* [v17.8.44] 체결가가 내가 쓴 주문가와 다를 때 그 사실을 같이 적는다 —
      '내가 171,700원에 걸었는데 왜 172,400원이지?'에서 멈추지 않게. */
   const fillsHtml=fills.slice(0,100).map(t=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(t.side)}<b>${htmlEsc(t.name||selected)}</b><span class="filled-state">체결 완료</span></div><div class="order-history-meta"><span>${KRW(t.price)}원 · ${KRW(t.qty)}주</span><span>${orderWhen(t.ts)}</span></div>${t.orderPx?`<div class="order-history-note">주문가 ${KRW(t.orderPx)}원 → 체결 ${KRW(t.price)}원 (${t.side==='buy'?'지정가 이하':'지정가 이상'} 체결)</div>`:''}<div class="order-history-amount">${t.side==='sell'&&t.pnl!=null?`실현손익 <b class="num ${dirOf(t.pnl)}">${t.pnl>0?'+':''}${KRW(t.pnl)}원</b>`:`거래금액 <b class="num">${KRW(t.amount||((+t.price||0)*(+t.qty||0)))}원</b>`}</div></article>`).join('');
@@ -27337,6 +27626,30 @@ try{
       return {orders:bookOrders.map(x=>({...x})), log:tradeLog.slice(-2), cash,
         holdings:holdings.map(h=>({...h}))};
     }catch(e){ return {err:String(e)}; } },
+    /* ══ [v17.8.45] 상·하한가 잠금 검증 통로 ═══════════════════════════════
+       호가는 서버에서만 채워지므로, 테스트가 직접 넣어 잠금·해제 상황을
+       만들 수 있어야 한다. 실제 앱 동작은 건드리지 않는 진단 전용이다. */
+    bookTest:(code,o)=>{ try{
+      const c=String(code); o=o||{};
+      const sell=(o.sell||[]).slice(), buy=(o.buy||[]).slice();
+      _obData[c]={ok:true,code:c,prevClose:(o.prevClose!=null?+o.prevClose:null),sell,buy,
+        bestAsk:sell.length?sell[sell.length-1].p:null,bestBid:buy.length?buy[0].p:null,
+        totalSell:sell.reduce((n,x)=>n+(x.q||0),0),totalBuy:buy.reduce((n,x)=>n+(x.q||0),0),
+        levels:Math.max(sell.length,buy.length),spread:null,at:Date.now()};
+      _obAt[c]=Date.now();
+      try{ renderLimitLockNote(); renderOrderLimitLock(); if(orderBookOn())renderOrderBook(); renderPendBox(); }catch(e){}
+      return limitLockOf(c,0);
+    }catch(e){ return {err:String(e)}; } },
+    bookClear:(code)=>{ try{ const c=String(code); delete _obData[c]; delete _obAt[c];
+      try{ renderLimitLockNote(); renderOrderLimitLock(); }catch(e){} return true; }catch(e){ return String(e); } },
+    lockOf:(code,px)=>{ try{ return limitLockOf(String(code),px); }catch(e){ return {err:String(e)}; } },
+    marketOrderTest:(o)=>{ try{
+      o=o||{}; selected=String(o.code||selected); ordSide=(o.side==='sell')?'sell':'buy'; ordType='market';
+      executeOrder({side:ordSide,price:marketFillPrice(ordSide),qty:+o.qty||1,market:true});
+      return {orders:bookOrders.map(x=>({...x})),log:tradeLog.slice(-2),tr:tradeLog.length,cash,
+        holdings:holdings.map(h=>({...h}))};
+    }catch(e){ return {err:String(e)}; } },
+    clearOrders:()=>{ try{ bookOrders=[]; saveState(); return true; }catch(e){ return String(e); } },
     /* 관심종목·폴더·메모·알림·예약주문을 실제 경로로 */
     addWatch:(code)=>{ try{
       let f=watchFolders[0];

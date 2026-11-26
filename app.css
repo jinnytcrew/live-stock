@@ -9917,3 +9917,39 @@ html[data-theme="dark"] #chartCard .tf-seg button.on{box-shadow:0 1px 2px rgba(0
   .search-box{min-width:0;width:100%}
   .search-box input{min-width:0;flex:1 1 auto;width:100%}
 }
+
+/* ══ [v17.8.45] 상·하한가 잠금 안내 ══════════════════════════════════════════
+   종목 상세·주문 화면·호가창·미체결 목록에서 같은 모양을 쓴다.
+   주황(상한가)=매수 대기, 파랑(하한가)=매도 대기 — 한국 증권앱 관행대로
+   상승은 빨강, 하락은 파랑이다(테마 변수 --up/--down 을 따른다). */
+.limit-lock-box{margin:10px 0 2px}
+.llk{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:12px;
+  border:1px solid var(--line,#e4e8ef);background:var(--card2,#f7f9fc);line-height:1.5}
+.llk i{font-style:normal;font-size:15px;line-height:1.2;flex:0 0 auto}
+.llk>div{min-width:0}
+.llk b{display:block;font-size:12.5px;letter-spacing:-.2px}
+.llk span{display:block;font-size:11.5px;color:var(--sub);margin-top:3px;word-break:keep-all}
+.llk em{display:block;font-style:normal;font-size:10.5px;color:var(--sub-2);margin-top:5px}
+.llk.llk-lock.up{border-color:color-mix(in srgb,var(--up) 38%,transparent);background:var(--up-bg)}
+.llk.llk-lock.up b{color:var(--up)}
+.llk.llk-lock.down{border-color:color-mix(in srgb,var(--down) 38%,transparent);background:var(--down-bg)}
+.llk.llk-lock.down b{color:var(--down)}
+.llk.llk-open.up b{color:var(--up)}
+.llk.llk-open.down b{color:var(--down)}
+.llk-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:8px;font-size:10.5px;
+  font-weight:700;letter-spacing:-.2px;white-space:nowrap}
+.llk-badge.up{color:var(--up);background:var(--up-bg);border:1px solid color-mix(in srgb,var(--up) 30%,transparent)}
+.llk-badge.down{color:var(--down);background:var(--down-bg);border:1px solid color-mix(in srgb,var(--down) 30%,transparent)}
+.llk-strip{display:flex;align-items:center;gap:7px;padding:6px 9px;margin:0 0 6px;border-radius:8px;
+  font-size:11px;background:var(--card2,#f7f9fc);border:1px dashed var(--line,#e4e8ef)}
+.llk-strip b{font-size:11px}
+.llk-strip span{color:var(--sub-2)}
+.llk-strip.on.up{border-color:color-mix(in srgb,var(--up) 40%,transparent);background:var(--up-bg)}
+.llk-strip.on.up b{color:var(--up)}
+.llk-strip.on.down{border-color:color-mix(in srgb,var(--down) 40%,transparent);background:var(--down-bg)}
+.llk-strip.on.down b{color:var(--down)}
+@media (max-width:430px){
+  .llk{padding:10px 11px;gap:8px}
+  .llk span{font-size:11px}
+  .pb-r .llk-badge{order:4}
+}
