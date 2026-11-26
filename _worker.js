@@ -159,6 +159,146 @@ async function kvCacheDel(key) {
     if (c) await c.delete(kvCacheReq(key));
   } catch (e) {}
 }
+/* ══ [v17.8.47] 초고속 응답 캐시(SWR) — "느린 데이터"의 근본 원인을 없앤다 ═════
+   [무엇이 문제였나 — 사용자 녹화 화면]
+   홈에 들어가면 '오늘의 장' 코스피가 — 인 채로 7~15초, 🔥 인기 줄은 12초 뒤에야,
+   실시간 뉴스는 16초가 지나도 '불러오는 중…', 해외 주식 순위는 첫 진입에 10~11초.
+   실측해 보니 서버가 그 시간을 그대로 쓰고 있었다(모두 캐시가 '비는 순간'을
+   사용자가 맞은 경우다): /api/market 4.5~7.4초 · /api/popular 3.4~4.4초 ·
+   /api/usrank 10.0초 · /api/uspopular 11.2초 · /api/fx 0.2~11.1초.
+   [왜 캐시가 비면 그대로 기다렸나] 기존 캐시는 "수명이 지났으면 버리고 새로
+   만든다"였다. 그래서 수명이 끝난 순간의 한 사람이 늘 계산 비용을 다 냈다.
+   [고침 — Stale-While-Revalidate 3단]
+     ① 이 인스턴스 메모리에 결과가 있으면, 수명 안이면 즉시(수 ms) 준다.
+     ② 수명이 조금 지났으면 '묵은 값'을 즉시 주고, 갱신은 ctx.waitUntil 로 뒤에서
+        돌린다 — 사용자는 절대 기다리지 않는다.
+     ③ 메모리가 비었으면(새 인스턴스) KV 에 남은 직전 값을 즉시 주고 뒤에서 갱신.
+     ④ 그것도 없을 때만 계산한다(진짜 첫 요청).
+   [KV 쓰기] 무료 한도가 하루 1,000회라, 같은 키는 30분에 한 번만 쓴다.
+   [확인] 응답 헤더 x-cache: fresh | stale | kvstale | miss — 밖에서 눈으로 본다. */
+const SWR = new Map();
+function swrGet(k) { return SWR.get(k) || null; }
+function swrSet(k, rec) {
+  SWR.set(k, rec);
+  if (SWR.size > 260) { try { const first = SWR.keys().next().value; SWR.delete(first); } catch (e) {} }
+}
+const SWR_CFG = {
+  /* 키: 라우트 이름 → {fresh, stale, kv, kvGap, kvTtl} (ms) */
+  market:     { fresh: 20e3,  stale: 3 * 60e3,   kv: 1, kvGap: 60 * 60e3, kvTtl: 3600 },
+  fx:         { fresh: 60e3,  stale: 30 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 3600 },
+  news:       { fresh: 90e3,  stale: 60 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
+  themes:     { fresh: 120e3, stale: 60 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
+  popular:    { fresh: 120e3, stale: 30 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
+  usrank:     { fresh: 120e3, stale: 6 * 3600e3, kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
+  uspopular:  { fresh: 180e3, stale: 6 * 3600e3, kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
+  ipo:        { fresh: 300e3, stale: 6 * 3600e3, kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
+  krxalerts:  { fresh: 300e3, stale: 6 * 3600e3, kv: 0 },
+  etflist:    { fresh: 600e3, stale: 24 * 3600e3, kv: 0 },
+  calendar:   { fresh: 600e3, stale: 24 * 3600e3, kv: 0 },
+  invtrend:   { fresh: 120e3, stale: 2 * 3600e3, kv: 0 },
+  investors:  { fresh: 120e3, stale: 2 * 3600e3, kv: 0 },
+  stocklist:  { fresh: 600e3, stale: 24 * 3600e3, kv: 0 },
+  etf:        { fresh: 600e3, stale: 24 * 3600e3, kv: 0 },
+  meta:       { fresh: 120e3, stale: 30 * 60e3,  kv: 0 },
+  quote:      { fresh: 5e3,   stale: 20e3,       kv: 0 },
+  usquote:    { fresh: 8e3,   stale: 40e3,       kv: 0 },
+  askprice:   { fresh: 4e3,   stale: 15e3,       kv: 0 },
+  banner:     { fresh: 60e3,  stale: 10 * 60e3,  kv: 0 },
+  version:    { fresh: 60e3,  stale: 30 * 60e3,  kv: 0 },
+  nxtlist:    { fresh: 120e3, stale: 12 * 3600e3, kv: 0 },
+  picks:      { fresh: 120e3, stale: 60 * 60e3,  kv: 0 },
+  themesstocks: { fresh: 300e3, stale: 6 * 3600e3, kv: 0 }
+};
+const SWR_KVLAST = new Map();
+const SWR_INFLIGHT = new Map();
+function swrHeader(body, state) {
+  return new Response(JSON.stringify(body), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+      "x-cache": state
+    }
+  });
+}
+/* 하나의 라우트 응답을 SWR 규칙으로 감싼다. build() 는 원래 핸들러를 그대로 부른다. */
+async function swrRoute(ctx2, routeName, request, build) {
+  const cfg = SWR_CFG[routeName];
+  if (!cfg) return await build();
+  let key = "swr:" + routeName + ":" + new URL(request.url).search;
+  const kvKey = "swrkv:" + key.slice(4);
+  const now = Date.now();
+  const mem = swrGet(key);
+  const refresh = () => {
+    if (mem && mem.busy) return null;
+    if (mem) mem.busy = 1;
+    const p = (async () => {
+      try {
+        const r = await build();
+        let body = null;
+        try { body = await r.clone().json(); } catch (e) { body = null; }
+        if (body && body.ok !== false) {
+          swrSet(key, { body, at: Date.now(), busy: 0 });
+          if (cfg.kv && KV) {
+            const last = SWR_KVLAST.get(kvKey) || 0;
+            if (Date.now() - last > (cfg.kvGap || 30 * 60e3)) {
+              SWR_KVLAST.set(kvKey, Date.now());
+              try { await KV.put(kvKey, JSON.stringify({ at: Date.now(), body }), { expirationTtl: cfg.kvTtl || 3600 }); } catch (e) {}
+            }
+          }
+        } else if (mem) mem.busy = 0;
+        return body;
+      } catch (e) {
+        if (mem) mem.busy = 0;
+        return null;
+      }
+    })();
+    try { if (ctx2 && typeof ctx2.waitUntil === "function") ctx2.waitUntil(p); } catch (e) {}
+    return p;
+  };
+  /* ① 신선하면 즉시 */
+  if (mem && mem.body && now - mem.at < cfg.fresh) return swrHeader(mem.body, "fresh");
+  /* ② 조금 지났으면 묵은 값 즉시 + 뒤에서 갱신 */
+  if (mem && mem.body && now - mem.at < cfg.stale) { refresh(); return swrHeader(mem.body, "stale"); }
+  /* ③ 메모리 미스 — KV 에 남은 직전 값이 있으면 즉시 주고 뒤에서 갱신 */
+  if (cfg.kv && KV) {
+    try {
+      const c = await KV.get(kvKey, "json");
+      if (c && c.body && now - (c.at || 0) < cfg.stale * 2) {
+        swrSet(key, { body: c.body, at: c.at || now, busy: 0 });
+        refresh();
+        return swrHeader(c.body, "kvstale");
+      }
+    } catch (e) {}
+  }
+  /* ④ 정말 없을 때만 계산 — 동시에 들어온 요청이 같은 값을 여러 번 만들지 않게
+     진행 중인 계산 약속을 공유해 1번만 돌린다(첫 진입에 사용자가 몰려도 서버가 뻑뻑해지지 않음). */
+  try {
+    let p = SWR_INFLIGHT.get(key);
+    if (!p) {
+      p = (async () => {
+        try {
+          const r = await build();
+          let body = null;
+          try { body = await r.clone().json(); } catch (e) { body = null; }
+          if (body && body.ok !== false) {
+            swrSet(key, { body, at: Date.now(), busy: 0 });
+            if (cfg.kv && KV) {
+              SWR_KVLAST.set(kvKey, Date.now());
+              try { await KV.put(kvKey, JSON.stringify({ at: Date.now(), body }), { expirationTtl: cfg.kvTtl || 3600 }); } catch (e) {}
+            }
+          }
+          return r;
+        } finally { SWR_INFLIGHT.delete(key); }
+      })();
+      SWR_INFLIGHT.set(key, p);
+    }
+    return await p;
+  } catch (e) {
+    if (mem && mem.body) return swrHeader(mem.body, "stale");
+    return swrHeader({ ok: false, err: "busy" }, "fail");
+  }
+}
 function govKV(kv) {
   if (!kv || kv.__gov) return kv;
   const g = { __gov: 1, __raw: kv };
@@ -13357,7 +13497,12 @@ var market_default = async (req2) => {
       hsi,
       wti,
       gold,
-      krf
+      krf,
+      /* [v17.8.47] 코스피·코스닥 실시간 교차검증을 위 묶음에 합류시킨다.
+         예전에는 19개를 다 기다린 "뒤" 별도로 두 번 더 기다려 콜드 요청이
+         4.5~7.4초까지 늘었다. 둘 다 idx 만 있으면 되므로 같이 출발한다. */
+      kospiRT,
+      kosdaqRT
     ] = await Promise.all([
       settle2(idxSparkSmart("KOSPI", idx.map.KOSPI || idx.arr[0])),
       settle2(idxSparkSmart("KOSDAQ", idx.map.KOSDAQ || idx.arr[1])),
@@ -13378,13 +13523,11 @@ var market_default = async (req2) => {
       settle2(yahooOnly("^HSI")),
       settle2(yahooOnly("CL=F")),
       settle2(yahooOnly("GC=F")),
-      settle2(krFutures())
-    ]);
-    /* [v9.71] 폴링 값을 그대로 쓰지 않고 다른 두 경로와 견줘 확정한다 */
-    const [kospiRT, kosdaqRT] = await Promise.all([
+      settle2(krFutures()),
       settle2(krIndexRealtime("KOSPI", idx.map.KOSPI || idx.arr[0])),
       settle2(krIndexRealtime("KOSDAQ", idx.map.KOSDAQ || idx.arr[1]))
     ]);
+    /* [v9.71] 폴링 값을 그대로 쓰지 않고 다른 두 경로와 견줘 확정한다 */
     const kospi = kospiRT || idx.map.KOSPI || idx.arr[0], kosdaq = kosdaqRT || idx.map.KOSDAQ || idx.arr[1];
     const usdRate = usdH && usdH.length ? usdH[usdH.length - 1] : 1350;
     const toKrw = (c) => c ? { price: c.price * usdRate, change: c.change * usdRate, rate: c.rate, history: (c.history || []).map((v) => v * usdRate) } : null;
@@ -15375,8 +15518,8 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.46",
-  releasedAt: "2026-11-26 21:55",
+  version: "17.8.47",
+  releasedAt: "2026-11-27 00:10",
   notes: [
     "상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수",
     "잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙",
@@ -18875,11 +19018,18 @@ async function onRequest(ctx) {
     });
   }
   try {
-    const res = await h(request, { env, waitUntil: waitUntil ? waitUntil.bind(ctx) : () => {
-    }, cf: request.cf });
-    return res instanceof Response ? res : new Response(JSON.stringify(res ?? { ok: false }), {
-      headers: { "content-type": "application/json" }
-    });
+    const wctx = { env, waitUntil: waitUntil ? waitUntil.bind(ctx) : () => {
+    }, cf: request.cf };
+    const call = async () => {
+      const r = await h(request, wctx);
+      return r instanceof Response ? r : new Response(JSON.stringify(r ?? { ok: false }), {
+        headers: { "content-type": "application/json" }
+      });
+    };
+    /* [v17.8.47] 느린 조회 라우트는 초고속 응답 캐시(SWR)를 거친다.
+       fresh=1(관리자 강제 갱신)은 캐시를 건너뛰고, POST 계열은 대상이 아니다. */
+    const useSWR = SWR_CFG[name] && String(request.method || "GET").toUpperCase() === "GET" && !/[?&]fresh=1/.test(url.search);
+    return useSWR ? await swrRoute(wctx, name, request, call) : await call();
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: String(e && e.message || e).slice(0, 200), at: name }), {
       status: 500,
@@ -18892,7 +19042,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.46";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.47";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19245,7 +19395,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 21:55"; BUNDLED_VERSION.notes = ["종목명이 종목코드로 보이던 문제 근본 수정 — 서버 이름 조회·기기 저장·화면 재그리기","보유 종목·자산 구성·관심종목·주문·체결·클랜·미리보기 전 화면에 같은 규칙 적용","스크롤한 뒤 메뉴를 열면 위쪽이 잘리던 문제 수정 — 헤더 고정 + 메뉴 화면 고정","모바일 상단 프로필 이름이 '한…'으로 잘리던 문제 수정","기존 계좌 데이터·주문 기록의 이름을 새 기기에서도 그대로 사용"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 21:55"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-27 00:10"; BUNDLED_VERSION.notes = ["뉴스·해외주식·지수 등 데이터 로딩 속도 대폭 개선 — 서버 캐시(즉시 응답+뒤에서 갱신)","오늘의 장 코스피·코스닥·나스닥, 홈 실시간 뉴스, 🔥 인기 줄을 저장된 값으로 즉시 표시","해외 주식 메뉴·종목검색 해외 탭 자료를 홈이 뜬 뒤 미리 받아 진입 즉시 표시","전 종목 목록을 6쪽씩 동시에 받아 첫 로딩 대기 대폭 단축","뉴스·순위·업종 목록을 다음 접속에도 바로 쓰도록 기기에 보관"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-27 00:10"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;

@@ -268,7 +268,8 @@ async function ensureMood(){
   try{fnBump();
     const r=await fetch('/api/news?market=1',{cache:'default'});
     const j=await r.json();
-    if(j&&j.ok)moodCache={titles:j.titles||[],items:j.items||[],sent:scoreTitles(j.titles)};   // [v2.4] 홈 뉴스 코너와 수집 창구 공유
+    if(j&&j.ok){moodCache={titles:j.titles||[],items:j.items||[],sent:scoreTitles(j.titles)};   // [v2.4] 홈 뉴스 코너와 수집 창구 공유
+      try{ newsSnapSave(moodCache.items); }catch(e){}   /* [v17.8.47] 다음 접속에 바로 그린다 */}
     _moodAt=Date.now();
   }catch(e){}
   /* 업종 등락(주도 섹터) 데이터도 10분마다 재수집 — 섹터 화면을 보고 있을 땐 건드리지 않음 */
@@ -1895,7 +1896,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=357';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=358';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -4074,6 +4075,32 @@ let selected='005930',ordSide='buy',ordType='limit',userPrice=null,currentView='
 let userPriceTouched=false;
 let orderWorkspaceTab='buy',orderHistoryFilter='all';
 const market={indices:[],crypto:[],fx:[]};
+/* ══ [v17.8.47] 지수 즉시 표시 — 마지막으로 본 값을 저장해 두고 먼저 그린다 ══
+   [무엇이 문제였나] 앱을 열면 '오늘의 장'의 코스피·코스닥·나스닥이 '—' 인 채로
+   7~15초를 기다렸다(사용자 녹화 화면). /api/market 한 번에 4.5~7.4초가 걸리는데
+   그 응답이 오기 전까지는 보여 줄 값이 없었기 때문이다.
+   [고침] 마지막 성공 스냅샷을 기기에 저장해 두고, 앱이 뜰 때 곧바로 그 값으로
+   먼저 그린다. 서버 응답이 오면 조용히 최신 값으로 갈아 끼운다(깜빡임 없음).
+   값이 오래된 것이면 화면은 그대로 두고 뒤에서 갱신만 한다 — 시간 라벨은
+   기존 hmSessionInfo 가 지금 시각 기준으로 적으므로 오해를 만들지 않는다. */
+const MKT_SNAP_KEY='mktIdxV2';
+function mktSnapLoad(){
+  try{
+    const c=JSON.parse(localStorage.getItem(MKT_SNAP_KEY)||'null');
+    if(!c||!Array.isArray(c.indices)||!c.indices.length)return false;
+    if(Date.now()-(c.at||0)>12*3600e3)return false;
+    market.indices=c.indices; market.crypto=c.crypto||[];
+    window.__mktSnapAt=c.at||0;
+    return true;
+  }catch(e){ return false; }
+}
+function mktSnapSave(){
+  try{
+    if(!Array.isArray(market.indices)||!market.indices.length)return;
+    localStorage.setItem(MKT_SNAP_KEY,JSON.stringify({at:Date.now(),indices:market.indices,crypto:market.crypto||[]}));
+  }catch(e){}
+}
+try{ mktSnapLoad(); }catch(e){}   /* [v17.8.47] 첫 그리기 전에 복원 */
 let fxData=[],fxOpen=false,fxAt=0;   // /api/fx 실시간 환율(30여 개 통화)
 let feed=null;
 let connState='init';
@@ -6919,6 +6946,7 @@ function initApp(){
   safeRun('ipo',pollIpo);
   safeRun('cash',()=>{$('cashInput').value=KRW(cash);});
   showView(userPrefs.startView||'home');   // [S2] 시작 화면 설정
+  safeRun('warmPerf',warmPerfCaches);       /* [v17.8.47] 해외 자료 미리 받기 */
   safeRun('onboard',maybeOnboard);          // [H4] 첫 방문 안내
   safeRun('verAuto',autoCheckUpdate);       // [S19] 하루 1회 업데이트 자동 확인
 }
@@ -7949,10 +7977,20 @@ async function pollMarket(){
   if(_mktBusy||document.hidden){scheduleMarket();return;} // 진행 중·백그라운드면 이번 회차 건너뛰고 다음 예약
   _mktBusy=true;
   try{fnBump();
-    const [r,rf]=await Promise.all([fetch('/api/market',{cache:'default'}),fetch('/api/fx',{cache:'default'}).catch(()=>null)]);
+    /* ══ [v17.8.47] 환율이 지수를 막지 않게 분리 ═════════════════════════════
+       [무엇이 문제였나] 두 요청을 Promise.all 로 "다 같이" 기다린 뒤에야 지수를
+       그렸다. /api/fx 가 콜드에서 10~11초까지 걸리는 날에는 지수 응답이 0.05초로
+       와 있어도 '오늘의 장' 코스피가 — 인 채로 10초 넘게 남았다(사용자 녹화 화면의
+       그 장면이다).
+       [고침] 지수를 먼저 받는 대로 처리해 바로 그리고, 환율은 도착하는 대로 따로 반영한다. */
+    const rp=fetch('/api/market',{cache:'default'});
+    const fp=fetch('/api/fx',{cache:'default'}).catch(()=>null);
+    const r=await rp;
     noteBudgetHeader(r);          /* [v9.97] 전체 사용률을 여기서 받아 속도에 반영 */
     const j=await r.json();
     if(j.ok){market.indices=j.indices||[];market.crypto=j.crypto||[];if(!fxData.length)market.fx=j.fx||[];
+      /* [v17.8.47] 받은 지수를 기기에 저장 — 다음에 앱을 열 때 즉시 그린다 */
+      try{ mktSnapSave(); }catch(e){}
       /* [v3.2] 서버 자가진단 보관 — 빈 지수·이상 등락률·야간선물 기준을 콘솔에서 확인 가능.
          야간선물을 못 받은 날은 카드가 아예 안 뜨므로, 왜 없는지는 여기서 본다. */
       idxHealth={health:j._health||null,futDiag:j._futDiag||null,at:new Date().toLocaleString('ko-KR')};
@@ -7969,7 +8007,8 @@ async function pollMarket(){
     }
     /* [수정] 환율은 전용 API(/api/fx)에서 실시간으로 받는다.
        기존엔 ECB 일별 데이터(frankfurter)만 써서 값이 자주 비어 '— 0.00%'로 표시됐다. */
-    try{const jf=rf?await rf.json():null;
+    if(currentView==='home'){try{renderMarket();}catch(e){}}   /* [v17.8.47] 지수 먼저 그린다 */
+    try{const rf=await fp;const jf=rf?await rf.json():null;
       if(jf&&jf.ok&&Array.isArray(jf.fx)&&jf.fx.length){
         fxData=jf.fx;fxOpen=!!jf.open;fxAt=jf.at||Date.now();
         const NM={USD:'원/달러',JPY:'원/엔(100)',EUR:'원/유로'};
@@ -9152,6 +9191,11 @@ let secTab='theme',predShow=3;
    → 네이버 금융의 실제 테마(290여 개)·업종(70여 개)을 그대로 가져와
      '반도체 장비 / 반도체 재료·부품 / 시스템반도체 / HBM / 전력반도체'처럼 세분화한다. */
 const thmCache={}, thmStockCache={};
+/* ══ [v17.8.47] 업종·테마 목록도 기기에 남긴다 ═══════════════════════════
+   [왜] 홈의 업종·섹터 칩(마켓 무드·AI 브리핑의 근거)이 /api/themes(1.5~3초)를
+   기다려야 뜨고, 앱을 열 때마다 다시 받았다. 저장본이 있으면 즉시 그린다. */
+try{ const c=JSON.parse(localStorage.getItem('thmUpjongV2')||'null');
+  if(c&&Array.isArray(c.items)&&c.items.length&&Date.now()-(c.at||0)<24*3600e3) thmCache.upjong=c.items; }catch(e){}
 let thmLoading={}, thmError={}, thmQuery='', thmSort='rate_desc', thmLimit=40, thmOpen=null;
 const THM_SORTS=[['rate_desc','상승률 상위'],['rate_asc','하락률 상위'],['up_desc','상승 종목 많은 순'],['name','이름순']];
 
@@ -9165,6 +9209,7 @@ async function loadThemes(type){
     const j=await r.json();
     const items=(j&&j.items)||[];
     if(items.length)thmCache[type]=items; else thmError[type]=true;
+    if(type==='upjong'&&items.length){ try{ localStorage.setItem('thmUpjongV2',JSON.stringify({at:Date.now(),items})); }catch(e){} }
   }catch(e){ thmError[type]=true; }
   thmLoading[type]=false;
   if(currentView==='sector'&&(secTab===type))renderThemes();
@@ -11135,13 +11180,43 @@ function agoStr(ts){
   return m[2]+'.'+m[3];
 }
 let _newsShown=8;
+/* ══ [v17.8.47] 홈 뉴스 즉시 표시 — 마지막으로 본 뉴스를 먼저 그린다 ═══════
+   [무엇이 문제였나] 사용자 녹화 화면에서 홈은 다 떴는데 '실시간 뉴스'만
+   '뉴스를 불러오는 중…'으로 16초를 넘게 남아 있었다. 목록을 받을 때까지
+   아무것도 보여 줄 수 없는 구조였기 때문이다.
+   [고침] 받은 뉴스 24건을 기기에 저장하고, 앱이 뜨면 즉시 그린다.
+   서버에서 새 목록이 오면 조용히 갈아 끼운다. */
+const NEWS_SNAP_KEY='homeNewsV2';
+let _newsSnapAt=0;
+function newsSnapLoad(){
+  try{
+    const c=JSON.parse(localStorage.getItem(NEWS_SNAP_KEY)||'null');
+    if(!c||!Array.isArray(c.items)||!c.items.length)return null;
+    if(Date.now()-(c.at||0)>6*3600e3)return null;
+    _newsSnapAt=c.at||0;
+    return c.items;
+  }catch(e){ return null; }
+}
+function newsSnapSave(items){
+  try{ if(Array.isArray(items)&&items.length)
+    localStorage.setItem(NEWS_SNAP_KEY,JSON.stringify({at:Date.now(),items:items.slice(0,24)})); }catch(e){}
+}
 function renderHomeNews(){
   const el=$('homeNews');if(!el)return;
-  const items=(moodCache&&moodCache.items)||[];
+  let items=(moodCache&&moodCache.items)||[];
+  if(!items.length){
+    const snap=newsSnapLoad();
+    if(snap&&snap.length){ items=snap; moodCache=moodCache||{titles:[],items:snap,sent:null}; }
+  }
   if(!items.length){
     el.innerHTML='<div class="hn-load">뉴스를 불러오는 중…</div>';
-    ensureMood().then(()=>{if(currentView==='home'&&moodCache&&moodCache.items&&moodCache.items.length)renderHomeNews();});
+    ensureMood().then(()=>{if(currentView==='home'&&moodCache&&moodCache.items&&moodCache.items.length)renderHomeNews();}).catch(()=>{});
     return;
+  }
+  /* 저장분으로 먼저 그렸으면, 새 목록을 받아 갈아 끼운다 */
+  if(_newsSnapAt&&Date.now()-_newsSnapAt>60e3){
+    _newsSnapAt=Date.now();
+    ensureMood().then(()=>{if(currentView==='home'&&moodCache&&moodCache.items&&moodCache.items.length)renderHomeNews();}).catch(()=>{});
   }
   const list=items.slice(0,_newsShown);
   el.innerHTML=list.map(x=>{
@@ -11766,14 +11841,20 @@ let searchToken=0,searchTimer=null,searchRankTab='거래대금';const remoteCach
 let searchMkt='kr';   // [v4.38] 순위 시장 선택 (kr | us)
 let rankStale={};   /* [v15.4.1] 탭별: 마지막 거래일 기준 여부 */
 
-const rankCache={},rankError={},rankType={'조회수':'search','상승률':'rise','하락률':'fall'};
+const rankCache={},rankError={},rankType={'조회수':'search','상승률':'rise','하락률':'fall'},rankAt={},_rankBg={};
 /* [v15.4.4] 목록 세션 캐시 — 재방문·탭 전환 시 fetch 왕복을 기다리지 않고
    직전 목록을 즉시 그린다. ※ 반드시 rankCache 선언 "뒤"에서 복원해야 한다 —
    앞에 두면 TDZ 로 조용히 실패해 복원이 무산된다(실측으로 확인한 함정). */
-try{ const c=sessionStorage.getItem('rankCacheV1');
-  if(c){ const j=JSON.parse(c); if(j&&j.at&&Date.now()-j.at<10*60e3&&j.data)
-    Object.assign(rankCache,j.data), Object.assign(rankStale,j.stale||{}); } }catch(e){}
-function rankCacheSave(){ try{ sessionStorage.setItem('rankCacheV1',
+try{ const c=(localStorage.getItem('rankCacheV2')||sessionStorage.getItem('rankCacheV1'));
+  if(c){ const j=JSON.parse(c);
+    /* [v17.8.47] 10분 제한을 하루로 늘리고 sessionStorage → localStorage 로 옮겼다.
+       [왜] '🔥 인기' 줄이 /api/popular(3.4~4.4초)를 기다려야 했고, sessionStorage 는
+       앱을 닫으면( PWA 재실행 ) 사라져서 매번 콜드 스타트를 맞았다.
+       이제 저장된 목록으로 즉시 그리고, 새 목록이 오면 갈아 끼운다. */
+    if(j&&j.at&&Date.now()-j.at<24*3600e3&&j.data)
+    Object.assign(rankCache,j.data), Object.assign(rankStale,j.stale||{});
+    if(j&&j.data)Object.keys(j.data).forEach(k=>{rankAt[k]=j.at||0;}); } }catch(e){}
+function rankCacheSave(){ try{ localStorage.setItem('rankCacheV2',
   JSON.stringify({at:Date.now(),data:rankCache,stale:rankStale})); }catch(e){} }
 let nxtBatchTimer=null,nxtBatchQ=new Set();
 async function primeQuotes(codes){
@@ -11835,17 +11916,40 @@ function hydrateRankItems(items){
   }});
 }
 async function loadRank(tab){
-  if(rankCache[tab]&&rankCache[tab].length){ hydrateRankItems(rankCache[tab]); return rankCache[tab]; }
-  try{const r=await fetch('/api/popular?type='+rankType[tab]   /* [v4.3] t=Date.now() 제거 — 매 요청이 서로 다른 주소가 돼 CDN 이 절대 캐시하지 못했다 */,{cache:'no-store'});const j=await r.json();
-    const items=(j&&j.items)||[];
-    try{ rankStale[tab]=!!(j&&j.stale); }catch(e){}      /* [v15.4.1] 마지막 거래일 스냅샷 여부 */
-    /* [추가] 폴백 경로(JSON)는 시세·등락률까지 함께 준다. 받은 즉시 반영해
-       '순위는 떴는데 값이 비어 보이는' 구간을 없앤다. */
-    hydrateRankItems(items);
-    if(items.length){rankCache[tab]=items; rankCacheSave();rankError[tab]=false;}
-    else{rankError[tab]=true;}
-  }catch{rankError[tab]=true;}
+  if(rankCache[tab]&&rankCache[tab].length){
+    hydrateRankItems(rankCache[tab]);
+    /* [v17.8.47] 저장해 둔 목록으로 즉시 그리고, 오래됐으면 뒤에서 새로 받는다.
+       예전에는 저장분이 있으면 영원히 그대로 뒀다(새 값이 와도 갈아 끼우지 않음). */
+    if(Date.now()-(rankAt[tab]||0)>90e3&&!_rankBg[tab]){
+      _rankBg[tab]=1;
+      setTimeout(()=>{ _rankBg[tab]=0; rankFetch(tab).catch(()=>{}); },300);
+    }
+    return rankCache[tab];
+  }
+  await rankFetch(tab);
   return rankCache[tab]||[];
+}
+/* 실제 요청 — 캐시가 있어도 새 값으로 갈아 끼우는 경로에서도 부른다 */
+var _rankP={};
+async function rankFetch(tab){
+  /* [v17.8.47] 같은 탭을 여러 그리기가 동시에 부르면 요청이 5개까지 늘어났다.
+     진행 중인 약속을 재사용해 실제 요청은 1번만 나가게 한다. */
+  if(_rankP[tab])return _rankP[tab];
+  _rankP[tab]=(async()=>{
+    try{const r=await fetch('/api/popular?type='+rankType[tab]   /* [v4.3] t=Date.now() 제거 — 매 요청이 서로 다른 주소가 돼 CDN 이 절대 캐시하지 못했다 */,{cache:'no-store'});const j=await r.json();
+      const items=(j&&j.items)||[];
+      rankAt[tab]=Date.now();
+      try{ rankStale[tab]=!!(j&&j.stale); }catch(e){}      /* [v15.4.1] 마지막 거래일 스냅샷 여부 */
+      /* [추가] 폴백 경로(JSON)는 시세·등락률까지 함께 준다. 받은 즉시 반영해
+         '순위는 떴는데 값이 비어 보이는' 구간을 없앤다. */
+      hydrateRankItems(items);
+      if(items.length){rankCache[tab]=items; rankCacheSave();rankError[tab]=false;}
+      else{rankError[tab]=true;}
+    }catch(e){rankError[tab]=true;}
+    finally{ _rankP[tab]=null; }
+    return rankCache[tab]||[];
+  })();
+  return _rankP[tab];
 }
 /* 명단 하나로 전 종목이 결정되므로, 코드 목록을 받아도 할 일은
    "명단이 아직 없으면 한 번 불러오기" 뿐이다. (기존 배치 API 호출 제거) */
@@ -12320,17 +12424,31 @@ async function _loadStockAll(onProgress,force){
   stockLoading=true;
   const acc=new Map();
   for(const mk of ['KOSPI','KOSDAQ','KONEX']){
-    for(let page=1;page<=60;page++){
-      let j=null;
-      try{fnBump();const r=await fetch(`/api/stocklist?market=${mk}&page=${page}`,{cache:'default'});j=await r.json();}catch(e){}
-      if(!j||!j.ok||!j.n)break;
-      (j.items||[]).forEach(x=>{if(!acc.has(x.code))acc.set(x.code,x);});
-      if(onProgress)onProgress(acc.size,mk,page);
-      /* [v2.9.6] 예전엔 'n<40이면 마지막'으로 봤다. 그런데 쪽 크기는 100(모바일)
-         또는 50(HTML 대체)이라 기준 자체가 틀렸고, 중간 쪽이 일시적으로 적게 오면
-         남은 종목을 전부 버렸다. 빈 응답이 올 때까지만 진행한다. */
-      if(!j.n)break;
-      await new Promise(r=>setTimeout(r,60));
+    /* ══ [v17.8.47] 쪽을 하나씩 기다리지 않고 6개씩 같이 받는다 ═════════
+       [무엇이 문제였나] KOSPI 26쪽 + KOSDAQ 30쪽을 "한 쪽씩" 받아
+       왕복 56번 × 0.4~0.5초 = 20초 넘게 걸렸고, 그 동안 브라우저의
+       연결 6개를 혼자 차지해 홈의 지수·뉴스·인기 요청까지 밀렸다
+       (사용자 녹화 화면의 "전체적으로 너무 느림"의 큰 부분).
+       [고침] 6쪽씩 동시에 받아 묶음마다 기다린다 — 같은 왕복을 1/6로 줄인다.
+       빈 쪽이 오면 그 뒤는 더 볼 필요가 없으므로 멈춘다. */
+    let page=1, end=false;
+    while(!end&&page<=60){
+      const batch=[];
+      for(let i=0;i<6&&page<=60;i++,page++)batch.push(page);
+      const rs=await Promise.all(batch.map(async p=>{
+        try{fnBump();}catch(e){}
+        for(let a=0;a<2;a++){
+          try{ const r=await fetch(`/api/stocklist?market=${mk}&page=${p}`,{cache:'default'});
+            const j=await r.json(); if(j&&j.ok)return j; }catch(e){}
+        }
+        return null;
+      }));
+      for(let i=0;i<rs.length;i++){
+        const j=rs[i];
+        if(!j||!j.ok||!j.n){ end=true; continue; }
+        (j.items||[]).forEach(x=>{if(!acc.has(x.code))acc.set(x.code,x);});
+        if(onProgress)onProgress(acc.size,mk,batch[i]);
+      }
     }
   }
   stockAll=[...acc.values()];
@@ -12459,6 +12577,22 @@ function usRkRestore(kind){
     usRk[kind]={items:c.items,src:c.src,mktOpen:c.mktOpen,at:0};   // at:0 → 곧바로 새 값도 요청
     return true;
   }catch(e){ return false; }
+}
+/* ══ [v17.8.47] 홈이 다 그려진 뒤 해외 자료를 미리 받아 둔다 ═════════════════
+   [왜] 해외 주식 메뉴·종목검색 > 해외 탭은 진입하는 순간 /api/uspopular
+   (첫 호출 10~11초)·/api/usrank(첫 호출 10초)를 기다려야 했다. 홈이 다 뜨고
+   몇 초 뒤에 조용히 받아 두면, 사용자는 아무것도 기다리지 않는다.
+   저장된 목록(localStorage)이 있으면 그것부터 즉시 그리고 새 값은 갈아 끼운다. */
+var _warmDone=false;
+function warmPerfCaches(){
+  if(_warmDone)return; _warmDone=true;
+  try{ usRkRestore('up'); usRkRestore('down'); }catch(e){}
+  try{ if(!usPop)usPopRestore(); }catch(e){}
+  const later=(fn,ms)=>setTimeout(()=>{ try{ fn(); }catch(e){} },ms);
+  later(()=>{ if(!usPop||_usPopStale)usPopLoad(()=>{}); },1800);     // 해외 거래대금·조회수
+  later(()=>{ if(!usRk.up)usRankLoad('up',()=>{}); },2800);          // 해외 상승
+  later(()=>{ if(!usRk.down)usRankLoad('down',()=>{}); },3800);      // 해외 하락
+  later(()=>{ try{ if(!thmCache.theme)loadThemes('theme'); }catch(e){} },6000);   // 테마
 }
 function usRankLoad(kind,cb){
   if(usRkBusy[kind])return;
@@ -28058,3 +28192,15 @@ try{(function(){
     closeStockSidePanel();});
 })();
 
+
+/* ══ [v17.8.47] 첫 화면 데이터를 '로그인·부팅보다 먼저' 요청한다 ═════════════════
+   [왜] 로그인한 사용자의 화면 계측에서 /api/market·/api/news 요청이 3.9초에야
+   나갔다. 그 앞의 부팅 작업(계정 불러오기·40개 그리기)이 끝나야 pollMarket 에
+   닿았기 때문이다. 그런데 지수·뉴스는 로그인과 무관한 공개 자료다 — 기다릴 이유가 없다.
+   [고침] 스크립트가 읽히는 즉시(부팅 전) 두 요청을 먼저 띄운다. 서버는 SWR 캐시로
+   수십 ms 안에 답하므로, 부팅이 끝날 즈음엔 값이 이미 도착해 있다.
+   각 함수는 진행 중 잠금(_mktBusy / _moodBusy)을 스스로 갖고 있어 중복 요청이 없다. */
+try{
+  setTimeout(()=>{ try{ pollMarket(); }catch(e){} },0);
+  setTimeout(()=>{ try{ ensureMood(); }catch(e){} },0);
+}catch(e){}
