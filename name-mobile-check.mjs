@@ -240,7 +240,14 @@ const run = async () => {
     });
     check(stick.top === 0, '스크롤해도 헤더가 화면 위에 붙어 있다', JSON.stringify(stick));
 
+    /* 드로어 안을 끝까지 내렸다 닫은 뒤 다시 열어도 맨 위부터 보여야 한다(사용자 영상의 증상) */
     await pg.evaluate(() => { document.body.classList.remove('locked'); document.getElementById('mobileMenuToggle').click(); });
+    await pg.waitForTimeout(250);
+    await pg.evaluate(() => { const n = document.getElementById('mainNav'); n.scrollTop = n.scrollHeight; });
+    await pg.waitForTimeout(150);
+    await pg.evaluate(() => document.getElementById('mobileMenuToggle').click());   /* 닫기 */
+    await pg.waitForTimeout(200);
+    await pg.evaluate(() => document.getElementById('mobileMenuToggle').click());   /* 다시 열기 */
     await pg.waitForTimeout(600);
     const menu = await pg.evaluate(() => {
       const nav = document.getElementById('mainNav');

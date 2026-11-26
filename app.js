@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=356';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=357';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -6727,7 +6727,7 @@ function refreshColors(){ // 색상 변경 시 캔버스류 다시 그림(CSS는
 $('setGear').onclick=()=>{renderSettingsUI();$('setGate').hidden=false;};
 document.querySelectorAll('#tabbar button[data-bv]').forEach(b=>b.onclick=()=>showView(b.dataset.bv));
 /* [v17.8.4] 모바일 메뉴 버튼은 기존 전체 내비게이션을 열고, 선택 탭은 가로 레일 안으로 보정 */
-(()=>{const m=document.getElementById('mobileMenuToggle'),n=document.getElementById('mainNav'),bar=document.getElementById('tabbar');if(m&&n){m.addEventListener('click',()=>{const open=!n.classList.contains('open');n.classList.toggle('open',open);m.setAttribute('aria-expanded',String(open));});n.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{n.classList.remove('open');m.setAttribute('aria-expanded','false');}));}if(bar){const sync=()=>{const a=bar.querySelector('button.on');if(a&&matchMedia('(max-width:768px)').matches)a.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});};document.addEventListener('click',e=>{if(e.target.closest('#tabbar button[data-bv]'))requestAnimationFrame(sync);});}})();
+(()=>{const m=document.getElementById('mobileMenuToggle'),n=document.getElementById('mainNav'),bar=document.getElementById('tabbar');if(m&&n){m.addEventListener('click',()=>{const open=!n.classList.contains('open');n.classList.toggle('open',open);if(open)n.scrollTop=0;m.setAttribute('aria-expanded',String(open));});n.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{n.classList.remove('open');m.setAttribute('aria-expanded','false');}));}if(bar){const sync=()=>{const a=bar.querySelector('button.on');if(a&&matchMedia('(max-width:768px)').matches)a.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});};document.addEventListener('click',e=>{if(e.target.closest('#tabbar button[data-bv]'))requestAnimationFrame(sync);});}})();
 $('setClose').onclick=()=>{$('setGate').hidden=true;};
 $('setGate').onclick=(e)=>{if(e.target.id==='setGate')$('setGate').hidden=true;};
 $('setTheme').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;settings.theme=b.dataset.v;saveSettings();applyTheme();try{refreshColors();}catch(e){}renderSettingsUI();};
@@ -7207,7 +7207,8 @@ function _showView(name){
     safeRun('chart',()=>requestAnimationFrame(drawChart));}
 }
 document.addEventListener('click',(e)=>{const n=e.target.closest('[data-view]');if(n){e.preventDefault();showView(n.dataset.view);}});
-$('navToggle').onclick=(e)=>{e.stopPropagation();$('mainNav').classList.toggle('open');};
+$('navToggle').onclick=(e)=>{e.stopPropagation();const n=$('mainNav');const willOpen=!n.classList.contains('open');
+  n.classList.toggle('open',willOpen);if(willOpen)n.scrollTop=0;};   /* [v17.8.46] 열 때는 항상 맨 위부터 */
 /* ══ [v17.8.46] 헤더 높이를 재서 CSS 변수로 넘긴다 ═════════════════════════════
    모바일 메뉴(드로어)를 화면에 고정(top: var(--header-h))해서, 페이지를 아무리
    내린 뒤에 열어도 위가 잘리지 않게 한다. 헤더는 두 줄이 될 수 있어 상수로
