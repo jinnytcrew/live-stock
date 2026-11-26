@@ -53,3 +53,6 @@ chart-pattern-check.mjs
 # 회귀 검증 도구(지정가 체결가·주문 창구) — 배포 자산이 아니다
 tests
 tests/**
+
+# 종목명·모바일 헤더/메뉴 회귀 검사 — 배포 자산이 아니다
+name-mobile-check.mjs

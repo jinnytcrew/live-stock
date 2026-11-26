@@ -893,7 +893,7 @@ function renderThermo(){
 function renderPortDiag(){
   if(!holdings.length){$('portBody').innerHTML='<div class="empty">보유 종목이 없습니다. 거래·주문에서 매수하면 진단이 표시됩니다.</div>';return;}
   const items=holdings.map(h=>{const s=byCode[h.code]||{};const px=s.price??h.avg;const amt=px*h.qty;
-    return {code:h.code,name:s.name||h.code,amt,pnl:(px-h.avg)*h.qty,rate:(px/h.avg-1)*100,tag:(s.tags&&s.tags[0])||'기타'};});
+    return {code:h.code,name:(h.us?((usMeta[h.code]||{}).kr||h.code):nmText(h.code)),amt,pnl:(px-h.avg)*h.qty,rate:(px/h.avg-1)*100,tag:(s.tags&&s.tags[0])||'기타'};});
   const total=items.reduce((a,b)=>a+b.amt,0)||1;
   items.forEach(x=>x.w=x.amt/total*100);
   const hhi=Math.round(items.reduce((a,b)=>a+Math.pow(b.w/100,2),0)*10000);
@@ -927,7 +927,7 @@ function renderCompare(){
     rows.map(s=>{const chg=chgPct(s)??0;
       const pos=(s.high>s.low)?(s.price-s.low)/(s.high-s.low)*100:50;
       const _cp=dispQuote(s.code),_px=(_cp&&_cp.price!=null)?_cp.price:s.price;   // [수정] 통합가
-      return `<tr data-code="${s.code}"><td>${anyLogo(s.code,s.name,'sm')}${s.name}${mktTag(s.code,s.market)}</td><td class="num">${KRW(_px)}</td>
+      return `<tr data-code="${s.code}"><td>${anyLogo(s.code,nmText(s.code),'sm')}${nmText(s.code)}${mktTag(s.code,s.market)}</td><td class="num">${KRW(_px)}</td>
         <td class="num ${dirOf(chg)}">${pctS(chg)}</td><td class="num">${pos.toFixed(0)}%</td><td class="num">${((s.value||0)/1e8).toFixed(0)}억</td></tr>`;}).join('')+
     '</tbody></table></div>';
   $('cmpBody').querySelectorAll('tr[data-code]').forEach(r=>r.onclick=()=>openTrade(r.dataset.code));
@@ -995,7 +995,7 @@ function checkTargets(code){
     if(!(userPrefs.alerts&&userPrefs.alerts.target!==false))return;   // [S10] 알림 마스터 스위치
     if(!tt||tt.fired)return;
     tt.fired=true; saveTargets();
-    const nm=(st.name||code), msg=nm+' '+KRW(st.price)+'원 · 목표가 '+KRW(tt.price)+'원 '+(kind==='up'?'도달(상승)':'도달(하락)');
+     const nm=nmText(code), msg=nm+' '+KRW(st.price)+'원 · 목표가 '+KRW(tt.price)+'원 '+(kind==='up'?'도달(상승)':'도달(하락)');
     toast(kind==='up'?'buy':'sell','목표가 도달',msg);
     try{ if(notifyOk&&document.hidden)new Notification('LIVE증권 · 목표가 도달',{body:msg}); }catch(e){}
   };
@@ -1196,7 +1196,7 @@ function paintNxtHist(j){
   if(!j||!j.ok){ b.innerHTML='<div class="empty">'+((j&&j.error)||'이력을 만들지 못했습니다')+'</div>'; return; }
   const c=j.current||{};
   const rowsOf=(arr,cls)=>arr.length?('<div class="nh-list">'+arr.slice(0,60).map(x=>
-      `<div class="nh-row ${cls}" data-code="${x.code}"><span>${x.name||x.code}</span><i>${x.code}</i></div>`).join('')
+      `<div class="nh-row ${cls}" data-code="${x.code}"><span>${nmFor(x)}</span><i>${x.code}</i></div>`).join('')
       +(arr.length>60?`<div class="ea-more">외 ${(arr.length-60).toLocaleString()}종</div>`:'')+'</div>')
     :'<div class="nh-none">해당 없음</div>';
   b.innerHTML=`<div class="nh-cur"><b>현재 ${(c.count||0).toLocaleString()}종목</b>
@@ -1272,7 +1272,7 @@ function paintPicks(j){
     <div class="pk-watch">
       <div class="pk-watch-h">근접 후보 <span>기준에 살짝 못 미친 종목 — <b>추천이 아닙니다</b></span></div>
       ${j.watch.map(w=>`<button type="button" class="pk-watch-r" data-code="${w.code}">
-        <span class="pw-nm">${htmlEsc(w.name||w.code)}</span>
+        <span class="pw-nm">${htmlEsc(nmFor(w))}</span>
         <span class="pw-px num">${w.price!=null?KRW(w.price):'—'}<i class="${(+w.rate||0)>=0?'up':'down'}">${(+w.rate||0)>=0?'+':''}${(+w.rate||0).toFixed(2)}%</i></span>
         <span class="pw-why">${htmlEsc(w.why||'')}</span>
         <span class="pw-sc num">${w.score}점</span>
@@ -1500,7 +1500,7 @@ async function runStockAudit(){
     const groups={'add':[],'no-data':[]};
     fails.forEach(f=>{(groups[f.issue]||(groups[f.issue]=[])).push(f);});
     const listOf=(arr,label,cls)=>arr.length?`<div class="ea-grp ${cls||''}">${label} <b>${arr.length}</b></div>
-      <div class="ea-list">${arr.slice(0,30).map(f=>`<div class="ea-row" data-code="${f.code}"><span>${f.name||f.code}</span><i>${saIssueKo(f.issue)}</i></div>`).join('')}</div>
+      <div class="ea-list">${arr.slice(0,30).map(f=>`<div class="ea-row" data-code="${f.code}"><span>${nmFor(f)}</span><i>${saIssueKo(f.issue)}</i></div>`).join('')}</div>
       ${arr.length>30?`<div class="ea-more">외 ${(arr.length-30).toLocaleString()}종</div>`:''}`:'';
     let html='';
     if(doneN>=total){
@@ -1679,15 +1679,15 @@ async function runLogoAudit(){
       <div class="ea-list">${arr.slice(0,40).map(fmt).join('')}</div>
       ${arr.length>40?`<div class="ea-more">외 ${(arr.length-40).toLocaleString()}종</div>`:''}`:'';
     html+=listOf(spac,'스팩 발기 증권사 CI 대체','',
-      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(f.name||f.code)}</span><i>${f.code} → ${f.proxy}</i></div>`);
+      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(nmFor(f))}</span><i>${f.code} → ${f.proxy}</i></div>`);
     html+=listOf(none,'CI 이미지가 존재하지 않는 종목 (색 배지로 표시 · 정상)','',
-      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(f.name||f.code)}</span><i>${f.code}</i></div>`);
+      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(nmFor(f))}</span><i>${f.code}</i></div>`);
     html+=listOf(group,'그룹 CI 대체','',
-      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(f.name||f.code)}</span><i>${f.code} → ${f.proxy}</i></div>`);
+      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(nmFor(f))}</span><i>${f.code} → ${f.proxy}</i></div>`);
     html+=listOf(fund,'운용사 CI 대체 (ETF·ETN)','',
-      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(f.name||f.code)}</span><i>${f.code} → ${f.proxy}</i></div>`);
+      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(nmFor(f))}</span><i>${f.code} → ${f.proxy}</i></div>`);
     html+=listOf(base,'본주 로고 대체 (우선주)','',
-      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(f.name||f.code)}</span><i>${f.code} → ${f.proxy}</i></div>`);
+      f=>`<div class="ea-row" data-code="${f.code}"><span>${htmlEsc(nmFor(f))}</span><i>${f.code} → ${f.proxy}</i></div>`);
     $('laFails').innerHTML=html;
     bindStockClicks($('laFails'));
   };
@@ -1830,7 +1830,7 @@ async function runEtfAudit(){
         <span class="ea-chip bad">조회 실패 <b>${buckets.error.length}</b></span>
         <div class="ea-exp">전체 결과를 유형별로 분류합니다. 일부 구성종목만 받은 경우 전체 데이터로 취급하지 않습니다. 지표 누락 수치는 구성 문제와 중복될 수 있습니다. 조회 실패·응답 누락은 종목별 기록에 포함됩니다. 확인 대상은 <b>${realIssue}종</b>입니다.</div></div>`;
       const listOf=(arr,label)=>arr.length?`<div class="ea-grp">${label} <b>${arr.length}</b></div>
-        <div class="ea-list">${arr.slice(0,25).map(f=>`<div class="ea-row" data-code="${htmlEsc(f.code||'') }" title="${htmlEsc(JSON.stringify(f.diag||{}).slice(0,300))}"><span>${htmlEsc(f.name||f.code||'종목 확인 불가')}</span><i>${eaIssueKo(f.issue)}${f.src?' · '+htmlEsc(f.src):''}</i></div>`).join('')}</div>
+        <div class="ea-list">${arr.slice(0,25).map(f=>`<div class="ea-row" data-code="${htmlEsc(f.code||'') }" title="${htmlEsc(JSON.stringify(f.diag||{}).slice(0,300))}"><span>${htmlEsc(nmFor(f))}</span><i>${eaIssueKo(f.issue)}${f.src?' · '+htmlEsc(f.src):''}</i></div>`).join('')}</div>
         ${arr.length>25?`<div class="ea-more">외 ${(arr.length-25).toLocaleString()}종</div>`:''}`:'';
       $('eaFails').innerHTML=sum+listOf(buckets.partial,'부분 조회')+listOf(buckets.check,'확인필요')+listOf(buckets.error,'조회 실패')+listOf(buckets.nodata,'구성 미제공');
       $('eaFails').querySelectorAll('.ea-row').forEach(r=>r.onclick=()=>etfOpen(r.dataset.code));
@@ -1850,7 +1850,7 @@ async function runEtfAudit(){
       const batchItems=(Array.isArray(etfList)?etfList.slice(from,Math.min(total,from+BATCH)):[]);
       if(!j||!j.ok||!Array.isArray(j.results)){
         const fallback=batchItems.length?batchItems:Array.from({length:Math.min(BATCH,total-from)},(_,i)=>({code:'',name:'종목 '+(from+i+1)}));
-        fallback.forEach(x=>{failN++;fails.push({code:x.code||'',name:x.name||x.code||'종목 확인 불가',ok:false,issue:'batch-fetch-failed',src:'etfaudit',diag:{error:lastError||'batch request failed',from,count:BATCH}});});
+        fallback.forEach(x=>{failN++;fails.push({code:x.code||'',name:nmFor(x),ok:false,issue:'batch-fetch-failed',src:'etfaudit',diag:{error:lastError||'batch request failed',from,count:BATCH}});});
         doneN=Math.min(total,doneN+fallback.length);paint();continue;
       }
       const expected=Math.min(BATCH,total-from);
@@ -1868,7 +1868,7 @@ async function runEtfAudit(){
       const missing=batchItems.filter(x=>{const c=String(x.code||'');return !c||!seenCodes.has(c);});
       const missingCount=Math.max(expected-seenCodes.size,missing.length);
       while(missing.length<missingCount)missing.push({code:'',name:`응답 누락 (${from+rows.length+missing.length+1})`});
-      missing.slice(0,missingCount).forEach(x=>{failN++;fails.push({code:x.code||'',name:x.name||x.code||'종목 확인 불가',ok:false,issue:'batch-missing-row',src:'etfaudit',diag:{from,returned:rows.length,requested:expected}});});
+      missing.slice(0,missingCount).forEach(x=>{failN++;fails.push({code:x.code||'',name:nmFor(x),ok:false,issue:'batch-missing-row',src:'etfaudit',diag:{from,returned:rows.length,requested:expected}});});
       doneN=Math.min(total,doneN+expected);
       paint();
     }
@@ -1895,7 +1895,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=354';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=355';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -2204,12 +2204,158 @@ const STOCKS=[
 ];
 const KOSDAQ_CODES=new Set(['247540','086520','196170','293490','041510','068760','058470','035900']);
 const byCode={};STOCKS.forEach(([n,c,t])=>byCode[c]={name:n,code:c,tags:[t],market:KOSDAQ_CODES.has(c)?'코스닥':'코스피',nxt:null,price:null,prevClose:null,open:null,high:null,low:null,volume:null,value:null,ticks:[]});
+/* ══ [v17.8.46] 종목명 레지스트리 ═══════════════════════════════════════════════
+   [무엇이 문제였나] 계좌 데이터(보유·주문·체결·관심종목)는 종목코드만 저장한다.
+   이름은 byCode 에서 찾는데, 정적 마스터(STOCKS 66종)에 없는 종목은 byCode 에
+   항목조차 없어서 이름 자리에 코드가 그대로 찍혔다 — 033250(체시스)이 그랬다.
+   v17.8.42 에서 클랜 모달 한 곳만 서버 이름으로 덮었지만, 화면마다 제각각
+   `byCode[코드].name || 코드` 로 그려서 같은 구멍이 앱 전체에 남아 있었다.
+   [어떻게 고치나]
+     ① 서버 /api/meta(네이버 종목 기본정보)에서 코드별 이름을 받아
+        localStorage('nmReg')에 남긴다 — 새로고침·재접속에도 유지된다.
+     ② 데이터에 등장하는 코드는 그리기 전에 미리 모아 이름을 채운다(nmPrime).
+     ③ 늦게 도착하면 보이는 화면만 다시 그린다(scheduleNamePaint).
+     ④ 이름 자리에는 코드를 넣지 않는다. 모르면 '—' 로 두고 도착하는 대로 채운다.
+   [주의] 국내 종목코드는 6자리(033250) 또는 숫자로 시작하는 6자리(0167A0)다.
+   미국 티커(AAPL)는 이름이 곧 티커이므로 대상이 아니다.                        */
+const NMREG=(()=>{try{const o=JSON.parse(localStorage.getItem('nmReg')||'{}');return o&&typeof o==='object'?o:{};}catch(e){return {};}})();
+let _nmSaveT=null;
+function nmSaveSoon(){
+  if(_nmSaveT)return;
+  _nmSaveT=setTimeout(()=>{_nmSaveT=null;try{
+    const keys=Object.keys(NMREG);
+    /* 캐시가 무한히 자라지 않게 오래된 것부터 버린다(등록 순서 유지) */
+    if(keys.length>1800){keys.slice(0,keys.length-1500).forEach(k=>delete NMREG[k]);}
+    localStorage.setItem('nmReg',JSON.stringify(NMREG));
+  }catch(e){}},600);
+}
+function isDomCode(code){const c=String(code||'').toUpperCase();return /^\d{6}$/.test(c)||/^\d[A-Z0-9]{5}$/.test(c);}
+/* 이름으로 쓸 수 있는 값인가 — 빈 값·'—'·코드 자체는 이름이 아니다 */
+function nmOk(code,name){
+  if(name==null)return false;
+  const t=String(name).trim();
+  if(!t||t==='—'||t==='-'||t==='null'||t==='undefined'||t==='NaN')return false;
+  const c=String(code||'').toUpperCase();
+  if(c&&t.toUpperCase()===c)return false;
+  return true;
+}
+/* 이름 등록 — 레지스트리와 byCode 양쪽에 반영하고, 바뀌었으면 true */
+function nmPut(code,name){
+  if(!code)return false;
+  const c=String(code).toUpperCase();
+  if(!nmOk(c,name))return false;
+  const nm=String(name).trim();
+  let changed=false;
+  if(NMREG[c]!==nm){NMREG[c]=nm;changed=true;nmSaveSoon();}
+  const s=byCode[c];
+  if(s&&!nmOk(c,s.name)){s.name=nm;changed=true;}
+  return changed;
+}
+/* 전체 종목 목록(stockAll)은 이름 사전으로도 쓴다 — 한 번만 Map 으로 만든다 */
+let _nmAllMap=null,_nmAllSrc=null;
+function nmAllLookup(c){
+  let arr=null;
+  try{arr=stockAll;}catch(e){return '';}
+  if(!Array.isArray(arr)||!arr.length)return '';
+  if(_nmAllSrc!==arr){_nmAllMap=new Map();arr.forEach(x=>{if(x&&x.code)_nmAllMap.set(String(x.code).toUpperCase(),x);});_nmAllSrc=arr;}
+  const hit=_nmAllMap.get(c);
+  return hit&&nmOk(c,hit.name)?hit.name:'';
+}
+/* 이름 조회 — 어디서든 이 함수로만 종목명을 얻는다(코드가 이름 자리에 새지 않게) */
+function stkNm(code){
+  if(!code)return '';
+  const c=String(code).toUpperCase();
+  const s=byCode[c];
+  if(s&&nmOk(c,s.name))return s.name;
+  if(nmOk(c,NMREG[c]))return NMREG[c];
+  try{if(usMeta&&usMeta[c]&&nmOk(c,usMeta[c].kr))return usMeta[c].kr;}catch(e){}
+  const all=nmAllLookup(c);
+  if(all){nmPut(c,all);return all;}
+  if(isDomCode(c))nmWant(c);
+  return '';
+}
+/* 화면에 이름 자리로 쓰는 값 — 모르면 '—'(코드는 절대 쓰지 않는다) */
+function nmText(code){return stkNm(code)||'—';}
+/* 이름이 이미 들어 있는 객체(주문·체결·기록)의 표시 이름 — 이름이 코드면 무시하고 다시 찾는다 */
+function nmFor(o){
+  if(!o)return '—';
+  const c=o.code||o.c||o.stock||'';
+  if(o.us)return String(o.name||o.code||o.c||'—');   /* 미국 티커는 이름이 곧 코드다 */
+  if(nmOk(c,o.name))return String(o.name).trim();
+  if(nmOk(c,o.nm))return String(o.nm).trim();
+  return stkNm(c)||'—';
+}
+/* 이름 요청 대기열 — 20개씩 묶어 서버(/api/meta)에 묻는다 */
+const _nmQ=new Set();
+let _nmT=null,_nmBusy=false,_nmFail=0;
+function nmWant(code){
+  const c=String(code||'').toUpperCase();
+  if(!isDomCode(c))return;
+  if(nmOk(c,NMREG[c]))return;
+  const s=byCode[c];
+  if(s&&nmOk(c,s.name))return;
+  if(_nmFail>=3&&Date.now()-(window._nmFailAt||0)<30000)return;   /* 연속 실패 시 30초 쉼 */
+  _nmQ.add(c);
+  nmDrain();
+}
+function nmDrain(){
+  if(_nmT||_nmBusy||!_nmQ.size)return;
+  _nmT=setTimeout(async()=>{
+    _nmT=null;
+    const codes=[..._nmQ].slice(0,20);
+    codes.forEach(c=>_nmQ.delete(c));
+    if(!codes.length)return;
+    _nmBusy=true;
+    try{
+      fnBump();
+      const r=await fetch('/api/meta?codes='+codes.join(','),{cache:'no-store'});
+      const j=await r.json();
+      let changed=false;
+      Object.entries((j&&j.markets)||{}).forEach(([c,v])=>{
+        if(!v)return;
+        if(v.name&&nmPut(c,v.name))changed=true;
+        if(v.market){const k=String(c).toUpperCase();if(!mktCache[k]){mktCache[k]=v.market;changed=true;saveMktCache();}}
+      });
+      _nmFail=0;
+      if(changed){saveStateNames();scheduleNamePaint();}
+    }catch(e){
+      /* 네트워크 실패 — 같은 묶음을 곧바로 다시 던지면 요청 폭주가 된다. 15초 뒤에 한 번만. */
+      _nmFail++;window._nmFailAt=Date.now();
+      setTimeout(()=>{codes.forEach(c=>_nmQ.add(c));nmDrain();},15000);
+    }
+    _nmBusy=false;
+    if(_nmQ.size)nmDrain();
+  },120);
+}
+/* 데이터에 등장하는 모든 코드의 이름을 미리 채운다(보유·관심·주문·체결·알림·비교함·최근본) */
+let _nmPrimeAt=0;
+function nmPrime(){
+  if(Date.now()-_nmPrimeAt<2500)return;      /* 시세 갱신마다 돌지 않게 */
+  _nmPrimeAt=Date.now();
+  try{
+    const want=(c)=>{if(!c)return;const u=String(c).toUpperCase();if(!isDomCode(u))return;
+      if(nmOk(u,NMREG[u]))return;const s=byCode[u];if(s&&nmOk(u,s.name))return;nmWant(u);};
+    (holdings||[]).forEach(h=>want(h&&h.code));
+    (watchlist||[]).forEach(c=>want(c&&(typeof c==='object'?c.code:c)));
+    (bookOrders||[]).forEach(o=>want(o&&o.code));
+    (tradeLog||[]).forEach(t=>want(t&&t.code));
+    try{Object.keys(priceAlerts||{}).forEach(c=>want(c));}catch(e){}
+    try{(cmpList()||[]).forEach(c=>want(c));}catch(e){}
+    try{(srchHist||[]).forEach(h=>want(h&&h.code));}catch(e){}
+    Object.keys(byCode).forEach(c=>{const s=byCode[c];if(s&&!nmOk(c,s.name))nmWant(c);});
+  }catch(e){}
+}
+/* 이름 저장은 별도 이름으로 — saveState 는 계정 동기화까지 건드린다 */
+function saveStateNames(){try{nmSaveSoon();}catch(e){}}
 function ensureStock(code,name,market,kind){
-  if(byCode[code]){const s=byCode[code];if(name&&(s.name==='—'||s.name===s.code))s.name=name;if(kind&&!s.kind)s.kind=kind;
+  if(byCode[code]){const s=byCode[code];if(nmOk(code,name)&&!nmOk(code,s.name)){s.name=name;nmPut(code,name);}
+    if(kind&&!s.kind)s.kind=kind;
     if(market&&!s.market)s.market=market;
     if(!s.market)resolveMarket(code);
     return s;}
-  byCode[code]={name:name||code,code,tags:[],market:market||mktCache[String(code).toUpperCase()]||'',kind:kind||'',nxt:null,price:null,prevClose:null,open:null,high:null,low:null,volume:null,value:null,ticks:[]};
+  const good=nmOk(code,name)?name:'';
+  byCode[code]={name:good,code,tags:[],market:market||mktCache[String(code).toUpperCase()]||'',kind:kind||'',nxt:null,price:null,prevClose:null,open:null,high:null,low:null,volume:null,value:null,ticks:[]};
+  if(good)nmPut(code,good);
   if(!byCode[code].market)resolveMarket(code);
   return byCode[code];
 }
@@ -2239,14 +2385,14 @@ function drainMkt(){
       const j=await r.json();
       let changed=false;
       Object.entries(j.markets||{}).forEach(([c,v])=>{
-        if(v&&v.market){mktCache[c]=v.market;changed=true;
-          const st=byCode[c];if(st){st.market=v.market;
-            if(v.name&&(!st.name||st.name==='—'||st.name===c))st.name=v.name;}}
+        if(!v)return;
+        if(v.market&&!mktCache[c]){mktCache[c]=v.market;changed=true;}
+        const st=byCode[c];
+        if(st&&v.market)st.market=v.market;
+        /* [v17.8.46] 이름도 함께 등록 — 다음 화면·다음 접속에 계속 쓰인다 */
+        if(v.name&&nmPut(c,v.name))changed=true;
       });
-      if(changed){saveMktCache();
-        if(currentView==='trade')renderDetail();
-        else if(currentView==='search')renderSearch();
-        else if(currentView==='watch')renderWatch();}
+      if(changed){saveMktCache();scheduleNamePaint();}   /* [v17.8.46] 어느 화면에 있든 이름이 바뀌면 다시 그린다 */
     }catch(e){}
     if(_mktQueue.size)drainMkt();      // 남은 대기열을 직접 이어서 처리
   },400);
@@ -4612,6 +4758,15 @@ function applyUser(u){
     _put('viewHist',Array.isArray(d.viewHist)?d.viewHist:undefined);
   }catch(e){}
   reloadPerUser();                             // 검색기록·최근본·정렬을 이 계정 것으로
+  /* ══ [v17.8.46] 계좌 데이터에 함께 저장된 종목명을 이름 레지스트리로 옮긴다 ══
+     보유 종목은 코드만 들어 있지만, 주문·체결 기록에는 그때 서버가 적어 둔 이름이 있다.
+     그것만 모아 두면 새 기기에서도 이름이 바로 뜨고, 모자라는 것은 nmPrime 이
+     서버(/api/meta)에 물어 채운다. */
+  try{
+    const _take=(arr)=>{(arr||[]).forEach(x=>{if(x&&x.code&&nmOk(x.code,x.name))nmPut(x.code,x.name);});};
+    _take(holdings);_take(bookOrders);_take(tradeLog);_take(d.srvFills);
+  }catch(e){}
+  try{ nmPrime(); }catch(e){}
   /* [v17.2] acctPassHash 는 위쪽(계좌 복원 전)에서 이미 세웠다. 여기서 다시 쓰면
      acctLoad 가 정한 '활성 계좌 비밀번호'를 도로 덮어 버린다 — 그게 잠금의 원인이었다. */
   /* [v17.8.34] 앱을 닫아 둔 사이 서버가 체결한 주문을 알린다 */
@@ -4637,13 +4792,13 @@ function serverFillNotice(u,d){
     maxAt=Math.max(maxAt,f.at);
     if(f.oid&&_localFilled[f.oid])return;      /* 이 기기에서 이미 체결한 주문 — 두 번 알리지 않는다 */
     if(f.kind==='cancel'){
-      try{ toast('warn','미체결 주문 취소',`${f.name||f.code} ${f.why||''} · 앱을 닫아 둔 사이 서버가 취소`.replace(/\s+\./g,' ')); }catch(e){}
+      try{ toast('warn','미체결 주문 취소',`${nmFor(f)} ${f.why||''} · 앱을 닫아 둔 사이 서버가 취소`.replace(/\s+\./g,' ')); }catch(e){}
       return;
     }
     const px=f.us?('$'+(+f.price||0).toFixed(2)):krwOf(f.price);
     const qty=f.us?fmtQty(f.qty):KRW(Math.round(+f.qty||0));
     try{
-      toast(f.side==='sell'?'sell':'buy', `${f.name||f.code} ${f.side==='sell'?'매도':'매수'} 체결(모의)`,
+      toast(f.side==='sell'?'sell':'buy', `${nmFor(f)} ${f.side==='sell'?'매도':'매수'} 체결(모의)`,
         `${qty}주 · ${px} · ${f.tag||'미체결 주문 체결'} · 접속하지 않은 동안 서버가 체결`);
     }catch(e){}
   });
@@ -5734,7 +5889,7 @@ document.addEventListener('click',(e)=>{                       // [v2.5.3] 사�
   const b=e.target.closest&&e.target.closest('#bizMore');
   if(!b||!_bizFull)return;
   const s2=byCode[selected]||{};
-  openLiteGate('사업요약 · '+(s2.name||selected),`<div class="biz-full">${_bizFull}</div>
+  openLiteGate('사업요약 · '+nmText(selected),`<div class="biz-full">${_bizFull}</div>
     <div class="lg-row"><button class="btn-ghost" id="bizSrc">네이버 금융 기업정보 ↗</button><button class="btn-ghost" id="bizDart">공시 보기 ↗</button></div>`);
   const o=$('bizSrc');if(o)o.onclick=()=>window.open('https://finance.naver.com/item/coinfo.naver?code='+selected,'_blank','noopener');
   const d=$('bizDart');if(d)d.onclick=()=>window.open('https://finance.naver.com/item/news_notice.naver?code='+selected,'_blank','noopener');
@@ -6498,7 +6653,7 @@ async function pushCheck(force){
     const holds=(holdings||[]).filter(h=>h&&h.qty>0).slice(0,12).map(h=>{
       const p=(h.plan||{});
       const st=byCode[h.code]||{};
-      return {code:h.code,name:(h.us?((usMeta[h.code]||{}).kr||h.code):(st.name||h.code)),
+      return {code:h.code,name:(h.us?((usMeta[h.code]||{}).kr||h.code):nmText(h.code)),
         px:Number(livePx(h.code,h.avg))||0,
         stop:Number(p.stop)||0,target:Number(p.target)||0};
     }).filter(x=>x.px>0&&(x.stop>0||x.target>0));
@@ -6533,7 +6688,7 @@ function swingWatch(code,st){
   const key=_todayKey()+':'+code+':'+(p>0?'u':'d');
   if(_swingAlerted[key])return;
   _swingAlerted[key]=1;
-  notifyUser('보유종목 급변동',`${(byCode[code]&&byCode[code].name)||code} ${pctS(p)} (기준 ±${th}%)`);
+  notifyUser('보유종목 급변동',`${nmText(code)} ${pctS(p)} (기준 ±${th}%)`);
 }
 
 /* ===== [H4] 온보딩 (기기당 1회) ===== */
@@ -7053,6 +7208,27 @@ function _showView(name){
 }
 document.addEventListener('click',(e)=>{const n=e.target.closest('[data-view]');if(n){e.preventDefault();showView(n.dataset.view);}});
 $('navToggle').onclick=(e)=>{e.stopPropagation();$('mainNav').classList.toggle('open');};
+/* ══ [v17.8.46] 헤더 높이를 재서 CSS 변수로 넘긴다 ═════════════════════════════
+   모바일 메뉴(드로어)를 화면에 고정(top: var(--header-h))해서, 페이지를 아무리
+   내린 뒤에 열어도 위가 잘리지 않게 한다. 헤더는 두 줄이 될 수 있어 상수로
+   두지 않고 실제 높이를 잰다. */
+function syncHeaderH(){
+  try{
+    const h=document.querySelector('.site-header');
+    const v=h?Math.round(h.getBoundingClientRect().height):0;
+    if(v>0)document.documentElement.style.setProperty('--header-h',v+'px');
+  }catch(e){}
+}
+try{
+  syncHeaderH();
+  window.addEventListener('load',syncHeaderH);
+  window.addEventListener('resize',()=>{clearTimeout(window._hdrT);window._hdrT=setTimeout(syncHeaderH,120);},{passive:true});
+  window.addEventListener('orientationchange',()=>setTimeout(syncHeaderH,250));
+  if(window.ResizeObserver){try{new ResizeObserver(syncHeaderH).observe(document.querySelector('.site-header'));}catch(e){}}
+  /* 메뉴를 열 때마다 현재 높이로 다시 맞춘다(스크롤바·글꼴 변동 대비) */
+  const _mt=document.getElementById('mobileMenuToggle');
+  if(_mt)_mt.addEventListener('click',()=>setTimeout(syncHeaderH,0));
+}catch(e){}
 /* [수정] 이전에는 showView('trade')가 renderDetail·configOrderExchanges·syncPriceField 뒤에 있어서
    그중 하나라도 예외를 던지면 "종목을 눌러도 화면이 안 넘어가는" 증상이 났다.
    → 화면 전환을 가장 먼저 수행하고, 나머지 단계는 전부 개별 격리한다. */
@@ -7138,8 +7314,14 @@ function scheduleNamePaint(){ /* 이름이 늦게 도착하면 보이는 화면�
   clearTimeout(_npT);
   _npT=setTimeout(()=>{try{
     if(currentView==='watch')renderWatch();
-    if(currentView==='account')renderHoldings();
+    if(currentView==='account'){
+      renderHoldings();
+      try{drawAlloc();}catch(e){}          /* [v17.8.46] 도넛 범례도 같은 이름을 쓴다 */
+      try{renderTopMovers();}catch(e){}
+    }
     if(currentView==='search')renderSearch();
+    if(currentView==='trade'&&typeof renderDetail==='function')renderDetail();
+    if(currentView==='folio'){try{renderHoldings();}catch(e){}try{foRenderCards(foAll(true));}catch(e){}}
   }catch(e){}},250);
 }
 /* ===== [주요#3] 인앱 모달 — prompt/confirm 대체 =====
@@ -9238,7 +9420,7 @@ function renderSector(){
     const dir=dirOf(r.avg);
     const w=Math.max(4,Math.abs(r.avg)/maxAbs*100);
     const open=sectorOpen===r.name;
-    const chips=r.stocks.map(({s,p})=>`<span class="uss-t" data-code="${s.code}">${htmlEsc(s.name)} <i class="num ${dirOf(p)}">${pctS(p)}</i></span>`).join('');
+    const chips=r.stocks.map(({s,p})=>`<span class="uss-t" data-code="${s.code}">${htmlEsc(nmText(s.code))} <i class="num ${dirOf(p)}">${pctS(p)}</i></span>`).join('');
     return `<div class="us-sect thm-card ${open?'open':''}" data-sec="${htmlEsc(r.name)}">
       <div class="uss-h"><span class="uss-rk num${i<3?' top':''}">${i+1}</span>
         <b>${htmlEsc(r.name)}</b>
@@ -9264,7 +9446,7 @@ function miniRow(s){
   const _mq=dispQuote(s.code);                                     // [수정] 통합가 기준으로 가격·등락 통일
   const px=(_mq&&_mq.price!=null)?_mq.price:s.price,pv=(_mq&&_mq.prevClose)||s.prevClose;
   const diff=(px!=null&&pv)?px-pv:null,p=diff!=null?diff/pv*100:null,dir=diff==null?'flat':dirOf(diff);
-  return `<div class="mini-row" data-code="${s.code}"><div class="sr-l">${anyLogo(s.code,s.name,'sm')}<div class="sr-t"><div class="nm">${s.name}</div><div class="cd num">${s.code}</div></div></div>
+  return `<div class="mini-row" data-code="${s.code}"><div class="sr-l">${anyLogo(s.code,nmText(s.code),'sm')}<div class="sr-t"><div class="nm">${nmText(s.code)}</div><div class="cd num">${s.code}</div></div></div>
     <div class="px num ${dir}">${KRW(px)}</div><div class="ch num ${dir}">${diff==null?'—':arrow(dir)+' '+pctS(p)}</div></div>`;}
 /* [D6] 내 관심종목 오늘 요약 — [수정] 개장 전·접속 직후처럼 시세가 아직 없을 때
    '표시할 종목이 없어요'라고 잘못 말하던 것을 '시세 수신 중'으로 바꾸고, 시세가 오면 자동으로 채운다. */
@@ -9481,8 +9663,8 @@ function drawAlloc(){
   const items=[];
   /* [v4.34] 평가액 계산을 헬퍼로 바꾸면서 st 를 없앴는데 아래에서 그대로 쓰고 있었다
      → 'st is not defined' 로 자산 구성 그래프가 매번 죽었다. */
-  holdings.forEach(h=>{const st=byCode[h.code]||{}; const v=hEvalKRW(h);
-    if(v>0)items.push({name:st.name||(h.us&&usMeta[h.code]?usMeta[h.code].kr:h.code),code:h.code,v});});
+  holdings.forEach(h=>{const v=hEvalKRW(h);
+    if(v>0)items.push({name:h.us?((usMeta[h.code]||{}).kr||h.code):nmText(h.code),code:h.code,v});});
   if(!items.length){wrap.hidden=true;return;}
   items.sort((a,b)=>b.v-a.v);
   const list=items.slice(0,6),rest=items.slice(6);
@@ -9523,7 +9705,7 @@ function renderTopMovers(){
   const rows=holdings.map(h=>{
     const st=byCode[h.code],px=(st&&st.price!=null)?st.price:null;
     if(px==null||!(h.avg>0))return null;
-    return {name:(st&&st.name)||h.code,code:h.code,rate:(px-h.avg)/h.avg*100,pnl:(px-h.avg)*h.qty};
+    return {name:h.us?((usMeta[h.code]||{}).kr||h.code):nmText(h.code),code:h.code,rate:(px-h.avg)/h.avg*100,pnl:(px-h.avg)*h.qty};
   }).filter(Boolean);
   if(rows.length<2){el.hidden=true;return;}
   el.hidden=false;
@@ -9890,9 +10072,9 @@ function paintClan(){
       const _hp=allHoldingPerf().sort((a,b)=>b.rate-a.rate);
       const r=await clanCall('sync',{msg:$('clanMsg').value,rate:monthPerf().rate,ym:monthPerf().ym,
         tr:allTrades().length, hold:_hp.length,
-        holds:_hp.slice(0,12).map(x=>({n:x.name,r:x.rate,us:x.us})),
-        best:_hp[0]?{n:_hp[0].name,r:_hp[0].rate}:null,
-        worst:_hp.length>1?{n:_hp[_hp.length-1].name,r:_hp[_hp.length-1].rate}:null});
+        holds:_hp.slice(0,12).map(x=>({n:x.name,c:x.code,r:x.rate,us:x.us})),
+        best:_hp[0]?{n:_hp[0].name,c:_hp[0].code,r:_hp[0].rate}:null,
+        worst:_hp.length>1?{n:_hp[_hp.length-1].name,c:_hp[_hp.length-1].code,r:_hp[_hp.length-1].rate}:null});
       if(r.ok){clanCache=r;paintClan();toast('buy','상태 메시지 저장','');}else toast('warn','저장 실패',clanErrMsg(r));};
     const hof=$('clanHof');
     if(hof)hof.innerHTML=(c.hof&&c.hof.length)?`<div class="sec-title" style="margin-top:18px">명예의 전당 <span class="sec-sub">· 지난 시즌 1위</span></div>
@@ -9965,12 +10147,12 @@ function openMemberCard(id){
      코드와 같거나 비어 있으면 이 기기의 종목 명부(byCode/STOCKS)에서 이름을 찾는다.
      (사진: '005930' → '삼성전자') */
   const holdName=(x)=>{
-    if(!x)return '';
+    if(!x)return '—';
     const n=String(x.n||'').trim(), cd=String(x.c||'').toUpperCase();
     if(n&&n!==cd)return n;
-    const st=byCode[cd]||byCode[x.c];
-    if(st&&st.name&&st.name!==cd)return st.name;
-    return n||cd||'—';
+    if(x.us)return n||cd||'—';                 /* 미국 티커는 이름이 곧 코드다 */
+    /* [v17.8.46] 코드를 이름 자리에 돌려주지 않는다 — 이 기기 명부·서버 이름으로 채운다 */
+    return (cd&&stkNm(cd))||'—';
   };
   const staff=c.leader===c.me||(c.members.find(x=>x.id===c.me)||{}).role==='sub';
   const isLeader=c.leader===c.me;
@@ -10071,7 +10253,7 @@ function clanAutoSync(force){
   /* [v5.03] 자동 동기화도 전 계좌 합계로 */
   const hp=allHoldingPerf().sort((a,b)=>b.rate-a.rate);
   clanCall('sync',{rate:mp.rate,ym:mp.ym,tr:allTrades().length,hold:hp.length,
-    holds:hp.slice(0,12).map(x=>({n:x.name,r:x.rate,us:x.us})),
+    holds:hp.slice(0,12).map(x=>({n:x.name,c:x.code,r:x.rate,us:x.us})),
     best:hp[0]?{n:hp[0].name,r:hp[0].rate}:null,
     worst:hp.length>1?{n:hp[hp.length-1].name,r:hp[hp.length-1].rate}:null}).then(r=>{
     if(r&&r.ok){clanCache=r;if(currentView==='clan')paintClan();else paintClanDots();}});
@@ -10456,7 +10638,7 @@ function renderCmpUi(){
     if(!a.length){bar.hidden=true;}
     else{bar.hidden=false;
       bar.innerHTML=`<span class="cb-t">⚖ 비교함</span>`+a.map(c=>{
-        const nm=(byCode[c]&&byCode[c].name)||c;
+        const nm=nmText(c);
         return `<span class="cb-c">${nm}<i data-x="${c}">✕</i></span>`;}).join('')
         +`<button class="cb-go" id="cbGo">비교 보기</button><button class="cb-clr" id="cbClr">비우기</button>`;
       bar.querySelectorAll('i[data-x]').forEach(i=>i.onclick=()=>cmpToggle(i.dataset.x));
@@ -10516,7 +10698,7 @@ function closeLiteGate(){const g=$('liteGate');if(!g)return;g.hidden=true;
 function openAlertGate(){
   const code=selected,st=byCode[code]||{},cur=priceAlerts[code]||{};
   const q=dispQuote(code)||{},px=q.price!=null?q.price:st.price;
-  openLiteGate('가격 알림 · '+(st.name||code),`
+  openLiteGate('가격 알림 · '+nmText(code),`
     <div class="pm-note" style="margin-top:0">현재가 <b class="num">${px!=null?KRW(px)+'원':'—'}</b> · 도달 시 알림이 오고 해당 방향 설정은 해제됩니다.</div>
     <div class="fld2"><label>상승 알림가 (이상)</label><input id="alUp" class="num" inputmode="numeric" value="${cur.above||''}" placeholder="예: ${px?KRW(tickPx(px*1.05)):''}"></div>
     <div class="fld2"><label>하락 알림가 (이하)</label><input id="alDn" class="num" inputmode="numeric" value="${cur.below||''}" placeholder="예: ${px?KRW(tickPx(px*0.95)):''}"></div>
@@ -10547,7 +10729,7 @@ function openHoldGate(){
   const code=selected,h=holdings.find(x=>x.code===code);
   if(!h){toast('warn','보유 종목이 아닙니다','매수 후 설정할 수 있어요');return;}
   const st=byCode[code]||{};
-  openLiteGate('보유 관리 · '+(st.name||code),`
+  openLiteGate('보유 관리 · '+nmText(code),`
     <div class="pm-note" style="margin-top:0">보유 ${KRW(h.qty)}주 · 평단 ${KRW(h.avg)}원 — 손절·익절 도달 시 <b>전량 자동 매도</b>됩니다.</div>
     <div class="fld2"><label>손절가 (이하 도달 시)</label><input id="hgStop" class="num" inputmode="numeric" value="${h.stopPx||''}"></div>
     <div class="fld2"><label>익절가 (이상 도달 시)</label><input id="hgTake" class="num" inputmode="numeric" value="${h.takePx||''}"></div>
@@ -10590,7 +10772,7 @@ function renderAutoCard(){
     if(h.takePx)rows.push(`<div class="au-r"><span class="au-k up">익절</span><b>${(byCode[h.code]&&byCode[h.code].name)||h.code}</b><span class="num">${KRW(h.takePx)}원 이상 전량</span><i data-tk="${h.code}">✕</i></div>`);
   });
   Object.entries(priceAlerts).forEach(([c,a])=>{
-    rows.push(`<div class="au-r"><span class="au-k on">알림</span><b>${a.name||c}</b><span class="num">${a.above?'↑'+KRW(a.above):''} ${a.below?'↓'+KRW(a.below):''}</span><i data-al="${c}">✕</i></div>`);});
+    rows.push(`<div class="au-r"><span class="au-k on">알림</span><b>${nmFor({code:c,name:a.name})}</b><span class="num">${a.above?'↑'+KRW(a.above):''} ${a.below?'↓'+KRW(a.below):''}</span><i data-al="${c}">✕</i></div>`);});
   el.hidden=!rows.length;
   if(!rows.length)return;
   el.innerHTML=`<div class="sec-title" style="margin:14px 0 10px">미체결 · 자동 주문 · 알림 <span class="sec-sub">· 4초마다 감시 · 앱을 닫아도 서버가 1분마다 체결</span></div>
@@ -10794,7 +10976,7 @@ function autoOrderTick(){
   /* 가격 알림(도달 시 1회) */
   for(const [c,a] of Object.entries(priceAlerts)){
     const q=dispQuote(c);if(!q||q.price==null)continue;
-    const nm=a.name||(byCode[c]&&byCode[c].name)||c;
+    const nm=nmFor({code:c,name:a.name});
     if(a.above&&q.price>=a.above){notifyPrice(nm,c,'목표가 도달 ↑',a.above,q.price);delete a.above;changed=true;}
     if(a.below&&q.price<=a.below){notifyPrice(nm,c,'하락 알림 ↓',a.below,q.price);delete a.below;changed=true;}
     if(!a.above&&!a.below)delete priceAlerts[c];
@@ -10896,7 +11078,7 @@ function allHoldingPerf(){
     const st=byCode[h.code]||{};
     const px=Number(livePx(h.code,h.avg))||h.avg;   // [v5.6] 통합가
     const rate=h.avg>0?(px/h.avg-1)*100:0;
-    const nm=h.us?((usMeta[h.code]&&usMeta[h.code].kr)||h.code):(st.name||h.code);
+    const nm=h.us?((usMeta[h.code]&&usMeta[h.code].kr)||h.code):nmText(h.code);
     return {code:h.code,name:nm,qty:h.qty,rate:+rate.toFixed(2),us:h.us?1:0};
   }).filter(x=>isFinite(x.rate));
 }
@@ -11046,7 +11228,7 @@ async function renderHomeHot(){
     el.innerHTML=`<span class="hh-t">🔥 인기</span>`+top.map((x,i)=>{
       const st=byCode[x.code],q=st?dispQuote(x.code):null;
       const p=(q&&q.price!=null&&q.prevClose)?(q.price-q.prevClose)/q.prevClose*100:null;
-      return `<button class="hh-c" data-code="${x.code}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${anyLogo(x.code,x.name||(st&&st.name)||x.code,'xs')}${x.name||x.code}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
+      return `<button class="hh-c" data-code="${x.code}"><i class="hh-r${i<3?' top':''}">${i+1}</i>${anyLogo(x.code,nmFor(x),'xs')}${nmFor(x)}${p!=null?` <b class="num ${p>=0?'up':'down'}">${pctS(p)}</b>`:''}</button>`;
     }).join('');
     el.querySelectorAll('.hh-c').forEach(b=>b.onclick=()=>openTrade(b.dataset.code));
     /* [v2.9.6 · 치명] 무한 재호출 차단.
@@ -11549,7 +11731,7 @@ function openJournalDetail(g,byDate,rows){
     const stocks=jrAgg(rows.filter(t=>t.date===g.date),t=>t.code).sort((a,b)=>(b.sellAmt+b.buyAmt)-(a.sellAmt+a.buyAmt));
     body=`<div class="jd-sub">${g.date.replace(/-/g,'.')} · 매매비용 포함</div>
       <div class="jd-daterows">${stocks.map(s=>{const p=jPnl(s),dir=dirOf(p);
-        return `<div class="jd-drow"><div class="jd-dnm">${s.name}</div>
+        return `<div class="jd-drow"><div class="jd-dnm">${nmText(s.code)}</div>
           <div class="jd-damt"><span class="up">${KRW(s.buyAmt)}</span><span class="down">${KRW(s.sellAmt)}</span></div>
           <div class="jd-dpnl"><span class="${dir}">${s.sellQty?signed(p):'0'}</span><span class="${dir}">${s.sellQty?pctS(jRoi(s)):'0.00%'}</span></div>
           <div class="jd-dcost">${KRW(s.fee+s.tax)}</div></div>`;}).join('')}</div>`;
@@ -12089,7 +12271,7 @@ function noteNewListings(prev,cur){
   if(!fresh.length)return;
   log=fresh.concat(log).slice(0,80);
   try{localStorage.setItem('newListings',JSON.stringify(log));}catch(e){}
-  try{toast('buy',`신규 상장 ${fresh.length}종 반영`,fresh.slice(0,3).map(x=>x.name||x.code).join(', ')+(fresh.length>3?` 외 ${fresh.length-3}종`:''));}catch(e){}
+  try{toast('buy',`신규 상장 ${fresh.length}종 반영`,fresh.slice(0,3).map(x=>nmFor(x)).join(', ')+(fresh.length>3?` 외 ${fresh.length-3}종`:''));}catch(e){}
 }
 /* [v2.9.7] 앱을 켠 뒤 캐시 수명의 절반이 지났으면 뒤에서 조용히 새 목록을 받아 둔다.
    받는 동안 stockAll 은 옛 값을 그대로 유지하다가 끝날 때 한 번에 교체되므로
@@ -13100,6 +13282,7 @@ function folderOf(id){return watchFolders.find(f=>f.id===id)||null;}
 function renderWatch(){
   const w=$('watchWrap'); if(!w)return;
   _dqMemo=new Map();
+  safeRun('w:prime',nmPrime);                 /* [v17.8.46] 이름 모르는 관심종목은 먼저 묻는다 */
   if(watchTab!=='all'&&!folderOf(watchTab))watchTab='all';
   const cnt=(f)=>f.codes.filter(c=>watchlist.includes(c)).length;
   const tabHtml=(f)=>{
@@ -13131,6 +13314,9 @@ function renderWatch(){
     <button class="wl-mini${wlSelMode?' on':''}" id="wlSel">☑ 선택${wlSelMode?' 중':''}</button>
     <span class="wl-sp"></span><div class="wl-sort"><button class="${watchSortMode==='chg'?'on':''}" data-m="chg">등락순</button><button class="${watchSortMode==='mine'?'on':''}" data-m="mine">내 순서</button></div></div>`;
   const codes=curF.codes.filter(c=>watchlist.includes(c));
+  /* [v17.8.46] 서버에서 받은 관심종목이 byCode 에 없으면 표에서 통째로 사라졌다.
+     항목을 먼저 만들어 두면 이름을 기다리는 동안에도 줄이 유지된다. */
+  safeRun('w:ensure',()=>codes.forEach(c=>{if(!byCode[c])ensureStock(c,'','');}));
   /* [F4→v1.97] 폴더 요약 — 통계 카드 스트립(기준값 사용, 베스트/워스트 바로 이동) */
   let sumBar='';
   {const ch=codes.map(c=>byCode[c]).filter(Boolean).map(st=>({st,p:qBasis(st).chg})).filter(x=>x.p!=null);
@@ -13141,8 +13327,8 @@ function renderWatch(){
      sumBar=`<div class="wl-stats">
        <div class="ws-c"><span>상승 / 하락</span><b><i class="up">${up}</i> / <i class="down">${dn}</i></b></div>
        <div class="ws-c"><span>평균 등락</span><b class="num ${avg>=0?'up':'down'}">${pctS(avg)}</b></div>
-       <div class="ws-c click" data-code="${best.st.code}"><span>베스트</span><b>${anyLogo(best.st.code,best.st.name,'xs')}<u class="ws-nm">${best.st.name}</u> <i class="num up">${pctS(best.p)}</i></b></div>
-       ${ch.length>1?`<div class="ws-c click" data-code="${worst.st.code}"><span>워스트</span><b>${anyLogo(worst.st.code,worst.st.name,'xs')}<u class="ws-nm">${worst.st.name}</u> <i class="num down">${pctS(worst.p)}</i></b></div>`:''}
+       <div class="ws-c click" data-code="${best.st.code}"><span>베스트</span><b>${anyLogo(best.st.code,best.st.name,'xs')}<u class="ws-nm">${nmText(best.st.code)}</u> <i class="num up">${pctS(best.p)}</i></b></div>
+       ${ch.length>1?`<div class="ws-c click" data-code="${worst.st.code}"><span>워스트</span><b>${anyLogo(worst.st.code,worst.st.name,'xs')}<u class="ws-nm">${nmText(worst.st.code)}</u> <i class="num down">${pctS(worst.p)}</i></b></div>`:''}
        ${bs.mode!=='live'||/마지막|전일|금요일/.test(bs.label)?`<div class="ws-basis"><i class="lv-dot"></i>${bs.label}</div>`:''}
      </div>`;}}
   const rows=watchSortMode==='chg'?listByChange(codes):codes.map(c=>byCode[c]).filter(Boolean);
@@ -13154,7 +13340,8 @@ function renderWatch(){
       const sel=wlSelMode?`<label class="wl-ck" onclick="event.stopPropagation()"><input type="checkbox" data-sel="${s.code}" ${wlSelSet.has(s.code)?'checked':''}></label>`:'';
       const mv=(mine&&!wlSelMode)?`<span class="wl-mv"><button data-mv="-1" data-code="${s.code}" aria-label="위로">▲</button><button data-mv="1" data-code="${s.code}" aria-label="아래로">▼</button></span>`:'';
       const nxtB=nxtCapability(s.code)===true?'<span class="nxt-badge sm">NXT</span>':'';
-      return `<tr data-code="${s.code}"><td><div class="td-l">${sel}${mv}${anyLogo(s.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${nxtB}${s.tags&&s.tags[0]?`<span class="tag">${s.tags[0]}</span>`:mktTag(s.code,s.market)}<button class="wl-fd" data-fd="${s.code}" aria-label="폴더에 담기">폴더</button><br><span class="cd num">${codeLine(s.code,s.market)}</span></div></div></td>
+      const wnm=nmText(s.code);
+      return `<tr data-code="${s.code}"><td><div class="td-l">${sel}${mv}${anyLogo(s.code,wnm)}<div class="td-t"><span class="nm">${wnm}</span>${nxtB}${s.tags&&s.tags[0]?`<span class="tag">${s.tags[0]}</span>`:mktTag(s.code,s.market)}<button class="wl-fd" data-fd="${s.code}" aria-label="폴더에 담기">폴더</button><br><span class="cd num">${codeLine(s.code,s.market)}</span></div></div></td>
       <td class="num ${wv.dir}" id="wpx-${s.code}">${wv.px}</td><td class="num ${wv.dir}">${wv.diff}</td>
       <td class="num ${wv.dir}">${wv.rate}</td><td class="cdl-td" id="wcd-${s.code}">${miniCandle(s.code)}</td><td class="num">${wv.vol}</td>
       <td>${targetCell(s.code)}</td></tr>`;}).join('')+`</tbody></table></div>`;
@@ -13284,7 +13471,7 @@ function openFolderPop(code,btn){
   const d=document.createElement('div'); d.className='fd-pop'; _fdPop=d;
   const list=watchFolders.length?watchFolders.map(f=>`<label class="fd-it"><input type="checkbox" data-f="${htmlEsc(f.id)}" ${f.codes.includes(code)?'checked':''}> ${f.icon?htmlEsc(f.icon)+' ':''}${htmlEsc(f.name)} <i>${f.codes.filter(c=>watchlist.includes(c)).length}</i></label>`).join('')
     :'<div class="fd-none">아직 폴더가 없어요. 아래에서 바로 만들 수 있어요.</div>';
-  d.innerHTML=`<div class="fd-hd">${s.name} · 폴더 담기</div>${list}<button class="fd-new">＋ 새 폴더 만들어 담기</button>`;
+  d.innerHTML=`<div class="fd-hd">${nmText(s.code)} · 폴더 담기</div>${list}<button class="fd-new">＋ 새 폴더 만들어 담기</button>`;
   document.body.appendChild(d);
   /* [사소#5] 화면 아래쪽이면 버튼 위로 뒤집어 뷰포트 밖으로 안 나가게 */
   const r=btn.getBoundingClientRect(), ph=d.offsetHeight;
@@ -13305,7 +13492,7 @@ function openFolderPop(code,btn){
     else f.codes=f.codes.filter(c=>c!==code);
     syncWatchUnion();                                   // [v1.99] 관심 = 폴더 합집합
     const after=watchlist.includes(code);
-    if(!before&&after){feed&&feed.addCode(code);toast('buy','관심종목 추가',`${(byCode[code]&&byCode[code].name)||code} → ${f.icon?f.icon+' ':''}${f.name}`);}
+    if(!before&&after){feed&&feed.addCode(code);toast('buy','관심종목 추가',`${nmText(code)} → ${f.icon?f.icon+' ':''}${f.name}`);}
     if(before&&!after)toast('warn','관심종목 해제','모든 폴더에서 빠졌습니다');
     if(typeof updateStar==='function'&&selected===code)updateStar();try{updateSideStar();}catch(e){}
     saveState();
@@ -13503,7 +13690,7 @@ function renderStockSidePanel(code,preserveScroll=false){
   const diff=hasPx&&hasPrev?px-prev:null;
   const rate=diff!=null?diff/prev*100:null;
   const dir=diff==null?'flat':dirOf(diff);
-  const name=s.name||code;
+  const name=nmText(code);
   const market=s.market||mktCache[String(code).toUpperCase()]||'KRX';
   const nxt=nxtCapability(code)===true;
   loadSideIntraday(code);
@@ -13557,11 +13744,11 @@ function updateSideStar(){
 }
 async function sideStarClick(){
   const code=stockSideCode;if(!code)return;
-  if(!(usMeta&&usMeta[code])){ try{ensureStock(code,(byCode[code]&&byCode[code].name)||code,'');}catch(e){} }
+  if(!(usMeta&&usMeta[code])){ try{ensureStock(code,stkNm(code),'');}catch(e){} }
   if(!watchFolders.length){
     const f=await newFolderFlow([code]);
     if(f){syncWatchUnion();feed&&feed.addCode(code);saveState();
-      toast('buy','관심종목 추가',`${(byCode[code]&&byCode[code].name)||code} → ${f.icon?f.icon+' ':''}${f.name}`);
+      toast('buy','관심종목 추가',`${nmText(code)} → ${f.icon?f.icon+' ':''}${f.name}`);
       updateSideStar();try{renderWatch();}catch(e){}safeRun('mysum',renderMySum);safeRun('mysumtidy',tidyMySum);}
     return;
   }
@@ -13818,7 +14005,7 @@ $('starBtn').onclick=async()=>{
   if(!watchFolders.length){
     const f=await newFolderFlow([code]);
     if(f){syncWatchUnion();feed&&feed.addCode(code);saveState();
-      toast('buy','관심종목 추가',`${(byCode[code]&&byCode[code].name)||code} → ${f.icon?f.icon+' ':''}${f.name}`);
+      toast('buy','관심종목 추가',`${nmText(code)} → ${f.icon?f.icon+' ':''}${f.name}`);
       updateStar();renderWatch();safeRun('mysum',renderMySum);safeRun('mysumtidy',tidyMySum);}
     return;
   }
@@ -13904,7 +14091,7 @@ function renderDetail(){
   const _px=_dq.price!=null?_dq.price:s.price, _pv=_dq.prevClose||s.prevClose;
   const has=_px!=null&&!!_pv;
   const diff=has?_px-_pv:0,p=has?diff/_pv*100:0,dir=has?dirOf(diff):'flat';
-  $('dName').innerHTML=`${anyLogo(s.code,s.name,'lg')}${s.name}${mktTag(s.code,s.market)}`;
+  $('dName').innerHTML=`${anyLogo(s.code,nmText(s.code),'lg')}${nmText(s.code)}${mktTag(s.code,s.market)}`;
   $('dCode').innerHTML=s.code+' · '+(isFundLike(s.code)?'상장지수상품(ETF)':(s.market||mktCache[String(s.code).toUpperCase()]||'KRX'))+(function(){const cap=nxtCapability(s.code);
     if(cap===true)return NXTLIST.halted.has(s.code)
       ? ' <span class="nxt-badge halt" title="NXT 매매체결대상이지만 현재 매매거래정지 상태입니다">NXT 거래정지</span>'
@@ -14277,7 +14464,7 @@ function etfSimilarHtml(sim){
   if(!sim||!sim.length)return '';
   return `<div class="etf-sec-t">유사한 ETF 비교</div>
     <div class="etf-sim-h"><span>ETF명</span><span>등락률</span><span>3개월</span><span>순자산</span></div>
-    ${sim.map(s=>`<div class="etf-sim-r" data-code="${s.code}"><span class="etf-sim-n">${s.name}</span>
+    ${sim.map(s=>`<div class="etf-sim-r" data-code="${s.code}"><span class="etf-sim-n">${nmText(s.code)}</span>
       <span class="num ${dirOf(s.changeRate)}">${s.changeRate==null?'—':EPCT(s.changeRate)}</span>
       <span class="num ${dirOf(s.m3)}">${s.m3==null?'—':EPCT(s.m3)}</span>
       <span class="num">${eokWon(s.marketSum)}</span></div>`).join('')}`;
@@ -14414,7 +14601,7 @@ function renderInfo(){
     const s=byCode[selected]||{};
     el.innerHTML=`<div class="etf-note">
       <div class="etf-note-t">${infoTab==='finance'?'ETF·ETN은 재무제표가 없습니다':'ETF·ETN은 실적 컨센서스가 없습니다'}</div>
-      <div class="etf-note-d">${s.name||selected}은(는) 개별 기업이 아니라 여러 종목을 담은 <b>상장지수상품</b>이라, 손익계산서·재무상태표나 증권사 목표주가가 제공되지 않습니다.<br>
+      <div class="etf-note-d">${nmText(selected)}은(는) 개별 기업이 아니라 여러 종목을 담은 <b>상장지수상품</b>이라, 손익계산서·재무상태표나 증권사 목표주가가 제공되지 않습니다.<br>
       대신 <b>ETF정보 · 종목요약 · 차트 · 시세 · 뉴스</b> 탭에서 구성종목·NAV·보수율과 가격 정보를 확인하실 수 있습니다.</div>
     </div>`;
     return;
@@ -14881,7 +15068,7 @@ function buildBizSummary(){
   if(isFundLike(code)&&curEtf){
     /* [v2.5.4] ETF·ETN도 최소 5문장 서술형 — 기초지수·운용사·순자산·보수·성과·유의사항 */
     const i=curEtf.info||{},m=curEtf.metrics||{};
-    const nm=s.name||code,eun=josaEun(nm);
+    const nm=nmText(code),eun=josaEun(nm);
     const kind=/ETN/i.test(nm)?'상장지수증권(ETN)':'상장지수펀드(ETF)';
     const es=[];
     if(i.summary)es.push(...(smoothBizText(i.summary,nm)||[i.summary]));
@@ -14926,7 +15113,7 @@ function buildBizSummary(){
   const _ovText=[(curFund&&Array.isArray(curFund.overview))?curFund.overview.join(' '):'',
     curFund&&curFund.desc||'',BIZ_DESC[code]||''].filter(Boolean).join(' ');
   const bizTags=bizDetectTags(code,s,sector,_ovText);
-  const easy=bizEasySentences(s.name||code,bizTags,code,sector,_ovText);
+  const easy=bizEasySentences(nmText(code),bizTags,code,sector,_ovText);
   const facts=bizDataSentences(code,s,sector,!overviewSents.length);
   const fillers=bizFillerSentences(code,s,sector);
   /* 중복 판정은 문장 앞 12자 잘라 비교하지 않는다. 서로 다른 분야 문장이 같은 접두어를
@@ -14942,7 +15129,7 @@ function buildBizSummary(){
   const tail=easyTail.slice(0,6);
   const coreLimit=Math.max(0,14-tail.length);
   let sents=base.slice(0,coreLimit).concat(tail).slice(0,14);
-  if(!sents.length)sents=tail.length?tail:[`${s.name||code}의 사업 정보는 최신 기업개요와 공시를 기준으로 확인해야 합니다.`];
+  if(!sents.length)sents=tail.length?tail:[`${nmText(code)}의 사업 정보는 최신 기업개요와 공시를 기준으로 확인해야 합니다.`];
   const P_=(t)=>`<p class="biz-p">${t}</p>`;
   const fullTxt=sents.map(P_).join('');
   /* 접힌 미리보기에서도 분야별 풀이가 보이도록, 긴 요약은 앞 5문장 + 끝 2문장으로 표시한다.
@@ -14972,7 +15159,7 @@ function eokFromKr(v){
 /* ── 데이터로 만드는 서술 문장들 ── */
 function bizDataSentences(code,s,sector,lead){
   const out=[];
-  const nm=s.name||code,eun=josaEun(nm);
+  const nm=nmText(code),eun=josaEun(nm);
   const mk=marketInfo(code).label;
   const q=dispQuote(code)||{};
   const px=q.price!=null?q.price:s.price, pv=q.prevClose||s.prevClose;
@@ -15066,7 +15253,7 @@ function bizDataSentences(code,s,sector,lead){
 }
 /* ── 5문장을 채우기 위한 보조 문장(항상 사실 기반) ── */
 function bizFillerSentences(code,s,sector){
-  const out=[],nm=s.name||code,mk=marketInfo(code).label;
+  const out=[],nm=nmText(code),mk=marketInfo(code).label;
   if(nxtCapability(code)===true)
     out.push(`${nm}${josaEun(nm)} 대체거래소 넥스트레이드(NXT)에서도 거래돼 정규장 전후(오전 8시~오후 8시)에도 매매할 수 있는 종목입니다.`);
   if(s.tags&&s.tags.length)
@@ -15893,7 +16080,7 @@ function renderTaxReport(){
     </div>`:''}
     <div class="tx-list-h">거래별 내역 <span>${rows.length}건</span></div>
     <div class="tx-list">${rows.slice().sort((a,b)=>b.ts-a.ts).slice(0,80).map(x=>{
-      const nm=x.us?((usMeta[x.code]||{}).kr||x.code):((byCode[x.code]||{}).name||x.code);
+      const nm=x.us?((usMeta[x.code]||{}).kr||x.code):nmText(x.code);
       const d=new Date(x.ts);
       return `<div class="tx-r">
         <span class="tx-d">${d.getMonth()+1}/${d.getDate()}</span>
@@ -16427,7 +16614,7 @@ function siseCsv(code){
   if(!tierAllow('csv')){ tierBlockFeat('csv','시세 CSV 내려받기','표를 파일로 저장해 엑셀에서 보실 수 있어요'); return; }
   try{
     /* [v17.8.42] 화면에 보이는 그 표를 그대로 내려받는다(정규 종가 / 최종가 보기 모두) */
-    const nm=(byCode[code]||{}).name||code;
+    const nm=nmText(code);
     const PL=_sumPL[String(code||'').toUpperCase()];
     if(PL&&PL.length){
       const fin=sisePriceMode==='final';
@@ -17125,7 +17312,7 @@ function renderAiStock(el,force){
   const code=selected,now=Date.now();
   if(!force&&el.dataset.ai===code&&el.querySelector('.ai-wrap')&&now-_aiLast<2500)return;
   const a=aiCompute(code);
-  const nm=(byCode[code]&&byCode[code].name)||code;
+  const nm=nmText(code);
   if(!a){el.innerHTML='<div class="empty">시세 수신 중…</div>';el.dataset.ai=code;return;}
   if(a.short){
     /* 받아오긴 했으나 상장 기간이 짧아 지표를 만들 수 없는 종목 — 되풀이하지 않는다 */
@@ -17390,15 +17577,18 @@ try{window.addEventListener('resize',()=>{clearTimeout(window._hhT);window._hhT=
 function renderHoldings(){
   const _pt0=window.__perfOn?_perfNowMs():0;
   safeRun('h:head',holdHeadFit);
+  safeRun('h:prime',nmPrime);                 /* [v17.8.46] 이름 모르는 보유 종목은 먼저 묻는다 */
   const totEval=holdings.reduce((a,h)=>a+hEvalKRW(h),0)||1;
   const hc=$('holdCount');if(hc)hc.textContent=holdings.length?`· ${holdings.length}종목 · 평가 ${KRW(totEval)}원`:'';
   safeRun('h:rows',()=>{
-  $('holdBody').innerHTML=holdings.length? holdings.map(h=>{const s=byCode[h.code]||{name:h.code,price:null,prevClose:null,market:''},price=livePx(h.code,h.avg)??h.avg;
+  $('holdBody').innerHTML=holdings.length? holdings.map(h=>{const s=byCode[h.code]||{price:null,prevClose:null,market:''},price=livePx(h.code,h.avg)??h.avg;
+    /* [v17.8.46] 이름 자리에 코드를 절대 넣지 않는다 — 모르면 '—', 도착하면 다시 그린다 */
+    const nm=h.us?((usMeta[h.code]||{}).kr||h.code):nmText(h.code);
     /* [v4.28] 해외 보유: 단가는 $, 평가·손익은 원화 환산 */
     const evalAmt=hEvalKRW(h),cost=hCostKRW(h),pnl=evalAmt-cost,rate=cost?pnl/cost*100:0,dir=dirOf(pnl);
     const wgt=evalAmt/totEval*100;
     const P=(v)=>h.us?('$'+USD2(v)):KRW(v);
-    return `<tr data-code="${h.code}" ${h.us?'data-usopen="1"':''}><td><div class="td-l">${h.us?usTick(h.code):anyLogo(h.code,s.name)}<div class="td-t"><span class="nm">${s.name}</span>${h.us?'<span class="mkt-tag nxt" style="background:#1d3f8f">🇺🇸 미국</span>':mktTag(h.code,s.market)}<br><span class="cd num">${h.us?h.code:codeLine(h.code,s.market)}</span></div></div></td>
+    return `<tr data-code="${h.code}" ${h.us?'data-usopen="1"':''}><td><div class="td-l">${h.us?usTick(h.code):anyLogo(h.code,nm)}<div class="td-t"><span class="nm">${nm}</span>${h.us?'<span class="mkt-tag nxt" style="background:#1d3f8f">🇺🇸 미국</span>':mktTag(h.code,s.market)}<br><span class="cd num">${h.us?h.code:codeLine(h.code,s.market)}</span></div></div></td>
       <td class="num">${h.us?fmtQty(h.qty):KRW(h.qty)}</td><td class="num">${P(h.avg)}</td>
       <td class="num ${s.price!=null?dirOf(s.price-s.prevClose):'flat'}">${P(price)}</td>
       <td class="num">${KRW(evalAmt)}</td><td class="num ${dir}">${signed(pnl)}</td><td class="num ${dir}">${pctS(rate)}</td>
@@ -17573,7 +17763,7 @@ function foState(h,light){
   }
   const days=h.buyAt?Math.floor((Date.now()-h.buyAt)/864e5):null;
   const hz=FO_HORIZON[p.horizon||'swing'];
-  const out={h,us,code:h.code,name:us?((usMeta[h.code]||{}).kr||h.code):(s.name||h.code),
+  const out={h,us,code:h.code,name:us?((usMeta[h.code]||{}).kr||h.code):nmText(h.code),
     px,cost,ev,pnl,rate,days,plan:p,hz,alerts:[],feat:null};
   /* 계획 대비 위치 */
   if(p.stop!=null&&px<=p.stop)out.alerts.push({lv:3,k:'손절선 이탈',d:`계획한 손절선 ${us?('$'+USD2(p.stop)):KRW(p.stop)}을 밑돌았습니다`});
@@ -17649,7 +17839,7 @@ function foRenderTodo(list){
     <div class="ft-list">${items.slice(0,8).map(({st,a})=>`
       <button type="button" class="ft-i ${FO_LV[a.lv]}" data-code="${st.code}"${st.us?' data-us="1"':''}>
         <span class="fi-lv">${a.lv>=3?'🔴':a.lv===2?'🟠':'🟡'}</span>
-        <span class="fi-b"><b>${htmlEsc(st.name)}</b><i>${htmlEsc(a.k)}</i>
+        <span class="fi-b"><b>${htmlEsc(nmText(st.code))}</b><i>${htmlEsc(a.k)}</i>
           <span class="fi-d">${htmlEsc(a.d)}</span></span>
         <span class="fi-r num ${dirOf(st.pnl)}">${pctS(st.rate)}</span>
       </button>`).join('')}</div>
@@ -17731,7 +17921,7 @@ function foRenderCards(list){
     return `<div class="fo-card ${FO_LV[st.lv]}">
       <div class="fc-h">
         ${st.us?usTick(st.code):anyLogo(st.code,st.name)}
-        <div class="fc-t"><b>${htmlEsc(st.name)}</b>
+        <div class="fc-t"><b>${htmlEsc(nmText(st.code))}</b>
           <span>${st.us?'🇺🇸 미국':''} ${st.h.qty}주 · 평단 ${foMoney(st,st.h.avg)}${st.days!=null?` · 보유 ${st.days}일`:''}</span></div>
         <div class="fc-p num ${dirOf(st.pnl)}">${pctS(st.rate)}<i>${signed(st.pnl)}원</i></div>
       </div>
@@ -17914,7 +18104,7 @@ function foPlanModal(code){
   const h=(holdings||[]).find(x=>x&&x.code===code); if(!h)return;
   const p=foPlan(h), st=foState(h);
   const M=(v)=>h.us?USD2(v):String(Math.round(v));
-  openLiteGate(`계획 · ${htmlEsc(st.name)}`,`
+  openLiteGate(`계획 · ${htmlEsc(nmText(st.code))}`,`
     <div class="fld2"><label>왜 샀나요 (근거)</label>
       <select id="fpWhy">${['대량 돌파','눌림목','스프링','털어내기','20일선 회복','OBV 선행','실적·뉴스','장기 보유','수동']
         .map(o=>`<option${p.why===o?' selected':''}>${o}</option>`).join('')}</select></div>
@@ -18019,7 +18209,7 @@ function pfCompute(from,to){
   const buys=rows.filter(t=>t.side==='buy'), sells=rows.filter(t=>t.side==='sell');
   const ev=sells.map(t=>{
     const qty=+t.qty||0, avg=+t.avg||0;
-    return {ts:t.ts,date:pfDay(t),code:t.code,name:t.name||t.code,us:!!t.us,
+    return {ts:t.ts,date:pfDay(t),code:t.code,name:nmFor(t),us:!!t.us,
       cost:Math.round(toKRW(t,avg*qty)), pnl:Math.round(+t.pnl||0), fee:Math.round((+t.fee||0)+(+t.tax||0))};
   });
   const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
@@ -18194,7 +18384,7 @@ function pfReportHtml(m,sc){
     return `<div class="pf-axis${v<45?' lo':''}" style="--i:${i};--w:${v}%"><span>${a.n}<em>${Math.round(a.w*100)}%</em></span><div><i></i></div><b class="num">${v}</b></div>`; }).join('');
   const comments=pfComments(m,sc).map((c,i)=>`<div class="pf-cm" style="--i:${i}"><span class="pf-cm-i">${c.i}</span><div><em>${c.k}</em><p>${c.t}</p></div></div>`).join('');
   const stk=m.stocks, mx=Math.max(1,...stk.map(s=>Math.abs(s.pnl)));
-  const stkRows=stk.slice(0,6).map(s=>`<div class="pf-st"><span class="pf-st-n">${htmlEsc(s.name)}${s.us?' <i>🇺🇸</i>':''}<em>${s.n}회 매도</em></span>
+  const stkRows=stk.slice(0,6).map(s=>`<div class="pf-st"><span class="pf-st-n">${htmlEsc(nmText(s.code))}${s.us?' <i>🇺🇸</i>':''}<em>${s.n}회 매도</em></span>
       <div class="pf-st-bar"><i class="${s.pnl>=0?'up':'down'}" style="width:${Math.max(4,Math.abs(s.pnl)/mx*100).toFixed(0)}%"></i></div>
       <b class="num ${s.pnl>=0?'up':'down'}">${signed(s.pnl)}</b></div>`).join('');
   return `
@@ -20557,11 +20747,11 @@ function placePendingOrder(s,o){
   subscribeAutoCodes();saveState();
   const q=dispQuote(s.code)||{}, cur=(q.price!=null)?q.price:s.price;
   if(lockTag==='up'){
-    toast('warn','상한가 매수 대기로 접수',`${s.name} 매수 ${KRW(qty)}주 · ${KRW(price)}원 · 상한가에서 팔 물량이 없어 지금은 체결되지 않습니다 · 잠금이 풀리면 체결`);
+    toast('warn','상한가 매수 대기로 접수',`${nmText(s.code)} 매수 ${KRW(qty)}주 · ${KRW(price)}원 · 상한가에서 팔 물량이 없어 지금은 체결되지 않습니다 · 잠금이 풀리면 체결`);
   }else if(lockTag==='down'){
-    toast('warn','하한가 매도 대기로 접수',`${s.name} 매도 ${KRW(qty)}주 · ${KRW(price)}원 · 하한가에서 살 물량이 없어 지금은 체결되지 않습니다 · 잠금이 풀리면 체결`);
+    toast('warn','하한가 매도 대기로 접수',`${nmText(s.code)} 매도 ${KRW(qty)}주 · ${KRW(price)}원 · 하한가에서 살 물량이 없어 지금은 체결되지 않습니다 · 잠금이 풀리면 체결`);
   }else{
-    toast('on','미체결 주문 접수',`${s.name} ${o.side==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 · 현재가 ${KRW(cur)}원 → ${KRW(price)}원에 닿으면 체결`);
+    toast('on','미체결 주문 접수',`${nmText(s.code)} ${o.side==='buy'?'매수':'매도'} ${KRW(qty)}주 · ${KRW(price)}원 · 현재가 ${KRW(cur)}원 → ${KRW(price)}원에 닿으면 체결`);
   }
   setQty(0);syncMaxQty();
   if(currentView==='account')safeRun('autocard',renderAutoCard);
@@ -20604,7 +20794,7 @@ function renderOrderHeader(){
   const price=q.price!=null?q.price:st.price,prev=q.prevClose||st.prevClose;
   const diff=price!=null&&prev?price-prev:0,rate=price!=null&&prev?diff/prev*100:0,dir=dirOf(diff);
   const nm=$('orderStockName'),cd=$('orderStockCode'),px=$('orderStockPrice'),ch=$('orderStockChange');
-  if(nm)nm.textContent=st.name||selected||'—';
+  if(nm)nm.textContent=nmText(selected);
   if(cd)cd.textContent=(st.code||selected)+' · '+(st.market||mktCache[String(selected).toUpperCase()]||'KRX');
   if(px){px.textContent=price!=null?KRW(price)+'원':'시세 확인 중';px.className='num '+dir;}
   if(ch){ch.textContent=price!=null&&prev?`${diff>0?'▲':diff<0?'▼':'—'} ${KRW(Math.abs(diff))}원 (${rate>0?'+':''}${rate.toFixed(2)}%)`:'전일 대비 —';ch.className='num '+dir;}
@@ -20663,7 +20853,7 @@ function renderOrderManage(){
   const list=orderScopedPending();
   if(!list.length){el.innerHTML=orderEmpty('정정하거나 취소할 주문이 없습니다','새 지정가 주문이 접수되면 이곳에서 가격·수량을 바꾸거나 취소할 수 있습니다.');return;}
   el.innerHTML=`<div class="order-list-summary"><div><span>대기 주문</span><b>${list.length.toLocaleString('ko-KR')}건</b></div><div><span>매수 예약 금액</span><b>${KRW(list.filter(o=>o.side==='buy').reduce((n,o)=>n+orderCost('buy',o.price,o.qty).cost,0))}원</b></div><div><span>매도 예약 수량</span><b>${KRW(list.filter(o=>o.side==='sell').reduce((n,o)=>n+(+o.qty||0),0))}주</b></div></div>`
-   +`<div class="order-record-list">${list.map(o=>`<article class="order-record"><div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div><div class="order-record-values"><div><span>주문가격</span><b class="num">${KRW(o.price)}원</b></div><div><span>주문수량</span><b class="num">${KRW(o.qty)}주</b></div><div><span>상태</span><b class="wait-state">${pendLockTag(o)?(pendLockTag(o)==='up'?'상한가 매수대기':'하한가 매도대기'):'미체결 대기'}</b></div></div><div class="order-record-actions"><button type="button" class="order-revise-btn" data-order-revise="${htmlEsc(o.id)}">정정</button><button type="button" class="order-cancel-btn" data-order-cancel="${htmlEsc(o.id)}">주문 취소</button></div></article>`).join('')}</div>`;
+   +`<div class="order-record-list">${list.map(o=>`<article class="order-record"><div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(nmFor(o))}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div><div class="order-record-values"><div><span>주문가격</span><b class="num">${KRW(o.price)}원</b></div><div><span>주문수량</span><b class="num">${KRW(o.qty)}주</b></div><div><span>상태</span><b class="wait-state">${pendLockTag(o)?(pendLockTag(o)==='up'?'상한가 매수대기':'하한가 매도대기'):'미체결 대기'}</b></div></div><div class="order-record-actions"><button type="button" class="order-revise-btn" data-order-revise="${htmlEsc(o.id)}">정정</button><button type="button" class="order-cancel-btn" data-order-cancel="${htmlEsc(o.id)}">주문 취소</button></div></article>`).join('')}</div>`;
   el.querySelectorAll('[data-order-revise]').forEach(b=>b.onclick=()=>openOrderModify(b.dataset.orderRevise));
   el.querySelectorAll('[data-order-cancel]').forEach(b=>b.onclick=()=>{cancelPending(b.dataset.orderCancel);renderOrderManage();});
   /* [v17.8.39] 호가 팝업의 '정정/취소'로 들어온 경우 — 그 가격의 미체결 주문을 표시한다.
@@ -20687,10 +20877,10 @@ function renderOrderHistory(){
   const pending=orderScopedPending(),fills=orderScopedFills();
   const selectedRows=orderHistoryFilter==='filled'?fills:orderHistoryFilter==='pending'?pending:[];
   const htmlTabs=`<div class="order-history-filters"><button type="button" data-history-filter="all" class="${orderHistoryFilter==='all'?'on':''}">전체</button><button type="button" data-history-filter="filled" class="${orderHistoryFilter==='filled'?'on':''}">체결 ${fills.length}</button><button type="button" data-history-filter="pending" class="${orderHistoryFilter==='pending'?'on':''}">미체결 ${pending.length}</button></div>`;
-  const pendingHtml=pending.map(o=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="wait-state">${pendLockTag(o)?(pendLockTag(o)==='up'?'상한가 매수대기':'하한가 매도대기'):'미체결'}</span></div><div class="order-history-meta"><span>${KRW(o.price)}원 · ${KRW(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
+  const pendingHtml=pending.map(o=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(nmFor(o))}</b><span class="wait-state">${pendLockTag(o)?(pendLockTag(o)==='up'?'상한가 매수대기':'하한가 매도대기'):'미체결'}</span></div><div class="order-history-meta"><span>${KRW(o.price)}원 · ${KRW(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
   /* [v17.8.44] 체결가가 내가 쓴 주문가와 다를 때 그 사실을 같이 적는다 —
      '내가 171,700원에 걸었는데 왜 172,400원이지?'에서 멈추지 않게. */
-  const fillsHtml=fills.slice(0,100).map(t=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(t.side)}<b>${htmlEsc(t.name||selected)}</b><span class="filled-state">체결 완료</span></div><div class="order-history-meta"><span>${KRW(t.price)}원 · ${KRW(t.qty)}주</span><span>${orderWhen(t.ts)}</span></div>${t.orderPx?`<div class="order-history-note">주문가 ${KRW(t.orderPx)}원 → 체결 ${KRW(t.price)}원 (${t.side==='buy'?'지정가 이하':'지정가 이상'} 체결)</div>`:''}<div class="order-history-amount">${t.side==='sell'&&t.pnl!=null?`실현손익 <b class="num ${dirOf(t.pnl)}">${t.pnl>0?'+':''}${KRW(t.pnl)}원</b>`:`거래금액 <b class="num">${KRW(t.amount||((+t.price||0)*(+t.qty||0)))}원</b>`}</div></article>`).join('');
+  const fillsHtml=fills.slice(0,100).map(t=>`<article class="order-history-row"><div class="order-history-main">${orderSideTag(t.side)}<b>${htmlEsc(nmFor(t))}</b><span class="filled-state">체결 완료</span></div><div class="order-history-meta"><span>${KRW(t.price)}원 · ${KRW(t.qty)}주</span><span>${orderWhen(t.ts)}</span></div>${t.orderPx?`<div class="order-history-note">주문가 ${KRW(t.orderPx)}원 → 체결 ${KRW(t.price)}원 (${t.side==='buy'?'지정가 이하':'지정가 이상'} 체결)</div>`:''}<div class="order-history-amount">${t.side==='sell'&&t.pnl!=null?`실현손익 <b class="num ${dirOf(t.pnl)}">${t.pnl>0?'+':''}${KRW(t.pnl)}원</b>`:`거래금액 <b class="num">${KRW(t.amount||((+t.price||0)*(+t.qty||0)))}원</b>`}</div></article>`).join('');
   let records='';
   if(orderHistoryFilter==='all')records=(pendingHtml?`<div class="order-subheading">미체결 · ${pending.length}건</div>${pendingHtml}`:'')+(fillsHtml?`<div class="order-subheading">체결 · ${fills.length}건</div>${fillsHtml}`:'');
   else if(orderHistoryFilter==='filled')records=fillsHtml;
@@ -20705,7 +20895,7 @@ function renderOrderReserve(){
   const reservedSell=list.filter(o=>o.side==='sell').reduce((n,o)=>n+(+o.qty||0),0);
   const intro=`<div class="reserve-explainer"><div class="reserve-explainer-icon">◷</div><div><b>가격 조건 예약 주문</b><p>지정한 가격 조건에 도달하기 전까지 주문이 대기합니다. 미체결 매수는 예수금을, 미체결 매도는 보유 수량을 예약 상태로 묶어 중복 주문을 방지합니다.</p></div></div><div class="order-list-summary reserve-summary"><div><span>예약 주문</span><b>${list.length}건</b></div><div><span>예약 예수금</span><b>${KRW(reservedBuy)}원</b></div><div><span>예약 매도 수량</span><b>${KRW(reservedSell)}주</b></div></div>`;
   if(!list.length){el.innerHTML=intro+orderEmpty('예약된 주문이 없습니다','매수 또는 매도 화면에서 지정가 주문을 접수하면 가격 조건 예약 내역이 이곳에 표시됩니다.');return;}
-  el.innerHTML=intro+`<div class="order-record-list">${list.map(o=>`<article class="order-record reserve-record"><div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(o.name||selected)}</b><span class="reserve-live-state">가격 도달 대기</span></div><div class="order-record-values"><div><span>조건 가격</span><b class="num">${KRW(o.price)}원</b></div><div><span>수량</span><b class="num">${KRW(o.qty)}주</b></div><div><span>접수 시각</span><b>${orderWhen(o.createdAt)}</b></div></div><div class="order-record-actions"><button type="button" class="order-revise-btn" data-order-revise="${htmlEsc(o.id)}">조건 정정</button><button type="button" class="order-cancel-btn" data-order-cancel="${htmlEsc(o.id)}">예약 취소</button></div></article>`).join('')}</div>`;
+  el.innerHTML=intro+`<div class="order-record-list">${list.map(o=>`<article class="order-record reserve-record"><div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(nmFor(o))}</b><span class="reserve-live-state">가격 도달 대기</span></div><div class="order-record-values"><div><span>조건 가격</span><b class="num">${KRW(o.price)}원</b></div><div><span>수량</span><b class="num">${KRW(o.qty)}주</b></div><div><span>접수 시각</span><b>${orderWhen(o.createdAt)}</b></div></div><div class="order-record-actions"><button type="button" class="order-revise-btn" data-order-revise="${htmlEsc(o.id)}">조건 정정</button><button type="button" class="order-cancel-btn" data-order-cancel="${htmlEsc(o.id)}">예약 취소</button></div></article>`).join('')}</div>`;
   el.querySelectorAll('[data-order-revise]').forEach(b=>b.onclick=()=>openOrderModify(b.dataset.orderRevise));
   el.querySelectorAll('[data-order-cancel]').forEach(b=>b.onclick=()=>{cancelPending(b.dataset.orderCancel);renderOrderReserve();});
 }
@@ -20730,7 +20920,7 @@ function openOrderModify(id){
       live.price=price;live.qty=qty;live.updatedAt=Date.now();saveState();close();toast('buy','예약 주문 정정 완료',`${KRW(price)}원 · ${KRW(qty)}주로 변경했습니다.`);renderOrderWorkspace();
     };
   }
-  ov.dataset.orderId=id;$('orderEditInfo').textContent=`${o.name||o.code} · ${o.side==='buy'?'매수':'매도'} · ${orderWhen(o.createdAt)}`;$('orderEditPrice').value=o.price;$('orderEditQty').value=o.qty;ov.hidden=false;
+  ov.dataset.orderId=id;$('orderEditInfo').textContent=`${nmFor(o)} · ${o.side==='buy'?'매수':'매도'} · ${orderWhen(o.createdAt)}`;$('orderEditPrice').value=o.price;$('orderEditQty').value=o.qty;ov.hidden=false;
 }
 function renderOrderWorkspace(){
   renderOrderHeader();
@@ -20785,7 +20975,7 @@ function executeOrderCore(s,o,tag){   /* o.bookId: 미체결 주문이 닿아 �
     cash=intOf(cash-c.cost,0);
     const h=holdings.find(x=>x.code===s.code);
     if(h){h.avg=Math.round((intOf(h.avg,price)*intOf(h.qty,0)+amount)/(intOf(h.qty,0)+qty));h.qty=intOf(h.qty,0)+qty;}
-    else holdings.push({code:s.code,qty,avg:price});
+    else holdings.push({code:s.code,qty,avg:price,name:nmText(s.code)});
     try{ foSeedPlan(s.code,price,false); }catch(e){}   /* [v9.72] 살 때 계획을 자동으로 심는다 */
     toast('buy',s.name+' 매수 체결(모의)'+(tag?` · ${tag}`:''),`${KRW(qty)}주 · ${KRW(price)}원 · 결제 ${KRW(c.cost)}원 · 잔고 ${KRW(cash)}원`);
   }else{
@@ -21538,7 +21728,7 @@ function ptDiagnosticsRender(){
   const el=$('ptDiagnosticBody');if(!el)return;const s=ptStats||{};
   const samples=ptDiagnostics.slice(0,50);
   el.innerHTML=`<div class="pt-diag-summary">대상 ${(s.total||0).toLocaleString()} · 검사 ${(s.checked||0).toLocaleString()} · 패턴 불일치 ${(s.noMatch||0).toLocaleString()} · 일봉 없음 ${(s.noData||0).toLocaleString()} · 35봉 미만 ${(s.shortData||0).toLocaleString()} · 요청/API 오류 ${(s.errors||0).toLocaleString()}</div>`+
-    (samples.length?`<div class="pt-diag-list">${samples.map(x=>`<div><b>${htmlEsc(x.name||x.code||'종목 미확인')}</b><span>${htmlEsc(x.code||'')}</span><i>${htmlEsc(x.reason||'원인 미확인')}</i></div>`).join('')}</div>${ptDiagnostics.length>samples.length?`<div class="pt-diag-more">최대 50건만 표시했습니다. 나머지는 요약 수치에 포함됩니다.</div>`:''}`:'<div class="empty sm">데이터 조회 오류나 기간 부족 항목이 없습니다. 패턴이 발견되지 않은 종목은 정상적인 미일치로 집계합니다.</div>');
+    (samples.length?`<div class="pt-diag-list">${samples.map(x=>`<div><b>${htmlEsc(nmFor(x))}</b><span>${htmlEsc(x.code||'')}</span><i>${htmlEsc(x.reason||'원인 미확인')}</i></div>`).join('')}</div>${ptDiagnostics.length>samples.length?`<div class="pt-diag-more">최대 50건만 표시했습니다. 나머지는 요약 수치에 포함됩니다.</div>`:''}`:'<div class="empty sm">데이터 조회 오류나 기간 부족 항목이 없습니다. 패턴이 발견되지 않은 종목은 정상적인 미일치로 집계합니다.</div>');
 }
 function ptProgressUpdate(status){
   const s=ptStats||{},el=$('ptStatus'),pct=$('ptProgressPct'),bar=$('ptProgress');
@@ -21580,7 +21770,7 @@ async function ptRunScan(){
           else{
             const pats=analysed.hits.filter(p=>selectedSet.has(p.id));
             if(pats.length){const last=analysed.bars[analysed.bars.length-1];const s=byCode[item.c]||{};
-              ptRows.push({code:item.c,name:item.n||s.name||acDispName(item.c),market:item.mk||s.market||'',date:analysed.date||'최근 일봉',close:last.c,patterns:pats.sort((a,b)=>b.score-a.score),score:Math.max(...pats.map(p=>p.score))});
+              ptRows.push({code:item.c,name:item.n||acDispName(item.c),market:item.mk||s.market||'',date:analysed.date||'최근 일봉',close:last.c,patterns:pats.sort((a,b)=>b.score-a.score),score:Math.max(...pats.map(p=>p.score))});
             }else ptStats.noMatch++;
           }
         }
@@ -21615,7 +21805,7 @@ async function acFetchInvestors(code){
    코어 + 시세 캐시)을 합쳐 검색한다. 이름은 acNames에 담아 시세 캐시에 없는
    종목도 분석 화면·스캔 표에 제 이름으로 나오게 한다. */
 const acNames={};
-function acDispName(c){return (byCode[c]&&byCode[c].name)||acNames[c]||c;}
+function acDispName(c){return stkNm(c)||acNames[c]||'—';}
 function acEnsureUniverse(){
   try{if(!stockAll&&!stockLoading)loadStockAll();}catch(e){}
   try{if(!etfList)loadEtfList();}catch(e){}
@@ -21665,7 +21855,7 @@ async function acAnalyze(code){
   let bars,inv;
   try{[bars,inv]=await Promise.all([acFetchDaily(code),acFetchInvestors(code)]);}catch(e){bars=[];}
   const r=acScore(bars,inv);
-  if(!r.ok){body.innerHTML=`<div class="empty">${st.name||code}: ${r.why}</div>`;return;}
+  if(!r.ok){body.innerHTML=`<div class="empty">${nmText(code)}: ${r.why}</div>`;return;}
   const compDef=[
     ['obv','수급선 이중 확인','OBV·A/D 기울기 vs 가격 기울기'],
     ['dry','거래량 고갈(VDU)','베이스 전체 대비 최저 + 하락일 위축'],
@@ -21697,7 +21887,7 @@ async function acAnalyze(code){
     :`기관·외국인 수급은 중립입니다.`);
   interp.push(`현재가는 60일 고점 대비 <b>-${r.meta.gap}%</b>, 40일 박스폭은 <b>${r.meta.width}%</b>입니다.`);
   body.innerHTML=`<div class="ac-report">
-    <div class="ac-hd">${anyLogo(code,st.name,44)}<div><div class="nm">${st.name||code}</div><div class="cd num">${code}${st.nxt?' · NXT':''}</div></div>
+    <div class="ac-hd">${anyLogo(code,stkNm(code),44)}<div><div class="nm">${nmText(code)}</div><div class="cd num">${code}${st.nxt?' · NXT':''}</div></div>
       <div style="margin-left:auto;text-align:right"><div class="ac-gauge-num num">${r.total}<small>/100</small></div>${acStageChipHtml(r)}</div></div>
     ${badges.length?`<div class="ac-badges">${badges.join('')}</div>`:''}
     <div id="acSigBox"></div>
@@ -24676,7 +24866,7 @@ async function evtApplyBenefit(b2,ben){
   }else if(b2.type==='stock'){
     const ex=holdings.find(h=>h.code===b2.code&&!h.us);
     if(ex){ ex.avg=Math.round((ex.avg*ex.qty)/(ex.qty+b2.qty)); ex.qty+=b2.qty; }
-    else holdings.push({code:b2.code,qty:b2.qty,avg:0});
+    else holdings.push({code:b2.code,qty:b2.qty,avg:0,name:nmText(b2.code)});
     try{ensureStock(b2.code,b2.name||'','');}catch(e){}
     saveState();
     toast('ok','📈 주식이 지급되었습니다',(b2.name||b2.code)+' '+b2.qty+'주 — 내 계좌 보유종목에서 확인하세요');
@@ -24684,7 +24874,7 @@ async function evtApplyBenefit(b2,ben){
     const tk=String(b2.ticker||'').toUpperCase();
     const ex=holdings.find(h=>h.code===tk&&h.us);
     if(ex){ ex.avg=+( (ex.avg*ex.qty)/(ex.qty+b2.qty) ).toFixed(2); ex.qty+=b2.qty; }
-    else holdings.push({code:tk,qty:b2.qty,avg:0,us:1,fxAvg:0});
+    else holdings.push({code:tk,qty:b2.qty,avg:0,us:1,fxAvg:0,name:nmFor({code:tk,name:b2.name})});
     saveState();
     toast('ok','🇺🇸 미국 주식이 지급되었습니다',(b2.name||tk)+' '+b2.qty+'주 — 해외 보유종목에서 확인하세요');
   }else if(b2.type==='coupon'){
@@ -27291,14 +27481,14 @@ function usManageHtml() {
       <div><span>매도 예약 수량</span><b>${fmtQty(list.filter(o => o.side === 'sell').reduce((n, o) => n + (+o.qty || 0), 0))}주</b></div>
     </div>
     <div class="order-record-list">${list.map(o => `<article class="order-record">
-      <div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(o.name || usSel)}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div>
+      <div class="order-record-top">${orderSideTag(o.side)}<b>${htmlEsc(nmFor(o))}</b><span class="order-record-time">${orderWhen(o.createdAt)}</span></div>
       <div class="order-record-values"><div><span>주문가격</span><b class="num">$${USD2(o.price)}</b></div><div><span>주문수량</span><b class="num">${fmtQty(o.qty)}주</b></div><div><span>상태</span><b class="wait-state">미체결 대기</b></div></div>
       <div class="order-record-actions"><button type="button" class="order-revise-btn" data-us-revise="${htmlEsc(o.id)}">정정</button><button type="button" class="order-cancel-btn" data-us-revise-cancel="${htmlEsc(o.id)}">주문 취소</button></div></article>`).join('')}</div>`;
 }
 function usHistoryHtml() {
   const pending = bookActive().filter(o => o.us && o.code === usSel);
   const fills = (allTrades() || []).filter(t => t && t.us && String(t.code).toUpperCase() === String(usSel).toUpperCase()).slice(0, 60);
-  const pRows = pending.map(o => `<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(o.name || usSel)}</b><span class="wait-state">미체결</span></div><div class="order-history-meta"><span>$${USD2(o.price)} · ${fmtQty(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
+  const pRows = pending.map(o => `<article class="order-history-row"><div class="order-history-main">${orderSideTag(o.side)}<b>${htmlEsc(nmFor(o))}</b><span class="wait-state">미체결</span></div><div class="order-history-meta"><span>$${USD2(o.price)} · ${fmtQty(o.qty)}주</span><span>${orderWhen(o.createdAt)}</span></div></article>`).join('');
   const fRows = fills.map(t => `<article class="order-history-row"><div class="order-history-main">${orderSideTag(t.side)}<b>${htmlEsc(t.name || usSel)}</b><span class="filled-state">체결 완료</span></div><div class="order-history-meta"><span>$${USD2(t.price)} · ${fmtQty(t.qty)}주</span><span>${orderWhen(t.ts)}</span></div><div class="order-history-amount">${t.side === 'sell' && t.pnl != null ? `실현손익 <b class="num ${dirOf(t.pnl)}">${signed(t.pnl)}원</b>` : `거래금액 <b class="num">$${USD2(t.amount || ((+t.price || 0) * (+t.qty || 0)))}</b>`}</div></article>`).join('');
   return `<div class="order-history-stats"><div><span>체결 기록</span><b>${fills.length}건</b></div><div><span>현재 미체결</span><b>${pending.length}건</b></div></div>
     <div class="order-history-list">${(pRows ? `<div class="order-subheading">미체결 · ${pending.length}건</div>${pRows}` : '') + (fRows ? `<div class="order-subheading">체결 · ${fills.length}건</div>${fRows}` : '') || `<div class="order-empty"><span class="order-empty-icon">⌁</span><b>표시할 주문 내역이 없습니다</b><p>주문을 접수하거나 체결하면 이곳에 자동으로 기록됩니다.</p></div>`}</div>`;
@@ -27480,7 +27670,7 @@ function usExecuteOrder(side,o){
       h.fxAvg=+(((fa*h.avg*h.qty)+(fxPaid*px*qty))/((h.avg*h.qty)+(px*qty))).toFixed(2);   // 금액 가중 매입환율
       h.avg=+(((h.avg*h.qty)+px*qty)/(h.qty+qty)).toFixed(4);
       h.qty=+(h.qty+qty).toFixed(4);
-    }else holdings.push({code:usSel,qty,avg:px,us:1,fxAvg:+fxPaid.toFixed(2)});
+    }else holdings.push({code:usSel,qty,avg:px,us:1,fxAvg:+fxPaid.toFixed(2),name:nmText(usSel)});
     try{ foSeedPlan(usSel,px,true); }catch(e){}        /* [v9.72] 해외도 동일 */
     tradeLog.unshift({ts:Date.now(),date:kstDay(),code:usSel,name:m.kr,side:'buy',qty,price:px,
       amount:c.amount,fee:Math.round(c.feeUsd*fx),tax:0,avg:px,pnl:0,roi:0,us:1,pay,fxAt:Math.round(fxPaid)});
@@ -27672,7 +27862,7 @@ try{
       const c=String(code), q=+qty||1, p=+px||10000;
       const h=holdings.find(x=>x.code===c);
       if(h){ const tot=h.qty*h.avg+q*p; h.qty+=q; h.avg=Math.round(tot/h.qty); }
-      else holdings.push({code:c,qty:q,avg:p});
+      else holdings.push({code:c,qty:q,avg:p,name:nmText(c)});
       cash=Math.max(0,cash-q*p);
       tradeLog.push({code:c,side:'buy',qty:q,px:p,at:Date.now()});
       saveState();

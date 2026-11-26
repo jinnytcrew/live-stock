@@ -15375,8 +15375,8 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.45",
-  releasedAt: "2026-11-26 10:30",
+  version: "17.8.46",
+  releasedAt: "2026-11-26 21:55",
   notes: [
     "상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수",
     "잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙",
@@ -18892,7 +18892,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.45";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.46";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19245,7 +19245,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 10:30"; BUNDLED_VERSION.notes = ["상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수","잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙","상한가 잠금 중 매도·하한가 잠금 중 매수는 대기 물량과 즉시 체결","시장가도 잠금 앞에서는 상한가·하한가 가격으로 대기 접수","종목 상세·주문 화면·호가창·미체결 목록에 잠금 상태 표시","내 계좌 진입·보유 종목 클릭 지연 개선 — 단계별 그리기","시세 갱신마다 표를 다시 그리던 것을 한 프레임으로 합침(보유 표 400ms)","해외주식은 가격제한폭이 없어 잠금 판정에서 제외"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 10:30"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-26 21:55"; BUNDLED_VERSION.notes = ["종목명이 종목코드로 보이던 문제 근본 수정 — 서버 이름 조회·기기 저장·화면 재그리기","보유 종목·자산 구성·관심종목·주문·체결·클랜·미리보기 전 화면에 같은 규칙 적용","스크롤한 뒤 메뉴를 열면 위쪽이 잘리던 문제 수정 — 헤더 고정 + 메뉴 화면 고정","모바일 상단 프로필 이름이 '한…'으로 잘리던 문제 수정","기존 계좌 데이터·주문 기록의 이름을 새 기기에서도 그대로 사용"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-26 21:55"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
@@ -19735,7 +19735,9 @@ function afEvalUser(uid, usr, quotes, fx, now) {
           var hq = afInt(h.qty, 0);
           h.avg = Math.round((afInt(h.avg, fill) * hq + c.amount) / (hq + qty));
           h.qty = hq + qty;
-        } else bk.holdings.push({ code: o.code, qty: qty, avg: fill });
+          /* [v17.8.46] 보유 항목에도 종목명을 남긴다 — 새 기기에서 화면이 이름을 바로 그릴 수 있다 */
+          if (!h.name) h.name = nm;
+        } else bk.holdings.push({ code: o.code, qty: qty, avg: fill, name: nm });
         logRec(bk, { ts: now, date: today, code: o.code, name: nm, side: "buy", qty: qty, price: fill,
           amount: c.amount, fee: c.fee, tax: 0, avg: fill, pnl: 0, roi: 0,
           orderPx: (fill !== lim ? lim : undefined) });
@@ -19805,9 +19807,10 @@ function afEvalUser(uid, usr, quotes, fx, now) {
         var ufa = Number(uh.fxAvg) || fxPaid || 0;
         uh.qty = Math.round((uhq + uqty) * 1e4) / 1e4;
         uh.avg = fxPaid ? Math.round((((uha * uhq) + ufill * uqty) / (uhq + uqty)) * 1e4) / 1e4 : ufill;
+        if (!uh.name) uh.name = unm;                                    /* [v17.8.46] */
         if (fxPaid) uh.fxAvg = afR2(((ufa * uha * uhq) + (fxPaid * ufill * uqty)) / ((uha * uhq) + (ufill * uqty)));
       } else {
-        var nh = { code: uc, qty: uqty, avg: ufill, us: 1 };
+        var nh = { code: uc, qty: uqty, avg: ufill, us: 1, name: unm };
         if (fxPaid) nh.fxAvg = afR2(fxPaid);
         bk.holdings.push(nh);
       }

@@ -9953,3 +9953,46 @@ html[data-theme="dark"] #chartCard .tf-seg button.on{box-shadow:0 1px 2px rgba(0
   .llk span{font-size:11px}
   .pb-r .llk-badge{order:4}
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.46] 모바일 사용자 제보 3건 — 헤더 고정 · 메뉴 드로어 · 프로필 글자
+   ──────────────────────────────────────────────────────────────────────────────
+   ① 아래로 스크롤한 뒤 하단 '메뉴' 탭을 누르면 드로어 위쪽(홈·종목검색)이 잘렸다.
+      원인은 body{overflow-x:hidden}. 한 축을 hidden 으로 두면 다른 축이 auto 로
+      바뀌어 body 가 스크롤 컨테이너가 되고, 그 안의 sticky 헤더는 실제 스크롤
+      (html)을 따라가지 못한다 — 실측 scrollY 1400 에서 헤더 top −1400px,
+      드로어 top −1340px(화면 밖). 그래서 '위만 잘린' 것이었다.
+      → body 는 overflow-x:clip. clip 은 반대 축을 건드리지 않아 스크롤 컨테이너가
+        생기지 않고, 가로 잘림은 그대로 유지된다.
+   ② 그 위에 드로어 자체도 화면에 고정한다(position:fixed + --header-h).
+      헤더가 어떤 이유로든 붙지 못하는 웹뷰에서도 메뉴가 잘리지 않게 하는 이중 안전장치.
+   ③ 390px 에서 프로필 이름이 '한…' 으로 잘렸다(실측 #uName 26px / 필요 36px).
+      Max 배지가 붙으면 더 좁아진다. 좁은 화면에서는 장식(아바타·화살표)을 접고
+      이름에 폭을 내준다. 아주 긴 닉네임만 말줄임 처리한다.
+   ══════════════════════════════════════════════════════════════════════════════ */
+html{overflow-x:hidden}
+body{overflow-x:clip;overflow-y:visible}
+@supports not (overflow:clip){ body{overflow-x:hidden} }
+
+@media (max-width:900px){
+  .main-nav{
+    position:fixed;
+    top:var(--header-h,60px);
+    left:0;right:0;
+    max-height:calc(100dvh - var(--header-h,60px) - env(safe-area-inset-bottom,0px));
+    padding-left:max(8px,env(safe-area-inset-left));
+    padding-right:max(8px,env(safe-area-inset-right));
+    overscroll-behavior:contain;
+  }
+}
+
+@media (max-width:430px){
+  .header-right{min-width:0;gap:6px}
+  /* 화살표(▾)는 장식이다 — 폭 22px 를 이름에 내준다. 아바타는 남겨 누를 수 있는
+     높이(30px)와 신원 표시를 유지한다. */
+  .userchip{min-width:0;flex:0 1 auto;overflow:visible;gap:5px;padding:4px 6px;min-height:30px}
+  .userchip .chev{display:none}
+  .userchip #uName{max-width:40vw;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .userchip .tier-mini{margin-left:1px}
+  .header-inner{gap:8px}
+}
