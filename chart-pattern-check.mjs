@@ -22,10 +22,10 @@ pass('NEW tab, page wiring, diagnostic UI, CSV control and tab visibility wiring
 const workerVersion = (worker.match(/var APP_VER\s*=\s*["']([^"']+)/) || [])[1];
 const uiVersion = (versionInfo.match(/version:\s*["']([^"']+)/) || [])[1];
 assert.equal(workerVersion, uiVersion, 'worker and UI release versions match');
-assert.match(html, /app\.js\?v=709/, 'client JavaScript cache key advanced');
-assert.match(html, /app\.css\?v=695/, 'stylesheet cache key advanced');
-assert.match(app, /version-info\.js\?v=360/, 'version metadata import cache key advanced');
-assert.match(read('sw.js'), /SW_VER\s*=\s*'v10\.49'/, 'service worker release key advanced');
+assert.match(html, /app\.js\?v=710/, 'client JavaScript cache key advanced');
+assert.match(html, /app\.css\?v=696/, 'stylesheet cache key advanced');
+assert.match(app, /version-info\.js\?v=361/, 'version metadata import cache key advanced');
+assert.match(read('sw.js'), /SW_VER\s*=\s*'v10\.50'/, 'service worker release key advanced');
 assert.match(read('.assetsignore'), /^chart-pattern-check\.mjs\s*$/m, 'QA script remains excluded from public static assets');
 pass('release version and asset/service-worker cache keys are consistent');
 

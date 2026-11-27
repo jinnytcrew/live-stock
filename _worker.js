@@ -53,7 +53,7 @@ var KVGOV = {
   mem: /* @__PURE__ */ new Map(),
   /* [v17.3] 캐시가 KV 밖으로 나갔으므로 여기 남는 쓰기는 하루 수십 건이다.
      인스턴스가 여러 대여도 합계가 한도 근처에 가지 않도록 한 대 몫을 작게 잡는다. */
-  CACHE_CAP: 80
+  CACHE_CAP: 80      /* (v17.8.50) 실제 상한은 KVW.cap — 계정 전체 기준으로 바뀌었다 */
 };
 /* ══ [v17.3] 날짜 경계는 반드시 UTC 여야 한다 ═══════════════════════════════
    [v17.1 의 잘못] 예산을 한국 날짜(KST)로 셌다. 그런데 클라우드플레어의 한도는
@@ -63,6 +63,46 @@ var KVGOV = {
    클라우드플레어와 같은 시계를 쓴다. */
 function kvDayUTC() {
   return new Date().toISOString().slice(0, 10);
+}
+/* ══ [v17.8.50] 캐시 쓰기 '계정 전체' 하루 예산 — 한도 초과를 구조적으로 막는다 ══
+   [무엇이 터졌나] 2026-11-27 11:07(KST) Cloudflare 가 "KV daily operation limit 50%
+     reached" 경고를 보냈다. 그날 09:00~11:07 두 시간에 쓰기 500회(계정 전체 기준,
+     같은 날 11:40 기준 625회). 원인은 캐시였다 — 사용자 데이터가 아니었다.
+     · v17.1 의 간격·예산은 모두 '인스턴스 메모리' 기준이었다. 워커 인스턴스는
+       수명이 짧고 트래픽에 따라 계속 새로 뜨는데, 새 인스턴스는 기억이 비어 있어
+       '이 인스턴스의 첫 쓰기'로 통과했다 → 같은 캐시 키를 인스턴스마다 다시 썼다.
+     · 그래서 트래픽이 늘면 쓰기가 비례해 늘었다(유휴 시간대는 0회였다).
+   [고침] 캐시성 쓰기의 예산을 '계정 전체(UTC 하루)'로 옮긴다. 카운터는 KV 에 둔다.
+     · 필요할 때 kvw:<UTC날짜> 를 읽어 오늘 쓴 양을 확인한다(읽기는 하루 10만 회).
+     · 메모리에서 세고, 10회마다 한 번만 KV 에 적는다(카운터 자체 쓰기 ~20회/일).
+     · 예산을 다 쓰면 그날 남은 캐시 쓰기는 0회 — 화면은 메모리·엣지 캐시로 계속 돈다.
+     · 사용자 데이터(계정·주문·체험권·친구·클랜·쿠폰…)는 이 예산과 무관하게 늘 저장된다.
+   [근거] 무료 한도는 쓰기 1,000/일. 사용자 데이터가 하루 300 안쪽이므로 300 이면
+     최악의 경우에도 합계 640 이내다(경고선 500 을 넘지 않는다). */
+var KVW = { day: "", n: 0, at: 0, flushed: 0, cap: 300 };
+function kvwDayUTC() { return kvDayUTC(); }
+async function kvwRoom(kv) {
+  const d = kvwDayUTC();
+  if (KVW.day !== d) { KVW.day = d; KVW.n = 0; KVW.at = 0; KVW.flushed = 0; }
+  /* 60초에 한 번만 KV 를 본다 — 그사이 값은 메모리 카운터가 앞선다 */
+  if (Date.now() - KVW.at > 6e4) {
+    KVW.at = Date.now();
+    try {
+      const v = await kv.get("kvw:" + d);
+      const n = Number(v);
+      if (isFinite(n) && n > KVW.n) KVW.n = n;      /* 다른 인스턴스가 더 썼으면 그쪽을 따른다 */
+    } catch (e) {}
+  }
+  return KVW.n < KVW.cap;
+}
+async function kvwBump(kv) {
+  const d = kvwDayUTC();
+  if (KVW.day !== d) { KVW.day = d; KVW.n = 0; KVW.flushed = 0; }
+  KVW.n++;
+  if (KVW.n - KVW.flushed >= 10 || KVW.n >= KVW.cap) {
+    KVW.flushed = KVW.n;
+    try { await kv.put("kvw:" + d, String(KVW.n), { expirationTtl: 172800 }); } catch (e) {}
+  }
 }
 function kvGovRoll() {
   const d = kvDayUTC();
@@ -149,7 +189,16 @@ async function kvEdgeReady() {
   try {
     const k = "__probe:" + Math.random().toString(36).slice(2);
     await kvCachePut(k, "1", 60);
-    const back = await kvCacheGet(k);
+    /* ══ [v17.8.50] 판정을 세 번까지 확인한다 ═══════════════════════════════
+       엣지 캐시 쓰기는 즉시 보이지 않을 수 있다. 한 번 읽어 보고 '없다'고
+       단정하면, 실제로는 동작하는 주소에서도 이 인스턴스가 계속 KV 로 캐시를
+       쓰게 된다(그것이 쓰기 한도를 갉아먹는 경로였다). */
+    let back = null;
+    for (let i = 0; i < 3; i++) {
+      back = await kvCacheGet(k);
+      if (back === "1") break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     KVGOV.edge = (back === "1");
     kvCacheDel(k);
   } catch (e) { KVGOV.edge = false; }
@@ -187,11 +236,15 @@ function swrSet(k, rec) {
 }
 const SWR_CFG = {
   /* 키: 라우트 이름 → {fresh, stale, kv, kvGap, kvTtl} (ms) */
-  market:     { fresh: 20e3,  stale: 3 * 60e3,   kv: 1, kvGap: 60 * 60e3, kvTtl: 3600 },
-  fx:         { fresh: 60e3,  stale: 30 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 3600 },
+  /* ══ [v17.8.50] 짧은 수명 라우트는 KV 에 남기지 않는다 ═══════════════════
+     KV 에 남긴 값을 쓸 수 있는 조건은 'at 이 stale×2 보다 최근'이다. market 은
+     stale 이 3분이라 6분이 지나면 어차피 버려진다 — 그런데도 인스턴스마다
+     KV 에 쓰고 있었다(쓰기만 하고 읽지 않는 값). 이런 키는 메모리로만 돌린다. */
+  market:     { fresh: 20e3,  stale: 3 * 60e3,   kv: 0 },
+  fx:         { fresh: 60e3,  stale: 30 * 60e3,  kv: 0 },
   news:       { fresh: 90e3,  stale: 60 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
   themes:     { fresh: 120e3, stale: 60 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
-  popular:    { fresh: 120e3, stale: 30 * 60e3,  kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
+  popular:    { fresh: 120e3, stale: 30 * 60e3,  kv: 0 },
   usrank:     { fresh: 120e3, stale: 6 * 3600e3, kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
   uspopular:  { fresh: 180e3, stale: 6 * 3600e3, kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
   ipo:        { fresh: 300e3, stale: 6 * 3600e3, kv: 1, kvGap: 60 * 60e3, kvTtl: 7200 },
@@ -376,12 +429,9 @@ function govKV(kv) {
       /* ③ 키별 최소 간격 — 여기까지 온 것은 수명 없는 기준 데이터뿐이다
          (공모주 목록·휴장일·야간선물 코드 등). 30분에 한 번이면 충분하다. */
       if (Date.now() - (KVGOV.last.get(k) || 0) < 18e5) { KVGOV.skip++; return; }
-      /* ④ 일일 예산 — 인스턴스는 여러 개가 동시에 살아 있으므로 한 대의 몫은
-         작게 잡는다. 캐시가 이미 KV 밖으로 빠졌으니 이 정도면 넉넉하다. */
-      /* 엣지 캐시를 못 쓰는 주소(*.workers.dev)에서는 캐시가 KV 에 남는다 —
-         그만큼만 예산을 늘려 주되, 한도 근처에는 절대 가지 않게 한다. */
-      const cap = (KVGOV.edge === false) ? KVGOV.CACHE_CAP * 3 : KVGOV.CACHE_CAP;
-      if (KVGOV.cache >= cap) { KVGOV.blocked++; return; }
+      /* ④ 하루 예산 — [v17.8.50] 인스턴스가 아니라 '계정 전체(UTC 하루)'로 센다.
+         인스턴스별로 세면 새 인스턴스가 뜰 때마다 예산이 되살아나 무력해진다. */
+      if (!(await kvwRoom(kv))) { KVGOV.blocked++; return; }
     }
     try {
       const r = await kv.put(key, val, opts);
@@ -390,6 +440,7 @@ function govKV(kv) {
         KVGOV.cache++;
         KVGOV.last.set(k, Date.now());
         if (KVGOV.last.size > 4000) KVGOV.last.clear();
+        try { await kvwBump(kv); } catch (e) {}   /* [v17.8.50] 계정 전체 카운터 */
       }
       if (body != null && !ttl) {
         KVGOV.sig.set(k, kvSig(body));
@@ -8155,7 +8206,7 @@ var clan_default = async (req2) => {
       const now2 = Date.now();
       const changed2 = JSON.stringify({ r: m.rate, s: m.msg, t: m.tr, h: m.hold,
         hs: m.holds, b: m.best, w: m.worst }) !== (m._sig || "");
-      if (changed2 || now2 - (m.updatedAt || 0) > 300000) {
+      if (changed2 || now2 - (m.updatedAt || 0) > 30 * 60 * 1000) {   /* (v17.8.50) 5분→30분 — 앱을 켜 둔 것만으로 쓰기가 나가던 길 */
         m._sig = JSON.stringify({ r: m.rate, s: m.msg, t: m.tr, h: m.hold,
           hs: m.holds, b: m.best, w: m.worst });
         m.updatedAt = now2;
@@ -10882,6 +10933,7 @@ function budgetPct() {
   return Math.max(0, Math.min(200, Math.round((_bgTotal + _bgN) / BUDGET_DAY * 100)));
 }
 var _krxCk = "", _krxCkAt = 0;
+var _idxHistMem = null;      /* [v17.8.50] 지수 스파크라인 이력 — 인스턴스 메모리 */
 async function krxSession(force) {
   if (!force && _krxCk && Date.now() - _krxCkAt < 20 * 60e3) return _krxCk;
   try {
@@ -11256,10 +11308,11 @@ async function ipoAttachRates(items){
   return _hits;
 }
 var ipo_default = async (req2, context) => {
+  /* (v17.8.50) 캐시 쓰기도 관리자(예산)를 거치도록 원본 대신 govKV 를 쓴다 */
   /* [v4.8] 실패 원인: http 고정 단일 주소. Cloudflare\ud658경\uc5d0\uc11c 38\ucee4\ubba4\ub2c8\ucf00\uc774\uc158 http \uc811\uc18d\uc774 \ub9c9\ud788\uba74
      \uadf8\ub300\ub85c \uc608\uc2dc \uc77c\uc815\uc73c\ub85c \ub5a8\uc5b4\uc84c\ub2e4. https \uc6b0\uc120 + \ub2e4\uc911 \uc8fc\uc18c\ub85c \ubc14\uafb8\uace0,
      \ud55c \ubc88\uc774\ub77c\ub3c4 \uc131\uacf5\ud558\uba74 KV\uc5d0 \ubcf4\uad00\ud574 \uc77c\uc2dc \uc7a5\uc560 \ub54c\ub3c4 \uc9c1\uc804 \uc2e4\uc81c \uc77c\uc815\uc744 \ubcf4\uc5ec \uc900\ub2e4. */
-  const KV = context && context.env && context.env.APP_KV;
+  const KV = govKV(context && context.env && context.env.APP_KV);
   try {
     let html = "";
     for (const u of [
@@ -12658,6 +12711,7 @@ var push_default = async (req2, context) => {
     try { state = (await stJSONGet(st, "pushst:" + id)) || {}; } catch (e) {}
     const now = Date.now();
     const out = [];
+    let dirty = false;      /* [v17.8.50] 바뀐 것이 없으면 저장하지 않는다 */
     for (const h of holds) {
       if (!h || !h.code || !(h.px > 0)) continue;
       const k = h.code;
@@ -12666,13 +12720,18 @@ var push_default = async (req2, context) => {
       if (h.stop > 0 && h.px <= h.stop) hit = { kind: "손절선 이탈", lv: 3, msg: `${h.name} ${h.px.toLocaleString()} · 손절선 ${Number(h.stop).toLocaleString()} 아래` };
       else if (h.target > 0 && h.px >= h.target) hit = { kind: "목표가 도달", lv: 2, msg: `${h.name} ${h.px.toLocaleString()} · 목표가 도달` };
       if (hit) hit.code = k;
-      if (!hit) { if (prev.kind) delete state[k]; continue; }
+      if (!hit) { if (prev.kind) { delete state[k]; dirty = true; } continue; }
       /* 같은 종류의 알림은 6시간에 한 번만 */
       if (prev.kind === hit.kind && now - (prev.at || 0) < 6 * 3600e3) continue;
       state[k] = { kind: hit.kind, at: now };
+      dirty = true;
       out.push(hit);
     }
-    if (!out.length) { try { await st.setJSON("pushst:" + id, state); } catch (e) {} return J({ ok: true, sent: 0 }); }
+    /* ══ [v17.8.50] 앱은 5분간격으로 이 경로를 부른다. 그런데 예전에는 바뀐 것이
+       없어도 pushst:<id> 를 매번 KV 에 썼다 — 사용자 데이터라 캐시 예산과 무관하게
+       계속 나갔다(한 사람이 앱을 켜 두기만 해도 하루 288회). 이제 바뀐 것이
+       있을 때만 쓴다. */
+    if (!out.length) { if (dirty) { try { await st.setJSON("pushst:" + id, state); } catch (e) {} } return J({ ok: true, sent: 0, saved: dirty ? 1 : 0 }); }
     out.sort((a, b) => b.lv - a.lv);
     const top = out[0];
     const more = out.length > 1 ? ` 외 ${out.length - 1}건` : "";
@@ -12681,7 +12740,7 @@ var push_default = async (req2, context) => {
       body: top.msg, level: top.lv, code: out.length === 1 ? (top.code || "") : "",
       tag: "live-care", renotify: true, url: "/"
     }, { urgency: top.lv >= 3 ? "high" : "normal" });
-    try { await st.setJSON("pushst:" + id, state); } catch (e) {}
+    if (dirty) { try { await st.setJSON("pushst:" + id, state); } catch (e) {} }
     return J({ ...r, alerts: out.length });
   }
   return J({ ok: false, err: "act" }, 400);
@@ -13692,8 +13751,17 @@ var market_default = async (req2) => {
        원천 이력이 모자라면 적립분으로 채워 준다. */
     try {
       const HK = "idxhist:v1";
-      let acc = null;
-      try { acc = (await KV.get(HK, "json")) || {}; } catch (e) { acc = {}; }
+      /* ══ [v17.8.50] 지수 스파크라인 이력은 메모리에만 썬는다 ═══════════════
+         예전에는 /api/market 이 호출될 때마다(앱은 5초 간격) KV 에 적립하고
+         썼다. 이 키는 수명(TTL)도 없어서 '내용이 바뀌었다'로 판정되면 곧바로
+         쓰기가 나갔고, 색 트래픽이 있는 동안 새 인스턴스마다 한 번씩 KV 쓰기를
+         소모했다(일일 쓰기 한도의 주범 중 하나).
+         이력은 잃어도 시새 원천에서 다시 만들 수 있고, 실제로 차트는 원천 history
+         를 첫 순위로 쓴다. 그래서 KV 읽기만 남기고 적립은 인스턴스 메모리에만 한다. */
+      if (!_idxHistMem) {
+        try { _idxHistMem = (await KV.get(HK, "json")) || {}; } catch (e) { _idxHistMem = {}; }
+      }
+      const acc = _idxHistMem;
       const nowT = Date.now();
       const rows = [...(body.indices || []), ...(body.crypto || []), ...(body.commodities || [])];
       for (const x of rows) {
@@ -13710,7 +13778,7 @@ var market_default = async (req2) => {
         }
       }
       acc._at = nowT;
-      try { await KV.put(HK, JSON.stringify(acc)); } catch (e) {}
+      /* KV 쓰기 없음 — _idxHistMem 이 인스턴스 수명 동안 이력을 들고 있다 */
     } catch (e) {}
     try {
       const probe2 = req2 && new URL(req2.url).searchParams.get("probe") === "1";
@@ -15626,8 +15694,8 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.49",
-  releasedAt: "2026-11-27 10:20",
+  version: "17.8.50",
+  releasedAt: "2026-11-27 11:55",
   notes: [
     "상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수",
     "잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙",
@@ -15960,7 +16028,8 @@ var ROUTES = {
    코드→사유 지도를 내려 준다. 클라이언트는 이 지도로 NXT 창구를 잠근다.
    (주의 caution 은 NXT 제외 사유가 아니므로 참고용으로만 별도 반환) */
 async function krxalerts_default(req2, context) {
-  const KV = context && context.env && context.env.APP_KV;
+  /* (v17.8.50) 원본 KV 를 직접 쓰면 캐시 예산(KVW)을 우회한다 — 관리자를 거친다 */
+  const KV = govKV(context && context.env && context.env.APP_KV);
   const now = Date.now();
   const force = /[?&]refresh=1/.test(req2.url || "");
   try { if (KV && !force) { const c = await KV.get("krx:alerts", "json");
@@ -16003,7 +16072,7 @@ ROUTES["krxalerts"] = krxalerts_default;
 
 // [v4.9] 종목 심화 플래그 — 증거금률·페이지 표기 배지(지정예고·단기과열·정리매매 등)
 async function stockflags_default(req2, context) {
-  const KV = context && context.env && context.env.APP_KV;
+  const KV = govKV(context && context.env && context.env.APP_KV);   /* (v17.8.50) */
   const url = new URL(req2.url);
   const code = String(url.searchParams.get("code") || "").trim().toUpperCase();
   /* [v17.7.2] 신규 상장 코드(0035S0 처럼 영문 포함)도 받는다 */
@@ -19289,7 +19358,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.49";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.50";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19642,7 +19711,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-27 10:20"; BUNDLED_VERSION.notes = ["호가창·현재가 동기화 — 실시간 최우선 호가와 지연 5단계 분리 표시","주문가격 옆 현재가·호가 문구가 시세와 함께 갱신","시장가 체결을 실시간 최우선 호가 기준으로 계산","브라우저 알림 복구 — 안드로이드에서도 알림 표시","앱을 닫아도 체결·손절·목표가 푸시 발송(서버 크론)","푸시 구독 저장·자동 갱신 오류 수정","알림은 등급과 무관하게 켤 수 있음"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-27 10:20"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-27 11:55"; BUNDLED_VERSION.notes = ["KV 쓰기 한도(무료 1,000/일) 경고 대응 — 원인은 캐시 데이터의 반복 쓰기","캐시 쓰기 예산을 인스턴스별에서 계정 전체(UTC 하루 300회) 기준으로 통합","지수·환율·인기 등 짧은 수명 캐시는 KV 에 저장하지 않음(메모리·엣지 캐시만)","푸시 상태·클랜 동기화는 내용이 바뀔 때만 저장","사용자 데이터(계좌·주문·체험권·친구·클랜)는 예산과 무관하게 항상 저장"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-27 11:55"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
@@ -20536,3 +20605,8 @@ ROUTES["autofill"] = autofill_default;
 export {
   worker_default as default
 };
+/* ══ [v17.8.50] 테스트용 창구 ═══════════════════════════════════════════════
+   KV 쓰기 예산·캐시 정책은 화면에 드러나지 않는 규칙이다. 테스트가 '유휴 크론
+   0쓰기', '예산 소진 시 캐시 0쓰기', '사용자 데이터는 예산과 무관'을 직접
+   검사할 수 있도록 내부 심벌을 함께 내보낸다(런타임 동작에는 영향이 없다). */
+export const __kvtest = { setEnv, govKV, kvGovStat, KVGOV, KVW, swrRoute, SWR_CFG, kvEssential };
