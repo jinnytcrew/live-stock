@@ -16591,8 +16591,12 @@ function obBookHtml(d,px,pc,opts){
        시세가 지연이면 '지연 참고용' 배지로 분명히 밝힌다(숨기지 않는다).
      [원칙] 없는 값을 만들지 않는다 — 잔량을 모르는 칸은 비워 둔다. */
   const rtAsk=(d.ask!=null?d.ask:null), rtBid=(d.bid!=null?d.bid:null);
-  const sells=(d.sell||[]).map(x=>obRowHtml(x,'s',px,pc)).join('');
-  const buys=(d.buy||[]).map(x=>obRowHtml(x,'b',px,pc)).join('');
+  /* 호가창 안의 '현재가'는 호가와 **같은 스냅샷**의 체결가를 쓴다.
+     서로 다른 원천(머리말 시세 폴링 / 호가 스냅샷)이 한 틱 어긋날 때
+     호가창 안에서 매수1 > 현재가 처럼 보이는 모순을 없앤다. */
+  const nowPx=(d.price!=null?d.price:px);
+  const sells=(d.sell||[]).map(x=>obRowHtml(x,'s',nowPx,pc)).join('');
+  const buys=(d.buy||[]).map(x=>obRowHtml(x,'b',nowPx,pc)).join('');
   const tot=(d.totalSell||0)+(d.totalBuy||0);
   const sPct=tot?(d.totalSell/tot*100):50;
   const ago=Math.max(0,Math.round((Date.now()-(d.at||Date.now()))/1000));
@@ -16609,7 +16613,7 @@ function obBookHtml(d,px,pc,opts){
     <div class="ob-rt">
       <div class="ob-rt-r ask"><span class="ob-rt-k">매도1</span><b class="num">${rtAsk!=null?KRW(rtAsk):'—'}</b><i>실시간</i></div>
       <div class="ob-rt-m"><span>스프레드 <b class="num">${sp!=null?KRW(sp)+'원':'—'}</b></span>
-        <span>현재가 <b class="num">${px!=null?KRW(px):'—'}</b></span></div>
+        <span>현재가 <b class="num">${nowPx!=null?KRW(nowPx):'—'}</b></span></div>
       <div class="ob-rt-r bid"><span class="ob-rt-k">매수1</span><b class="num">${rtBid!=null?KRW(rtBid):'—'}</b><i>실시간</i></div>
     </div>
     ${deep?`<div class="ob-depth${stale?' stale':''}">
