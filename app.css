@@ -3938,7 +3938,7 @@ html[data-theme="dark"] .aed-copy{background:#fff;color:#111}
 .ac-row{display:flex;align-items:center;gap:10px;width:100%;padding:12px 13px;cursor:pointer;
   border:1.5px solid var(--border);border-radius:13px;background:var(--panel);text-align:left}
 .ac-row.on{border-color:var(--text)}
-.ac-row.no{opacity:.62}
+.ac-row.no{opacity:.78}
 .ac-ic{flex-shrink:0;font-size:19px}
 .ac-nm{flex:1;min-width:0}
 .ac-nm b{display:block;font-size:13px;font-weight:800;color:var(--text)}
@@ -5592,6 +5592,26 @@ html:not([data-theme="dark"]) .hs-br{background:rgba(255,255,255,.5)}
 /* ══ [v9.81] 호가창 ═══════════════════════════════════════════════════════════
    가운데 호가, 왼쪽 매도잔량, 오른쪽 매수잔량 — 실제 MTS 배치를 따른다.
    막대는 바깥에서 안쪽으로 자라 잔량 크기를 한눈에 견주게 한다. */
+/* ══ [v17.8.49] 실시간 최우선 호가 — 현재가와 절대 어긋나지 않는 칸 ═══════
+   지연 5단계(아래)와 눈으로 구분되게 위에 따로 둔다. */
+.ob-rt{border:1px solid var(--border);border-bottom:0;background:var(--panel);padding:9px 10px 8px}
+.ob-rt-r{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px;border-radius:9px}
+.ob-rt-r.ask{background:color-mix(in srgb,var(--down) 9%,transparent)}
+.ob-rt-r.bid{background:color-mix(in srgb,var(--up) 9%,transparent)}
+.ob-rt-k{font-size:10px;font-weight:900;color:var(--sub);letter-spacing:.02em}
+.ob-rt-r b{font-size:15px;font-weight:950;letter-spacing:-.02em}
+.ob-rt-r.ask b{color:var(--down)}
+.ob-rt-r.bid b{color:var(--up)}
+.ob-rt-r i{font-style:normal;font-size:8.5px;font-weight:900;letter-spacing:.06em;color:var(--sub-2);
+  border:1px solid var(--border);border-radius:99px;padding:1px 6px}
+.ob-rt-m{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 2px 2px;
+  font-size:10px;color:var(--sub-2);font-weight:800}
+.ob-rt-m b{font-size:11px;font-weight:950;color:var(--text);margin-left:3px}
+/* 지연 깊이 — 실시간 최우선 호가와 섞이지 않게 테두리·투명도로 낮춘다 */
+.ob-depth{margin-top:5px;border-top:1px dashed var(--border);padding-top:5px;opacity:.78}
+.ob-depth.stale{opacity:.74}
+.ob-badge{margin:6px 0 5px;padding:5px 8px;border-radius:8px;font-size:9.5px;font-weight:800;line-height:1.45;
+  background:color-mix(in srgb,var(--warn,#d97706) 12%,transparent);color:var(--sub)}
 .ob-head{border:1px solid var(--border);border-bottom:0;border-radius:12px 12px 0 0;background:var(--panel)}
 .ob-hh{display:grid;grid-template-columns:1fr 116px 1fr;padding:9px 10px;
   font-size:10.5px;font-weight:800;color:var(--sub-2)}

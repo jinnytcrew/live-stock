@@ -998,7 +998,7 @@ function checkTargets(code){
     tt.fired=true; saveTargets();
      const nm=nmText(code), msg=nm+' '+KRW(st.price)+'원 · 목표가 '+KRW(tt.price)+'원 '+(kind==='up'?'도달(상승)':'도달(하락)');
     toast(kind==='up'?'buy':'sell','목표가 도달',msg);
-    try{ if(notifyOk&&document.hidden)new Notification('LIVE증권 · 목표가 도달',{body:msg}); }catch(e){}
+    try{ notifyNative('LIVE증권 · 목표가 도달', msg, {tag:'tg-'+code, code}); }catch(e){}
   };
   if(t.up&&st.price>=t.up.price)fire('up',t.up);
   if(t.down&&st.price<=t.down.price)fire('down',t.down);
@@ -1896,7 +1896,7 @@ function eaBucket(f){
 }
 const EA_BUCKET_KO={nodata:'구성 미제공(해외·합성)',partial:'일부 구성종목만 확보',check:'구성종목 확인필요',error:'조회 실패'};
 import { LiveFeed } from '/feed.js?v=95';
-import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=359';   // [v2.2] 실행 중 번들의 진짜 버전
+import { BUNDLED_VERSION as __BUNDLED_VER } from '/version-info.js?v=360';   // [v2.2] 실행 중 번들의 진짜 버전
 import { stockLogo, logoProbe, logoApply, logoMark, logoMiss, logoProxies, logoProbeRelay, LOGO_SRC_NAMES, logoPlanVer } from '/logo.js?v=430';                                  // [v2.6] 종목 로고
 const $=(id)=>document.getElementById(id);
 /* [추가] 안전한 클릭 바인딩 — 요소가 없거나 핸들러가 실패해도 스크립트 전체가 죽지 않는다. */
@@ -6773,17 +6773,23 @@ function pushIosBlocked(){
   }catch(e){ return false; }
 }
 async function pushEnable(){
-  /* [v11.2] 앱을 닫아도 받는 알림은 Basic 부터 — 서버가 계속 감시해야 한다 */
-  if(!tierAllow('push')){
-    tierBlockFeat('push','앱을 닫아도 알림 받기','보유 종목이 손절선에 닿으면 알려 드립니다');
-    return false;
-  }
+  /* [v17.8.49] 푸시를 등급으로 막지 않는다.
+     [왜 바꿨나] TIER_NEED.push=2(Basic) 라서 무료 계정은 이 스위치를 누르면
+       '등급이 필요하다' 안내에서 끝났다. 그런데 이 앱은 요금을 받지 않고,
+       사용자 요구는 "열었을 때도 닿았을 때도 알림이 정확히 오게" 였다.
+       체결·손절 알림은 투자 연습의 핵심이므로 등급과 분리한다. */
   if(!pushSupported()){ toast('warn','이 브라우저에서는 알림을 받을 수 없어요','크롬·삼성인터넷·엣지에서는 됩니다. 아이폰은 홈 화면에 추가한 뒤 그 아이콘으로 열어 주세요'); return false; }
   if(pushIosBlocked()){
     toast('warn','아이폰은 홈 화면에 추가해야 합니다','공유 → 홈 화면에 추가 후 그 아이콘으로 열어 주세요');
     return false;
   }
-  if(!currentUser){ toast('warn','로그인이 필요합니다','알림은 계정별로 보관됩니다'); return false; }
+  if(!currentUser){
+    /* [v17.8.49] 체험(비회원)은 서버 계정이 없다 — 오류가 아니라 안내로 분기한다 */
+    if(typeof trialMetaGet==='function'&&trialMetaGet())
+      toast('warn','체험 모드에서는 앱을 닫은 뒤 알림을 받을 수 없어요','회원가입하면 체결·손절 알림이 앱을 닫아도 옵니다. 지금은 화면 알림으로 알려드릴게요');
+    else toast('warn','로그인이 필요합니다','알림은 계정별로 보관됩니다');
+    return false;
+  }
   try{
     if(Notification.permission==='denied'){
       toast('warn','알림이 차단돼 있습니다','브라우저 설정 → 사이트 권한에서 알림을 허용해 주세요');
@@ -6817,6 +6823,12 @@ async function pushEnable(){
 async function pushRegister(){
   try{
     if(!_pushSub||!currentUser)return false;
+    /* [v17.8.49] 서비스 워커에도 계정 id 를 알려 둔다 — 구독 자동 갱신 때 쓴다 */
+    try{
+      const post=(sw)=>{ try{ sw&&sw.postMessage({type:'set-uid',id:String(currentUser)}); }catch(e){} };
+      post(navigator.serviceWorker&&navigator.serviceWorker.controller);
+      navigator.serviceWorker.ready.then((r)=>post(r&&r.active)).catch(()=>{});
+    }catch(e){}
     const r=await fetch('/api/push?act=sub',{method:'POST',
       headers:{'content-type':'application/json'},
       body:JSON.stringify({id:currentUser,sub:_pushSub.toJSON(),ua:navigator.userAgent.slice(0,60)})});
@@ -6842,12 +6854,17 @@ async function pushDisable(){
 async function pushTest(){
   if(!currentUser){ toast('warn','로그인이 필요해요','오른쪽 위 프로필에서 로그인해 주세요'); return; }
   if(!_pushSub){ toast('warn','알림이 꺼져 있어요','위쪽 \'앱을 닫아도 알림 받기\'를 먼저 켜 주세요'); return; }
-  toast('ok','시험 알림을 보냈습니다','앱을 닫거나 화면을 꺼도 도착합니다');
+  /* [v17.8.49] 결과를 실제로 확인한다 — 예전엔 보내기 전에 '보냈습니다'라고 먼저 말했다 */
+  toast('ok','시험 알림을 보내는 중…','');
   try{
-    const r=await fetch('/api/push?act=test',{method:'POST',
-      headers:{'content-type':'application/json'},body:JSON.stringify({id:currentUser})}).then(x=>x.json());
-    if(!r||!r.ok)toast('warn','발송 실패',(r&&(r.err||r.status))?String(r.err||r.status):'');
+    const r=await fetch('/api/push?act=test',{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:currentUser})}).then(x=>x.json()).catch(()=>null);
+    if(r&&r.ok){ toast('buy','시험 알림을 보냈습니다','앱을 닫거나 화면을 꺼도 도착합니다'); return; }
+    const why=(r&&(r.err||r.status))?String(r.err||r.status):'응답 없음';
+    toast('warn','발송 실패 ('+why+')','서버 푸시가 막혀 기기 알림으로 대신 띄웁니다');
   }catch(e){}
+  /* 서버 발송이 안 되더라도 알림 표시 자체는 살아 있어야 한다 */
+  notifyNative('LIVE증권 · 알림 시험','이 알림이 보이면 기기 알림이 켜져 있습니다.',{tag:'live-test'});
 }
 /* ══ 보유 종목 점검을 서버에 맡긴다 ══
    푸시는 서버만 보낼 수 있으므로, 앱이 켜져 있는 동안 주기적으로 지금 상태를
@@ -6873,13 +6890,54 @@ async function pushCheck(force){
   }catch(e){}
 }
 try{
-  if(pushSupported())setTimeout(pushInit,2500);
+  /* [v17.8.49] 이미 허용된 사용자에게는 즉시 플래그를 세운다.
+     예전에는 askNotify()/pushEnable() 을 거쳐야만 notifyOk 가 true 였고, 그 전에
+     발생한 목표가·급변동 알림은 조용히 버려졌다. */
+  if(pushSupported()){
+    try{ if(Notification.permission==='granted')notifyOk=true; }catch(e){}
+    setTimeout(pushInit,2500);
+  }
+  /* 서비스 워커는 알림의 '표시 창구'다 — 푸시를 켜지 않아도 먼저 등록해 둔다 */
+  setTimeout(()=>{ try{ pwaRegisterSW(); }catch(e){} },1200);
   setInterval(()=>{ try{ pushCheck(); }catch(e){} },5*60e3);
 }catch(e){}
 
 function notifyUser(title,body){
   try{toast('buy',title,body||'');}catch(e){}
-  try{if(notifyOk&&'Notification' in window)new Notification(title,{body:body||''});}catch(e){}
+  try{notifyNative(title,body,{tag:'live-'+Date.now()});}catch(e){}
+}
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.49] 브라우저 알림 — 이제 "정말 뜨는" 경로로 통일
+   ─────────────────────────────────────────────────────────────────────────────
+   [사용자 2026-11-27] "지금까지 브라우저 알림이 단 한 번도 안 뜬 거 같아서"
+   [원인] 앱 곳곳이 new Notification(...) 을 썼다. **안드로이드 크롬은 이 생성자를
+     지원하지 않는다** — Illegal constructor 로 즉시 에러가 나고, 모든 호출이
+     try/catch 에 싸여 있어 조용히 사라졌다. 사용자 기기는 안드로이드다.
+     ⇒ 포그라운드 알림이 한 번도 뜨지 않은 이유가 이것 하나로 설명된다.
+   [고침] 서비스 워커의 showNotification 을 먼저 쓴다(안드로이드·데스크톱 공통).
+     서비스 워커가 없는 환경에서만 생성자로 물러난다. 권한은 이미 있는데
+     notifyOk 가 false 로 남아 있던 경우도 함께 바로잡는다. */
+async function notifyNative(title,body,opts){
+  opts=opts||{};
+  try{
+    if(typeof Notification==='undefined'||!('Notification' in window))return false;
+    if(Notification.permission!=='granted')return false;
+    notifyOk=true;
+    const o={ body:String(body||''), icon:'/icon-192.png', badge:'/icon-192.png',
+      tag:opts.tag||('live-'+Date.now()), renotify:opts.renotify!==false,
+      requireInteraction:opts.level>=3, timestamp:Date.now(),
+      data:{ url:opts.url||'/', code:opts.code||'', level:opts.level||1 } };
+    let reg=_swReg;
+    if(!reg&&'serviceWorker' in navigator){
+      try{ reg=await navigator.serviceWorker.getRegistration(); }catch(e){}
+      if(reg)_swReg=reg;
+    }
+    if(reg&&typeof reg.showNotification==='function'){
+      try{ await reg.showNotification(title,o); return true; }catch(e){}
+    }
+    try{ new Notification(title,o); return true; }catch(e){}
+  }catch(e){}
+  return false;
 }
 setInterval(()=>{try{
   if(!(userPrefs.alerts&&userPrefs.alerts.session))return;
@@ -7827,7 +7885,16 @@ function applyQuote(q,isSnap){
      → 한 프레임에 한 번으로 모으고, 보유 표는 400ms 에 한 번까지로 제한한다. */
   scheduleQuotePaint(currentView==='watch'?'watch':currentView==='account'?'account':'',q.code);
   if(currentView==='search')schedSearchPaint();   // [v3.6] 시세 1건마다 전체 재렌더 → 0.2초 병합
-  else if(currentView==='trade'&&q.code===selected){renderDetail();if(isMinute(chartTf)){curCandles=minuteSeries(q.code,minutesOf(chartTf));if(view.follow)view.end=curCandles.length-1;drawChart();}if(curFund&&curFund.code===q.code&&(infoTab==='consensus'||infoTab==='summary'))renderInfo();if(infoTab==='ai')renderAiStock($('infoBody'));}
+  else if(currentView==='trade'&&q.code===selected){renderDetail();
+    /* ══ [v17.8.49] 주문가격 옆 보조문구가 구시세에 머물던 이유 ══════════
+       [증상] 상단은 14,370 인데 주문가격 오른쪽은 "현재가 14,410 · 매도호가 14,180…"
+         그대로였다(사용자 영상).
+       [원인] 시세가 올 때 renderDetail 만 다시 그리고 syncPriceField 는 부르지 않았다.
+       [고침] 같은 시세 틱에서 함께 갱신한다 — 세 곳(머리말·보조문구·호가창)이
+         한 데이터 흐름으로 움직인다. */
+    try{syncPriceField(false);}catch(e){}
+    try{paintBookLive(q.code);}catch(e){}
+    if(isMinute(chartTf)){curCandles=minuteSeries(q.code,minutesOf(chartTf));if(view.follow)view.end=curCandles.length-1;drawChart();}if(curFund&&curFund.code===q.code&&(infoTab==='consensus'||infoTab==='summary'))renderInfo();if(infoTab==='ai')renderAiStock($('infoBody'));}
   // 값이 실제로 바뀌면 현재가에 플래시 효과(실시간 체감)
   if(!isSnap&&prevP!=null&&q.price!=null&&q.price!==prevP&&currentView==='trade'&&q.code===selected){
     const el=$('dPrice');if(el){el.classList.remove('flash-up','flash-dn');void el.offsetWidth;el.classList.add(q.price>prevP?'flash-up':'flash-dn');}
@@ -10517,8 +10584,8 @@ setInterval(()=>{try{
 }catch(e){}},12e3);
 function notifyClanChat(c,m){
   try{
-    if('Notification' in window&&Notification.permission==='granted')
-      new Notification(`${c.emblem||'🛡️'} ${c.name}`,{body:`${htmlEsc(m.name)}: ${m.text}`.slice(0,90),icon:'/icon-192.png',tag:'clan-chat'});
+    if(typeof Notification!=='undefined'&&Notification.permission==='granted')
+      notifyNative(`${c.emblem||'🛡️'} ${c.name}`,`${m.name}: ${m.text}`.slice(0,90),{tag:'clan-chat'});
   }catch(e){}
 }
 
@@ -10587,10 +10654,12 @@ function watchPermChange(cb){
 }
 function stopPermWatch(){if(_permWatch){try{_permWatch();}catch(e){}_permWatch=null;}}
 function permTestNotification(){
-  try{
-    const n=new Notification('LIVE증권 알림이 켜졌어요',{body:'목표가 도달과 예약 주문 체결을 바로 알려드릴게요.',icon:'/icon-192.png',tag:'perm-ok'});
-    setTimeout(()=>{try{n.close();}catch(e){}},5000);
-  }catch(e){ /* iOS 등 일부 환경은 생성자 알림을 막는다 — 토스트로 대체 */ }
+  /* [v17.8.49] 예전엔 new Notification() 이었다 — 안드로이드 크롬에서는 에러가 나고
+     알림이 안 떠서, '권한 허용 완료'라고 말해 놓고 아무것도 보여 주지 않았다.
+     서비스 워커 경로로 바꾸고, 그래도 표시가 안 되면 화면 토스트로 말한다. */
+  const _shown=(ok)=>{ if(!ok)toast('warn','알림 표시를 확인하지 못했어요','브라우저 설정 → 알림이 허용인지 확인해 주세요'); };
+  Promise.resolve(notifyNative('LIVE증권 알림이 켜졌어요','목표가 도달과 예약 주문 체결을 바로 알려드릴게요.',{tag:'perm-ok'}))
+    .then((ok)=>{ if(!ok)setTimeout(()=>{ try{ new Notification('LIVE증권 알림이 켜졌어요',{body:'목표가·체결 알림을 바로 알려드릴게요.'}); _shown(true); }catch(e){ _shown(false); } },60); });
 }
 function openPermGate(){
   if($('permGate'))return;
@@ -11228,8 +11297,8 @@ function autoOrderTick(){
 function notifyPrice(nm,code,kind,target,cur){
   toast('on',`${nm} ${kind}`,`설정 ${KRW(target)}원 · 현재 ${KRW(cur)}원`);
   try{
-    if('Notification' in window&&Notification.permission==='granted')
-      new Notification(`LIVE증권 · ${nm}`,{body:`${kind} — 설정 ${KRW(target)}원 · 현재 ${KRW(cur)}원`,icon:'/icon-192.png',tag:'px-'+code});
+    if(typeof Notification!=='undefined'&&Notification.permission==='granted')
+      notifyNative(`LIVE증권 · ${nm}`,`${kind} — 설정 ${KRW(target)}원 · 현재 ${KRW(cur)}원`,{tag:'px-'+code, code});
   }catch(e){}
 }
 setInterval(()=>{try{autoOrderTick();}catch(e){}},4e3);   /* [v17.8.27] 미체결 주문 감시 — 4초 */
@@ -16449,7 +16518,7 @@ function obLoad(code,force){
   if(_obBusy[code]&&_obProm[code])return _obProm[code];                 // 진행 중 → 그 결과를 함께 기다린다
   if(!force&&_obAt[code]&&Date.now()-_obAt[code]<3000)return Promise.resolve(_obData[code]||null);
   _obBusy[code]=1;
-  const p=fetch('/api/askprice?code='+encodeURIComponent(code),{cache:'default'})
+  const p=fetch('/api/book?code='+encodeURIComponent(code),{cache:'default'})
     .then(r=>r.json())
     .then(j=>{ if(j&&j.ok){_obData[code]=j;_obAt[code]=Date.now();} else {_obData[code]=j||null;_obAt[code]=Date.now();}
       return _obData[code]; })
@@ -16513,34 +16582,56 @@ function obRowHtml(x,side,px,pc){
 }
 function obBookHtml(d,px,pc,opts){
   opts=opts||{};
+  /* ══ [v17.8.49] 실시간 최우선 호가 + (지연) 깊이 5단 ═════════════════════════
+     [왜 나숰나] 예전 호가창은 한 원천(약 20분 지연된 공개 시세)만 썼다. 상단
+       현재가는 실시간인데 호가창은 20분 전 것이라, 엑스게이트처럼 빠르게 움직이는
+       종목에서는 매도1·매수1이 현재가와 200원 이상 어긋났다(사용자 영상).
+     [지금] 화면 맨 위에 '지금 이 순간'의 매도1·매수1을 먼저 보여 준다 — 현재가와
+       같은 스냅샷에서 온 값이라 절대 어긋나지 않는다. 그 아래 깊이 5단은 공개
+       시세가 지연이면 '지연 참고용' 배지로 분명히 밝힌다(숨기지 않는다).
+     [원칙] 없는 값을 만들지 않는다 — 잔량을 모르는 칸은 비워 둔다. */
+  const rtAsk=(d.ask!=null?d.ask:null), rtBid=(d.bid!=null?d.bid:null);
   const sells=(d.sell||[]).map(x=>obRowHtml(x,'s',px,pc)).join('');
   const buys=(d.buy||[]).map(x=>obRowHtml(x,'b',px,pc)).join('');
   const tot=(d.totalSell||0)+(d.totalBuy||0);
   const sPct=tot?(d.totalSell/tot*100):50;
   const ago=Math.max(0,Math.round((Date.now()-(d.at||Date.now()))/1000));
+  const deep=!!((d.sell||[]).length||(d.buy||[]).length);
+  const stale=(d.depthOk===false);
+  const dSell=(d.sell&&d.sell.length)?d.sell[d.sell.length-1].p:null;
+  const dBuy=(d.buy&&d.buy.length)?d.buy[0].p:null;
+  const sp=(rtAsk!=null&&rtBid!=null)?(rtAsk-rtBid):(d.spread!=null?d.spread:null);
   return `
     <div class="ob-head">
       <div class="ob-hh"><span>매도잔량</span><span>호가</span><span>매수잔량</span></div>
     </div>
     ${opts.code?limitLockBoxHtml(limitLockOf(opts.code,px),'book'):''}
-    <div class="ob-body">${sells}<div class="ob-mid">
-        <span>스프레드</span><b class="num">${d.spread!=null?KRW(d.spread)+'원':'—'}</b>
-        <span>최우선 ${d.bestBid!=null?KRW(d.bestBid):'—'} / ${d.bestAsk!=null?KRW(d.bestAsk):'—'}</span>
-      </div>${buys}</div>
-    <div class="ob-tot">
-      <div class="ob-tot-bar"><i class="s" style="width:${sPct.toFixed(1)}%"></i><i class="b" style="width:${(100-sPct).toFixed(1)}%"></i></div>
-      <div class="ob-tot-lg">
-        <span class="s">매도 <b class="num">${KRW(d.totalSell)}</b></span>
-        <span class="b">매수 <b class="num">${KRW(d.totalBuy)}</b></span>
-      </div>
-      <div class="ob-tot-d">${d.totalBuy>d.totalSell
-        ?'사겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'
-        :'팔겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'}</div>
+    <div class="ob-rt">
+      <div class="ob-rt-r ask"><span class="ob-rt-k">매도1</span><b class="num">${rtAsk!=null?KRW(rtAsk):'—'}</b><i>실시간</i></div>
+      <div class="ob-rt-m"><span>스프레드 <b class="num">${sp!=null?KRW(sp)+'원':'—'}</b></span>
+        <span>현재가 <b class="num">${px!=null?KRW(px):'—'}</b></span></div>
+      <div class="ob-rt-r bid"><span class="ob-rt-k">매수1</span><b class="num">${rtBid!=null?KRW(rtBid):'—'}</b><i>실시간</i></div>
     </div>
+    ${deep?`<div class="ob-depth${stale?' stale':''}">
+      ${stale?'<div class="ob-badge">지연 참고용 — 공개 시세 5단계 · 위 실시간 호가와 다를 수 있습니다</div>':''}
+      <div class="ob-body">${sells}<div class="ob-mid">
+        <span>스프레드</span><b class="num">${(dSell!=null&&dBuy!=null)?KRW(dSell-dBuy)+'원':'—'}</b>
+        <span>최우선 ${dBuy!=null?KRW(dBuy):'—'} / ${dSell!=null?KRW(dSell):'—'}</span>
+      </div>${buys}</div>
+      <div class="ob-tot">
+        <div class="ob-tot-bar"><i class="s" style="width:${sPct.toFixed(1)}%"></i><i class="b" style="width:${(100-sPct).toFixed(1)}%"></i></div>
+        <div class="ob-tot-lg">
+          <span class="s">매도 <b class="num">${KRW(d.totalSell)}</b></span>
+          <span class="b">매수 <b class="num">${KRW(d.totalBuy)}</b></span>
+        </div>
+        <div class="ob-tot-d">${d.totalBuy>d.totalSell
+          ?'사겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'
+          :'팔겠다는 물량이 더 많습니다 — 다만 잔량은 취소될 수 있어 그대로 체결을 뜻하지 않습니다.'}</div>
+      </div>
+    </div>`:''}
     ${opts.hint?'<div class="ob-book-hint">'+htmlEsc(opts.hint)+'</div>':''}
-    <div class="ob-note">네이버 공개 시세 기준 <b>${d.levels}단계</b> · ${ago<5?'방금':ago+'초 전'} 받음<br>
-      실제 MTS 의 10단계 중 공개되는 5단계까지만 표시합니다. 나머지는 <b>공개되지 않아 비워 둡니다</b>.
-      거래소 원장과 시차가 있을 수 있습니다.</div>`;
+    <div class="ob-note">맨 위 매도1·매수1은 <b>현재가와 같은 순간</b>의 실시간 호가입니다 · ${ago<3?'방금':ago+'초 전'} 받음<br>
+      ${deep?(stale?'아래 5단계는 공개 시세(포털 공개용이라 지연)라 지금 가격과 어긋날 수 있습니다.':'아래 5단계는 실시간 호가와 일치합니다.'):'5단계 깊이는 지금 받지 못했습니다.'}</div>`;
 }
 function bindObRows(el,d,opts){
   opts=opts||{};
@@ -16727,11 +16818,22 @@ function renderOrderBook(){
     setLive('대기'); return;
   }
   const px=livePx(code,null), pc=d.prevClose;
-  el.innerHTML=obBookHtml(d,px,pc,{hint:true,code});
+  el.innerHTML=obBookHtml(d,px,pc,{hint:'호가를 누르면 주문가격 칸에 들어갑니다',code});
   bindObRows(el,d);
   const ago=Math.max(0,Math.round((Date.now()-(d.at||Date.now()))/1000));
-  setLive(ago<5?'LIVE · 방금':`LIVE · ${ago}초 전`);
+  setLive(ago<4?'LIVE · 방금':`LIVE · ${ago}초 전`);
   try{ markBookPrice(); }catch(e){}
+}
+/* [v17.8.49] 시세 틱마다 호가창의 '현재가' 칸만 즉시 맞춘다(전체를 다시 그리지 않는다) */
+function paintBookLive(code){
+  try{
+    if(currentView!=='trade'||selected!==code)return;
+    if(!orderBookOn())return;
+    const el=$('orderBookBody'); if(!el)return;
+    const px=livePx(code,null); if(!(px>0))return;
+    const b=el.querySelectorAll('.ob-rt-m b');
+    if(b&&b.length){ b[b.length-1].textContent=KRW(px); }
+  }catch(e){}
 }
 /* 호가 탭을 보고 있는 동안만 갱신한다 — 안 보는 화면을 계속 부르지 않는다 */
 /* [v17.4] 체결 흐름 코너도 호가로 만들어진다 — 호가 탭을 보고 있지 않아도
@@ -16759,16 +16861,14 @@ function obTick(){
 }
 var _obIv=0;
 function obStart(){
-  /* ══ [v9.81b] 장이 열리는 순간을 놓치지 않게 ═══════════════════════════════
-     예전에는 탭에 들어온 그 시점의 장 상태로 주기를 정하고 끝이었다. 08:55 에
-     탭을 열어 두면 09:00 에 장이 열려도 60초 주기가 그대로 남아, 개장 직후
-     호가가 한참 늦게 갱신됐다. 주기가 바뀌어야 하면 타이머를 다시 건다. */
-  /* [v9.98] 호가도 기본 주기에 맞춰 늦춘다. 호가 탭을 열어 둔 사람만 쓰는
-     요청이지만, 장중 5초면 한 사람이 시간당 720회다 — 시세 폴링에 맞먹는다.
-     전체 사용률이 높으면 더 늦춘다(다른 사람 몫을 남긴다). */
+  /* ══ [v17.8.49] 호가 갱신을 시세 폴링과 같은 속도로 ═════════════════════
+     [예전] 장중 8초였다. 시세는 2~3초마다 바뀌는데 호가만 8초에 한 번이라
+       화면에 "13초 전"처럼 두 값이 서로 다른 순간이 찍혔다(사용자 영상).
+     [지금] 장중 3초. 응답은 서버가 2초만 캐시하므로 요청이 늘어도 원천 부담은 작다.
+       전체 사용률이 높은 날에는 종전처럼 늘린다(다른 사람 몫을 남긴다). */
   const _t=(typeof srvBudgetTier==='function')?srvBudgetTier():-1;
-  const base=(typeof krxTradable==='function'&&krxTradable())?8000:60000;
-  const want=_t>=2?Math.max(base,20000):_t>=1?Math.max(base,12000):base;
+  const base=(typeof krxTradable==='function'&&krxTradable())?3000:60000;
+  const want=_t>=2?Math.max(base,12000):_t>=1?Math.max(base,6000):base;
   if(_obTimer&&_obIv===want)return;
   if(_obTimer)clearInterval(_obTimer);
   _obIv=want;
@@ -24853,7 +24953,7 @@ const TIER_LIMITS={
    나중에 그 자리가 생기면 그때 다시 넣는다. */
 /* 기능 — 필요한 최소 등급 번호 */
 const TIER_NEED={
-  csv:1, push:2, tax:2, consensus:2,
+  csv:1, push:0, tax:2, consensus:2,
   autoStop:3, trailing:3, aiFull:3,
   surge:4, accum:4, backtest:4,
 };

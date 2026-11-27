@@ -7,7 +7,31 @@
    캐시(오프라인)는 일부러 건드리지 않는다. 시세 앱에서 낡은 화면을 되살리면
    '어제 값이 오늘 값처럼' 보일 수 있어 오히려 위험하다.
    ══════════════════════════════════════════════════════════════════════════════ */
-const SW_VER = 'v10.37';
+const SW_VER = 'v10.49';
+
+/* ══ [v17.8.49] 계정 id 보관 — 구독 자동 갱신이 '누구 것인지' 알게 ═══════════════
+   [증상] 브라우저가 구독을 새로 발급해도(pushsubscriptionchange) 서버에 등록되지
+     않아 그날부터 알림이 조용히 끊겼다.
+   [원인] 예전 코드는 { sub, old } 만 보냈는데 서버 /api/push 는 id 를 요구한다
+     → 400 noid. 서비스 워커는 localStorage 를 못 읽으므로 id 를 알 길이 없었다.
+   [고침] 페이지가 로그인/푸시 등록 때 IndexedDB 에 id 를 넣어 두고, 여기서 읽는다. */
+function swIdb(){
+  return new Promise((res,rej)=>{
+    try{
+      const r=self.indexedDB.open('live-sw',1);
+      r.onupgradeneeded=()=>{ try{ r.result.createObjectStore('kv'); }catch(e){} };
+      r.onsuccess=()=>res(r.result);
+      r.onerror=()=>rej(r.error);
+    }catch(e){ rej(e); }
+  });
+}
+async function swIdSet(id){
+  try{ const db=await swIdb(); await new Promise((res,rej)=>{ const t=db.transaction('kv','readwrite'); t.objectStore('kv').put(String(id||''),'uid'); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }catch(e){}
+}
+async function swIdGet(){
+  try{ const db=await swIdb(); return await new Promise((res)=>{ try{ const t=db.transaction('kv','readonly'); const q=t.objectStore('kv').get('uid'); q.onsuccess=()=>res(q.result||''); q.onerror=()=>res(''); }catch(e){ res(''); } }); }catch(e){ return ''; }
+}
+self.addEventListener('message',(e)=>{ const d=e&&e.data; if(d&&d.type==='set-uid'&&d.id)swIdSet(d.id); });
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();                 // 새 버전을 바로 쓴다
@@ -94,10 +118,11 @@ self.addEventListener('pushsubscriptionchange', (event) => {
         }
       }
       if (sub) {
+        const uid = await swIdGet();
         await fetch('/api/push?act=sub', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ sub: sub.toJSON ? sub.toJSON() : sub, old: old && old.endpoint })
+          body: JSON.stringify({ id: uid, sub: sub.toJSON ? sub.toJSON() : sub, old: old && old.endpoint })
         });
       }
     } catch (e) {}

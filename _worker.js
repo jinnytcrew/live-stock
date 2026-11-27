@@ -2679,12 +2679,17 @@ function auditList(rows) {
   return { ok: problems.length === 0, problems, count: n, kospi, kosdaq };
 }
 async function blobStore() {
-  try {
-    const { getStore: getStore2 } = await Promise.resolve().then(() => (init_blobs_shim(), blobs_shim_exports));
-    return getStore2("nxt-universe");
-  } catch {
-    return null;
-  }
+  /* ══ [v17.8.49] 이 함수가 늘 null 이었다 — 웹 푸시가 통째로 죽은 첫 번째 이유 ═══
+     [증상] 라이브에서 /api/push?act=key 가 언제나 {"ok":false,"err":"nostore"}.
+       푸시를 켜는 화면은 '알림 서버에 연결하지 못했어요'에서 끝났고, 구독 등록·
+       시험 발송은 한 번도 서버에 닿지 않았다.
+     [원인] 여기서 쓰던 getStore 는 _blobs-shim 의 자리표시자로 **undefined** 였다
+       (init_blobs_shim 에서 getStore = void 0). 호출 즉시 TypeError → catch → null.
+       저장소를 실제로 만들어 주는 경로는 getStoreX()/storeRaw() 인데 이 함수만
+       옛 shim 을 붙들고 있었다.
+     [고침] 다른 라우트와 같은 경로(getStoreX)로 만든다. 이름은 종전과 같은
+       "nxt-universe" 라 KV 접두어(nxt-universe:)도 그대로다. */
+  try { return await getStoreX({ name: "nxt-universe" }, _ENV); } catch { return null; }
 }
 async function readKey(key) {
   const s = await blobStore();
@@ -12553,19 +12558,33 @@ function pack(name, key, cur, hist, tag) {
    act=test   나에게 시험 발송 (POST)
    act=check  내 보유 종목을 점검해 필요하면 발송 (POST · 앱이 주기적으로 호출)
    구독은 push:<id> 에 계정별로 저장한다 — 계정·사용자 데이터와 같은 원칙이다. */
+/* ══ [v17.8.49] 저장소가 돌려주는 '문자열'을 반드시 객체로 되돌린다 ══════════
+   [증상] 푸시가 켜져도 알림이 오지 않았다. 서버가 구독을 0건으로 읽었다.
+   [원인] KV 어댑터의 get(key,{type:'json'}) 은 옵션을 무시하고 **문자열**을 준다
+     (accLoad 에도 같은 이유의 방어 코드가 있다). 그래서
+       · pushVapid  : 문자열은 v.publicKey 가 없어 '키 없음' → 매 요청마다 VAPID 키를
+                      새로 만들고 덮어썼다. 키가 바뀌면 기존 구독은 전부 무효다.
+       · pushSubsOf : Array.isArray('[...]') 는 false → 구독 0건 → 보낼 곳이 없음.
+   [고침] 한 곳에서 파싱한다. */
+async function stJSONGet(st, key) {
+  try {
+    let v = await st.get(key, { type: "json" });
+    if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { v = null; } }
+    return v;
+  } catch (e) { return null; }
+}
 async function pushVapid(st) {
   /* VAPID 키는 한 번 만들면 계속 같은 것을 써야 한다. 바뀌면 기존 구독이 전부
      무효가 되므로, 만들어 두고 절대 다시 만들지 않는다. */
-  let v = null;
-  try { v = await st.get("push:vapid", { type: "json" }); } catch (e) {}
+  let v = await stJSONGet(st, "push:vapid");
   if (v && v.publicKey && v.privateJwk) return v;
   v = await vapidGenerate();
   try { await st.setJSON("push:vapid", v); } catch (e) { return null; }
   return v;
 }
 async function pushSubsOf(st, id) {
-  try { const r = await st.get("push:" + id, { type: "json" }); return Array.isArray(r) ? r : []; }
-  catch (e) { return []; }
+  const r = await stJSONGet(st, "push:" + id);
+  return Array.isArray(r) ? r : [];
 }
 async function pushSubsSet(st, id, arr) {
   try { await st.setJSON("push:" + id, (arr || []).slice(-5)); return true; } catch (e) { return false; }
@@ -12636,7 +12655,7 @@ var push_default = async (req2, context) => {
     const holds = Array.isArray(body.holds) ? body.holds.slice(0, 12) : [];
     if (!holds.length) return J({ ok: true, sent: 0, why: "nohold" });
     let state = {};
-    try { state = (await st.get("pushst:" + id, { type: "json" })) || {}; } catch (e) {}
+    try { state = (await stJSONGet(st, "pushst:" + id)) || {}; } catch (e) {}
     const now = Date.now();
     const out = [];
     for (const h of holds) {
@@ -12725,6 +12744,92 @@ var askprice_default = async (req2) => {
   } catch (e) {
     return J({ ok: false, err: String((e && e.message) || e).slice(0, 60) }, 10);
   }
+};
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   [v17.8.49] /api/book — 현재가와 호가를 '한 순간'의 값으로 묶어 준다
+   ─────────────────────────────────────────────────────────────────────────────
+   [사용자 제보 2026-11-27 09:34, 영상]
+     "상단 현재가는 14,410 → 14,370 으로 바뀌는데 왼쪽 호가창은 LIVE · 13초 전에
+      멈춰 매도1 14,220 / 매수1 14,170(200원 이상 차이)을 계속 보여 준다."
+   [실측한 진짜 원인]
+     호가 원천(m.stock.naver.com/askingPrice)은 **약 20분 지연된 공개 시세**다.
+       예: 09:47 현재가 87,900 · 같은 순간 호가 85,200/85,000 → 그것은 09:21의 가격이었다
+       (같은 종목 1분봉과 대조). 반면 /api/quote 는 실시간이다. 두 값이 서로 다른
+       순간의 것이니 200원~2,500원까지 벌어지는 것이 당연했다.
+     게다가 화면의 'LIVE · 13초 전'은 데이터 시각이 아니라 '받은 지 13초'였다.
+   [고침 — 원천을 두 갈래로 나눠 한 응답에 담는다]
+     · 실시간 최우선 호가(매도1·매수1) — 현재가와 같은 순간에 오는 체결 호가
+       (다음 금융 quote: tradePrice·askPrice·bidPrice 가 한 스냅샷에 온다)
+     · 깊이 5단계 — 공개 시세(지연). 실시간 최우선 호가와 1~2호가 안에서
+       맞아떨어지면 그대로 쓰고(depthOk=true), 어긋나면 '지연'임을 밝혀
+       화면이 따로 표시하게 한다(depthOk=false).
+   [이게 왜 중요한가] 지금까지 시장가 주문은 20분 전 호가로 체결됐다(공정성 문제).
+     이제 bestAsk/bestBid 가 실시간이므로 체결가도 실제 호가가 된다. */
+async function bookRealtime(code) {
+  const c = String(code || "").toUpperCase();
+  const dcode = /^[0-9]{6}$/.test(c) ? "A" + c : c;
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 4000);
+  try {
+    const r = await fetch(`https://finance.daum.net/api/quotes/${encodeURIComponent(dcode)}?summary=false`, {
+      headers: { "User-Agent": UA20, Accept: "application/json", Referer: "https://finance.daum.net/" },
+      signal: ctl.signal
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const n = (v) => { const x = Number(v); return isFinite(x) && x > 0 ? x : null; };
+    const price = n(d.tradePrice), ask = n(d.askPrice), bid = n(d.bidPrice);
+    if (!(price > 0)) return null;
+    return { price, ask, bid, prevClose: n(d.prevClosingPrice), time: d.tradeTime || "", status: d.marketStatus || "" };
+  } catch (e) { return null; } finally { clearTimeout(t); }
+}
+var book_default = async (req2) => {
+  const url = new URL(req2.url);
+  const code = String(url.searchParams.get("code") || "").replace(/[^0-9A-Za-z]/g, "").slice(0, 12);
+  const J = (o, ma) => new Response(JSON.stringify(o), {
+    headers: { "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${ma == null ? 2 : ma}`,
+      "access-control-allow-origin": "*" }
+  });
+  if (!code) return J({ ok: false, err: "code" }, 60);
+  const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^0-9.\-]/g, "")); return isFinite(n) ? n : 0; };
+  const rows = (arr) => (Array.isArray(arr) ? arr : []).map((x) => ({
+    p: num(x.price), q: num(x.count), r: Math.max(0, Math.min(100, num(x.rate)))
+  })).filter((x) => x.p > 0);
+  /* 실시간(현재가·최우선 호가)과 지연(깊이)을 동시에 받는다 — 서로 기다리지 않는다 */
+  const pRt = bookRealtime(code).catch(() => null);
+  const pNv = (async () => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 4500);
+    try {
+      const r = await fetch(`https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/askingPrice`,
+        { headers: { "User-Agent": UA20, Accept: "application/json", Referer: "https://m.stock.naver.com/" }, signal: ctl.signal });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) { return null; } finally { clearTimeout(t); }
+  })().catch(() => null);
+  const [rt, nv] = await Promise.all([pRt, pNv]);
+  const sell = rows(nv && nv.sellInfo), buy = rows(nv && nv.buyInfos);
+  const nvAsk = sell.length ? sell[sell.length - 1].p : null;
+  const nvBid = buy.length ? buy[0].p : null;
+  const at = Date.now();
+  if (!rt && !sell.length && !buy.length) return J({ ok: false, err: "empty", code, at }, 5);
+  const price = rt ? rt.price : null;
+  const ask = rt ? rt.ask : nvAsk, bid = rt ? rt.bid : nvBid;
+  const prevClose = (rt && rt.prevClose) || num(nv && nv.lastClosePrice) || null;
+  /* 깊이가 실시간 최우선 호가와 같은 순간인지 — 1~2호가 폭 안이면 같다고 본다 */
+  const tk = afTick(price || ask || bid || 0) || 1;
+  const near = (a, b) => (a == null || b == null) ? false : Math.abs(a - b) <= tk * 2;
+  const depthOk = !!(sell.length || buy.length) && (rt ? (near(nvAsk, ask) && near(nvBid, bid)) : true);
+  return J({
+    ok: true, code,
+    price, ask, bid, prevClose,
+    bestAsk: ask, bestBid: bid,          /* 주문·시장가 체결이 쓰는 값 = 실시간 */
+    spread: (ask != null && bid != null) ? (ask - bid) : ((nvAsk != null && nvBid != null) ? (nvAsk - nvBid) : null),
+    sell, buy, levels: Math.max(sell.length, buy.length),
+    depthOk, rtSrc: rt ? "daum" : "naver", rtTime: rt ? rt.time : "",
+    totalSell: num(nv && nv.totalSell), totalBuy: num(nv && nv.totalBuy),
+    at
+  }, 2);
 };
 
 
@@ -15521,8 +15626,8 @@ init_store();
 
 // data/version-info.js
 var BUNDLED_VERSION = {
-  version: "17.8.48",
-  releasedAt: "2026-11-27 08:40",
+  version: "17.8.49",
+  releasedAt: "2026-11-27 10:20",
   notes: [
     "상·하한가 잠금 도입 — 상한가에서는 매수, 하한가에서는 매도가 대기 접수",
     "잠금이 풀리면(반대 잔량 출회·가격 이탈) 대기 주문 자동 체결 — 브라우저·서버 동일 규칙",
@@ -15819,6 +15924,7 @@ var ROUTES = {
   "logoscan": logoscan_default,
   "market": market_default,
   "askprice": askprice_default,   /* [v9.81] 호가 */
+  "book": book_default,           /* [v17.8.49] 현재가+호가 한 스냅샷 */
   "srt": srt_default,             /* [v9.84] 공매도 잔고 */
   "coupon": coupon_default,
   "banner": banner_default,       /* [v15.1] 공지 배너(공개) */       /* [v11.0] 이용권 쿠폰 */
@@ -19183,7 +19289,7 @@ async function onRequest(ctx) {
 /* ══ [v5.3.1] 이 값은 version-info.js 의 version 과 반드시 같아야 한다 ═══════
    PWA 설치 정보와 진단에 쓰인다. 판을 올릴 때 이 줄만 빠뜨려도 겉으로는
    아무 문제가 없어 보이므로, 배포 전에 두 값을 대조하는 검사를 함께 돌린다. */
-var APP_VER = "17.8.48";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
+var APP_VER = "17.8.49";  /* version-info.js 의 version 과 반드시 일치시켜야 한다 */
 var worker_default = {
   /* [v17.8.34] Cron Trigger — 앱이 닫혀 있어도 미체결 주문을 서버가 체결한다 */
   async scheduled(event, env, ctx) {
@@ -19536,7 +19642,7 @@ var invtrend_v2 = async (req2, ctx) => {
 };
 
 /* ── 앱 버전: 묶음 정보가 v4.24 에 멈춰 있어 '현재 버전'이 옛 번호로 보였다 ── */
-try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-27 08:40"; BUNDLED_VERSION.notes = ["무료 체험권 코드 입장 — 회원가입 없이 모의투자 체험","체험 계좌는 기기에만 저장 — 잔고·보유·거래내역 서버 미저장","체험 중 상단 배너에 남은 시간 표시 · 회원가입하면 기록 이관","관리자 패널에서 체험권 코드 발급·사용 횟수·중지·삭제","체험 모드에서는 랭킹·클랜·친구·다중 계좌·서버 기능 제한"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-27 08:40"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
+try { if (typeof BUNDLED_VERSION === "object" && BUNDLED_VERSION) { BUNDLED_VERSION.version = APP_VER; BUNDLED_VERSION.releasedAt = "2026-11-27 10:20"; BUNDLED_VERSION.notes = ["호가창·현재가 동기화 — 실시간 최우선 호가와 지연 5단계 분리 표시","주문가격 옆 현재가·호가 문구가 시세와 함께 갱신","시장가 체결을 실시간 최우선 호가 기준으로 계산","브라우저 알림 복구 — 안드로이드에서도 알림 표시","앱을 닫아도 체결·손절·목표가 푸시 발송(서버 크론)","푸시 구독 저장·자동 갱신 오류 수정","알림은 등급과 무관하게 켤 수 있음"]; if(Array.isArray(BUNDLED_VERSION.history)&&BUNDLED_VERSION.history[0]) { BUNDLED_VERSION.history[0].v=APP_VER; BUNDLED_VERSION.history[0].at="2026-11-27 10:20"; BUNDLED_VERSION.history[0].notes=BUNDLED_VERSION.notes.slice(); } } } catch (e) {}
 
 ROUTES["news"] = news_v2;
 ROUTES["themes"] = themes_v2;
@@ -20244,6 +20350,16 @@ async function afFxRate() {
   } catch (e) { }
   return null;
 }
+/* ══ [v17.8.49] 크론에서 쓰는 푸시 창구 ═══════════════════════════════════════
+   /api/push 와 **같은 저장소**를 쓴다(blobStore = nxt-universe). 실패는 조용히
+   넘어간다 — 알림 때문에 체결 처리를 멈추지 않는다. */
+async function afPushUser(uid, payload, opts) {
+  try {
+    const st = await blobStore();
+    if (!st) return null;
+    return await pushToUser(st, uid, payload, opts || {});
+  } catch (e) { return null; }
+}
 async function afRun(nowArg) {
   var now = nowArg || Date.now();
   if (!KV) return { ok: false, err: "nokv" };
@@ -20339,6 +20455,37 @@ async function afRun(nowArg) {
     rec.u.savedAt = now;
     var okW = false;
     try { await KV.put("live-accounts:usr:" + rec.uid, JSON.stringify(rec.u)); okW = true; } catch (e) { okW = false; }
+    /* ══ [v17.8.49] 앱을 닫고 있어도 체결·손절·목표가 알림이 오게 한다 ══════
+       [증상] 브라우저를 닫으면 주문이 체결되어도 알림이 없었다. 다시 열어야
+         srvFills 를 읽어 토스트를 띄웠다.
+       [원인] 크론은 체결만 하고 푸시를 보내는 코드가 어디에도 없었다
+         (pushToUser 호출은 act=test·act=check 두 곳뿐이었다).
+       [고침] 체결·취소 통지가 생긴 사용자에게만 곧바로 푸시한다.
+         구독이 없으면 pushToUser 가 {err:'nosub'} 로 즉시 끝나므로 비용이 없다. */
+    if (okW && ((res.fills && res.fills.length) || (res.notes && res.notes.length))) {
+      try {
+        var f0 = (res.fills && res.fills[0]) || null;
+        var n0 = (!f0 && res.notes) ? res.notes[0] : null;
+        var ttl, bdy, lvl = 2, tcode = "";
+        if (f0) {
+          tcode = f0.code || "";
+          var many = res.fills.length > 1 ? " 외 " + (res.fills.length - 1) + "건" : "";
+          ttl = "LIVE증권 · " + (f0.tag || "체결") + many;
+          bdy = (f0.name || f0.code) + " " + (f0.side === "sell" ? "매도" : "매수") + " " +
+            Number(f0.qty || 0).toLocaleString("ko-KR") + "주 · " +
+            Number(f0.price || 0).toLocaleString("ko-KR") + "원 체결";
+          if (/손절/.test(f0.tag || "")) lvl = 3;
+        } else {
+          tcode = n0.code || "";
+          ttl = "LIVE증권 · 주문 " + (n0.kind === "cancel" ? "취소" : "알림");
+          bdy = (n0.name || n0.code) + " " + (n0.side === "sell" ? "매도" : "매수") + " " +
+            Number(n0.qty || 0).toLocaleString("ko-KR") + "주";
+        }
+        await afPushUser(rec.uid, { title: ttl, body: bdy, code: tcode, tag: "live-fill",
+          renotify: true, level: lvl, url: "/" }, { urgency: lvl >= 3 ? "high" : "normal" });
+        out.push = (out.push || 0) + 1;
+      } catch (e) { }
+    }
     if (okW) {
       out.wrote++;
       /* 같은 인스턴스가 곧바로 옛 사본을 돌려주지 않게 */
